@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from .config import TradingMode, TradingSettings
+from .discord_notify import DiscordNotifier, TradeEvent, TradeNotification
 from .models import Signal
 from .risk import RiskContext, RiskLimits, evaluate_pretrade
 from .state import STATE_VERSION, BotState, load_state, save_state
@@ -131,6 +132,10 @@ class ToolClient(Protocol):
     def call_tool(self, name: str, arguments: Mapping[str, Any] | None = None) -> Any: ...
 
 
+class NotificationSink(Protocol):
+    def send(self, notification: TradeNotification) -> bool: ...
+
+
 def plan_execution(
     intent: TradeIntent,
     current: Signal | str,
@@ -191,11 +196,19 @@ class BithumbExecutor:
         state_path: Path,
         settings: TradingSettings | None = None,
         env: Mapping[str, str] | None = None,
+        notifier: NotificationSink | None = None,
     ) -> None:
         self.client = client
         self.state_path = state_path
         self.settings = settings or TradingSettings()
         self.env = os.environ if env is None else env
+        self.notifier = notifier
+        if (
+            self.notifier is None
+            and env is None
+            and self.settings.mode is TradingMode.LIVE
+        ):
+            self.notifier = DiscordNotifier()
 
     def execute(
         self,
@@ -219,17 +232,24 @@ class BithumbExecutor:
             raise LiveTradingDisabledError(
                 "live submission requires the exact runtime confirmation token"
             )
-        _validate_live_plan(plan)
-        persisted_state = load_state(self.state_path)
-        if persisted_state != bot_state:
-            raise RiskRejectedError("provided BotState is stale relative to persisted state")
-        _validate_pretrade(plan, risk_context, persisted_state, self.settings)
-        # Re-check market-specific balance, fees, limits, and order availability
-        # immediately before the sole mutating call. Failure aborts submission.
-        chance_result = self.client.call_read_tool(
-            "account_get_order_chance", {"market": plan.market}
-        )
-        _validate_order_chance(plan, risk_context, chance_result)
+        try:
+            _validate_live_plan(plan)
+            persisted_state = load_state(self.state_path)
+            if persisted_state != bot_state:
+                raise RiskRejectedError(
+                    "provided BotState is stale relative to persisted state"
+                )
+            _validate_pretrade(plan, risk_context, persisted_state, self.settings)
+            # Re-check market-specific balance, fees, limits, and order availability
+            # immediately before the sole mutating call. Failure aborts submission.
+            chance_result = self.client.call_read_tool(
+                "account_get_order_chance", {"market": plan.market}
+            )
+            _validate_order_chance(plan, risk_context, chance_result)
+        except Exception as exc:
+            detail = str(exc) if isinstance(exc, ExecutionError) else type(exc).__name__
+            self._notify(TradeEvent.BLOCKED, plan, detail=detail)
+            raise
         active_state = replace(
             persisted_state,
             active_client_order_id=plan.client_order_id,
@@ -240,9 +260,11 @@ class BithumbExecutor:
         save_state(self.state_path, active_state)
         try:
             response = self.client.call_tool(plan.tool_name, plan.arguments)
-        except Exception:
+        except Exception as exc:
             save_state(self.state_path, replace(active_state, untracked_order=True))
+            self._notify(TradeEvent.AMBIGUOUS, plan, detail=type(exc).__name__)
             raise
+        self._notify(TradeEvent.ACCEPTED, plan, detail="거래소 접수 응답 수신")
         return ExecutionResult(plan=plan, submitted=True, response=response)
 
     def reconcile_active_order(self) -> BotState:
@@ -269,10 +291,63 @@ class BithumbExecutor:
             )
             reconciled = _apply_terminal_fill(state, side, status, executed)
             save_state(self.state_path, reconciled)
+            event = TradeEvent.FILLED if status == "done" else TradeEvent.CANCELLED
+            self._notify_state(
+                event,
+                state,
+                volume=format(executed, "f"),
+                detail=f"executed_volume={format(executed, 'f')}",
+            )
             return reconciled
         if status == "wait":
+            self._notify_state(TradeEvent.PENDING, state, detail="state=wait")
             return state
         raise ExecutionError(f"unknown order reconciliation state: {status!r}")
+
+    def _notify(
+        self, event: TradeEvent, plan: ExecutionPlan, *, detail: str = ""
+    ) -> bool:
+        side = plan.arguments.get("side")
+        return self._send_notification(
+            TradeNotification(
+                event=event,
+                market=plan.market,
+                side=side,
+                client_order_id=plan.client_order_id,
+                notional_krw=plan.arguments.get("price") if side == "bid" else None,
+                volume=plan.arguments.get("volume") if side == "ask" else None,
+                detail=detail,
+            )
+        )
+
+    def _notify_state(
+        self,
+        event: TradeEvent,
+        state: BotState,
+        *,
+        volume: str | None = None,
+        detail: str = "",
+    ) -> bool:
+        return self._send_notification(
+            TradeNotification(
+                event=event,
+                market=state.pending_market or "KRW-UNKNOWN",
+                side=state.pending_order_side,
+                client_order_id=state.active_client_order_id,
+                volume=volume,
+                detail=detail,
+            )
+        )
+
+    def _send_notification(self, notification: TradeNotification) -> bool:
+        if self.notifier is None:
+            return False
+        try:
+            return bool(self.notifier.send(notification))
+        except Exception:
+            # A notification failure after an exchange response must never be
+            # exposed as an order failure that a caller might retry.
+            return False
 
 
 def _apply_terminal_fill(

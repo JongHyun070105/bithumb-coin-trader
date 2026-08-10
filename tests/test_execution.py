@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from decimal import Decimal
 from pathlib import Path
+from unittest.mock import patch
 
 from bithumb_coin_trader.execution import (
     BithumbExecutor,
@@ -20,6 +21,7 @@ from bithumb_coin_trader.execution import (
     plan_execution,
 )
 from bithumb_coin_trader.config import TradingMode, TradingSettings
+from bithumb_coin_trader.discord_notify import TradeEvent, TradeNotification
 from bithumb_coin_trader.mcp_client import (
     ALLOWED_CHILD_ENV,
     DEFAULT_COMMAND,
@@ -111,6 +113,18 @@ class AmbiguousWriteClient(FakeClient):
     def call_tool(self, name: str, arguments: dict[str, str]) -> object:
         self.calls.append((name, arguments))
         raise TimeoutError("write outcome unknown")
+
+
+class FakeNotifier:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.events: list[TradeNotification] = []
+        self.fail = fail
+
+    def send(self, notification: TradeNotification) -> bool:
+        self.events.append(notification)
+        if self.fail:
+            raise RuntimeError("Discord offline")
+        return True
 
 
 class TradeIntentTests(unittest.TestCase):
@@ -212,6 +226,16 @@ class ExecutionGateTests(unittest.TestCase):
         self.assertFalse(result.submitted)
         self.assertEqual(self.client.calls, [])
 
+    def test_live_default_loads_local_discord_notifier(self) -> None:
+        with patch("bithumb_coin_trader.execution.DiscordNotifier") as notifier:
+            executor = BithumbExecutor(
+                self.client,
+                state_path=self.state_path,
+                settings=self.live_settings(),
+            )
+        notifier.assert_called_once_with()
+        self.assertIs(executor.notifier, notifier.return_value)
+
     def test_live_requires_exact_env_value(self) -> None:
         for env in ({}, {"BITHUMB_LIVE_TRADING": "TRUE"}, {"BITHUMB_LIVE_TRADING": "1"}):
             with self.subTest(env=env), self.assertRaises(LiveTradingDisabledError):
@@ -266,6 +290,25 @@ class ExecutionGateTests(unittest.TestCase):
         self.assertEqual(persisted.active_client_order_id, "intent-gated")
         self.assertFalse(persisted.untracked_order)
 
+    def test_order_notifications_are_typed_and_never_change_order_outcome(self) -> None:
+        notifier = FakeNotifier(fail=True)
+        save_state(self.state_path, self.state())
+        result = BithumbExecutor(
+            self.client,
+            state_path=self.state_path,
+            settings=self.live_settings(),
+            env={"BITHUMB_LIVE_TRADING": "true"},
+            notifier=notifier,
+        ).execute(
+            self.plan,
+            risk_context=self.risk_context(),
+            bot_state=self.state(),
+            confirmation_token=LIVE_CONFIRMATION_TOKEN,
+        )
+        self.assertTrue(result.submitted)
+        self.assertEqual([event.event for event in notifier.events], [TradeEvent.ACCEPTED])
+        self.assertEqual(notifier.events[0].client_order_id, "intent-gated")
+
     def test_unidentified_plan_fails_closed(self) -> None:
         plan = ExecutionPlan(
             "KRW-BTC", Position.FLAT, Position.LONG, "trade_place_order", {}, None
@@ -286,12 +329,14 @@ class ExecutionGateTests(unittest.TestCase):
 
     def test_failed_preflight_never_reaches_order_call(self) -> None:
         client = FailingPreflightClient()
+        notifier = FakeNotifier()
         with self.assertRaisesRegex(RuntimeError, "preflight unavailable"):
             BithumbExecutor(
                 client,
                 state_path=self.state_path,
                 settings=self.live_settings(),
                 env={"BITHUMB_LIVE_TRADING": "true"},
+                notifier=notifier,
             ).execute(
                 self.plan,
                 risk_context=self.risk_context(),
@@ -299,6 +344,8 @@ class ExecutionGateTests(unittest.TestCase):
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
         self.assertEqual([call[0] for call in client.calls], ["account_get_order_chance"])
+        self.assertEqual(notifier.events[0].event, TradeEvent.BLOCKED)
+        self.assertEqual(notifier.events[0].detail, "RuntimeError")
 
     def test_tampered_payload_fails_before_preflight(self) -> None:
         tampered = ExecutionPlan(
@@ -329,6 +376,7 @@ class ExecutionGateTests(unittest.TestCase):
         client: FakeClient | None = None,
         risk_context: RiskContext | None = None,
         bot_state: BotState | None = None,
+        notifier: FakeNotifier | None = None,
     ) -> object:
         selected_state = bot_state or self.state()
         save_state(self.state_path, selected_state)
@@ -337,6 +385,7 @@ class ExecutionGateTests(unittest.TestCase):
             state_path=self.state_path,
             settings=self.live_settings(),
             env={"BITHUMB_LIVE_TRADING": "true"},
+            notifier=notifier,
         ).execute(
             self.plan,
             risk_context=risk_context or self.risk_context(),
@@ -517,8 +566,9 @@ class ExecutionGateTests(unittest.TestCase):
 
     def test_ambiguous_write_persists_active_untracked_without_retry(self) -> None:
         client = AmbiguousWriteClient()
+        notifier = FakeNotifier()
         with self.assertRaisesRegex(TimeoutError, "unknown"):
-            self.execute_live(client=client)
+            self.execute_live(client=client, notifier=notifier)
         persisted = load_state(self.state_path)
         self.assertEqual(persisted.active_client_order_id, "intent-gated")
         self.assertEqual(persisted.pending_order_side, "bid")
@@ -528,6 +578,7 @@ class ExecutionGateTests(unittest.TestCase):
             [call[0] for call in client.calls],
             ["account_get_order_chance", "trade_place_order"],
         )
+        self.assertEqual([event.event for event in notifier.events], [TradeEvent.AMBIGUOUS])
 
     def test_reconcile_clears_only_known_terminal_order(self) -> None:
         active = self.state(

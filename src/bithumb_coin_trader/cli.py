@@ -2,12 +2,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 from pathlib import Path
 from typing import Any, Sequence
 
 from .backtest import BacktestResult, Backtester
 from .config import TradingSettings
 from .data import dataset_manifest, fetch_daily_candles, load_candles_csv, save_candles_csv
+from .discord_notify import (
+    DEFAULT_SOURCE_CRON_ENV,
+    DEFAULT_CONFIG_PATH,
+    DiscordNotifier,
+    save_local_target,
+    status_test_notification,
+    target_from_crontab,
+)
 from .models import Candle
 from .research import ProjectResearchReport, run_chronological_research
 from .strategy import TrendBreakoutStrategy
@@ -146,6 +155,37 @@ def command_signal(args: argparse.Namespace) -> int:
     return 0
 
 
+def command_discord_setup(args: argparse.Namespace) -> int:
+    result = subprocess.run(
+        ["crontab", "-l"],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("could not read the current user crontab")
+    target = target_from_crontab(result.stdout, source_env=args.source_cron_env)
+    destination = save_local_target(target, env_path=args.config_path)
+    print(
+        json.dumps(
+            {
+                "configured": True,
+                "source": args.source_cron_env,
+                "destination": str(destination),
+                "target": "discord:<configured>",
+            }
+        )
+    )
+    return 0
+
+
+def command_discord_test(_args: argparse.Namespace) -> int:
+    sent = DiscordNotifier().send(status_test_notification())
+    print(json.dumps({"sent": sent, "order_submitted": False}))
+    return 0 if sent else 2
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Research-first Bithumb coin trader")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -172,6 +212,22 @@ def build_parser() -> argparse.ArgumentParser:
     signal.add_argument("--timeout", type=float, default=20.0)
     signal.add_argument("--input", type=Path)
     signal.set_defaults(handler=command_signal)
+
+    discord_setup = subparsers.add_parser(
+        "discord-setup", help="reuse an existing Discord target from the user crontab"
+    )
+    discord_setup.add_argument(
+        "--source-cron-env", default=DEFAULT_SOURCE_CRON_ENV
+    )
+    discord_setup.add_argument(
+        "--config-path", type=Path, default=DEFAULT_CONFIG_PATH
+    )
+    discord_setup.set_defaults(handler=command_discord_setup)
+
+    discord_test = subparsers.add_parser(
+        "discord-test", help="send a finance-chat connection test without ordering"
+    )
+    discord_test.set_defaults(handler=command_discord_test)
     return parser
 
 

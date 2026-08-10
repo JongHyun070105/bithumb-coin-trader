@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from contextlib import redirect_stdout
@@ -55,6 +56,42 @@ class CliTests(unittest.TestCase):
                 code = main(["signal"])
         payload = json.loads(output.getvalue())
         self.assertEqual(code, 0)
+        self.assertFalse(payload["order_submitted"])
+
+    def test_discord_setup_masks_target_and_test_never_orders(self) -> None:
+        output = StringIO()
+        crontab = subprocess.CompletedProcess(
+            ["crontab", "-l"],
+            0,
+            "TOSS_MONITOR_DISCORD_TARGET=discord:123456789\n",
+            "",
+        )
+        with (
+            patch("bithumb_coin_trader.cli.subprocess.run", return_value=crontab),
+            patch(
+                "bithumb_coin_trader.cli.save_local_target",
+                return_value=Path("/tmp/test.env"),
+            ) as save,
+            redirect_stdout(output),
+        ):
+            code = main(["discord-setup"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertEqual(payload["target"], "discord:<configured>")
+        save.assert_called_once()
+        self.assertEqual(save.call_args.args, ("discord:123456789",))
+        self.assertTrue(save.call_args.kwargs["env_path"].is_absolute())
+
+        output = StringIO()
+        with (
+            patch("bithumb_coin_trader.cli.DiscordNotifier") as notifier,
+            redirect_stdout(output),
+        ):
+            notifier.return_value.send.return_value = True
+            code = main(["discord-test"])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["sent"])
         self.assertFalse(payload["order_submitted"])
 
 

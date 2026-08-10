@@ -54,6 +54,26 @@ BITHUMB_SECRET_KEY
 
 `.env`, `data/`, `state/`, 실행 보고서는 Git에서 제외됩니다.
 
+## Discord Finance Chat 알림
+
+기존 Toss 자동매매가 사용하는 `hermes send → finance-chat` 대상을 사용자 전용 설정 파일 `~/.config/bithumb-coin-trader/env`로 복사하고 연결을 확인할 수 있습니다. 채널 ID는 출력하거나 Git에 저장하지 않습니다.
+
+```bash
+.venv/bin/bithumb-trader discord-setup
+.venv/bin/bithumb-trader discord-test
+```
+
+현재 이 기기에는 동일 Finance Chat 대상이 `BITHUMB_DISCORD_TARGET`으로 설정되어 있으며 테스트 메시지 전송까지 확인했습니다. 설정 파일 권한은 `0600`입니다. Hermes에는 거래소 API 키를 제외한 최소 환경만 전달하고, 저장소가 아닌 임시 폴더에서 실행합니다.
+
+실행기는 다음 이벤트를 서로 다른 문구로 알립니다.
+
+- 위험·잔고·최소금액 검증에 의한 주문 차단
+- 거래소 주문 접수 — 체결로 표시하지 않음
+- 타임아웃 등 결과 불명확 — 재주문 금지와 추적 차단 표시
+- 주문 상세 조회 결과 대기·체결·취소
+
+알림 전송 실패는 이미 접수된 주문을 실패처럼 보이게 만들지 않습니다. 따라서 알림 장애 때문에 주문을 다시 보내는 경로가 없습니다. 라이브 설정으로 `BithumbExecutor`를 기본 생성하면 로컬 Finance Chat 설정을 자동으로 사용하며, 테스트에서는 알림기를 명시적으로 주입할 수 있습니다.
+
 ## 사용법
 
 공개 일봉을 명시한 파일에 저장:
