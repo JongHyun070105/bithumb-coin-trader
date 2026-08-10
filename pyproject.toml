@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bithumb-coin-trader"
+version = "0.1.0"
+description = "Research-first, fail-closed crypto trading framework for Bithumb"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "JongHyun070105" }]
+dependencies = []
+
+[project.scripts]
+bithumb-trader = "bithumb_coin_trader.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

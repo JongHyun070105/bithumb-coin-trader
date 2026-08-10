@@ -1,0 +1,44 @@
+{
+  "generated_at": "2026-08-10",
+  "market": "KRW-BTC",
+  "mode": "bithumb_spot_long_flat",
+  "dataset": {
+    "schema_version": 1,
+    "candle_count": 1000,
+    "start_at": "2023-11-13T15:00:00+00:00",
+    "end_at": "2026-08-08T15:00:00+00:00",
+    "sha256": "f64a72f987639fb12353cca620e5339c9078fdf55326f390f132c4e5a85025bc",
+    "incomplete_daily_candles_included": false
+  },
+  "settings": {
+    "initial_capital_krw": 20000,
+    "maximum_position_krw": 10000,
+    "fee_rate_per_fill": 0.0025,
+    "slippage_bps_per_fill": 5,
+    "train_candles": 400,
+    "test_candles": 100,
+    "folds": 6
+  },
+  "full_sample_context_only": {
+    "total_return": 0.37532463,
+    "maximum_drawdown": 0.09627316,
+    "trade_count": 15,
+    "sharpe": 1.29613
+  },
+  "walk_forward": {
+    "fold_returns": [-0.03652208, -0.00747515, 0.00177193, 0.0, 0.0, -0.00519149],
+    "compounded_return": -0.04700306,
+    "stitched_maximum_drawdown": 0.06081696,
+    "profitable_folds": 1,
+    "trade_count": 9,
+    "weighted_win_rate": 0.44444444
+  },
+  "double_cost_stress": {
+    "fee_rate_per_fill": 0.005,
+    "slippage_bps_per_fill": 10,
+    "fold_returns": [-0.04228761, -0.01342937, -0.01021987, 0.0, 0.0, -0.00817932],
+    "compounded_return": -0.07245459,
+    "stitched_maximum_drawdown": 0.07245459
+  },
+  "promotion": "RESEARCH_ONLY"
+}

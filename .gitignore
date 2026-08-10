@@ -1,0 +1,11 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+data/
+state/
+reports/*.json
+reports/*.csv
+!reports/.gitkeep
+!reports/krw-btc-daily-baseline-2026-08-10.json
