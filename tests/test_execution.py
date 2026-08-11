@@ -40,6 +40,10 @@ def chance_result(*, krw_balance: str = "20000", btc_balance: str = "1") -> dict
         "ask_fee": "0.0004",
         "market": {
             "id": "KRW-BTC",
+            "state": "active",
+            "order_sides": ["ask", "bid"],
+            "bid_types": ["limit", "price"],
+            "ask_types": ["limit", "market"],
             "bid": {"currency": "KRW", "min_total": "5000"},
             "ask": {"currency": "BTC", "min_total": "5000"},
         },
@@ -470,9 +474,12 @@ class ExecutionGateTests(unittest.TestCase):
         mutations = []
         for mutate in (
             lambda value: value["market"].update(id="KRW-ETH"),
+            lambda value: value["market"].update(state="halted"),
+            lambda value: value["market"].update(bid_types=["limit"]),
             lambda value: value["market"]["bid"].update(min_total="11000"),
             lambda value: value.pop("bid_fee"),
             lambda value: value.update(bid_fee="missing"),
+            lambda value: value.update(bid_fee="0.003"),
             lambda value: value["bid_account"].update(balance="NaN"),
         ):
             value = json.loads(json.dumps(base))
@@ -483,6 +490,34 @@ class ExecutionGateTests(unittest.TestCase):
             with self.subTest(response=response), self.assertRaises(OrderChanceError):
                 self.execute_live(client=client)
             self.assertEqual([call[0] for call in client.calls], ["account_get_order_chance"])
+
+    def test_order_chance_accepts_real_mcp_nested_wrapper(self) -> None:
+        inner = json.loads(chance_result()["content"][0]["text"])
+        wrapped = {
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "tool": "account_get_order_chance",
+                            "ok": True,
+                            "data": {
+                                "endpoint": "GET /v1/orders/chance",
+                                "requestTime": "2026-08-11T00:00:00Z",
+                                "data": inner,
+                            },
+                        }
+                    ),
+                }
+            ]
+        }
+        client = FakeClient(wrapped)
+        result = self.execute_live(client=client)
+        self.assertTrue(result.submitted)
+        self.assertEqual(
+            [call[0] for call in client.calls],
+            ["account_get_order_chance", "trade_place_order"],
+        )
 
     def test_long_to_flat_checks_ask_fee_minimum_and_asset_balance(self) -> None:
         plan = plan_execution(

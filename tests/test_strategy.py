@@ -52,6 +52,18 @@ class StrategyTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "chronological"):
             TrendBreakoutStrategy(StrategyParameters(fast_period=3, slow_period=5)).generate(candles)
 
+    def test_persisted_position_can_resume_at_a_later_decision(self) -> None:
+        candles = candles_from_closes([100.0] * 100)
+        strategy = TrendBreakoutStrategy()
+        resumed = strategy.generate(
+            candles,
+            initial_position=Signal.LONG,
+            start_index=98,
+        )
+        restarted = strategy.generate(candles)
+        self.assertEqual(resumed[-2:], [Signal.LONG, Signal.LONG])
+        self.assertEqual(restarted[-1], Signal.FLAT)
+
 
 if __name__ == "__main__":
     unittest.main()

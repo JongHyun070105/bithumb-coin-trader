@@ -2,7 +2,7 @@
 
 2만원 소액 계좌를 위한 **연구 우선·실패 폐쇄(fail-closed)** 암호화폐 트레이딩 프레임워크입니다. 현재 단계는 자동 수익 봇이 아니라 데이터 수집, 룩어헤드 없는 백테스트, 워크포워드 검증, 페이퍼/라이브 실행 경계를 검증하는 기반입니다.
 
-> 현재 상태: **RESEARCH_ONLY** — 라이브 자동매매 승인 안 됨
+> 현재 상태: **NOT_READY / RESEARCH_ONLY** — 페이퍼 관찰 중, 라이브 자동매매 승인 안 됨
 
 ## 현재 결론
 
@@ -65,6 +65,8 @@ BITHUMB_SECRET_KEY
 
 현재 이 기기에는 동일 Finance Chat 대상이 `BITHUMB_DISCORD_TARGET`으로 설정되어 있으며 테스트 메시지 전송까지 확인했습니다. 설정 파일 권한은 `0600`입니다. Hermes에는 거래소 API 키를 제외한 최소 환경만 전달하고, 저장소가 아닌 임시 폴더에서 실행합니다.
 
+페이퍼 실행 결과도 `페이퍼 일일 실행 (실주문 없음)`으로 명확히 구분해 보냅니다. 실주문 접수 알림과 혼동하지 않도록 모든 페이퍼 메시지에 `실주문 없음`이 포함됩니다.
+
 실행기는 다음 이벤트를 서로 다른 문구로 알립니다.
 
 - 위험·잔고·최소금액 검증에 의한 주문 차단
@@ -94,6 +96,29 @@ BITHUMB_SECRET_KEY
 .venv/bin/bithumb-trader signal --market KRW-BTC
 ```
 
+완료된 일봉 한 개를 페이퍼 원장에 반영하고 상태 확인:
+
+```bash
+.venv/bin/bithumb-trader paper-run --notify
+.venv/bin/bithumb-trader paper-status
+```
+
+실전 준비 상태를 읽기 전용 MCP 계정 점검까지 포함해 확인:
+
+```bash
+.venv/bin/bithumb-trader live-readiness --probe-mcp
+```
+
+`NOT_READY`는 정상적인 안전 차단 결과이므로 exit code `2`를 반환합니다. 이 명령은 API 키 값, Discord 채널 ID, 잔고 상세를 출력하지 않으며 주문을 제출하지 않습니다.
+
+이 Mac에는 다음 명령으로 페이퍼 전용 스케줄을 설치할 수 있습니다.
+
+```bash
+.venv/bin/bithumb-trader paper-schedule-install
+```
+
+설치된 cron은 매시 10분에 상태를 확인하지만, 완료된 일봉 하나당 결정은 정확히 한 번만 기록합니다. Mac이 잠자기 상태여서 정시 실행을 놓친 경우 다음 실행 때 누락된 완료 일봉을 순서대로 따라잡습니다. 로그와 원장은 `state/`에만 저장되고 Git에는 포함되지 않습니다.
+
 ## 전략 및 검증 계약
 
 - EMA 20/80 추세 + 이전 20봉 고가/저가 돌파
@@ -114,6 +139,8 @@ MCP 클라이언트의 기본 명령은 `--read-only`입니다. 쓰기 명령은
 3. 런타임 확인 토큰 `CONFIRM_BITHUMB_LIVE_ORDER`
 
 그 뒤에도 주문가능조회 preflight, 엄격한 주문 payload 검증, 고유 `client_order_id`, 단 한 번의 주문 호출을 적용합니다. 주문 직전 `client_order_id`와 의도를 원자적으로 저장하고, 모호한 POST는 자동 재시도하지 않은 채 `untracked`로 차단합니다. 다음 주문은 동일 ID 조회로 체결 수량과 포지션을 재조정한 뒤에만 가능합니다. CLI에는 라이브 주문 명령을 노출하지 않았습니다.
+
+라이브 검토 기준과 장애 대응 절차는 [실전 준비 런북](docs/LIVE_READINESS.md)에 정리했습니다. 현재 기준선은 `PAPER_CANDIDATE`가 아니므로 페이퍼 기록이 충분해져도 전략 연구가 개선되기 전에는 `READY`가 되지 않습니다.
 
 ## 테스트
 

@@ -65,8 +65,10 @@ class DiscordDeliveryTests(unittest.TestCase):
     def test_formatter_distinguishes_acceptance_from_fill(self) -> None:
         accepted = format_trade_notification(self.notification())
         ambiguous = format_trade_notification(self.notification(TradeEvent.AMBIGUOUS))
+        paper = format_trade_notification(self.notification(TradeEvent.PAPER))
         self.assertIn("접수 (체결 아님)", accepted)
         self.assertIn("자동 재시도 금지", ambiguous)
+        self.assertIn("실주문 없음", paper)
         self.assertNotIn("ACCESS_KEY", accepted)
 
     @patch("bithumb_coin_trader.discord_notify.subprocess.run")

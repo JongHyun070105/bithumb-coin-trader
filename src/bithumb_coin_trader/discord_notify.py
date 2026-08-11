@@ -21,6 +21,7 @@ _TARGET_PATTERN = re.compile(r"^discord:[0-9]{6,30}$")
 
 class TradeEvent(StrEnum):
     TEST = "test"
+    PAPER = "paper"
     BLOCKED = "blocked"
     ACCEPTED = "accepted"
     AMBIGUOUS = "ambiguous"
@@ -43,6 +44,7 @@ class TradeNotification:
 
 _EVENT_LABELS = {
     TradeEvent.TEST: "Finance Chat 연결 테스트 (실주문 없음)",
+    TradeEvent.PAPER: "페이퍼 일일 실행 (실주문 없음)",
     TradeEvent.BLOCKED: "주문 차단",
     TradeEvent.ACCEPTED: "주문 접수 (체결 아님)",
     TradeEvent.AMBIGUOUS: "주문 결과 불명확 (재주문 금지)",

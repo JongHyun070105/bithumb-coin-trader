@@ -94,6 +94,145 @@ class CliTests(unittest.TestCase):
         self.assertTrue(payload["sent"])
         self.assertFalse(payload["order_submitted"])
 
+    def test_paper_run_and_status_persist_without_order(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state = root / "paper.json"
+            audit = root / "paper.jsonl"
+            lock = root / "paper.lock"
+            output = StringIO()
+            paper_candles = [
+                Candle(
+                    candle.timestamp.replace(hour=15),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                    candle.market,
+                )
+                for candle in sample_candles(200)
+            ]
+            with (
+                patch(
+                    "bithumb_coin_trader.cli.fetch_daily_candles",
+                    return_value=paper_candles,
+                ),
+                redirect_stdout(output),
+            ):
+                code = main(
+                    [
+                        "paper-run",
+                        "--state-path", str(state),
+                        "--audit-path", str(audit),
+                        "--lock-path", str(lock),
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+            self.assertEqual(code, 0)
+            self.assertTrue(payload["processed"])
+            self.assertEqual(payload["mode"], "paper")
+            self.assertFalse(payload["order_submitted"])
+            self.assertTrue(state.exists())
+
+            output = StringIO()
+            with redirect_stdout(output):
+                status_code = main(
+                    ["paper-status", "--state-path", str(state), "--audit-path", str(audit)]
+                )
+            status = json.loads(output.getvalue())
+            self.assertEqual(status_code, 0)
+            self.assertEqual(status["evidence"]["decision_count"], 1)
+            self.assertEqual(status["evidence"]["accounting_mismatches"], 0)
+            self.assertFalse(status["order_submitted"])
+
+            extended = [
+                Candle(
+                    candle.timestamp.replace(hour=15),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                    candle.market,
+                )
+                for candle in sample_candles(202)
+            ]
+            output = StringIO()
+            with (
+                patch("bithumb_coin_trader.cli.fetch_daily_candles", return_value=extended),
+                redirect_stdout(output),
+            ):
+                main(
+                    [
+                        "paper-run",
+                        "--state-path", str(state),
+                        "--audit-path", str(audit),
+                        "--lock-path", str(lock),
+                    ]
+                )
+            caught_up = json.loads(output.getvalue())
+            self.assertEqual(caught_up["processed_decisions"], 2)
+            self.assertEqual(caught_up["state"]["decision_count"], 3)
+
+            records = audit.read_text(encoding="utf-8").splitlines()
+            tampered = json.loads(records[-1])
+            tampered["equity_krw"] = "999999"
+            records[-1] = json.dumps(tampered, separators=(",", ":"))
+            audit.write_text("\n".join(records) + "\n", encoding="utf-8")
+            output = StringIO()
+            with redirect_stdout(output):
+                main(["paper-status", "--state-path", str(state), "--audit-path", str(audit)])
+            self.assertEqual(
+                json.loads(output.getvalue())["evidence"]["accounting_mismatches"],
+                1,
+            )
+
+    def test_live_readiness_is_not_ready_and_never_orders(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "research.json"
+            report.write_text('{"promotion":"RESEARCH_ONLY"}', encoding="utf-8")
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "live-readiness",
+                        "--research-report", str(report),
+                        "--paper-state-path", str(root / "paper.json"),
+                        "--paper-audit-path", str(root / "paper.jsonl"),
+                        "--live-state-path", str(root / "live.json"),
+                    ]
+                )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 2)
+        self.assertEqual(payload["status"], "NOT_READY")
+        self.assertFalse(payload["order_submitted"])
+
+    def test_schedule_install_preserves_crontab_and_is_paper_only(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / ".venv" / "bin" / "bithumb-trader"
+            executable.parent.mkdir(parents=True)
+            executable.write_text("#!/bin/sh\n", encoding="utf-8")
+            executable.chmod(0o700)
+            reads = subprocess.CompletedProcess(["crontab", "-l"], 0, "5 5 * * * existing\n", "")
+            writes = subprocess.CompletedProcess(["crontab", "-"], 0, "", "")
+            output = StringIO()
+            with (
+                patch("bithumb_coin_trader.cli.subprocess.run", side_effect=[reads, writes]) as run,
+                redirect_stdout(output),
+            ):
+                code = main(["paper-schedule-install", "--project-root", str(root)])
+        payload = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(payload["installed"])
+        installed = run.call_args_list[1].kwargs["input"]
+        self.assertIn("5 5 * * * existing", installed)
+        self.assertIn("paper-run --notify", installed)
+        self.assertIn("# bithumb-coin-trader-paper", installed)
+        self.assertNotIn("live", installed)
+
 
 if __name__ == "__main__":
     unittest.main()

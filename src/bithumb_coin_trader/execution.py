@@ -245,7 +245,7 @@ class BithumbExecutor:
             chance_result = self.client.call_read_tool(
                 "account_get_order_chance", {"market": plan.market}
             )
-            _validate_order_chance(plan, risk_context, chance_result)
+            _validate_order_chance(plan, risk_context, chance_result, self.settings)
         except Exception as exc:
             detail = str(exc) if isinstance(exc, ExecutionError) else type(exc).__name__
             self._notify(TradeEvent.BLOCKED, plan, detail=detail)
@@ -514,18 +514,40 @@ def _risk_decimal(value: Any, field: str) -> Decimal:
 
 
 def _validate_order_chance(
-    plan: ExecutionPlan, context: RiskContext, result: Any
+    plan: ExecutionPlan,
+    context: RiskContext,
+    result: Any,
+    settings: TradingSettings,
 ) -> None:
     payload = _order_chance_payload(result)
     market_info = _mapping(payload.get("market"), "market")
     if market_info.get("id") != plan.market:
         raise OrderChanceError("order chance market does not match the planned market")
+    if market_info.get("state") != "active":
+        raise OrderChanceError("order chance market is not active")
 
     is_buy = plan.target is Signal.LONG
     side = "bid" if is_buy else "ask"
+    supported_sides = market_info.get("order_sides")
+    supported_types = market_info.get("bid_types" if is_buy else "ask_types")
+    if (
+        not isinstance(supported_sides, list)
+        or side not in supported_sides
+        or not all(isinstance(item, str) for item in supported_sides)
+    ):
+        raise OrderChanceError("planned side is not supported by the market")
+    if (
+        not isinstance(supported_types, list)
+        or plan.arguments.get("order_type") not in supported_types
+        or not all(isinstance(item, str) for item in supported_types)
+    ):
+        raise OrderChanceError("planned order type is not supported by the market")
     fee = _decimal_field(payload, f"{side}_fee", allow_zero=True)
-    if fee >= 1:
-        raise OrderChanceError(f"order chance {side}_fee is outside the supported range")
+    maximum_fee = Decimal(str(settings.fee_rate))
+    if fee > maximum_fee:
+        raise OrderChanceError(
+            f"order chance {side}_fee exceeds the configured fee assumption"
+        )
     side_info = _mapping(market_info.get(side), f"market.{side}")
     minimum = _decimal_field(side_info, "min_total")
     requested_notional = _decimal_value(
@@ -567,8 +589,12 @@ def _tool_json_payload(result: Any, tool_name: str) -> Mapping[str, Any]:
     except json.JSONDecodeError as exc:
         raise OrderChanceError(f"{tool_name} text is not valid JSON") from exc
     payload = _mapping(payload, f"{tool_name} JSON")
+    for depth in range(2):
+        if "data" not in payload:
+            break
+        payload = _mapping(payload["data"], f"{tool_name} data level {depth + 1}")
     if "data" in payload:
-        payload = _mapping(payload["data"], f"{tool_name} data")
+        raise OrderChanceError(f"{tool_name} has unsupported nested data wrappers")
     return payload
 
 

@@ -39,7 +39,13 @@ class TrendBreakoutStrategy:
     def __init__(self, parameters: StrategyParameters | None = None) -> None:
         self.parameters = parameters or StrategyParameters()
 
-    def generate(self, candles: Sequence[Candle]) -> list[Signal]:
+    def generate(
+        self,
+        candles: Sequence[Candle],
+        *,
+        initial_position: Signal = Signal.FLAT,
+        start_index: int | None = None,
+    ) -> list[Signal]:
         if any(candles[index].timestamp >= candles[index + 1].timestamp for index in range(len(candles) - 1)):
             raise ValueError("candles must be strictly chronological")
         closes = [candle.close for candle in candles]
@@ -47,14 +53,29 @@ class TrendBreakoutStrategy:
         slow = ema(closes, self.parameters.slow_period)
         exits = ema(closes, self.parameters.exit_period)
         volatility = rolling_volatility(closes, self.parameters.volatility_period)
+        try:
+            position = Signal(initial_position)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("initial_position is invalid") from exc
+        if position is Signal.SHORT and not self.parameters.allow_short_signals:
+            raise ValueError("SHORT initial_position requires allow_short_signals")
         signals = [Signal.FLAT] * len(candles)
-        position = Signal.FLAT
         warmup = max(
             self.parameters.slow_period,
             self.parameters.breakout_period,
             self.parameters.volatility_period + 1,
         )
-        for index in range(warmup, len(candles)):
+        if start_index is None and warmup >= len(candles):
+            return signals
+        first_decision = warmup if start_index is None else start_index
+        if (
+            isinstance(first_decision, bool)
+            or not isinstance(first_decision, int)
+            or first_decision < warmup
+            or first_decision >= len(candles)
+        ):
+            raise ValueError("start_index must select a candle after strategy warmup")
+        for index in range(first_decision, len(candles)):
             fast_value = fast[index]
             slow_value = slow[index]
             exit_value = exits[index]
