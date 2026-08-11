@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from statistics import fmean
-from typing import Any, Callable, Generic, Sequence, TypeVar
+from typing import Any, Callable, Generic, Mapping, Sequence, TypeVar
 
 
 Observation = TypeVar("Observation")
@@ -37,6 +37,16 @@ class ProjectResearchReport:
     trade_count: int
     weighted_win_rate: float
     oos_equity_curve: tuple[float, ...]
+    candidate_name: str = "trend_breakout"
+
+
+@dataclass(frozen=True, slots=True)
+class CandidateComparisonReport:
+    """Like-for-like OOS results for fixed, pre-registered hypotheses."""
+
+    candidates: tuple[ProjectResearchReport, ...]
+    candidate_count: int
+    fold_boundaries: tuple[tuple[int, int, int, int], ...]
 
 
 StrategyFactory = Callable[[Sequence[Observation]], Strategy]
@@ -99,6 +109,7 @@ def project_adapters(
     parameters: Any = None,
     settings: Any = None,
     allow_short: bool = False,
+    candidate_factory: Callable[[], Any] | None = None,
 ) -> tuple[Callable[..., Any], Callable[..., Any]]:
     """Load optional project strategy/backtest adapters only when requested.
 
@@ -118,21 +129,21 @@ def project_adapters(
     def build_strategy(train: Sequence[Any]) -> tuple[Any, tuple[Any, ...]]:
         # Preserve history so indicators are warm at the test boundary without
         # exposing any later test observation to an earlier signal.
-        return TrendBreakoutStrategy(parameters), tuple(train)
+        strategy = (
+            candidate_factory()
+            if candidate_factory is not None
+            else TrendBreakoutStrategy(parameters)
+        )
+        return strategy, tuple(train)
 
     def run_backtest(strategy_and_train: tuple[Any, tuple[Any, ...]], test: Sequence[Any]) -> Any:
-        if len(test) < 2:
-            raise ResearchError("project backtests require at least two test candles")
-        strategy, train = strategy_and_train
-        if not train:
-            raise ResearchError("project backtests require training context")
-        combined = (*train, *test)
-        signals = strategy.generate(combined)
         # Prepend the final training candle as execution context. Backtester
         # consumes its close signal at index 0 and executes it at the first OOS
         # candle's open (index 1), while all marked returns remain OOS.
-        execution_candles = (train[-1], *test)
-        execution_signals = signals[len(train) - 1 :]
+        execution_candles, execution_signals = _prepare_execution_window(
+            strategy_and_train,
+            test,
+        )
         return Backtester(settings, allow_short=allow_short).run(
             execution_candles,
             execution_signals,
@@ -149,22 +160,41 @@ def run_chronological_research(
     parameters: Any = None,
     settings: Any = None,
     allow_short: bool = False,
+    candidate_name: str = "trend_breakout",
+    candidate_factory: Callable[[], Any] | None = None,
+    continuous_oos: bool = False,
 ) -> ProjectResearchReport:
-    """Run fixed-parameter project backtests over non-overlapping test folds."""
+    """Run fixed-parameter project backtests over non-overlapping test folds.
+
+    ``continuous_oos`` keeps execution state across contiguous test folds while
+    still rebuilding the strategy from each fold's training window. The legacy
+    independent-fold behavior remains the default for the daily baseline.
+    """
 
     strategy_factory, backtest = project_adapters(
         parameters=parameters,
         settings=settings,
         allow_short=allow_short,
+        candidate_factory=candidate_factory,
     )
-    folds = walk_forward(
-        candles,
-        train_size=train_size,
-        test_size=test_size,
-        step_size=test_size,
-        strategy_factory=strategy_factory,
-        backtest=backtest,
-    )
+    if continuous_oos:
+        folds = _run_continuous_oos(
+            candles,
+            train_size=train_size,
+            test_size=test_size,
+            strategy_factory=strategy_factory,
+            settings=settings,
+            allow_short=allow_short,
+        )
+    else:
+        folds = walk_forward(
+            candles,
+            train_size=train_size,
+            test_size=test_size,
+            step_size=test_size,
+            strategy_factory=strategy_factory,
+            backtest=backtest,
+        )
     if not folds:
         raise ResearchError("not enough candles for one complete train/test fold")
 
@@ -180,6 +210,188 @@ def run_chronological_research(
         trade_count=trade_count,
         weighted_win_rate=weighted_wins / trade_count if trade_count else 0.0,
         oos_equity_curve=oos_equity_curve,
+        candidate_name=candidate_name,
+    )
+
+
+def _run_continuous_oos(
+    candles: Sequence[Any],
+    *,
+    train_size: int,
+    test_size: int,
+    strategy_factory: Callable[[Sequence[Any]], Any],
+    settings: Any,
+    allow_short: bool,
+) -> list[WalkForwardFold[Any]]:
+    """Generate fold-specific signals, then execute all contiguous OOS once."""
+
+    prepared = walk_forward(
+        candles,
+        train_size=train_size,
+        test_size=test_size,
+        step_size=test_size,
+        strategy_factory=strategy_factory,
+        backtest=_prepare_execution_window,
+    )
+    if not prepared:
+        return []
+
+    execution_candles = list(prepared[0].result[0])
+    execution_signals = list(prepared[0].result[1])
+    for fold in prepared[1:]:
+        fold_candles, fold_signals = fold.result
+        if execution_candles[-1].timestamp != fold_candles[0].timestamp:
+            raise ResearchError("continuous OOS folds must be contiguous")
+        # The retrained strategy owns the boundary-close signal that executes
+        # at this fold's first OOS open.
+        execution_signals[-1] = fold_signals[0]
+        execution_candles.extend(fold_candles[1:])
+        execution_signals.extend(fold_signals[1:])
+
+    from .backtest import Backtester
+
+    backtester = Backtester(settings, allow_short=allow_short)
+    continuous = backtester.run(execution_candles, execution_signals)
+    folds: list[WalkForwardFold[Any]] = []
+    for prepared_fold in prepared:
+        start = prepared_fold.fold * test_size
+        end = start + test_size
+        folds.append(
+            WalkForwardFold(
+                fold=prepared_fold.fold,
+                train_start=prepared_fold.train_start,
+                train_end=prepared_fold.train_end,
+                test_start=prepared_fold.test_start,
+                test_end=prepared_fold.test_end,
+                result=backtester.slice_result(
+                    continuous,
+                    execution_candles,
+                    start=start,
+                    end=end,
+                ),
+            )
+        )
+    return folds
+
+
+def _prepare_execution_window(
+    strategy_and_train: tuple[Any, tuple[Any, ...]],
+    test: Sequence[Any],
+) -> tuple[tuple[Any, ...], tuple[Any, ...]]:
+    if len(test) < 2:
+        raise ResearchError("project backtests require at least two test candles")
+    strategy, train = strategy_and_train
+    if not train:
+        raise ResearchError("project backtests require training context")
+    combined = (*train, *test)
+    signals = strategy.generate(combined)
+    return (train[-1], *test), tuple(signals[len(train) - 1 :])
+
+
+def registered_candidate_factories() -> dict[str, Callable[[], Any]]:
+    """Return the fixed hypothesis registry; factories never inspect OOS data."""
+
+    from .strategy import (
+        BollingerRsiReentryStrategy,
+        BollingerRsiFourHourUptrendReentryStrategy,
+        BollingerRsiUptrendReentryStrategy,
+        BollingerSqueezeBreakoutStrategy,
+        CompletedIntervalStrategy,
+        DCBollingerRsiArmedReentryStrategy,
+    )
+
+    hourly_classes = (
+        BollingerRsiReentryStrategy,
+        BollingerRsiFourHourUptrendReentryStrategy,
+        BollingerRsiUptrendReentryStrategy,
+        BollingerSqueezeBreakoutStrategy,
+    )
+    factories: dict[str, Callable[[], Any]] = {
+        DCBollingerRsiArmedReentryStrategy.name: DCBollingerRsiArmedReentryStrategy
+    }
+    for strategy_class in hourly_classes:
+        factories[strategy_class.name] = (
+            lambda strategy_class=strategy_class: CompletedIntervalStrategy(
+                strategy_class()
+            )
+        )
+    return factories
+
+
+def compare_registered_candidates(
+    candles: Sequence[Any],
+    *,
+    train_size: int = 400,
+    test_size: int = 100,
+    settings: Any = None,
+    candidate_names: Sequence[str] | None = None,
+) -> CandidateComparisonReport:
+    """Compare fixed candidates on identical folds, costs, and next-open fills.
+
+    Candidate factories take no training or test observations.  Consequently
+    this adapter cannot tune a hypothesis after observing an OOS fold.
+    """
+
+    registry = registered_candidate_factories()
+    selected = tuple(registry if candidate_names is None else candidate_names)
+    if not selected:
+        raise ResearchError("at least one candidate must be selected")
+    unknown = [name for name in selected if name not in registry]
+    if unknown:
+        raise ResearchError(f"unknown registered candidate: {unknown[0]}")
+    return compare_candidate_factories(
+        candles,
+        candidate_factories={name: registry[name] for name in selected},
+        train_size=train_size,
+        test_size=test_size,
+        settings=settings,
+    )
+
+
+def compare_candidate_factories(
+    candles: Sequence[Any],
+    *,
+    candidate_factories: Mapping[str, Callable[[], Any]],
+    train_size: int = 400,
+    test_size: int = 100,
+    settings: Any = None,
+) -> CandidateComparisonReport:
+    """Compare zero-argument fixed factories with one fold/cost configuration."""
+
+    if not candidate_factories:
+        raise ResearchError("at least one candidate must be selected")
+    if any(not name or not callable(factory) for name, factory in candidate_factories.items()):
+        raise ResearchError("candidate names must be non-empty and factories callable")
+    reports = tuple(
+        run_chronological_research(
+            candles,
+            train_size=train_size,
+            test_size=test_size,
+            settings=settings,
+            allow_short=False,
+            candidate_name=name,
+            candidate_factory=factory,
+            continuous_oos=True,
+        )
+        for name, factory in candidate_factories.items()
+    )
+    boundaries = tuple(
+        (fold.train_start, fold.train_end, fold.test_start, fold.test_end)
+        for fold in reports[0].folds
+    )
+    if any(
+        tuple(
+            (fold.train_start, fold.train_end, fold.test_start, fold.test_end)
+            for fold in report.folds
+        )
+        != boundaries
+        for report in reports[1:]
+    ):
+        raise ResearchError("candidate fold boundaries unexpectedly differ")
+    return CandidateComparisonReport(
+        candidates=reports,
+        candidate_count=len(reports),
+        fold_boundaries=boundaries,
     )
 
 

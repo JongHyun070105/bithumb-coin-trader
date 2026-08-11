@@ -1,0 +1,1859 @@
+{
+  "generated_at": "2026-08-11T09:39:41.408240+00:00",
+  "market": "KRW-BTC",
+  "mode": "bithumb_spot_long_flat_research",
+  "timeframe": "30m_execution_with_completed_1h_signals",
+  "dataset": {
+    "schema_version": 1,
+    "market": "KRW-BTC",
+    "candle_count": 30000,
+    "start_at": "2024-11-22T07:00:00+00:00",
+    "end_at": "2026-08-11T08:30:00+00:00",
+    "sha256": "28ebcf074fba31bca87462b846853ebae49a715a35944941025a1836d534f463"
+  },
+  "data_quality": {
+    "observed_at": "2026-08-11T09:00:00+00:00",
+    "expected_interval_minutes": 30,
+    "gap_event_count": 12,
+    "missing_candle_count": 100,
+    "maximum_gap_minutes": 630,
+    "gap_policy": "never forward-fill; omit incomplete aggregate buckets"
+  },
+  "validation": {
+    "method": "fixed-parameter rolling walk-forward",
+    "train_candles_30m": 8640,
+    "test_candles_30m": 2880,
+    "candidate_count": 5,
+    "calendar_folds": [
+      {
+        "fold": 1,
+        "train": [
+          "2024-11-22T07:00:00+00:00",
+          "2025-05-22T04:00:00+00:00"
+        ],
+        "test": [
+          "2025-05-22T04:30:00+00:00",
+          "2025-07-21T04:00:00+00:00"
+        ]
+      },
+      {
+        "fold": 2,
+        "train": [
+          "2025-01-21T14:00:00+00:00",
+          "2025-07-21T04:00:00+00:00"
+        ],
+        "test": [
+          "2025-07-21T04:30:00+00:00",
+          "2025-09-19T11:00:00+00:00"
+        ]
+      },
+      {
+        "fold": 3,
+        "train": [
+          "2025-03-22T18:30:00+00:00",
+          "2025-09-19T11:00:00+00:00"
+        ],
+        "test": [
+          "2025-09-19T11:30:00+00:00",
+          "2025-11-18T17:00:00+00:00"
+        ]
+      },
+      {
+        "fold": 4,
+        "train": [
+          "2025-05-22T04:30:00+00:00",
+          "2025-11-18T17:00:00+00:00"
+        ],
+        "test": [
+          "2025-11-18T17:30:00+00:00",
+          "2026-01-17T23:00:00+00:00"
+        ]
+      },
+      {
+        "fold": 5,
+        "train": [
+          "2025-07-21T04:30:00+00:00",
+          "2026-01-17T23:00:00+00:00"
+        ],
+        "test": [
+          "2026-01-17T23:30:00+00:00",
+          "2026-03-18T23:00:00+00:00"
+        ]
+      },
+      {
+        "fold": 6,
+        "train": [
+          "2025-09-19T11:30:00+00:00",
+          "2026-03-18T23:00:00+00:00"
+        ],
+        "test": [
+          "2026-03-18T23:30:00+00:00",
+          "2026-05-18T08:30:00+00:00"
+        ]
+      },
+      {
+        "fold": 7,
+        "train": [
+          "2025-11-18T17:30:00+00:00",
+          "2026-05-18T08:30:00+00:00"
+        ],
+        "test": [
+          "2026-05-18T09:00:00+00:00",
+          "2026-07-17T08:30:00+00:00"
+        ]
+      }
+    ],
+    "signal_fill_contract": "completed close signal, next 30m open fill",
+    "oos_tuning": false
+  },
+  "costs": {
+    "base_fee_rate_per_fill": 0.0025,
+    "base_slippage_bps_per_fill": 5.0,
+    "stress_fee_rate_per_fill": 0.005,
+    "stress_slippage_bps_per_fill": 10
+  },
+  "pre_registered_hypotheses": [
+    "DC 30m BB20/2 + Wilder RSI14 armed re-entry; RSI 35 or 20 in bearish prior-day regime; close-observed 5% exits",
+    "1h BB20/2 re-entry + RSI30 cross; BB midline or 24h exit",
+    "1h re-entry with EMA200 uptrend filter",
+    "1h re-entry with latest completed 4h close above 4h SMA50",
+    "1h BB bandwidth bottom-20% of 120 bars + upper-band breakout; midline exit"
+  ],
+  "benchmark": {
+    "name": "buy_and_hold",
+    "walk_forward": {
+      "fold_count": 7,
+      "compounded_return": -0.20234863,
+      "maximum_drawdown": 0.27142621,
+      "mean_sharpe": -0.883069,
+      "trade_count": 1,
+      "weighted_win_rate": 0.0,
+      "profitable_folds": 4,
+      "folds": [
+        {
+          "fold": 1,
+          "train": [
+            0,
+            8640
+          ],
+          "test": [
+            8640,
+            11520
+          ],
+          "initial_equity_krw": 20000.0,
+          "final_equity_krw": 20396.39,
+          "total_return": 0.01981928,
+          "max_drawdown": 0.05762193,
+          "sharpe": 0.923888,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 2,
+          "train": [
+            2880,
+            11520
+          ],
+          "test": [
+            11520,
+            14400
+          ],
+          "initial_equity_krw": 20396.39,
+          "final_equity_krw": 20446.71,
+          "total_return": 0.00246721,
+          "max_drawdown": 0.06289549,
+          "sharpe": 0.18173,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 3,
+          "train": [
+            5760,
+            14400
+          ],
+          "test": [
+            14400,
+            17280
+          ],
+          "initial_equity_krw": 20446.71,
+          "final_equity_krw": 18870.08,
+          "total_return": -0.07710925,
+          "max_drawdown": 0.14063483,
+          "sharpe": -2.588256,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 4,
+          "train": [
+            8640,
+            17280
+          ],
+          "test": [
+            17280,
+            20160
+          ],
+          "initial_equity_krw": 18870.08,
+          "final_equity_krw": 19043.95,
+          "total_return": 0.00921402,
+          "max_drawdown": 0.05772445,
+          "sharpe": 0.391844,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 5,
+          "train": [
+            11520,
+            20160
+          ],
+          "test": [
+            20160,
+            23040
+          ],
+          "initial_equity_krw": 19043.95,
+          "final_equity_krw": 16808.81,
+          "total_return": -0.11736749,
+          "max_drawdown": 0.17048054,
+          "sharpe": -3.299966,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 6,
+          "train": [
+            14400,
+            23040
+          ],
+          "test": [
+            23040,
+            25920
+          ],
+          "initial_equity_krw": 16808.81,
+          "final_equity_krw": 17358.8,
+          "total_return": 0.03272063,
+          "max_drawdown": 0.02787105,
+          "sharpe": 1.549259,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        },
+        {
+          "fold": 7,
+          "train": [
+            17280,
+            25920
+          ],
+          "test": [
+            25920,
+            28800
+          ],
+          "initial_equity_krw": 17358.8,
+          "final_equity_krw": 15953.03,
+          "total_return": -0.08098335,
+          "max_drawdown": 0.09950686,
+          "sharpe": -3.339986,
+          "trade_count": 1,
+          "win_rate": 0.0,
+          "exposure": 1.0
+        }
+      ]
+    }
+  },
+  "candidates_ranked_by_oos_return": [
+    {
+      "name": "mean_reversion_1h_bb20_rsi30_reentry_4h_sma50_uptrend",
+      "walk_forward": {
+        "fold_count": 7,
+        "compounded_return": 0.01019286,
+        "maximum_drawdown": 0.0071603,
+        "mean_sharpe": 0.357426,
+        "trade_count": 6,
+        "weighted_win_rate": 0.83333333,
+        "profitable_folds": 2,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.00030157,
+            "max_drawdown": 0.00566226,
+            "sharpe": 0.143039,
+            "trade_count": 1,
+            "win_rate": 1.0,
+            "exposure": 0.00625
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 19981.54,
+            "total_return": -0.00122423,
+            "max_drawdown": 0.00639945,
+            "sharpe": -0.370135,
+            "trade_count": 3,
+            "win_rate": 0.66666667,
+            "exposure": 0.02083333
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 19981.54,
+            "final_equity_krw": 20203.86,
+            "total_return": 0.01112617,
+            "max_drawdown": 0.00264785,
+            "sharpe": 2.72908,
+            "trade_count": 2,
+            "win_rate": 1.0,
+            "exposure": 0.00347222
+          }
+        ]
+      },
+      "double_cost_stress": {
+        "fold_count": 7,
+        "compounded_return": -0.00789566,
+        "maximum_drawdown": 0.01739757,
+        "mean_sharpe": -0.337157,
+        "trade_count": 6,
+        "weighted_win_rate": 0.33333333,
+        "profitable_folds": 1,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 19945.89,
+            "total_return": -0.0027055,
+            "max_drawdown": 0.0071598,
+            "sharpe": -1.008303,
+            "trade_count": 1,
+            "win_rate": 0.0,
+            "exposure": 0.00625
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19945.89,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19945.89,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19945.89,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19945.89,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19742.37,
+            "total_return": -0.01020357,
+            "max_drawdown": 0.01237215,
+            "sharpe": -2.486614,
+            "trade_count": 3,
+            "win_rate": 0.0,
+            "exposure": 0.02083333
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 19742.37,
+            "final_equity_krw": 19842.09,
+            "total_return": 0.00505086,
+            "max_drawdown": 0.00414691,
+            "sharpe": 1.134818,
+            "trade_count": 2,
+            "win_rate": 1.0,
+            "exposure": 0.00347222
+          }
+        ]
+      },
+      "promotion": {
+        "status": "RESEARCH_ONLY",
+        "checks": {
+          "at_least_six_folds": true,
+          "at_least_thirty_oos_trades": false,
+          "majority_profitable_folds": false,
+          "positive_oos_return_after_costs": true,
+          "positive_double_cost_stress": false
+        }
+      }
+    },
+    {
+      "name": "mean_reversion_1h_bb20_rsi30_reentry_ema200_uptrend",
+      "walk_forward": {
+        "fold_count": 7,
+        "compounded_return": -0.01986444,
+        "maximum_drawdown": 0.03507998,
+        "mean_sharpe": -0.416544,
+        "trade_count": 7,
+        "weighted_win_rate": 0.57142857,
+        "profitable_folds": 2,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.00030157,
+            "max_drawdown": 0.00566226,
+            "sharpe": 0.143039,
+            "trade_count": 1,
+            "win_rate": 1.0,
+            "exposure": 0.00625
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 20006.03,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 20006.03,
+            "final_equity_krw": 19735.26,
+            "total_return": -0.01353455,
+            "max_drawdown": 0.01929472,
+            "sharpe": -1.920332,
+            "trade_count": 1,
+            "win_rate": 0.0,
+            "exposure": 0.01458333
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 19735.26,
+            "final_equity_krw": 19735.26,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 19735.26,
+            "final_equity_krw": 19679.19,
+            "total_return": -0.00284089,
+            "max_drawdown": 0.00437011,
+            "sharpe": -1.145203,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.00520833
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 19679.19,
+            "final_equity_krw": 19387.01,
+            "total_return": -0.0148474,
+            "max_drawdown": 0.01826878,
+            "sharpe": -2.722391,
+            "trade_count": 3,
+            "win_rate": 0.33333333,
+            "exposure": 0.028125
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 19387.01,
+            "final_equity_krw": 19602.71,
+            "total_return": 0.01112617,
+            "max_drawdown": 0.00264785,
+            "sharpe": 2.72908,
+            "trade_count": 2,
+            "win_rate": 1.0,
+            "exposure": 0.00347222
+          }
+        ]
+      },
+      "double_cost_stress": {
+        "fold_count": 7,
+        "compounded_return": -0.04029373,
+        "maximum_drawdown": 0.04948535,
+        "mean_sharpe": -1.05208,
+        "trade_count": 7,
+        "weighted_win_rate": 0.28571429,
+        "profitable_folds": 1,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 19945.89,
+            "total_return": -0.0027055,
+            "max_drawdown": 0.0071598,
+            "sharpe": -1.008303,
+            "trade_count": 1,
+            "win_rate": 0.0,
+            "exposure": 0.00625
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19945.89,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 19945.89,
+            "final_equity_krw": 19616.92,
+            "total_return": -0.01649315,
+            "max_drawdown": 0.02078545,
+            "sharpe": -2.198883,
+            "trade_count": 1,
+            "win_rate": 0.0,
+            "exposure": 0.01458333
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 19616.92,
+            "final_equity_krw": 19616.92,
+            "total_return": 0.0,
+            "max_drawdown": 0.0,
+            "sharpe": 0.0,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.0
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 19616.92,
+            "final_equity_krw": 19531.79,
+            "total_return": -0.00433984,
+            "max_drawdown": 0.0058683,
+            "sharpe": -1.520297,
+            "trade_count": 0,
+            "win_rate": 0.0,
+            "exposure": 0.00520833
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 19531.79,
+            "final_equity_krw": 19097.67,
+            "total_return": -0.02222631,
+            "max_drawdown": 0.02415754,
+            "sharpe": -3.771899,
+            "trade_count": 3,
+            "win_rate": 0.0,
+            "exposure": 0.028125
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 19097.67,
+            "final_equity_krw": 19194.13,
+            "total_return": 0.00505086,
+            "max_drawdown": 0.00414691,
+            "sharpe": 1.134818,
+            "trade_count": 2,
+            "win_rate": 1.0,
+            "exposure": 0.00347222
+          }
+        ]
+      },
+      "promotion": {
+        "status": "RESEARCH_ONLY",
+        "checks": {
+          "at_least_six_folds": true,
+          "at_least_thirty_oos_trades": false,
+          "majority_profitable_folds": false,
+          "positive_oos_return_after_costs": false,
+          "positive_double_cost_stress": false
+        }
+      }
+    },
+    {
+      "name": "bb_squeeze_bottom20_breakout_120_exit_midline",
+      "walk_forward": {
+        "fold_count": 7,
+        "compounded_return": -0.1786926,
+        "maximum_drawdown": 0.18016075,
+        "mean_sharpe": -3.784236,
+        "trade_count": 63,
+        "weighted_win_rate": 0.22222222,
+        "profitable_folds": 1,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 19764.02,
+            "total_return": -0.01179892,
+            "max_drawdown": 0.02660849,
+            "sharpe": -1.700009,
+            "trade_count": 8,
+            "win_rate": 0.25,
+            "exposure": 0.09583333
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 19764.02,
+            "final_equity_krw": 19189.17,
+            "total_return": -0.02908563,
+            "max_drawdown": 0.03453253,
+            "sharpe": -5.784268,
+            "trade_count": 9,
+            "win_rate": 0.22222222,
+            "exposure": 0.10069444
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 19189.17,
+            "final_equity_krw": 19209.15,
+            "total_return": 0.00104124,
+            "max_drawdown": 0.02442959,
+            "sharpe": 0.144674,
+            "trade_count": 9,
+            "win_rate": 0.44444444,
+            "exposure": 0.11319444
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 19209.15,
+            "final_equity_krw": 18755.86,
+            "total_return": -0.02359787,
+            "max_drawdown": 0.04425972,
+            "sharpe": -2.844119,
+            "trade_count": 6,
+            "win_rate": 0.16666667,
+            "exposure": 0.04027778
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 18755.86,
+            "final_equity_krw": 18005.01,
+            "total_return": -0.04003281,
+            "max_drawdown": 0.05583271,
+            "sharpe": -3.720835,
+            "trade_count": 8,
+            "win_rate": 0.25,
+            "exposure": 0.0625
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 18005.01,
+            "final_equity_krw": 16998.89,
+            "total_return": -0.05588011,
+            "max_drawdown": 0.05588011,
+            "sharpe": -8.208379,
+            "trade_count": 13,
+            "win_rate": 0.07692308,
+            "exposure": 0.08402778
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 16998.89,
+            "final_equity_krw": 16426.15,
+            "total_return": -0.03369272,
+            "max_drawdown": 0.03405811,
+            "sharpe": -4.376714,
+            "trade_count": 10,
+            "win_rate": 0.2,
+            "exposure": 0.11666667
+          }
+        ]
+      },
+      "double_cost_stress": {
+        "fold_count": 7,
+        "compounded_return": -0.32051689,
+        "maximum_drawdown": 0.32071355,
+        "mean_sharpe": -6.178084,
+        "trade_count": 63,
+        "weighted_win_rate": 0.14285714,
+        "profitable_folds": 0,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 19293.82,
+            "total_return": -0.03530898,
+            "max_drawdown": 0.04402722,
+            "sharpe": -4.445464,
+            "trade_count": 8,
+            "win_rate": 0.25,
+            "exposure": 0.09583333
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 19293.82,
+            "final_equity_krw": 18232.17,
+            "total_return": -0.05502525,
+            "max_drawdown": 0.05788006,
+            "sharpe": -8.25786,
+            "trade_count": 9,
+            "win_rate": 0.0,
+            "exposure": 0.10069444
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 18232.17,
+            "final_equity_krw": 17763.28,
+            "total_return": -0.02571808,
+            "max_drawdown": 0.03860725,
+            "sharpe": -2.617741,
+            "trade_count": 9,
+            "win_rate": 0.44444444,
+            "exposure": 0.11319444
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 17763.28,
+            "final_equity_krw": 17033.83,
+            "total_return": -0.04106502,
+            "max_drawdown": 0.05996676,
+            "sharpe": -4.533951,
+            "trade_count": 6,
+            "win_rate": 0.16666667,
+            "exposure": 0.04027778
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 17033.83,
+            "final_equity_krw": 15963.12,
+            "total_return": -0.06285748,
+            "max_drawdown": 0.07411061,
+            "sharpe": -5.493683,
+            "trade_count": 8,
+            "win_rate": 0.125,
+            "exposure": 0.0625
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 15963.12,
+            "final_equity_krw": 14493.08,
+            "total_return": -0.09209026,
+            "max_drawdown": 0.09209026,
+            "sharpe": -10.858371,
+            "trade_count": 13,
+            "win_rate": 0.07692308,
+            "exposure": 0.08402778
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 14493.08,
+            "final_equity_krw": 13589.66,
+            "total_return": -0.06233414,
+            "max_drawdown": 0.06233414,
+            "sharpe": -7.039516,
+            "trade_count": 10,
+            "win_rate": 0.0,
+            "exposure": 0.11666667
+          }
+        ]
+      },
+      "promotion": {
+        "status": "RESEARCH_ONLY",
+        "checks": {
+          "at_least_six_folds": true,
+          "at_least_thirty_oos_trades": true,
+          "majority_profitable_folds": false,
+          "positive_oos_return_after_costs": false,
+          "positive_double_cost_stress": false
+        }
+      }
+    },
+    {
+      "name": "mean_reversion_1h_bb20_rsi30_reentry_24bar_exit",
+      "walk_forward": {
+        "fold_count": 7,
+        "compounded_return": -0.19068469,
+        "maximum_drawdown": 0.21391977,
+        "mean_sharpe": -2.639342,
+        "trade_count": 51,
+        "weighted_win_rate": 0.33333333,
+        "profitable_folds": 1,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 20041.33,
+            "total_return": 0.00206675,
+            "max_drawdown": 0.00723073,
+            "sharpe": 0.339196,
+            "trade_count": 7,
+            "win_rate": 0.71428571,
+            "exposure": 0.03958333
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 20041.33,
+            "final_equity_krw": 19611.08,
+            "total_return": -0.02146825,
+            "max_drawdown": 0.02885573,
+            "sharpe": -3.376848,
+            "trade_count": 5,
+            "win_rate": 0.2,
+            "exposure": 0.04930556
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 19611.08,
+            "final_equity_krw": 18934.58,
+            "total_return": -0.03449585,
+            "max_drawdown": 0.03803482,
+            "sharpe": -2.606684,
+            "trade_count": 9,
+            "win_rate": 0.33333333,
+            "exposure": 0.09166667
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 18934.58,
+            "final_equity_krw": 18361.1,
+            "total_return": -0.03028758,
+            "max_drawdown": 0.04074332,
+            "sharpe": -2.312469,
+            "trade_count": 6,
+            "win_rate": 0.0,
+            "exposure": 0.04305556
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 18361.1,
+            "final_equity_krw": 17231.51,
+            "total_return": -0.06152086,
+            "max_drawdown": 0.07535189,
+            "sharpe": -3.684712,
+            "trade_count": 9,
+            "win_rate": 0.33333333,
+            "exposure": 0.08854167
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 17231.51,
+            "final_equity_krw": 16769.71,
+            "total_return": -0.02679987,
+            "max_drawdown": 0.03017973,
+            "sharpe": -3.905189,
+            "trade_count": 6,
+            "win_rate": 0.33333333,
+            "exposure": 0.05729167
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 16769.71,
+            "final_equity_krw": 16186.31,
+            "total_return": -0.03478892,
+            "max_drawdown": 0.05903142,
+            "sharpe": -2.928686,
+            "trade_count": 9,
+            "win_rate": 0.33333333,
+            "exposure": 0.07569444
+          }
+        ]
+      },
+      "double_cost_stress": {
+        "fold_count": 7,
+        "compounded_return": -0.30580131,
+        "maximum_drawdown": 0.30988167,
+        "mean_sharpe": -4.445983,
+        "trade_count": 51,
+        "weighted_win_rate": 0.1372549,
+        "profitable_folds": 0,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 19623.39,
+            "total_return": -0.01883062,
+            "max_drawdown": 0.0232129,
+            "sharpe": -2.4654,
+            "trade_count": 7,
+            "win_rate": 0.0,
+            "exposure": 0.03958333
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 19623.39,
+            "final_equity_krw": 18915.44,
+            "total_return": -0.03607697,
+            "max_drawdown": 0.03982693,
+            "sharpe": -5.086883,
+            "trade_count": 5,
+            "win_rate": 0.2,
+            "exposure": 0.04930556
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 18915.44,
+            "final_equity_krw": 17775.06,
+            "total_return": -0.06028813,
+            "max_drawdown": 0.06235061,
+            "sharpe": -4.3469,
+            "trade_count": 9,
+            "win_rate": 0.22222222,
+            "exposure": 0.09166667
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 17775.06,
+            "final_equity_krw": 16928.4,
+            "total_return": -0.04763176,
+            "max_drawdown": 0.05215651,
+            "sharpe": -3.506671,
+            "trade_count": 6,
+            "win_rate": 0.0,
+            "exposure": 0.04305556
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 16928.4,
+            "final_equity_krw": 15439.51,
+            "total_return": -0.08795212,
+            "max_drawdown": 0.08935223,
+            "sharpe": -5.176475,
+            "trade_count": 9,
+            "win_rate": 0.22222222,
+            "exposure": 0.08854167
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 15439.51,
+            "final_equity_krw": 14779.2,
+            "total_return": -0.04276785,
+            "max_drawdown": 0.0446585,
+            "sharpe": -5.617242,
+            "trade_count": 6,
+            "win_rate": 0.0,
+            "exposure": 0.05729167
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 14779.2,
+            "final_equity_krw": 13883.97,
+            "total_return": -0.06057326,
+            "max_drawdown": 0.06609501,
+            "sharpe": -4.92231,
+            "trade_count": 9,
+            "win_rate": 0.22222222,
+            "exposure": 0.07569444
+          }
+        ]
+      },
+      "promotion": {
+        "status": "RESEARCH_ONLY",
+        "checks": {
+          "at_least_six_folds": true,
+          "at_least_thirty_oos_trades": true,
+          "majority_profitable_folds": false,
+          "positive_oos_return_after_costs": false,
+          "positive_double_cost_stress": false
+        }
+      }
+    },
+    {
+      "name": "dc_30m_bb20_rsi14_armed_reentry_5pct_exit",
+      "walk_forward": {
+        "fold_count": 7,
+        "compounded_return": -0.21085647,
+        "maximum_drawdown": 0.29464448,
+        "mean_sharpe": -0.945547,
+        "trade_count": 44,
+        "weighted_win_rate": 0.45454545,
+        "profitable_folds": 2,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 20758.23,
+            "total_return": 0.03791173,
+            "max_drawdown": 0.04362289,
+            "sharpe": 1.838515,
+            "trade_count": 6,
+            "win_rate": 0.66666667,
+            "exposure": 0.83090278
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 20758.23,
+            "final_equity_krw": 21140.42,
+            "total_return": 0.01841121,
+            "max_drawdown": 0.03549796,
+            "sharpe": 1.088123,
+            "trade_count": 3,
+            "win_rate": 0.66666667,
+            "exposure": 0.809375
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 21140.42,
+            "final_equity_krw": 19306.71,
+            "total_return": -0.08673966,
+            "max_drawdown": 0.1276571,
+            "sharpe": -3.603791,
+            "trade_count": 5,
+            "win_rate": 0.2,
+            "exposure": 0.79444444
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 19306.71,
+            "final_equity_krw": 19054.69,
+            "total_return": -0.01305331,
+            "max_drawdown": 0.06687359,
+            "sharpe": -0.350145,
+            "trade_count": 7,
+            "win_rate": 0.57142857,
+            "exposure": 0.82638889
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 19054.69,
+            "final_equity_krw": 17264.76,
+            "total_return": -0.09393649,
+            "max_drawdown": 0.14472784,
+            "sharpe": -2.805192,
+            "trade_count": 10,
+            "win_rate": 0.4,
+            "exposure": 0.72986111
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 17264.76,
+            "final_equity_krw": 17262.24,
+            "total_return": -0.00014611,
+            "max_drawdown": 0.05387076,
+            "sharpe": 0.056575,
+            "trade_count": 5,
+            "win_rate": 0.6,
+            "exposure": 0.73680556
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 17262.24,
+            "final_equity_krw": 15782.87,
+            "total_return": -0.08569954,
+            "max_drawdown": 0.11977104,
+            "sharpe": -2.842915,
+            "trade_count": 8,
+            "win_rate": 0.25,
+            "exposure": 0.85347222
+          }
+        ]
+      },
+      "double_cost_stress": {
+        "fold_count": 7,
+        "compounded_return": -0.30867445,
+        "maximum_drawdown": 0.35933476,
+        "mean_sharpe": -1.65637,
+        "trade_count": 44,
+        "weighted_win_rate": 0.45454545,
+        "profitable_folds": 2,
+        "folds": [
+          {
+            "fold": 1,
+            "train": [
+              0,
+              8640
+            ],
+            "test": [
+              8640,
+              11520
+            ],
+            "initial_equity_krw": 20000.0,
+            "final_equity_krw": 20355.67,
+            "total_return": 0.01778369,
+            "max_drawdown": 0.05311322,
+            "sharpe": 0.893218,
+            "trade_count": 6,
+            "win_rate": 0.66666667,
+            "exposure": 0.83090278
+          },
+          {
+            "fold": 2,
+            "train": [
+              2880,
+              11520
+            ],
+            "test": [
+              11520,
+              14400
+            ],
+            "initial_equity_krw": 20355.67,
+            "final_equity_krw": 20543.96,
+            "total_return": 0.00924991,
+            "max_drawdown": 0.04003977,
+            "sharpe": 0.570547,
+            "trade_count": 3,
+            "win_rate": 0.66666667,
+            "exposure": 0.809375
+          },
+          {
+            "fold": 3,
+            "train": [
+              5760,
+              14400
+            ],
+            "test": [
+              14400,
+              17280
+            ],
+            "initial_equity_krw": 20543.96,
+            "final_equity_krw": 18482.77,
+            "total_return": -0.10033064,
+            "max_drawdown": 0.13805969,
+            "sharpe": -4.158828,
+            "trade_count": 5,
+            "win_rate": 0.2,
+            "exposure": 0.79444444
+          },
+          {
+            "fold": 4,
+            "train": [
+              8640,
+              17280
+            ],
+            "test": [
+              17280,
+              20160
+            ],
+            "initial_equity_krw": 18482.77,
+            "final_equity_krw": 17860.95,
+            "total_return": -0.03364343,
+            "max_drawdown": 0.08081221,
+            "sharpe": -1.047349,
+            "trade_count": 7,
+            "win_rate": 0.57142857,
+            "exposure": 0.82638889
+          },
+          {
+            "fold": 5,
+            "train": [
+              11520,
+              20160
+            ],
+            "test": [
+              20160,
+              23040
+            ],
+            "initial_equity_krw": 17860.95,
+            "final_equity_krw": 15703.86,
+            "total_return": -0.12077133,
+            "max_drawdown": 0.15999629,
+            "sharpe": -3.65116,
+            "trade_count": 10,
+            "win_rate": 0.4,
+            "exposure": 0.72986111
+          },
+          {
+            "fold": 6,
+            "train": [
+              14400,
+              23040
+            ],
+            "test": [
+              23040,
+              25920
+            ],
+            "initial_equity_krw": 15703.86,
+            "final_equity_krw": 15466.64,
+            "total_return": -0.01510564,
+            "max_drawdown": 0.05952056,
+            "sharpe": -0.655085,
+            "trade_count": 5,
+            "win_rate": 0.6,
+            "exposure": 0.73680556
+          },
+          {
+            "fold": 7,
+            "train": [
+              17280,
+              25920
+            ],
+            "test": [
+              25920,
+              28800
+            ],
+            "initial_equity_krw": 15466.64,
+            "final_equity_krw": 13826.51,
+            "total_return": -0.10604312,
+            "max_drawdown": 0.13290817,
+            "sharpe": -3.545936,
+            "trade_count": 8,
+            "win_rate": 0.25,
+            "exposure": 0.85347222
+          }
+        ]
+      },
+      "promotion": {
+        "status": "RESEARCH_ONLY",
+        "checks": {
+          "at_least_six_folds": true,
+          "at_least_thirty_oos_trades": true,
+          "majority_profitable_folds": false,
+          "positive_oos_return_after_costs": false,
+          "positive_double_cost_stress": false
+        }
+      }
+    }
+  ],
+  "final_untouched_holdout": {
+    "candidate": "mean_reversion_1h_bb20_rsi30_reentry_4h_sma50_uptrend",
+    "selection_basis": "highest walk-forward compounded return before holdout inspection",
+    "period": [
+      "2026-07-17T09:00:00+00:00",
+      "2026-08-11T08:30:00+00:00"
+    ],
+    "candle_count_30m": 1200,
+    "walk_forward": {
+      "fold_count": 1,
+      "compounded_return": 0.0,
+      "maximum_drawdown": 0.0,
+      "mean_sharpe": 0.0,
+      "trade_count": 0,
+      "weighted_win_rate": 0.0,
+      "profitable_folds": 0,
+      "folds": [
+        {
+          "fold": 1,
+          "train": [
+            0,
+            8640
+          ],
+          "test": [
+            8640,
+            9840
+          ],
+          "initial_equity_krw": 20000.0,
+          "final_equity_krw": 20000.0,
+          "total_return": 0.0,
+          "max_drawdown": 0.0,
+          "sharpe": 0.0,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 0.0
+        }
+      ]
+    },
+    "double_cost_stress": {
+      "fold_count": 1,
+      "compounded_return": 0.0,
+      "maximum_drawdown": 0.0,
+      "mean_sharpe": 0.0,
+      "trade_count": 0,
+      "weighted_win_rate": 0.0,
+      "profitable_folds": 0,
+      "folds": [
+        {
+          "fold": 1,
+          "train": [
+            0,
+            8640
+          ],
+          "test": [
+            8640,
+            9840
+          ],
+          "initial_equity_krw": 20000.0,
+          "final_equity_krw": 20000.0,
+          "total_return": 0.0,
+          "max_drawdown": 0.0,
+          "sharpe": 0.0,
+          "trade_count": 0,
+          "win_rate": 0.0,
+          "exposure": 0.0
+        }
+      ]
+    },
+    "passed": false
+  },
+  "selection": {
+    "status": "RESEARCH_ONLY",
+    "selected_candidate": null,
+    "provisional_best_before_holdout": "mean_reversion_1h_bb20_rsi30_reentry_4h_sma50_uptrend",
+    "reason": "no candidate passed every promotion, stress, and untouched-holdout gate",
+    "paper_or_live_strategy_changed": false
+  },
+  "limitations": [
+    "OHLCV bars cannot reconstruct intrabar stop/target ordering or actual order-book impact.",
+    "The DC 5% exits are observed at completed closes and executed at the next open.",
+    "One market and one historical window are insufficient evidence for live deployment."
+  ],
+  "warning": "Backtests are research evidence, not a profit guarantee or live-trading approval."
+}

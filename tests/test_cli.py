@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bithumb_coin_trader.cli import main
-from bithumb_coin_trader.data import save_candles_csv
+from bithumb_coin_trader.data import load_candles_csv, save_candles_csv
 from bithumb_coin_trader.models import Candle
 
 
@@ -28,10 +28,25 @@ def sample_candles(count: int = 700) -> list[Candle]:
                 price * 1.01,
                 price * 0.99,
                 price,
-                10,
+                10.0,
             )
         )
     return values
+
+
+def sample_minute_candles(count: int = 320) -> list[Candle]:
+    return [
+        Candle(
+            datetime(2024, 1, 1, tzinfo=UTC) + timedelta(minutes=30 * index),
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close,
+            candle.volume,
+            candle.market,
+        )
+        for index, candle in enumerate(sample_candles(count))
+    ]
 
 
 class CliTests(unittest.TestCase):
@@ -48,6 +63,124 @@ class CliTests(unittest.TestCase):
         self.assertEqual(len(payload["dataset"]["sha256"]), 64)
         self.assertEqual(payload["promotion"]["status"], "RESEARCH_ONLY")
         self.assertFalse(payload["promotion"]["checks"]["at_least_six_folds"])
+
+    def test_candidate_research_records_fixed_candidates_and_writes_report(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "candles.csv"
+            report = root / "candidate-report.json"
+            save_candles_csv(source, sample_minute_candles())
+            output = StringIO()
+            with redirect_stdout(output):
+                code = main(
+                    [
+                        "research-candidates",
+                        "--input", str(source),
+                        "--train-size", "200",
+                        "--test-size", "40",
+                        "--output", str(report),
+                    ]
+                )
+            payload = json.loads(output.getvalue())
+            persisted = json.loads(report.read_text(encoding="utf-8"))
+        self.assertEqual(code, 0)
+        self.assertEqual(payload, persisted)
+        self.assertEqual(payload["validation"]["candidate_count"], 5)
+        self.assertEqual(len(payload["candidates_ranked_by_oos_return"]), 5)
+        self.assertFalse(payload["validation"]["oos_tuning"])
+        self.assertFalse(payload["selection"]["paper_or_live_strategy_changed"])
+        self.assertEqual(payload["selection"]["status"], "RESEARCH_ONLY")
+
+    def test_candidate_research_rejects_daily_csv_mislabeled_as_30m(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "daily.csv"
+            save_candles_csv(source, sample_candles(320))
+            with self.assertRaisesRegex(ValueError, "not a 30-minute"):
+                main(
+                    [
+                        "research-candidates",
+                        "--input", str(source),
+                        "--train-size", "200",
+                        "--test-size", "40",
+                    ]
+                )
+
+    def test_candidate_research_rejects_wrong_market_incomplete_bar_and_large_gap(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrong_market = [
+                Candle(
+                    candle.timestamp,
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                    "KRW-ETH",
+                )
+                for candle in sample_minute_candles()
+            ]
+            wrong_path = root / "wrong.csv"
+            save_candles_csv(wrong_path, wrong_market)
+            with self.assertRaisesRegex(ValueError, "exact KRW-BTC"):
+                main(["research-candidates", "--market", "KRW-ETH", "--input", str(wrong_path)])
+
+            incomplete_path = root / "incomplete.csv"
+            minute_candles = sample_minute_candles()
+            save_candles_csv(incomplete_path, minute_candles)
+            cutoff = minute_candles[-1].timestamp + timedelta(minutes=15)
+            with self.assertRaisesRegex(ValueError, "incomplete final"):
+                main(
+                    [
+                        "research-candidates",
+                        "--input", str(incomplete_path),
+                        "--as-of", cutoff.isoformat(),
+                    ]
+                )
+
+            gapped = minute_candles[:160] + [
+                Candle(
+                    candle.timestamp + timedelta(days=3),
+                    candle.open,
+                    candle.high,
+                    candle.low,
+                    candle.close,
+                    candle.volume,
+                    candle.market,
+                )
+                for candle in minute_candles[160:]
+            ]
+            gap_path = root / "gap.csv"
+            save_candles_csv(gap_path, gapped)
+            with self.assertRaisesRegex(ValueError, "excessive candle gap"):
+                main(["research-candidates", "--input", str(gap_path)])
+
+    def test_fetch_minutes_forwards_fixed_cutoffs_and_writes_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory) / "minutes.csv"
+            cutoff = datetime(2024, 2, 1, tzinfo=UTC)
+            candles = sample_minute_candles(4)
+            output = StringIO()
+            with (
+                patch("bithumb_coin_trader.cli.fetch_minute_candles", return_value=candles) as fetch,
+                redirect_stdout(output),
+            ):
+                code = main(
+                    [
+                        "fetch-minutes",
+                        "--unit", "30",
+                        "--count", "4",
+                        "--to", cutoff.isoformat(),
+                        "--as-of", cutoff.isoformat(),
+                        "--output", str(output_path),
+                    ]
+                )
+            persisted = load_candles_csv(output_path)
+        self.assertEqual(code, 0)
+        self.assertEqual(persisted, candles)
+        fetch.assert_called_once_with(
+            "KRW-BTC", 30, 4, to=cutoff, as_of=cutoff, timeout=20.0
+        )
 
     def test_signal_never_submits_order(self) -> None:
         output = StringIO()

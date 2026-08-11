@@ -8,14 +8,20 @@ import shlex
 import subprocess
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Sequence
 
 from .backtest import BacktestResult, Backtester
 from .config import TradingSettings
-from .data import dataset_manifest, fetch_daily_candles, load_candles_csv, save_candles_csv
+from .data import (
+    dataset_manifest,
+    fetch_daily_candles,
+    fetch_minute_candles,
+    load_candles_csv,
+    save_candles_csv,
+)
 from .discord_notify import (
     DEFAULT_SOURCE_CRON_ENV,
     DEFAULT_CONFIG_PATH,
@@ -31,7 +37,13 @@ from .models import Candle, Signal
 from .mcp_client import McpStdioClient
 from .paper import PaperEngine, PaperError, PaperState, load_paper_state, verify_audit
 from .readiness import PaperEvidence, assess_live_readiness
-from .research import ProjectResearchReport, run_chronological_research
+from .research import (
+    CandidateComparisonReport,
+    ProjectResearchReport,
+    compare_registered_candidates,
+    registered_candidate_factories,
+    run_chronological_research,
+)
 from .state import load_state
 from .strategy import TrendBreakoutStrategy
 
@@ -111,6 +123,59 @@ def _load_or_fetch(args: argparse.Namespace) -> list[Candle]:
     return fetch_daily_candles(args.market, args.count, timeout=args.timeout)
 
 
+def _parse_aware_datetime(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("timestamp must be ISO-8601") from exc
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise argparse.ArgumentTypeError("timestamp must include a timezone offset")
+    return parsed.astimezone(UTC)
+
+
+def _validate_30m_research_candles(
+    candles: Sequence[Candle],
+    *,
+    expected_market: str,
+    observed_at: datetime,
+) -> tuple[int, int, int]:
+    """Require a predominantly contiguous, aligned 30-minute research series."""
+
+    if len(candles) < 2:
+        raise ValueError("candidate research requires at least two 30-minute candles")
+    markets = {candle.market for candle in candles}
+    if expected_market != "KRW-BTC" or markets != {expected_market}:
+        raise ValueError("candidate research requires the exact KRW-BTC market")
+    if observed_at.tzinfo is None or observed_at.utcoffset() is None:
+        raise ValueError("candidate research observed_at must be timezone-aware")
+    interval = timedelta(minutes=30)
+    gap_events = 0
+    missing_candles = 0
+    maximum_gap_minutes = 30
+    for index, candle in enumerate(candles):
+        timestamp = candle.timestamp.astimezone(UTC)
+        if timestamp.minute not in {0, 30} or timestamp.second or timestamp.microsecond:
+            raise ValueError("candidate research requires aligned 30-minute candles")
+        if index == 0:
+            continue
+        delta = candle.timestamp - candles[index - 1].timestamp
+        if delta <= timedelta(0) or delta % interval:
+            raise ValueError("candidate research candle cadence is not a 30-minute multiple")
+        if delta != interval:
+            missing_in_gap = int(delta // interval) - 1
+            gap_events += 1
+            missing_candles += missing_in_gap
+            maximum_gap_minutes = max(maximum_gap_minutes, int(delta.total_seconds() // 60))
+            if missing_in_gap > 48:
+                raise ValueError("input is not a 30-minute research series: excessive candle gap")
+    maximum_missing = max(1, (len(candles) - 1) // 100)
+    if missing_candles > maximum_missing:
+        raise ValueError("input is not a 30-minute research series: too many missing candles")
+    if candles[-1].timestamp + interval > observed_at.astimezone(UTC):
+        raise ValueError("candidate research contains an incomplete final 30-minute candle")
+    return gap_events, missing_candles, maximum_gap_minutes
+
+
 def _promotion_status(base: ProjectResearchReport, stress: ProjectResearchReport) -> dict[str, Any]:
     checks = {
         "at_least_six_folds": len(base.folds) >= 6,
@@ -125,6 +190,52 @@ def _promotion_status(base: ProjectResearchReport, stress: ProjectResearchReport
     }
 
 
+class _BuyAndHoldStrategy:
+    """OOS benchmark using the same next-open fill and cost model."""
+
+    def generate(self, candles: Sequence[Candle]) -> list[Signal]:
+        return [Signal.LONG] * len(candles)
+
+
+def _candidate_reports(
+    comparison: CandidateComparisonReport,
+    stress: CandidateComparisonReport,
+) -> list[dict[str, Any]]:
+    stress_by_name = {report.candidate_name: report for report in stress.candidates}
+    rows: list[dict[str, Any]] = []
+    for report in comparison.candidates:
+        stress_report = stress_by_name[report.candidate_name]
+        rows.append(
+            {
+                "name": report.candidate_name,
+                "walk_forward": _report(report),
+                "double_cost_stress": _report(stress_report),
+                "promotion": _promotion_status(report, stress_report),
+            }
+        )
+    rows.sort(key=lambda row: row["walk_forward"]["compounded_return"], reverse=True)
+    return rows
+
+
+def _calendar_folds(candles: Sequence[Candle], comparison: CandidateComparisonReport) -> list[dict[str, Any]]:
+    return [
+        {
+            "fold": index + 1,
+            "train": [
+                candles[train_start].timestamp.isoformat(),
+                candles[train_end - 1].timestamp.isoformat(),
+            ],
+            "test": [
+                candles[test_start].timestamp.isoformat(),
+                candles[test_end - 1].timestamp.isoformat(),
+            ],
+        }
+        for index, (train_start, train_end, test_start, test_end) in enumerate(
+            comparison.fold_boundaries
+        )
+    ]
+
+
 def command_fetch(args: argparse.Namespace) -> int:
     candles = fetch_daily_candles(args.market, args.count, timeout=args.timeout)
     save_candles_csv(args.output, candles)
@@ -133,6 +244,32 @@ def command_fetch(args: argparse.Namespace) -> int:
             {
                 "market": args.market,
                 "candles": len(candles),
+                "output": str(args.output),
+                "dataset": _manifest(candles),
+            }
+        )
+    )
+    return 0
+
+
+def command_fetch_minutes(args: argparse.Namespace) -> int:
+    candles = fetch_minute_candles(
+        args.market,
+        args.unit,
+        args.count,
+        to=args.to,
+        as_of=args.as_of,
+        timeout=args.timeout,
+    )
+    save_candles_csv(args.output, candles)
+    print(
+        json.dumps(
+            {
+                "market": args.market,
+                "unit_minutes": args.unit,
+                "candles": len(candles),
+                "exclusive_to": args.to.isoformat() if args.to else None,
+                "observed_at": args.as_of.isoformat() if args.as_of else None,
                 "output": str(args.output),
                 "dataset": _manifest(candles),
             }
@@ -174,6 +311,164 @@ def command_research(args: argparse.Namespace) -> int:
         "warning": "Backtests are research evidence, not a profit guarantee or live-trading approval.",
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
+def command_research_candidates(args: argparse.Namespace) -> int:
+    """Compare the fixed BTC spot hypotheses without changing paper/live state."""
+
+    observed_at = args.as_of or datetime.now(UTC)
+    candles = (
+        load_candles_csv(args.input)
+        if args.input
+        else fetch_minute_candles(
+            args.market,
+            30,
+            args.count,
+            as_of=observed_at,
+            timeout=args.timeout,
+        )
+    )
+    gap_events, missing_candles, maximum_gap_minutes = _validate_30m_research_candles(
+        candles,
+        expected_market=args.market,
+        observed_at=observed_at,
+    )
+    base_settings = TradingSettings()
+    stress_settings = TradingSettings(fee_rate=0.005, slippage_bps=10)
+    comparison = compare_registered_candidates(
+        candles,
+        train_size=args.train_size,
+        test_size=args.test_size,
+        settings=base_settings,
+    )
+    stress = compare_registered_candidates(
+        candles,
+        train_size=args.train_size,
+        test_size=args.test_size,
+        settings=stress_settings,
+    )
+    benchmark = run_chronological_research(
+        candles,
+        train_size=args.train_size,
+        test_size=args.test_size,
+        settings=base_settings,
+        candidate_name="buy_and_hold",
+        candidate_factory=_BuyAndHoldStrategy,
+        continuous_oos=True,
+    )
+    candidates = _candidate_reports(comparison, stress)
+    promoted = [row for row in candidates if row["promotion"]["status"] == "PAPER_CANDIDATE"]
+    provisional_name = candidates[0]["name"]
+    holdout_candidate = promoted[0]["name"] if promoted else provisional_name
+    used_end = comparison.fold_boundaries[-1][3]
+    holdout_count = len(candles) - used_end
+    holdout: dict[str, Any] | None = None
+    holdout_passed = False
+    if holdout_count >= 2:
+        registry = registered_candidate_factories()
+        holdout_candles = candles[used_end - args.train_size :]
+        holdout_base = run_chronological_research(
+            holdout_candles,
+            train_size=args.train_size,
+            test_size=holdout_count,
+            settings=base_settings,
+            candidate_name=holdout_candidate,
+            candidate_factory=registry[holdout_candidate],
+            continuous_oos=True,
+        )
+        holdout_stress = run_chronological_research(
+            holdout_candles,
+            train_size=args.train_size,
+            test_size=holdout_count,
+            settings=stress_settings,
+            candidate_name=holdout_candidate,
+            candidate_factory=registry[holdout_candidate],
+            continuous_oos=True,
+        )
+        holdout_passed = (
+            holdout_base.trade_count > 0
+            and holdout_base.compounded_return > 0
+            and holdout_stress.compounded_return > 0
+        )
+        holdout = {
+            "candidate": holdout_candidate,
+            "selection_basis": (
+                "highest-return promotion-qualified candidate before holdout inspection"
+                if promoted
+                else "highest walk-forward compounded return before holdout inspection"
+            ),
+            "period": [
+                candles[used_end].timestamp.isoformat(),
+                candles[-1].timestamp.isoformat(),
+            ],
+            "candle_count_30m": holdout_count,
+            "walk_forward": _report(holdout_base),
+            "double_cost_stress": _report(holdout_stress),
+            "passed": holdout_passed,
+        }
+    selected = holdout_candidate if promoted and holdout_passed else None
+    payload = {
+        "generated_at": datetime.now(UTC).isoformat(),
+        "market": candles[0].market,
+        "mode": "bithumb_spot_long_flat_research",
+        "timeframe": "30m_execution_with_completed_1h_signals",
+        "dataset": _manifest(candles),
+        "data_quality": {
+            "observed_at": observed_at.isoformat(),
+            "expected_interval_minutes": 30,
+            "gap_event_count": gap_events,
+            "missing_candle_count": missing_candles,
+            "maximum_gap_minutes": maximum_gap_minutes,
+            "gap_policy": "never forward-fill; omit incomplete aggregate buckets",
+        },
+        "validation": {
+            "method": "fixed-parameter rolling walk-forward",
+            "train_candles_30m": args.train_size,
+            "test_candles_30m": args.test_size,
+            "candidate_count": comparison.candidate_count,
+            "calendar_folds": _calendar_folds(candles, comparison),
+            "signal_fill_contract": "completed close signal, next 30m open fill",
+            "oos_tuning": False,
+        },
+        "costs": {
+            "base_fee_rate_per_fill": base_settings.fee_rate,
+            "base_slippage_bps_per_fill": base_settings.slippage_bps,
+            "stress_fee_rate_per_fill": stress_settings.fee_rate,
+            "stress_slippage_bps_per_fill": stress_settings.slippage_bps,
+        },
+        "pre_registered_hypotheses": [
+            "DC 30m BB20/2 + Wilder RSI14 armed re-entry; RSI 35 or 20 in bearish prior-day regime; close-observed 5% exits",
+            "1h BB20/2 re-entry + RSI30 cross; BB midline or 24h exit",
+            "1h re-entry with EMA200 uptrend filter",
+            "1h re-entry with latest completed 4h close above 4h SMA50",
+            "1h BB bandwidth bottom-20% of 120 bars + upper-band breakout; midline exit",
+        ],
+        "benchmark": {"name": "buy_and_hold", "walk_forward": _report(benchmark)},
+        "candidates_ranked_by_oos_return": candidates,
+        "final_untouched_holdout": holdout,
+        "selection": {
+            "status": "PAPER_CANDIDATE" if selected else "RESEARCH_ONLY",
+            "selected_candidate": selected,
+            "provisional_best_before_holdout": provisional_name,
+            "reason": (
+                "highest OOS return among candidates passing promotion, stress, and untouched-holdout gates"
+                if selected
+                else "no candidate passed every promotion, stress, and untouched-holdout gate"
+            ),
+            "paper_or_live_strategy_changed": False,
+        },
+        "limitations": [
+            "OHLCV bars cannot reconstruct intrabar stop/target ordering or actual order-book impact.",
+            "The DC 5% exits are observed at completed closes and executed at the next open.",
+            "One market and one historical window are insufficient evidence for live deployment.",
+        ],
+        "warning": "Backtests are research evidence, not a profit guarantee or live-trading approval.",
+    }
+    rendered = json.dumps(payload, ensure_ascii=False, indent=2)
+    if args.output:
+        args.output.write_text(rendered + "\n", encoding="utf-8")
+    print(rendered)
     return 0
 
 
@@ -443,6 +738,18 @@ def build_parser() -> argparse.ArgumentParser:
     fetch.add_argument("--output", type=Path, required=True)
     fetch.set_defaults(handler=command_fetch)
 
+    fetch_minutes = subparsers.add_parser(
+        "fetch-minutes", help="fetch completed public minute candles to an explicit CSV path"
+    )
+    fetch_minutes.add_argument("--market", default="KRW-BTC")
+    fetch_minutes.add_argument("--unit", type=int, default=30)
+    fetch_minutes.add_argument("--count", type=int, default=30_000)
+    fetch_minutes.add_argument("--to", type=_parse_aware_datetime)
+    fetch_minutes.add_argument("--as-of", type=_parse_aware_datetime)
+    fetch_minutes.add_argument("--timeout", type=float, default=20.0)
+    fetch_minutes.add_argument("--output", type=Path, required=True)
+    fetch_minutes.set_defaults(handler=command_fetch_minutes)
+
     research = subparsers.add_parser("research", help="run fixed-parameter walk-forward research")
     research.add_argument("--market", default="KRW-BTC")
     research.add_argument("--count", type=int, default=1_000)
@@ -451,6 +758,20 @@ def build_parser() -> argparse.ArgumentParser:
     research.add_argument("--train-size", type=int, default=400)
     research.add_argument("--test-size", type=int, default=100)
     research.set_defaults(handler=command_research)
+
+    candidate_research = subparsers.add_parser(
+        "research-candidates",
+        help="compare fixed 30m/1h BTC spot hypotheses on identical walk-forward folds",
+    )
+    candidate_research.add_argument("--market", default="KRW-BTC")
+    candidate_research.add_argument("--count", type=int, default=30_000)
+    candidate_research.add_argument("--timeout", type=float, default=20.0)
+    candidate_research.add_argument("--input", type=Path)
+    candidate_research.add_argument("--as-of", type=_parse_aware_datetime)
+    candidate_research.add_argument("--train-size", type=int, default=8_640)
+    candidate_research.add_argument("--test-size", type=int, default=2_880)
+    candidate_research.add_argument("--output", type=Path)
+    candidate_research.set_defaults(handler=command_research_candidates)
 
     signal = subparsers.add_parser("signal", help="print the current research signal without ordering")
     signal.add_argument("--market", default="KRW-BTC")

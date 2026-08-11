@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import UTC, datetime, timedelta
+from math import sqrt
 
 from bithumb_coin_trader.backtest import Backtester
 from bithumb_coin_trader.config import TradingSettings
@@ -51,6 +52,34 @@ class BacktestTests(unittest.TestCase):
             [Signal.LONG, Signal.FLAT, Signal.FLAT],
         )
         self.assertLess(result.final_equity, result.initial_equity)
+        self.assertEqual(result.position_curve, (Signal.FLAT, Signal.LONG, Signal.FLAT))
+
+    def test_final_liquidation_is_identifiable(self) -> None:
+        result = Backtester(self.settings).run(
+            make_candles([100, 100, 100]),
+            [Signal.LONG, Signal.LONG, Signal.LONG],
+        )
+
+        self.assertEqual(result.trade_count, 1)
+        self.assertTrue(result.trades[0].is_final_liquidation)
+
+    def test_sharpe_annualization_uses_candle_frequency(self) -> None:
+        daily = make_candles([100, 110, 105, 115, 110])
+        intraday = [
+            Candle(
+                daily[0].timestamp + timedelta(minutes=30 * index),
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
+            )
+            for index, candle in enumerate(daily)
+        ]
+        signals = [Signal.LONG, Signal.LONG, Signal.LONG, Signal.LONG, Signal.FLAT]
+        daily_result = Backtester(self.settings).run(daily, signals)
+        intraday_result = Backtester(self.settings).run(intraday, signals)
+        self.assertAlmostEqual(intraday_result.sharpe / daily_result.sharpe, sqrt(48), places=6)
 
 
 if __name__ == "__main__":

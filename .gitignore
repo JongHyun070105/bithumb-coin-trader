@@ -9,3 +9,4 @@ reports/*.json
 reports/*.csv
 !reports/.gitkeep
 !reports/krw-btc-daily-baseline-2026-08-10.json
+!reports/krw-btc-candidate-study-2026-08-11.json

@@ -17,8 +17,8 @@
 
 현재 구현 범위는 빗썸 KRW 현물 `LONG / FLAT` 전략입니다.
 
-- 빗썸 공개 API 기반 일봉 수집
-- EMA 추세와 가격 돌파 기반 기준 전략
+- 빗썸 공개 API 기반 완료 일봉·분봉 수집과 시간대 집계
+- 일봉 추세·돌파 기준선과 30분/1시간 고정 후보 전략 비교
 - 비중첩 워크포워드 및 비용 스트레스 평가
 - 일봉 단위 페이퍼 실행과 catch-up
 - 읽기 전용 MCP 계정·주문 가능 상태 점검
@@ -64,13 +64,27 @@ READY 심사
 
 데이터 식별 해시와 상세 결과는 [연구 기준선](docs/RESEARCH_BASELINE.md)과 [고정 보고서](reports/krw-btc-daily-baseline-2026-08-10.json)에 기록되어 있습니다.
 
+### 30분·1시간 후보 비교
+
+RSI·볼린저 재진입, 상승 레짐 필터, 스퀴즈 돌파 등 사전 고정한 다섯 후보를 완료된 `KRW-BTC` 30분봉 30,000개와 동일한 7개 OOS fold에서 비교했습니다.
+
+| 후보 | OOS 수익률 | 최대 낙폭 | 거래 수 | 2배 비용 |
+|---|---:|---:|---:|---:|
+| 4시간 SMA50 필터 평균회귀 | +1.02% | 0.72% | 6 | -0.79% |
+| EMA200 필터 평균회귀 | -1.99% | 3.51% | 7 | -4.03% |
+| 스퀴즈 돌파 | -17.87% | 18.02% | 63 | -32.05% |
+| 무필터 평균회귀 | -19.07% | 21.39% | 51 | -30.58% |
+| 원문 30분 RSI·볼린저 | -21.09% | 29.46% | 44 | -30.87% |
+
+수익률 1위도 거래 수·수익 fold·비용 스트레스·마지막 미사용 구간을 통과하지 못했습니다. 따라서 새 후보는 선택하지 않았고 기존 페이퍼 전략도 교체하지 않았습니다. 전체 규칙과 fold별 결과는 [고정 후보 연구](docs/CANDIDATE_RESEARCH_2026-08-11.md)에 있습니다.
+
 ## 주요 구성요소
 
 | 모듈 | 역할 |
 |---|---|
-| `data.py` | 빗썸 일봉 수집, 완료 봉 필터링, CSV와 데이터셋 해시 |
-| `strategy.py` | 추세·돌파 신호와 영속 전략 포지션 재개 |
-| `backtest.py` / `research.py` | 다음 봉 시가 체결, 워크포워드, 비용 스트레스 |
+| `data.py` | 빗썸 일봉·분봉 수집, 완료 봉 필터링, 시간대 집계, 데이터셋 해시 |
+| `indicators.py` / `strategy.py` | RSI·볼린저·추세·돌파 후보와 완료 상위 시간대 신호 |
+| `backtest.py` / `research.py` | 다음 봉 시가 체결, 동일 fold 후보 비교, 워크포워드, 비용 스트레스 |
 | `paper.py` | Decimal 회계, WAL 복구, 감사 원장 replay |
 | `readiness.py` | 연구·페이퍼·상태·MCP를 묶은 라이브 준비 심사 |
 | `execution.py` | 주문 계획, 위험 제한, preflight, 단일 제출, 재조정 |
@@ -110,6 +124,23 @@ BITHUMB_SECRET_KEY
 
 ```bash
 .venv/bin/bithumb-trader research --input data/krw-btc-daily.csv
+```
+
+완료 30분봉에서 고정 후보 다섯 개 비교:
+
+```bash
+.venv/bin/bithumb-trader fetch-minutes \
+  --market KRW-BTC \
+  --unit 30 \
+  --count 30000 \
+  --to 2026-08-11T09:00:00+00:00 \
+  --as-of 2026-08-11T09:00:00+00:00 \
+  --output data/krw-btc-30m-2026-08-11.csv
+
+.venv/bin/bithumb-trader research-candidates \
+  --input data/krw-btc-30m-2026-08-11.csv \
+  --as-of 2026-08-11T09:00:00+00:00 \
+  --output reports/krw-btc-candidate-study-2026-08-11.json
 ```
 
 주문 없이 최신 연구 신호 확인:
@@ -218,6 +249,7 @@ git diff --check
 ## 문서
 
 - [연구 기준선](docs/RESEARCH_BASELINE.md)
+- [30분·1시간 고정 후보 연구](docs/CANDIDATE_RESEARCH_2026-08-11.md)
 - [실전 준비 런북](docs/LIVE_READINESS.md)
 
 ## 공식 문서
@@ -226,6 +258,7 @@ git diff --check
 - [빗썸 주문 요청 API](https://apidocs.bithumb.com/reference/%EC%A3%BC%EB%AC%B8-%EC%9A%94%EC%B2%AD)
 - [빗썸 주문가능조회 안내](https://apidocs.bithumb.com/docs/api-%ED%98%B8%EC%B6%9C%ED%95%B4-%EB%B3%B4%EA%B8%B0)
 - [빗썸 일봉 조회 API](https://apidocs.bithumb.com/reference/%EC%9D%BCday-%EC%BA%94%EB%93%A4-%EC%A1%B0%ED%9A%8C)
+- [빗썸 분봉 조회 API](https://apidocs.bithumb.com/reference/%EB%B6%84minute-%EC%BA%94%EB%93%A4-%EC%A1%B0%ED%9A%8C)
 
 ## 면책
 

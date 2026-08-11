@@ -1,4 +1,4 @@
-"""Public Bithumb daily-candle data access and CSV persistence.
+"""Public Bithumb candle data access, aggregation, and CSV persistence.
 
 This module deliberately supports public market data only.  It never reads API
 credentials and only issues bounded ``GET`` requests.
@@ -24,6 +24,8 @@ from .models import Candle
 
 
 DAILY_CANDLES_URL = "https://api.bithumb.com/v1/candles/days"
+MINUTE_CANDLES_URL = "https://api.bithumb.com/v1/candles/minutes/{unit}"
+SUPPORTED_MINUTE_UNITS = frozenset({1, 3, 5, 10, 15, 30, 60, 240})
 MAX_CANDLES_PER_REQUEST = 200
 MAX_FETCH_PAGES = 1_000
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -141,6 +143,73 @@ def fetch_daily_candles(
     :func:`urllib.request.urlopen` with the supplied timeout.
     """
 
+    return _fetch_candles(
+        market,
+        count,
+        interval=timedelta(days=1),
+        to=to,
+        timeout=timeout,
+        transport=transport,
+        endpoint=endpoint,
+        include_incomplete=include_incomplete,
+        as_of=as_of,
+        daily=True,
+    )
+
+
+def fetch_minute_candles(
+    market: str,
+    unit: int,
+    count: int,
+    *,
+    to: datetime | None = None,
+    timeout: float = 10.0,
+    transport: Transport | None = None,
+    endpoint: str | None = None,
+    include_incomplete: bool = False,
+    as_of: datetime | None = None,
+) -> list[Candle]:
+    """Fetch completed Bithumb minute candles, oldest first.
+
+    ``unit`` uses Bithumb's supported minute units.  By default a candle is
+    returned only after its complete interval has elapsed.  ``as_of`` makes
+    that decision deterministic for historical research; set
+    ``include_incomplete`` only when an explicitly partial bar is desired.
+    """
+
+    if isinstance(unit, bool) or not isinstance(unit, int) or unit not in SUPPORTED_MINUTE_UNITS:
+        supported = ", ".join(str(value) for value in sorted(SUPPORTED_MINUTE_UNITS))
+        raise DataError(f"minute unit must be one of: {supported}")
+    resolved_endpoint = endpoint or MINUTE_CANDLES_URL.format(unit=unit)
+    return _fetch_candles(
+        market,
+        count,
+        interval=timedelta(minutes=unit),
+        to=to,
+        timeout=timeout,
+        transport=transport,
+        endpoint=resolved_endpoint,
+        include_incomplete=include_incomplete,
+        as_of=as_of,
+        daily=False,
+    )
+
+
+def _fetch_candles(
+    market: str,
+    count: int,
+    *,
+    interval: timedelta,
+    to: datetime | None,
+    timeout: float,
+    transport: Transport | None,
+    endpoint: str,
+    include_incomplete: bool,
+    as_of: datetime | None,
+    daily: bool,
+) -> list[Candle]:
+    """Shared bounded paginator for Bithumb's daily and minute endpoints."""
+
     _validate_krw_market(market)
     if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
         raise DataError("count must be a positive integer")
@@ -160,11 +229,19 @@ def fetch_daily_candles(
     observed_at = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
     cursor = to
     if not include_incomplete and as_of is not None:
-        completed_boundary = (
-            observed_at.astimezone(KST)
-            .replace(hour=0, minute=0, second=0, microsecond=0)
-            .astimezone(timezone.utc)
-        )
+        observed_kst = observed_at.astimezone(KST)
+        if daily:
+            completed_boundary = observed_kst.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ).astimezone(timezone.utc)
+        else:
+            interval_minutes = int(interval.total_seconds() // 60)
+            minutes_since_midnight = observed_kst.hour * 60 + observed_kst.minute
+            boundary_minutes = (minutes_since_midnight // interval_minutes) * interval_minutes
+            completed_boundary = observed_kst.replace(
+                hour=0, minute=0, second=0, microsecond=0
+            ) + timedelta(minutes=boundary_minutes)
+            completed_boundary = completed_boundary.astimezone(timezone.utc)
         if cursor is None or completed_boundary < cursor.astimezone(timezone.utc):
             cursor = completed_boundary
     by_timestamp: dict[datetime, Candle] = {}
@@ -194,7 +271,7 @@ def fetch_daily_candles(
         complete_page = [
             candle
             for candle in page
-            if include_incomplete or candle.timestamp + timedelta(days=1) <= observed_at
+            if include_incomplete or candle.timestamp + interval <= observed_at
         ]
         for candle in complete_page:
             existing = by_timestamp.get(candle.timestamp)
@@ -211,6 +288,92 @@ def fetch_daily_candles(
             break
 
     return sorted(by_timestamp.values(), key=lambda candle: candle.timestamp)[-count:]
+
+
+def aggregate_candles(
+    candles: Sequence[Candle],
+    source_minutes: int,
+    target_minutes: int,
+    *,
+    as_of: datetime | None = None,
+) -> list[Candle]:
+    """Aggregate complete, consecutive minute candles on KST boundaries.
+
+    The helper is intentionally strict for research reproducibility.  Input
+    timestamps must be chronological and aligned to ``source_minutes`` in KST;
+    incomplete or gapped target buckets are omitted.  Supported research
+    targets are 30-minute candles aggregated to 1 hour, 4 hours, or a completed
+    KST day (1440 minutes).
+    """
+
+    if source_minutes != 30 or target_minutes not in {60, 240, 1440}:
+        raise DataError("aggregation supports 30-minute candles to 60, 240, or 1440 minutes")
+    if target_minutes % source_minutes != 0:
+        raise DataError("target interval must be a multiple of the source interval")
+    if as_of is not None and (as_of.tzinfo is None or as_of.utcoffset() is None):
+        raise DataError("as_of must be timezone-aware")
+    if not candles:
+        return []
+
+    market = candles[0].market
+    _validate_krw_market(market)
+    previous: datetime | None = None
+    for candle in candles:
+        if candle.market != market:
+            raise DataError("aggregation candles must belong to one market")
+        timestamp = candle.timestamp.astimezone(timezone.utc)
+        if previous is not None and timestamp <= previous:
+            raise DataError("aggregation candles must be strictly chronological")
+        local = timestamp.astimezone(KST)
+        if local.second or local.microsecond or local.minute % source_minutes:
+            raise DataError("candle timestamp is not aligned to the source interval")
+        previous = timestamp
+
+    observed_at = (as_of or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    expected_count = target_minutes // source_minutes
+    buckets: dict[datetime, list[Candle]] = {}
+    for candle in candles:
+        local = candle.timestamp.astimezone(KST)
+        minutes_since_midnight = local.hour * 60 + local.minute
+        bucket_minutes = (minutes_since_midnight // target_minutes) * target_minutes
+        bucket_start = local.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+            minutes=bucket_minutes
+        )
+        buckets.setdefault(bucket_start.astimezone(timezone.utc), []).append(candle)
+
+    aggregated: list[Candle] = []
+    source_delta = timedelta(minutes=source_minutes)
+    target_delta = timedelta(minutes=target_minutes)
+    for bucket_start in sorted(buckets):
+        bucket = buckets[bucket_start]
+        expected_timestamps = [bucket_start + source_delta * index for index in range(expected_count)]
+        actual_timestamps = [candle.timestamp.astimezone(timezone.utc) for candle in bucket]
+        if actual_timestamps != expected_timestamps or bucket_start + target_delta > observed_at:
+            continue
+        aggregated.append(
+            Candle(
+                market=market,
+                timestamp=bucket_start,
+                open=bucket[0].open,
+                high=max(candle.high for candle in bucket),
+                low=min(candle.low for candle in bucket),
+                close=bucket[-1].close,
+                volume=sum(candle.volume for candle in bucket),
+            )
+        )
+    return aggregated
+
+
+def aggregate_minute_candles(
+    candles: Sequence[Candle],
+    source_unit: int,
+    target_unit: int,
+    *,
+    as_of: datetime | None = None,
+) -> list[Candle]:
+    """Named compatibility wrapper around :func:`aggregate_candles`."""
+
+    return aggregate_candles(candles, source_unit, target_unit, as_of=as_of)
 
 
 def save_candles_csv(path: str | Path, candles: Iterable[Candle]) -> None:
@@ -290,11 +453,11 @@ def dataset_manifest(candles: Sequence[Candle]) -> DatasetManifest:
         canonical_row = (
             candle.market,
             candle.timestamp.astimezone(timezone.utc).isoformat(timespec="microseconds"),
-            candle.open.hex(),
-            candle.high.hex(),
-            candle.low.hex(),
-            candle.close.hex(),
-            candle.volume.hex(),
+            float(candle.open).hex(),
+            float(candle.high).hex(),
+            float(candle.low).hex(),
+            float(candle.close).hex(),
+            float(candle.volume).hex(),
         )
         digest.update(json.dumps(canonical_row, ensure_ascii=True, separators=(",", ":")).encode("ascii"))
         digest.update(b"\n")

@@ -12,8 +12,10 @@ from urllib.parse import parse_qs, urlparse
 from bithumb_coin_trader.data import (
     Candle,
     DataError,
+    aggregate_candles,
     dataset_manifest,
     fetch_daily_candles,
+    fetch_minute_candles,
     load_candles_csv,
     save_candles_csv,
 )
@@ -32,6 +34,17 @@ def api_candle(day: int, close: float = 100.0) -> dict[str, object]:
         "trade_price": close,
         "candle_acc_trade_volume": 12.5,
     }
+
+
+def api_minute(timestamp: datetime, close: float = 100.0) -> dict[str, object]:
+    raw = api_candle(1, close)
+    raw["candle_date_time_utc"] = timestamp.astimezone(timezone.utc).replace(
+        tzinfo=None
+    ).isoformat(timespec="seconds")
+    raw["candle_date_time_kst"] = timestamp.astimezone(
+        timezone(timedelta(hours=9))
+    ).replace(tzinfo=None).isoformat(timespec="seconds")
+    return raw
 
 
 class FetchDailyCandlesTests(unittest.TestCase):
@@ -160,6 +173,159 @@ class FetchDailyCandlesTests(unittest.TestCase):
         with self.assertRaisesRegex(DataError, "KRW market"):
             fetch_daily_candles("BTC-ETH", 1, transport=transport)
         self.assertFalse(called)
+
+
+class FetchMinuteCandlesTests(unittest.TestCase):
+    def test_excludes_newest_incomplete_candle_and_moves_kst_cursor(self) -> None:
+        as_of = datetime(2026, 1, 1, 3, 45, tzinfo=timezone.utc)
+        pages = [
+            [
+                api_minute(datetime(2026, 1, 1, 3, 30, tzinfo=timezone.utc), 103.0),
+                api_minute(datetime(2026, 1, 1, 3, 0, tzinfo=timezone.utc), 102.0),
+            ],
+            [api_minute(datetime(2026, 1, 1, 2, 30, tzinfo=timezone.utc), 101.0)],
+        ]
+        queries = []
+
+        def transport(request, _timeout):
+            queries.append(parse_qs(urlparse(request.full_url).query))
+            return json.dumps(pages[len(queries) - 1]).encode()
+
+        candles = fetch_minute_candles(
+            "KRW-BTC", 30, 2, as_of=as_of, transport=transport
+        )
+
+        self.assertEqual(
+            [candle.timestamp for candle in candles],
+            [
+                datetime(2026, 1, 1, 2, 30, tzinfo=timezone.utc),
+                datetime(2026, 1, 1, 3, 0, tzinfo=timezone.utc),
+            ],
+        )
+        self.assertEqual(queries[0]["to"], ["2026-01-01T12:30:00"])
+        self.assertEqual(queries[1]["to"], ["2026-01-01T12:00:00"])
+
+    def test_supports_60_minutes_and_explicit_incomplete_data(self) -> None:
+        captured_urls = []
+        partial = api_minute(datetime(2026, 1, 1, 3, 0, tzinfo=timezone.utc))
+
+        def transport(request, _timeout):
+            captured_urls.append(request.full_url)
+            return json.dumps([partial]).encode()
+
+        candles = fetch_minute_candles(
+            "KRW-BTC",
+            60,
+            1,
+            as_of=datetime(2026, 1, 1, 3, 15, tzinfo=timezone.utc),
+            include_incomplete=True,
+            transport=transport,
+        )
+
+        self.assertEqual(len(candles), 1)
+        self.assertIn("/minutes/60?", captured_urls[0])
+        self.assertNotIn("to=", captured_urls[0])
+
+    def test_rejects_unsupported_unit_without_http(self) -> None:
+        called = False
+
+        def transport(_request, _timeout):
+            nonlocal called
+            called = True
+            return b"[]"
+
+        with self.assertRaisesRegex(DataError, "minute unit"):
+            fetch_minute_candles("KRW-BTC", 2, 1, transport=transport)
+        self.assertFalse(called)
+
+
+class AggregateCandlesTests(unittest.TestCase):
+    @staticmethod
+    def candles(count: int, *, start_kst: datetime | None = None) -> list[Candle]:
+        start = start_kst or datetime(
+            2026, 1, 1, tzinfo=timezone(timedelta(hours=9))
+        )
+        return [
+            Candle(
+                market="KRW-BTC",
+                timestamp=start + timedelta(minutes=30 * index),
+                open=100.0 + index,
+                high=102.0 + index,
+                low=99.0 + index,
+                close=101.0 + index,
+                volume=1.0 + index,
+            )
+            for index in range(count)
+        ]
+
+    def test_aggregates_only_complete_four_hour_buckets(self) -> None:
+        source = self.candles(9)
+
+        aggregated = aggregate_candles(
+            source,
+            30,
+            240,
+            as_of=datetime(2026, 1, 1, 4, 30, tzinfo=timezone(timedelta(hours=9))),
+        )
+
+        self.assertEqual(len(aggregated), 1)
+        candle = aggregated[0]
+        self.assertEqual(candle.timestamp, datetime(2025, 12, 31, 15, tzinfo=timezone.utc))
+        self.assertEqual((candle.open, candle.high, candle.low, candle.close), (100.0, 109.0, 99.0, 108.0))
+        self.assertEqual(candle.volume, sum(1.0 + index for index in range(8)))
+
+    def test_omits_gapped_bucket_and_aligns_completed_kst_day(self) -> None:
+        source = self.candles(48)
+        gapped = source[:10] + source[11:]
+
+        self.assertEqual(
+            aggregate_candles(
+                gapped,
+                30,
+                1440,
+                as_of=datetime(2026, 1, 2, tzinfo=timezone(timedelta(hours=9))),
+            ),
+            [],
+        )
+        daily = aggregate_candles(
+            source,
+            30,
+            1440,
+            as_of=datetime(2026, 1, 2, tzinfo=timezone(timedelta(hours=9))),
+        )
+        self.assertEqual([c.timestamp for c in daily], [datetime(2025, 12, 31, 15, tzinfo=timezone.utc)])
+
+    def test_rejects_bad_chronology_market_and_alignment(self) -> None:
+        source = self.candles(2)
+        with self.assertRaisesRegex(DataError, "chronological"):
+            aggregate_candles(list(reversed(source)), 30, 60)
+        mixed = [
+            source[0],
+            Candle(
+                market="KRW-ETH",
+                timestamp=source[1].timestamp,
+                open=source[1].open,
+                high=source[1].high,
+                low=source[1].low,
+                close=source[1].close,
+                volume=source[1].volume,
+            ),
+        ]
+        with self.assertRaisesRegex(DataError, "one market"):
+            aggregate_candles(mixed, 30, 60)
+        unaligned = [
+            Candle(
+                market="KRW-BTC",
+                timestamp=source[0].timestamp + timedelta(minutes=1),
+                open=100.0,
+                high=102.0,
+                low=99.0,
+                close=101.0,
+                volume=1.0,
+            )
+        ]
+        with self.assertRaisesRegex(DataError, "aligned"):
+            aggregate_candles(unaligned, 30, 60)
 
 
 class CsvTests(unittest.TestCase):
