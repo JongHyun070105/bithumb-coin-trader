@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
@@ -12,6 +13,7 @@ from .indicators import (
     ema,
     rolling_percentile,
     rolling_volatility,
+    simple_moving_average,
     wilder_rsi,
 )
 from .models import Candle, Signal
@@ -74,6 +76,383 @@ class CompletedIntervalStrategy:
             current = signal_at_close.get(candle.timestamp + source_delta, current)
             mapped.append(current)
         return mapped
+
+
+class IntersectionLongStrategy:
+    """Stay long only while every constituent long/flat strategy is long."""
+
+    def __init__(self, *strategies: object, name: str) -> None:
+        if not name or len(strategies) < 2 or any(
+            not callable(getattr(strategy, "generate", None)) for strategy in strategies
+        ):
+            raise ValueError("intersection requires a name and at least two strategies")
+        self.strategies = strategies
+        self.name = name
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        generated = [
+            strategy.generate(candles)  # type: ignore[attr-defined]
+            for strategy in self.strategies
+        ]
+        if any(len(signals) != len(candles) for signals in generated):
+            raise ValueError("constituent strategy returned the wrong signal count")
+        return [
+            Signal.LONG
+            if all(Signal(signals[index]) is Signal.LONG for signals in generated)
+            else Signal.FLAT
+            for index in range(len(candles))
+        ]
+
+
+class CompletedCalendarMonthStrategy:
+    """Map a close-only strategy over complete KST calendar months."""
+
+    def __init__(self, inner: object, *, source_minutes: int = 30) -> None:
+        if (
+            isinstance(source_minutes, bool)
+            or not isinstance(source_minutes, int)
+            or source_minutes != 30
+        ):
+            raise ValueError("calendar-month mapping requires 30-minute source candles")
+        if (
+            not callable(getattr(inner, "generate", None))
+            or getattr(inner, "uses_close_only", False) is not True
+        ):
+            raise ValueError("calendar-month mapping requires a close-only strategy")
+        self.inner = inner
+        self.source_minutes = source_minutes
+        self.name = str(getattr(inner, "name", type(inner).__name__))
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        if not candles:
+            return []
+        source_delta = timedelta(minutes=self.source_minutes)
+        by_month: dict[tuple[int, int], list[Candle]] = {}
+        for candle in candles:
+            local = candle.timestamp.astimezone(KST)
+            by_month.setdefault((local.year, local.month), []).append(candle)
+
+        completed: list[Candle] = []
+        closes_at: list[datetime] = []
+        for (year, month), bucket in sorted(by_month.items()):
+            days_in_month = monthrange(year, month)[1]
+            first_local = bucket[0].timestamp.astimezone(KST)
+            last_local = bucket[-1].timestamp.astimezone(KST)
+            if (
+                (first_local.day, first_local.hour, first_local.minute) != (1, 0, 0)
+                or (last_local.day, last_local.hour, last_local.minute)
+                != (days_in_month, 23, 30)
+            ):
+                continue
+            completed.append(
+                Candle(
+                    market=bucket[0].market,
+                    timestamp=bucket[0].timestamp,
+                    open=bucket[0].open,
+                    high=max(candle.high for candle in bucket),
+                    low=min(candle.low for candle in bucket),
+                    close=bucket[-1].close,
+                    volume=sum(candle.volume for candle in bucket),
+                )
+            )
+            closes_at.append(bucket[-1].timestamp + source_delta)
+
+        target_signals = self.inner.generate(completed)  # type: ignore[attr-defined]
+        if len(target_signals) != len(completed):
+            raise ValueError("inner strategy returned the wrong signal count")
+        signal_at_close = {
+            completed_at: Signal(signal)
+            for completed_at, signal in zip(closes_at, target_signals, strict=True)
+        }
+        mapped: list[Signal] = []
+        current = Signal.FLAT
+        for candle in candles:
+            current = signal_at_close.get(candle.timestamp + source_delta, current)
+            mapped.append(current)
+        return mapped
+
+
+@dataclass(frozen=True, slots=True)
+class TimeSeriesMomentumParameters:
+    lookback_period: int = 365
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.lookback_period, bool)
+            or not isinstance(self.lookback_period, int)
+            or self.lookback_period <= 0
+        ):
+            raise ValueError("momentum lookback must be a positive integer")
+
+
+class TimeSeriesMomentumStrategy:
+    """Long when a completed close exceeds the close exactly N bars ago."""
+
+    def __init__(self, parameters: TimeSeriesMomentumParameters | None = None) -> None:
+        self.parameters = parameters or TimeSeriesMomentumParameters()
+        self.name = f"tsmom_{self.parameters.lookback_period}"
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        signals = [Signal.FLAT] * len(candles)
+        lookback = self.parameters.lookback_period
+        for index in range(lookback, len(candles)):
+            if candles[index].close > candles[index - lookback].close:
+                signals[index] = Signal.LONG
+        return signals
+
+
+@dataclass(frozen=True, slots=True)
+class DailyCloseAboveSmaParameters:
+    sma_period: int = 140
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.sma_period, bool)
+            or not isinstance(self.sma_period, int)
+            or self.sma_period <= 1
+        ):
+            raise ValueError("daily SMA period must be an integer greater than one")
+
+
+class DailyCloseAboveSmaStrategy:
+    """Long while a completed daily close is above its trailing SMA."""
+
+    uses_close_only = True
+
+    def __init__(self, parameters: DailyCloseAboveSmaParameters | None = None) -> None:
+        self.parameters = parameters or DailyCloseAboveSmaParameters()
+        self.name = f"daily_close_above_sma{self.parameters.sma_period}"
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        closes = [candle.close for candle in candles]
+        average = simple_moving_average(closes, self.parameters.sma_period)
+        return [
+            Signal.LONG if value is not None and close > value else Signal.FLAT
+            for close, value in zip(closes, average, strict=True)
+        ]
+
+
+@dataclass(frozen=True, slots=True)
+class DailySmaTrendParameters:
+    fast_period: int = 50
+    slow_period: int = 200
+
+    def __post_init__(self) -> None:
+        periods = (self.fast_period, self.slow_period)
+        if any(
+            isinstance(period, bool) or not isinstance(period, int) or period <= 1
+            for period in periods
+        ):
+            raise ValueError("daily SMA periods must be integers greater than one")
+        if self.fast_period >= self.slow_period:
+            raise ValueError("fast daily SMA period must be below slow period")
+
+
+class DailySmaTrendStrategy:
+    """Long while the completed daily fast SMA is above the slow SMA."""
+
+    def __init__(self, parameters: DailySmaTrendParameters | None = None) -> None:
+        self.parameters = parameters or DailySmaTrendParameters()
+        self.name = (
+            f"daily_sma{self.parameters.fast_period}_above_"
+            f"sma{self.parameters.slow_period}"
+        )
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        closes = [candle.close for candle in candles]
+        fast = simple_moving_average(closes, self.parameters.fast_period)
+        slow = simple_moving_average(closes, self.parameters.slow_period)
+        return [
+            Signal.LONG
+            if fast_value is not None
+            and slow_value is not None
+            and fast_value > slow_value
+            else Signal.FLAT
+            for fast_value, slow_value in zip(fast, slow, strict=True)
+        ]
+
+
+@dataclass(frozen=True, slots=True)
+class DonchianBreakoutParameters:
+    entry_period: int = 55
+    exit_period: int = 20
+
+    def __post_init__(self) -> None:
+        periods = (self.entry_period, self.exit_period)
+        if any(
+            isinstance(period, bool) or not isinstance(period, int) or period <= 0
+            for period in periods
+        ):
+            raise ValueError("Donchian periods must be positive integers")
+        if self.exit_period >= self.entry_period:
+            raise ValueError("Donchian exit period must be below entry period")
+
+
+class DonchianBreakoutStrategy:
+    """Long/flat close-confirmed Donchian breakout on completed candles.
+
+    The current candle is deliberately excluded from both channel windows.
+    This makes the breakout observable at that candle's close and leaves any
+    execution to the following source-bar open when interval-mapped.
+    """
+
+    def __init__(self, parameters: DonchianBreakoutParameters | None = None) -> None:
+        self.parameters = parameters or DonchianBreakoutParameters()
+        self.name = (
+            f"donchian_{self.parameters.entry_period}_high_"
+            f"{self.parameters.exit_period}_low"
+        )
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        signals = [Signal.FLAT] * len(candles)
+        position = Signal.FLAT
+        warmup = self.parameters.entry_period
+        for index in range(warmup, len(candles)):
+            if position is Signal.LONG:
+                exit_low = min(
+                    candle.low
+                    for candle in candles[index - self.parameters.exit_period : index]
+                )
+                if candles[index].close < exit_low:
+                    position = Signal.FLAT
+            else:
+                entry_high = max(
+                    candle.high
+                    for candle in candles[index - self.parameters.entry_period : index]
+                )
+                if candles[index].close > entry_high:
+                    position = Signal.LONG
+            signals[index] = position
+        return signals
+
+
+def daily_close_above_sma140_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day close/SMA140 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DailyCloseAboveSmaStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trend_daily_close_above_sma140"
+    return strategy
+
+
+def daily_close_above_sma200_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day close/SMA200 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(200)),
+        source_minutes=30,
+        target_minutes=1440,
+    )
+    strategy.name = "trend_daily_close_above_sma200"
+    return strategy
+
+
+def daily_sma50_above_sma200_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day SMA50/SMA200 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DailySmaTrendStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trend_daily_sma50_above_sma200"
+    return strategy
+
+
+def donchian_4h_55_20_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-4h Donchian 55/20 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DonchianBreakoutStrategy(), source_minutes=30, target_minutes=240
+    )
+    strategy.name = "donchian_4h_55_20_breakout"
+    return strategy
+
+
+def donchian_4h_20_10_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-4h Donchian 20/10 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DonchianBreakoutStrategy(DonchianBreakoutParameters(20, 10)),
+        source_minutes=30,
+        target_minutes=240,
+    )
+    strategy.name = "donchian_4h_20_10_breakout"
+    return strategy
+
+
+def daily_tsmom_365_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day 365-bar momentum candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        TimeSeriesMomentumStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trend_daily_tsmom_365"
+    return strategy
+
+
+def monthly_close_above_sma10_strategy() -> CompletedCalendarMonthStrategy:
+    """Return the fixed completed-KST-calendar-month close/SMA10 candidate."""
+
+    strategy = CompletedCalendarMonthStrategy(
+        DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(10))
+    )
+    strategy.name = "trend_monthly_close_above_sma10"
+    return strategy
+
+
+def donchian_daily_55_20_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day Donchian 55/20 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DonchianBreakoutStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "donchian_daily_55_20_breakout"
+    return strategy
+
+
+def donchian_daily_20_10_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed completed-KST-day Donchian 20/10 candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DonchianBreakoutStrategy(DonchianBreakoutParameters(20, 10)),
+        source_minutes=30,
+        target_minutes=1440,
+    )
+    strategy.name = "donchian_daily_20_10_breakout"
+    return strategy
+
+
+def dc_with_4h_sma50_uptrend_strategy() -> IntersectionLongStrategy:
+    """Return the source DC signal gated by a completed-4h SMA50 trend."""
+
+    trend = CompletedIntervalStrategy(
+        DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(50)),
+        source_minutes=30,
+        target_minutes=240,
+    )
+    return IntersectionLongStrategy(
+        DCBollingerRsiArmedReentryStrategy(),
+        trend,
+        name="dc_30m_bb20_rsi14_with_4h_sma50_uptrend",
+    )
+
+
+def dc_with_daily_sma140_uptrend_strategy() -> IntersectionLongStrategy:
+    """Return the source DC signal gated by a completed-daily SMA140 trend."""
+
+    trend = CompletedIntervalStrategy(
+        DailyCloseAboveSmaStrategy(), source_minutes=30, target_minutes=1440
+    )
+    return IntersectionLongStrategy(
+        DCBollingerRsiArmedReentryStrategy(),
+        trend,
+        name="dc_30m_bb20_rsi14_with_daily_sma140_uptrend",
+    )
 
 
 def _validate_candles(candles: Sequence[Candle]) -> None:

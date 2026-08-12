@@ -14,7 +14,7 @@ VALIDATOR = ROOT / "scripts" / "validate_candidate_research.py"
 
 class CandidateResearchValidatorTests(unittest.TestCase):
     def test_repository_candidate_report_passes(self) -> None:
-        report = ROOT / "reports" / "krw-btc-candidate-study-2026-08-11.json"
+        report = ROOT / "reports" / "krw-btc-candidate-study-2026-08-12.json"
         result = subprocess.run(
             [sys.executable, str(VALIDATOR), str(report)],
             check=False,
@@ -38,10 +38,11 @@ class CandidateResearchValidatorTests(unittest.TestCase):
         self.assertFalse(json.loads(result.stdout)["passed"])
 
     def test_corrupt_accounting_calendar_and_selection_fail_closed(self) -> None:
-        source = ROOT / "reports" / "krw-btc-candidate-study-2026-08-11.json"
+        source = ROOT / "reports" / "krw-btc-candidate-study-2026-08-12.json"
         payload = json.loads(source.read_text(encoding="utf-8"))
         payload["dataset"]["candle_count"] = 1
         payload["dataset"]["sha256"] = "x" * 64
+        payload["timeframe"] = "30m_execution_with_completed_1h_signals"
         first = payload["candidates_ranked_by_oos_return"][0]
         first["walk_forward"]["folds"][0]["initial_equity_krw"] = 1
         first["walk_forward"]["folds"][0]["final_equity_krw"] = 999_999_999

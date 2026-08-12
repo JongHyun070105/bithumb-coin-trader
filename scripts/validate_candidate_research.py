@@ -18,6 +18,17 @@ EXPECTED_CANDIDATES = {
     "mean_reversion_1h_bb20_rsi30_reentry_ema200_uptrend",
     "mean_reversion_1h_bb20_rsi30_reentry_4h_sma50_uptrend",
     "bb_squeeze_bottom20_breakout_120_exit_midline",
+    "trend_daily_close_above_sma140",
+    "trend_daily_close_above_sma200",
+    "trend_daily_sma50_above_sma200",
+    "donchian_4h_55_20_breakout",
+    "donchian_4h_20_10_breakout",
+    "trend_daily_tsmom_365",
+    "trend_monthly_close_above_sma10",
+    "donchian_daily_55_20_breakout",
+    "donchian_daily_20_10_breakout",
+    "dc_30m_bb20_rsi14_with_4h_sma50_uptrend",
+    "dc_30m_bb20_rsi14_with_daily_sma140_uptrend",
 }
 
 
@@ -162,6 +173,14 @@ def validate_report(payload: Mapping[str, Any]) -> list[str]:
         issues.append("top-level market must identify KRW-BTC")
     if payload.get("mode") != "bithumb_spot_long_flat_research":
         issues.append("report mode must remain spot long/flat research")
+    if (
+        payload.get("timeframe")
+        != "30m_execution_with_completed_higher_timeframe_signals"
+    ):
+        issues.append(
+            "report timeframe must identify 30-minute execution and completed "
+            "higher-timeframe signals"
+        )
 
     data_quality = payload.get("data_quality")
     observed_at = _parse_aware_datetime(
@@ -406,12 +425,14 @@ def validate_report(payload: Mapping[str, Any]) -> list[str]:
     else:
         if selection.get("paper_or_live_strategy_changed") is not False:
             issues.append("research must not change the paper or live strategy")
+        if selection.get("adaptive_search_requires_forward_validation") is not True:
+            issues.append("adaptive second-wave research must require frozen forward validation")
         if selection.get("provisional_best_before_holdout") != provisional:
             issues.append("provisional selection does not match the top-ranked candidate")
-        expected_selected = expected_holdout_candidate if promoted_names and holdout_passed else None
+        expected_selected = None
         if selection.get("selected_candidate") != expected_selected:
-            issues.append("selected candidate contradicts promotion or holdout evidence")
-        expected_status = "PAPER_CANDIDATE" if expected_selected else "RESEARCH_ONLY"
+            issues.append("adaptive research cannot select a candidate before forward validation")
+        expected_status = "RESEARCH_ONLY"
         if selection.get("status") != expected_status:
             issues.append("selection status contradicts the selected candidate")
     return issues

@@ -33,10 +33,51 @@ class _AlwaysLong:
 
 
 class CandidateResearchTests(unittest.TestCase):
-    def test_registry_contains_five_explicit_spot_candidates(self) -> None:
+    def test_registry_contains_sixteen_explicit_spot_candidates(self) -> None:
         registry = registered_candidate_factories()
-        self.assertEqual(len(registry), 5)
-        self.assertTrue(any("4h_sma50" in name for name in registry))
+        self.assertEqual(len(registry), 16)
+        self.assertEqual(
+            {
+                "trend_daily_close_above_sma140",
+                "trend_daily_close_above_sma200",
+                "trend_daily_sma50_above_sma200",
+                "donchian_4h_55_20_breakout",
+                "donchian_4h_20_10_breakout",
+                "trend_daily_tsmom_365",
+                "trend_monthly_close_above_sma10",
+                "donchian_daily_55_20_breakout",
+                "donchian_daily_20_10_breakout",
+                "dc_30m_bb20_rsi14_with_4h_sma50_uptrend",
+                "dc_30m_bb20_rsi14_with_daily_sma140_uptrend",
+            },
+            set(registry) - {
+                "dc_30m_bb20_rsi14_armed_reentry_5pct_exit",
+                "mean_reversion_1h_bb20_rsi30_reentry_24bar_exit",
+                "mean_reversion_1h_bb20_rsi30_reentry_ema200_uptrend",
+                "mean_reversion_1h_bb20_rsi30_reentry_4h_sma50_uptrend",
+                "bb_squeeze_bottom20_breakout_120_exit_midline",
+            },
+        )
+
+    def test_every_registered_candidate_is_prefix_stable(self) -> None:
+        start = datetime(2024, 1, 1, 15, tzinfo=UTC)  # KST midnight
+        candles = [
+            Candle(
+                start + timedelta(minutes=30 * index),
+                100 + (index % 97) * 0.1,
+                101 + (index % 97) * 0.1,
+                99 + (index % 97) * 0.1,
+                100 + (index % 97) * 0.1,
+                1,
+            )
+            for index in range(20_000)
+        ]
+        prefix_length = 18_000
+        for name, factory in registered_candidate_factories().items():
+            with self.subTest(candidate=name):
+                prefix = factory().generate(candles[:prefix_length])
+                extended = factory().generate(candles)
+                self.assertEqual(extended[:prefix_length], prefix)
 
     def test_all_registered_candidates_use_identical_raw_30m_folds(self) -> None:
         start = datetime(2024, 1, 1, 15, tzinfo=UTC)  # KST midnight
@@ -52,7 +93,7 @@ class CandidateResearchTests(unittest.TestCase):
             for index in range(12)
         ]
         report = compare_registered_candidates(candles, train_size=6, test_size=2)
-        self.assertEqual(report.candidate_count, 5)
+        self.assertEqual(report.candidate_count, 16)
         self.assertEqual(
             report.fold_boundaries,
             ((0, 6, 6, 8), (2, 8, 8, 10), (4, 10, 10, 12)),

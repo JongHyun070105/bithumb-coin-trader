@@ -85,11 +85,15 @@ class CliTests(unittest.TestCase):
             persisted = json.loads(report.read_text(encoding="utf-8"))
         self.assertEqual(code, 0)
         self.assertEqual(payload, persisted)
-        self.assertEqual(payload["validation"]["candidate_count"], 5)
-        self.assertEqual(len(payload["candidates_ranked_by_oos_return"]), 5)
+        self.assertEqual(payload["validation"]["candidate_count"], 16)
+        self.assertEqual(len(payload["candidates_ranked_by_oos_return"]), 16)
         self.assertFalse(payload["validation"]["oos_tuning"])
         self.assertFalse(payload["selection"]["paper_or_live_strategy_changed"])
         self.assertEqual(payload["selection"]["status"], "RESEARCH_ONLY")
+        self.assertIsNone(payload["selection"]["selected_candidate"])
+        self.assertTrue(
+            payload["selection"]["adaptive_search_requires_forward_validation"]
+        )
 
     def test_candidate_research_rejects_daily_csv_mislabeled_as_30m(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

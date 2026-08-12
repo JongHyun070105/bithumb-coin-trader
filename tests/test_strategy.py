@@ -10,15 +10,36 @@ from bithumb_coin_trader.strategy import (
     BollingerRsiFourHourUptrendReentryStrategy,
     BollingerRsiUptrendReentryStrategy,
     BollingerSqueezeBreakoutStrategy,
+    CompletedCalendarMonthStrategy,
     CompletedIntervalStrategy,
     DCBollingerRsiArmedReentryStrategy,
     DCBollingerRsiParameters,
+    DailyCloseAboveSmaParameters,
+    DailyCloseAboveSmaStrategy,
+    DailySmaTrendParameters,
+    DailySmaTrendStrategy,
+    DonchianBreakoutParameters,
+    DonchianBreakoutStrategy,
+    IntersectionLongStrategy,
     MeanReversionParameters,
     SqueezeBreakoutParameters,
     StrategyParameters,
+    TimeSeriesMomentumParameters,
+    TimeSeriesMomentumStrategy,
     TrendBreakoutStrategy,
     _completed_daily_regime,
     _completed_four_hour_uptrend,
+    daily_close_above_sma140_strategy,
+    daily_close_above_sma200_strategy,
+    daily_sma50_above_sma200_strategy,
+    daily_tsmom_365_strategy,
+    dc_with_4h_sma50_uptrend_strategy,
+    dc_with_daily_sma140_uptrend_strategy,
+    donchian_4h_20_10_strategy,
+    donchian_4h_55_20_strategy,
+    donchian_daily_20_10_strategy,
+    donchian_daily_55_20_strategy,
+    monthly_close_above_sma10_strategy,
 )
 
 
@@ -81,6 +102,43 @@ class StrategyTests(unittest.TestCase):
 
 
 class CandidateStrategyTests(unittest.TestCase):
+    @staticmethod
+    def _thirty_minute_days(closes: list[float]) -> list[Candle]:
+        start = datetime(2024, 1, 1, 15, tzinfo=UTC)  # KST midnight
+        return [
+            Candle(
+                start + timedelta(minutes=30 * index),
+                value,
+                value,
+                value,
+                value,
+                1,
+            )
+            for index in range(48 * len(closes))
+            for value in [closes[index // 48]]
+        ]
+
+    @staticmethod
+    def _thirty_minute_four_hour_bars(
+        bars: list[tuple[float, float, float]],
+    ) -> list[Candle]:
+        start = datetime(2024, 1, 1, 15, tzinfo=UTC)  # KST midnight
+        candles: list[Candle] = []
+        for bar_index, (high, low, close) in enumerate(bars):
+            for source_index in range(8):
+                value = close if source_index == 7 else (high + low) / 2
+                candles.append(
+                    Candle(
+                        start + timedelta(minutes=30 * (bar_index * 8 + source_index)),
+                        value,
+                        high,
+                        low,
+                        value,
+                        1,
+                    )
+                )
+        return candles
+
     def test_completed_hour_signal_maps_at_second_30m_close_and_is_prefix_stable(self) -> None:
         class HourlyState:
             name = "hourly_state"
@@ -113,6 +171,219 @@ class CandidateStrategyTests(unittest.TestCase):
         )
         self.assertEqual(extended[:5], partial)
         self.assertEqual(extended[:6], prefix)
+
+    def test_fixed_trend_candidate_factories_expose_registry_names(self) -> None:
+        candidates = (
+            daily_close_above_sma140_strategy(),
+            daily_close_above_sma200_strategy(),
+            daily_sma50_above_sma200_strategy(),
+            donchian_4h_55_20_strategy(),
+            donchian_4h_20_10_strategy(),
+        )
+        self.assertEqual(
+            [candidate.name for candidate in candidates],
+            [
+                "trend_daily_close_above_sma140",
+                "trend_daily_close_above_sma200",
+                "trend_daily_sma50_above_sma200",
+                "donchian_4h_55_20_breakout",
+                "donchian_4h_20_10_breakout",
+            ],
+        )
+
+    def test_second_wave_factories_expose_exact_names_and_intervals(self) -> None:
+        candidates = (
+            daily_tsmom_365_strategy(),
+            monthly_close_above_sma10_strategy(),
+            donchian_daily_55_20_strategy(),
+            donchian_daily_20_10_strategy(),
+        )
+        self.assertEqual(
+            [candidate.name for candidate in candidates],
+            [
+                "trend_daily_tsmom_365",
+                "trend_monthly_close_above_sma10",
+                "donchian_daily_55_20_breakout",
+                "donchian_daily_20_10_breakout",
+            ],
+        )
+        self.assertEqual(
+            [
+                candidate.target_minutes
+                for candidate in candidates
+                if isinstance(candidate, CompletedIntervalStrategy)
+            ],
+            [1440, 1440, 1440],
+        )
+
+    def test_dc_trend_filter_factories_are_long_flat_intersections(self) -> None:
+        candidates = (
+            dc_with_4h_sma50_uptrend_strategy(),
+            dc_with_daily_sma140_uptrend_strategy(),
+        )
+        self.assertEqual(
+            [candidate.name for candidate in candidates],
+            [
+                "dc_30m_bb20_rsi14_with_4h_sma50_uptrend",
+                "dc_30m_bb20_rsi14_with_daily_sma140_uptrend",
+            ],
+        )
+
+        class Fixed:
+            def __init__(self, signals: list[Signal]) -> None:
+                self.signals = signals
+
+            def generate(self, candles: list[Candle]) -> list[Signal]:
+                return self.signals
+
+        candles = candles_from_closes([100, 101, 102])
+        intersection = IntersectionLongStrategy(
+            Fixed([Signal.LONG, Signal.LONG, Signal.FLAT]),
+            Fixed([Signal.FLAT, Signal.LONG, Signal.LONG]),
+            name="test_intersection",
+        )
+        self.assertEqual(
+            intersection.generate(candles),
+            [Signal.FLAT, Signal.LONG, Signal.FLAT],
+        )
+
+    def test_daily_close_sma_signal_appears_only_at_completed_kst_day(self) -> None:
+        raw = self._thirty_minute_days([100, 110, 90])
+        strategy = CompletedIntervalStrategy(
+            DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(2)),
+            source_minutes=30,
+            target_minutes=1440,
+        )
+        before_close = strategy.generate(raw[:95])
+        at_close = strategy.generate(raw[:96])
+        extended = strategy.generate(raw)
+        self.assertEqual(before_close[-1], Signal.FLAT)
+        self.assertEqual(at_close[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[:96], at_close)
+        self.assertEqual(extended[-1], Signal.FLAT)
+
+    def test_daily_sma_cross_uses_only_completed_days_and_is_prefix_stable(self) -> None:
+        raw = self._thirty_minute_days([100, 90, 120, 50])
+        strategy = CompletedIntervalStrategy(
+            DailySmaTrendStrategy(DailySmaTrendParameters(2, 3)),
+            source_minutes=30,
+            target_minutes=1440,
+        )
+        at_entry = strategy.generate(raw[:144])
+        extended = strategy.generate(raw)
+        self.assertEqual(at_entry[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[:144], at_entry)
+        self.assertEqual(extended[-1], Signal.FLAT)
+
+    def test_donchian_entry_and_exit_map_at_completed_four_hour_close(self) -> None:
+        raw = self._thirty_minute_four_hour_bars(
+            [
+                (100, 90, 95),
+                (101, 91, 96),
+                (110, 100, 105),
+                (106, 85, 89),
+            ]
+        )
+        strategy = CompletedIntervalStrategy(
+            DonchianBreakoutStrategy(DonchianBreakoutParameters(2, 1)),
+            source_minutes=30,
+            target_minutes=240,
+        )
+        before_entry = strategy.generate(raw[:23])
+        at_entry = strategy.generate(raw[:24])
+        extended = strategy.generate(raw)
+        self.assertEqual(before_entry[-1], Signal.FLAT)
+        self.assertEqual(at_entry[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[:24], at_entry)
+        self.assertEqual(extended[-2:], [Signal.LONG, Signal.FLAT])
+
+    def test_donchian_current_bar_does_not_contaminate_prior_channel(self) -> None:
+        bars = [
+            Candle(
+                datetime(2024, 1, 1, index * 4, tzinfo=UTC),
+                close,
+                high,
+                low,
+                close,
+                1,
+            )
+            for index, (high, low, close) in enumerate(
+                [(100, 90, 95), (101, 91, 96), (110, 100, 105)]
+            )
+        ]
+        signals = DonchianBreakoutStrategy(DonchianBreakoutParameters(2, 1)).generate(bars)
+        self.assertEqual(signals, [Signal.FLAT, Signal.FLAT, Signal.LONG])
+
+    def test_daily_tsmom_changes_only_at_completed_day_and_is_prefix_stable(self) -> None:
+        raw = self._thirty_minute_days([100, 90, 110, 80])
+        strategy = CompletedIntervalStrategy(
+            TimeSeriesMomentumStrategy(TimeSeriesMomentumParameters(2)),
+            source_minutes=30,
+            target_minutes=1440,
+        )
+        before_entry = strategy.generate(raw[:143])
+        at_entry = strategy.generate(raw[:144])
+        extended = strategy.generate(raw)
+        self.assertEqual(before_entry[-1], Signal.FLAT)
+        self.assertEqual(at_entry[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[:144], at_entry)
+        self.assertEqual(extended[-1], Signal.FLAT)
+
+    def test_monthly_sma_changes_only_after_complete_kst_calendar_month(self) -> None:
+        start = datetime(2023, 12, 31, 15, tzinfo=UTC)  # 2024-01-01 KST
+        daily_closes = [100.0] * 31 + [110.0] * 29
+        raw = [
+            Candle(
+                start + timedelta(minutes=30 * index),
+                daily_closes[index // 48],
+                daily_closes[index // 48],
+                daily_closes[index // 48],
+                daily_closes[index // 48],
+                1,
+            )
+            for index in range(48 * len(daily_closes))
+        ]
+        strategy = CompletedCalendarMonthStrategy(
+            DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(2))
+        )
+        before_month_end = strategy.generate(raw[:-1])
+        at_month_end = strategy.generate(raw)
+        partial_march = raw + [
+            Candle(raw[-1].timestamp + timedelta(minutes=30), 50, 50, 50, 50, 1)
+        ]
+        extended = strategy.generate(partial_march)
+        self.assertEqual(before_month_end[-1], Signal.FLAT)
+        self.assertEqual(at_month_end[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[: len(raw)], at_month_end)
+        self.assertEqual(extended[-1], Signal.LONG)
+
+    def test_monthly_close_survives_intramonth_data_gap_when_boundary_closes_exist(self) -> None:
+        start = datetime(2023, 12, 31, 15, tzinfo=UTC)
+        raw = [
+            Candle(start + timedelta(minutes=30 * index), 100, 100, 100, 100, 1)
+            for index in range(48 * 31)
+            if index != 500
+        ]
+        strategy = CompletedCalendarMonthStrategy(
+            DailyCloseAboveSmaStrategy(DailyCloseAboveSmaParameters(2))
+        )
+        signals = strategy.generate(raw)
+        self.assertEqual(len(signals), len(raw))
+
+    def test_daily_donchian_entry_exit_and_prefix_timing(self) -> None:
+        raw = self._thirty_minute_days([100, 101, 110, 90])
+        strategy = CompletedIntervalStrategy(
+            DonchianBreakoutStrategy(DonchianBreakoutParameters(2, 1)),
+            source_minutes=30,
+            target_minutes=1440,
+        )
+        before_entry = strategy.generate(raw[:143])
+        at_entry = strategy.generate(raw[:144])
+        extended = strategy.generate(raw)
+        self.assertEqual(before_entry[-1], Signal.FLAT)
+        self.assertEqual(at_entry[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[:144], at_entry)
+        self.assertEqual(extended[-2:], [Signal.LONG, Signal.FLAT])
 
     def test_dc_setup_must_arm_before_reentry_and_uses_five_percent_exit(self) -> None:
         candles = candles_from_closes([100, 80, 95, 105])
@@ -278,6 +549,17 @@ class CandidateStrategyTests(unittest.TestCase):
             lambda: MeanReversionParameters(maximum_holding_bars=0),
             lambda: SqueezeBreakoutParameters(bandwidth_lookback=1),
             lambda: SqueezeBreakoutParameters(squeeze_quantile=0),
+            lambda: DailyCloseAboveSmaParameters(sma_period=True),
+            lambda: DailyCloseAboveSmaParameters(sma_period=1),
+            lambda: DailySmaTrendParameters(fast_period=50, slow_period=50),
+            lambda: DailySmaTrendParameters(fast_period=1, slow_period=200),
+            lambda: DonchianBreakoutParameters(entry_period=0),
+            lambda: DonchianBreakoutParameters(entry_period=20, exit_period=20),
+            lambda: TimeSeriesMomentumParameters(lookback_period=False),
+            lambda: TimeSeriesMomentumParameters(lookback_period=0),
+            lambda: CompletedCalendarMonthStrategy(object()),
+            lambda: CompletedCalendarMonthStrategy(object(), source_minutes=60),
+            lambda: IntersectionLongStrategy(object(), name="bad"),
             lambda: CompletedIntervalStrategy(object(), source_minutes=60, target_minutes=30),
         )
         for factory in invalid_factories:

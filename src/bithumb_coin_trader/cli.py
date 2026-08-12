@@ -412,7 +412,7 @@ def command_research_candidates(args: argparse.Namespace) -> int:
         "generated_at": datetime.now(UTC).isoformat(),
         "market": candles[0].market,
         "mode": "bithumb_spot_long_flat_research",
-        "timeframe": "30m_execution_with_completed_1h_signals",
+        "timeframe": "30m_execution_with_completed_higher_timeframe_signals",
         "dataset": _manifest(candles),
         "data_quality": {
             "observed_at": observed_at.isoformat(),
@@ -443,20 +443,32 @@ def command_research_candidates(args: argparse.Namespace) -> int:
             "1h re-entry with EMA200 uptrend filter",
             "1h re-entry with latest completed 4h close above 4h SMA50",
             "1h BB bandwidth bottom-20% of 120 bars + upper-band breakout; midline exit",
+            "Completed KST daily close above SMA140; otherwise flat",
+            "Completed KST daily close above SMA200; otherwise flat",
+            "Completed KST daily SMA50 above SMA200; otherwise flat",
+            "Completed 4h Donchian prior-55 high breakout and prior-20 low exit",
+            "Completed 4h Donchian prior-20 high breakout and prior-10 low exit",
+            "Completed KST daily close above its close 365 days earlier; otherwise flat",
+            "Completed KST calendar-month close above the 10-month SMA; otherwise flat",
+            "Completed KST daily prior-55 high breakout and prior-20 low exit",
+            "Completed KST daily prior-20 high breakout and prior-10 low exit",
+            "Source 30m DC RSI/Bollinger signal intersected with completed 4h close above SMA50",
+            "Source 30m DC RSI/Bollinger signal intersected with completed KST daily close above SMA140",
         ],
         "benchmark": {"name": "buy_and_hold", "walk_forward": _report(benchmark)},
         "candidates_ranked_by_oos_return": candidates,
         "final_untouched_holdout": holdout,
         "selection": {
-            "status": "PAPER_CANDIDATE" if selected else "RESEARCH_ONLY",
-            "selected_candidate": selected,
+            "status": "RESEARCH_ONLY",
+            "selected_candidate": None,
             "provisional_best_before_holdout": provisional_name,
             "reason": (
-                "highest OOS return among candidates passing promotion, stress, and untouched-holdout gates"
+                "adaptive second-wave candidates require frozen forward evidence before promotion"
                 if selected
                 else "no candidate passed every promotion, stress, and untouched-holdout gate"
             ),
             "paper_or_live_strategy_changed": False,
+            "adaptive_search_requires_forward_validation": True,
         },
         "limitations": [
             "OHLCV bars cannot reconstruct intrabar stop/target ordering or actual order-book impact.",

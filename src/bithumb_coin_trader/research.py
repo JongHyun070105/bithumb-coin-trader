@@ -298,6 +298,17 @@ def registered_candidate_factories() -> dict[str, Callable[[], Any]]:
         BollingerSqueezeBreakoutStrategy,
         CompletedIntervalStrategy,
         DCBollingerRsiArmedReentryStrategy,
+        daily_close_above_sma140_strategy,
+        daily_close_above_sma200_strategy,
+        daily_sma50_above_sma200_strategy,
+        daily_tsmom_365_strategy,
+        dc_with_4h_sma50_uptrend_strategy,
+        dc_with_daily_sma140_uptrend_strategy,
+        donchian_4h_20_10_strategy,
+        donchian_4h_55_20_strategy,
+        donchian_daily_20_10_strategy,
+        donchian_daily_55_20_strategy,
+        monthly_close_above_sma10_strategy,
     )
 
     hourly_classes = (
@@ -307,7 +318,18 @@ def registered_candidate_factories() -> dict[str, Callable[[], Any]]:
         BollingerSqueezeBreakoutStrategy,
     )
     factories: dict[str, Callable[[], Any]] = {
-        DCBollingerRsiArmedReentryStrategy.name: DCBollingerRsiArmedReentryStrategy
+        DCBollingerRsiArmedReentryStrategy.name: DCBollingerRsiArmedReentryStrategy,
+        "trend_daily_close_above_sma140": daily_close_above_sma140_strategy,
+        "trend_daily_close_above_sma200": daily_close_above_sma200_strategy,
+        "trend_daily_sma50_above_sma200": daily_sma50_above_sma200_strategy,
+        "donchian_4h_55_20_breakout": donchian_4h_55_20_strategy,
+        "donchian_4h_20_10_breakout": donchian_4h_20_10_strategy,
+        "trend_daily_tsmom_365": daily_tsmom_365_strategy,
+        "trend_monthly_close_above_sma10": monthly_close_above_sma10_strategy,
+        "donchian_daily_55_20_breakout": donchian_daily_55_20_strategy,
+        "donchian_daily_20_10_breakout": donchian_daily_20_10_strategy,
+        "dc_30m_bb20_rsi14_with_4h_sma50_uptrend": dc_with_4h_sma50_uptrend_strategy,
+        "dc_30m_bb20_rsi14_with_daily_sma140_uptrend": dc_with_daily_sma140_uptrend_strategy,
     }
     for strategy_class in hourly_classes:
         factories[strategy_class.name] = (
