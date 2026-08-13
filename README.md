@@ -78,6 +78,21 @@ RSI·볼린저 재진입, 추세 필터, 시계열 모멘텀, Donchian 돌파 �
 
 수익률 1위도 거래 수·수익 fold·비용 스트레스·마지막 1,600개 미사용 봉을 통과하지 못했습니다. 적응적으로 추가한 두 번째 후보군은 별도 전진 검증 없이는 승격할 수 없습니다. 따라서 새 후보는 선택하지 않았고 기존 페이퍼 전략도 교체하지 않았습니다. 전체 16개 순위와 fold별 결과는 [고정 후보 연구](docs/CANDIDATE_RESEARCH_2026-08-12.md)에 있습니다.
 
+### Wave 3 지표·앙상블 연구
+
+2026-08-13 연구에서는 ADX, MACD, PVO, 거래범위 돌파와 고정 다수결 앙상블을 추가했습니다. 후보 5개, 확장형 중첩 선택 규칙, 비용과 bootstrap 계약을 해시로 고정해 재현 가능하게 만들었습니다. 다만 과거 40,000봉과 추가 48봉 모두 manifest 고정 전에 관찰 가능했으므로 전부 역사·사후 진단이며 전진 증거로 주장하지 않습니다.
+
+| 진단 결과 | OOS 수익률 | 최대 낙폭 | 거래 수 | 2배 비용 |
+|---|---:|---:|---:|---:|
+| 3-of-5 일봉 앙상블 | +2.24% | 7.98% | 1 | +1.93% |
+| MACD + PVO | -1.16% | 4.13% | 6 | -2.93% |
+| 50일 거래범위 돌파·1% 밴드 | -4.40% | 13.65% | 2 | -4.97% |
+| SMA50/200 + ADX14 | -7.98% | 7.98% | 7 | -9.89% |
+
+앙상블의 숫자는 양수지만 청산 거래가 한 건뿐이어서 전략 근거로 사용할 수 없습니다. 과거 전체를 누적하는 확장형 outer/inner 워크포워드에서는 8개 fold 모두 통과 후보가 없어 Cash를 선택했고 수익률은 0%였습니다. 이전 연구 1위 대비 일별 초과수익 bootstrap의 95% 구간도 `-2.36% ~ +0.48%`로 0을 포함합니다. 추가 48봉은 manifest 고정 전 관찰 가능한 사후 진단이므로 승격 증거가 아닙니다.
+
+따라서 현재 결론은 계속 `RESEARCH_ONLY`입니다. 상세 후보, fold 회계, 비용 스트레스, bootstrap과 재현 명령은 [Wave 3 연구](docs/CANDIDATE_RESEARCH_2026-08-13.md)에 있습니다.
+
 ## 주요 구성요소
 
 | 모듈 | 역할 |
@@ -143,6 +158,18 @@ PYTHONPATH=src .venv/bin/bithumb-trader research-candidates \
   --train-size 19200 \
   --test-size 2400 \
   --output reports/krw-btc-candidate-study-2026-08-12.json
+```
+
+Wave 3 중첩 선택·지표 연구 재현:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_wave3_research.py \
+  --input data/krw-btc-30m-2026-08-13-wave3.csv \
+  --output reports/krw-btc-wave3-study-2026-08-13.json \
+  --generated-at 2026-08-13T12:20:00+00:00
+
+PYTHONPATH=src .venv/bin/python scripts/validate_wave3_research.py \
+  reports/krw-btc-wave3-study-2026-08-13.json
 ```
 
 주문 없이 최신 연구 신호 확인:
@@ -252,6 +279,7 @@ git diff --check
 
 - [연구 기준선](docs/RESEARCH_BASELINE.md)
 - [다중 시간대 고정 후보 연구](docs/CANDIDATE_RESEARCH_2026-08-12.md)
+- [Wave 3 지표·앙상블 연구](docs/CANDIDATE_RESEARCH_2026-08-13.md)
 - [실전 준비 런북](docs/LIVE_READINESS.md)
 
 ## 공식 문서

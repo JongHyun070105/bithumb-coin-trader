@@ -163,6 +163,7 @@ def run_chronological_research(
     candidate_name: str = "trend_breakout",
     candidate_factory: Callable[[], Any] | None = None,
     continuous_oos: bool = False,
+    expanding: bool = False,
 ) -> ProjectResearchReport:
     """Run fixed-parameter project backtests over non-overlapping test folds.
 
@@ -185,6 +186,7 @@ def run_chronological_research(
             strategy_factory=strategy_factory,
             settings=settings,
             allow_short=allow_short,
+            expanding=expanding,
         )
     else:
         folds = walk_forward(
@@ -194,6 +196,7 @@ def run_chronological_research(
             step_size=test_size,
             strategy_factory=strategy_factory,
             backtest=backtest,
+            expanding=expanding,
         )
     if not folds:
         raise ResearchError("not enough candles for one complete train/test fold")
@@ -222,6 +225,7 @@ def _run_continuous_oos(
     strategy_factory: Callable[[Sequence[Any]], Any],
     settings: Any,
     allow_short: bool,
+    expanding: bool = False,
 ) -> list[WalkForwardFold[Any]]:
     """Generate fold-specific signals, then execute all contiguous OOS once."""
 
@@ -232,6 +236,7 @@ def _run_continuous_oos(
         step_size=test_size,
         strategy_factory=strategy_factory,
         backtest=_prepare_execution_window,
+        expanding=expanding,
     )
     if not prepared:
         return []
@@ -347,6 +352,7 @@ def compare_registered_candidates(
     test_size: int = 100,
     settings: Any = None,
     candidate_names: Sequence[str] | None = None,
+    expanding: bool = False,
 ) -> CandidateComparisonReport:
     """Compare fixed candidates on identical folds, costs, and next-open fills.
 
@@ -367,6 +373,7 @@ def compare_registered_candidates(
         train_size=train_size,
         test_size=test_size,
         settings=settings,
+        expanding=expanding,
     )
 
 
@@ -377,6 +384,7 @@ def compare_candidate_factories(
     train_size: int = 400,
     test_size: int = 100,
     settings: Any = None,
+    expanding: bool = False,
 ) -> CandidateComparisonReport:
     """Compare zero-argument fixed factories with one fold/cost configuration."""
 
@@ -394,6 +402,7 @@ def compare_candidate_factories(
             candidate_name=name,
             candidate_factory=factory,
             continuous_oos=True,
+            expanding=expanding,
         )
         for name, factory in candidate_factories.items()
     )

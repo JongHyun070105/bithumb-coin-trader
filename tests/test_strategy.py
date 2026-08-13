@@ -16,16 +16,23 @@ from bithumb_coin_trader.strategy import (
     DCBollingerRsiParameters,
     DailyCloseAboveSmaParameters,
     DailyCloseAboveSmaStrategy,
+    DailyMacdPvoTrendParameters,
+    DailyMacdPvoTrendStrategy,
+    DailySmaAdxTrendParameters,
+    DailySmaAdxTrendStrategy,
     DailySmaTrendParameters,
     DailySmaTrendStrategy,
     DonchianBreakoutParameters,
     DonchianBreakoutStrategy,
     IntersectionLongStrategy,
+    MajorityVoteLongStrategy,
     MeanReversionParameters,
     SqueezeBreakoutParameters,
     StrategyParameters,
     TimeSeriesMomentumParameters,
     TimeSeriesMomentumStrategy,
+    TradingRangeBreakoutParameters,
+    TradingRangeBreakoutStrategy,
     TrendBreakoutStrategy,
     _completed_daily_regime,
     _completed_four_hour_uptrend,
@@ -39,7 +46,12 @@ from bithumb_coin_trader.strategy import (
     donchian_4h_55_20_strategy,
     donchian_daily_20_10_strategy,
     donchian_daily_55_20_strategy,
+    ensemble_daily_3_of_5_strategy,
     monthly_close_above_sma10_strategy,
+    trading_range_daily_50_band_1pct_strategy,
+    trading_range_daily_50_no_band_strategy,
+    trend_daily_macd12_26_9_pvo12_26_strategy,
+    trend_daily_sma50_200_adx14_25_strategy,
 )
 
 
@@ -246,6 +258,143 @@ class CandidateStrategyTests(unittest.TestCase):
             intersection.generate(candles),
             [Signal.FLAT, Signal.LONG, Signal.FLAT],
         )
+
+    def test_third_wave_factories_expose_exact_names_and_one_daily_wrapper(self) -> None:
+        candidates = (
+            trading_range_daily_50_band_1pct_strategy(),
+            trading_range_daily_50_no_band_strategy(),
+            trend_daily_sma50_200_adx14_25_strategy(),
+            trend_daily_macd12_26_9_pvo12_26_strategy(),
+            ensemble_daily_3_of_5_strategy(),
+        )
+        self.assertEqual(
+            [candidate.name for candidate in candidates],
+            [
+                "trading_range_daily_50_band_1pct",
+                "trading_range_daily_50_no_band",
+                "trend_daily_sma50_200_adx14_25",
+                "trend_daily_macd12_26_9_pvo12_26",
+                "ensemble_daily_3_of_5",
+            ],
+        )
+        self.assertTrue(
+            all(candidate.target_minutes == 1440 for candidate in candidates)
+        )
+        ensemble = candidates[-1]
+        self.assertIsInstance(ensemble.inner, MajorityVoteLongStrategy)
+        self.assertFalse(
+            any(
+                isinstance(strategy, CompletedIntervalStrategy)
+                for strategy in ensemble.inner.strategies
+            )
+        )
+
+    def test_majority_vote_requires_three_long_constituents(self) -> None:
+        class Fixed:
+            def __init__(self, signals: list[Signal]) -> None:
+                self.signals = signals
+
+            def generate(self, candles: list[Candle]) -> list[Signal]:
+                return self.signals
+
+        candles = candles_from_closes([100, 101])
+        vote = MajorityVoteLongStrategy(
+            Fixed([Signal.LONG, Signal.LONG]),
+            Fixed([Signal.LONG, Signal.FLAT]),
+            Fixed([Signal.LONG, Signal.LONG]),
+            Fixed([Signal.FLAT, Signal.FLAT]),
+            Fixed([Signal.FLAT, Signal.LONG]),
+            minimum_votes=3,
+            name="three_of_five",
+        )
+        self.assertEqual(vote.generate(candles), [Signal.LONG, Signal.LONG])
+
+    def test_trading_range_uses_prior_50_bars_and_is_stateful(self) -> None:
+        candles = candles_from_closes([100.0] * 50 + [103.0, 97.0])
+        strategy = TradingRangeBreakoutStrategy()
+        prefix = strategy.generate(candles[:51])
+        extended = strategy.generate(candles)
+        self.assertEqual(prefix[-1], Signal.LONG)
+        self.assertEqual(extended[:51], prefix)
+        self.assertEqual(extended[-1], Signal.FLAT)
+
+    def test_trading_range_current_bar_is_excluded_from_channel(self) -> None:
+        candles = candles_from_closes([100.0] * 50 + [102.1])
+        current = candles[-1]
+        candles[-1] = Candle(
+            current.timestamp,
+            current.open,
+            200.0,
+            current.low,
+            current.close,
+            current.volume,
+        )
+        signals = TradingRangeBreakoutStrategy().generate(candles)
+        self.assertEqual(signals[-1], Signal.LONG)
+
+    def test_trading_range_daily_signal_maps_only_at_completed_close(self) -> None:
+        raw = self._thirty_minute_days([100.0] * 50 + [102.0, 98.0])
+        strategy = trading_range_daily_50_band_1pct_strategy()
+        before_entry = strategy.generate(raw[: 48 * 51 - 1])
+        at_entry = strategy.generate(raw[: 48 * 51])
+        extended = strategy.generate(raw)
+        self.assertEqual(before_entry[-1], Signal.FLAT)
+        self.assertEqual(at_entry[-2:], [Signal.FLAT, Signal.LONG])
+        self.assertEqual(extended[: 48 * 51], at_entry)
+        self.assertEqual(extended[-1], Signal.FLAT)
+
+    def test_daily_sma_adx_requires_trend_direction_and_strict_strength(self) -> None:
+        candles = candles_from_closes([100.0] * 199 + [101.0, 102.0])
+        length = len(candles)
+        with patch(
+            "bithumb_coin_trader.strategy.directional_indicators",
+            return_value=(
+                [None] * (length - 1) + [30.0],
+                [None] * (length - 1) + [10.0],
+                [None] * (length - 1) + [25.0],
+            ),
+        ):
+            blocked = DailySmaAdxTrendStrategy().generate(candles)
+        with patch(
+            "bithumb_coin_trader.strategy.directional_indicators",
+            return_value=(
+                [None] * (length - 1) + [30.0],
+                [None] * (length - 1) + [10.0],
+                [None] * (length - 1) + [25.01],
+            ),
+        ):
+            allowed = DailySmaAdxTrendStrategy().generate(candles)
+        self.assertEqual(blocked[-1], Signal.FLAT)
+        self.assertEqual(allowed[-1], Signal.LONG)
+
+    def test_daily_macd_pvo_requires_positive_momentum_and_volume(self) -> None:
+        candles = candles_from_closes([100.0, 101.0, 102.0])
+        line = [None, None, 1.0]
+        signal = [None, None, 0.5]
+        with (
+            patch(
+                "bithumb_coin_trader.strategy.macd",
+                return_value=(line, signal, [None, None, 0.5]),
+            ),
+            patch(
+                "bithumb_coin_trader.strategy.percentage_volume_oscillator",
+                return_value=[None, None, 0.1],
+            ),
+        ):
+            allowed = DailyMacdPvoTrendStrategy().generate(candles)
+        with (
+            patch(
+                "bithumb_coin_trader.strategy.macd",
+                return_value=(line, signal, [None, None, 0.5]),
+            ),
+            patch(
+                "bithumb_coin_trader.strategy.percentage_volume_oscillator",
+                return_value=[None, None, 0.0],
+            ),
+        ):
+            blocked = DailyMacdPvoTrendStrategy().generate(candles)
+        self.assertEqual(allowed[-1], Signal.LONG)
+        self.assertEqual(blocked[-1], Signal.FLAT)
 
     def test_daily_close_sma_signal_appears_only_at_completed_kst_day(self) -> None:
         raw = self._thirty_minute_days([100, 110, 90])
@@ -557,9 +706,27 @@ class CandidateStrategyTests(unittest.TestCase):
             lambda: DonchianBreakoutParameters(entry_period=20, exit_period=20),
             lambda: TimeSeriesMomentumParameters(lookback_period=False),
             lambda: TimeSeriesMomentumParameters(lookback_period=0),
+            lambda: TradingRangeBreakoutParameters(lookback_period=0),
+            lambda: TradingRangeBreakoutParameters(entry_band_fraction=-0.01),
+            lambda: TradingRangeBreakoutParameters(exit_band_fraction=float("nan")),
+            lambda: DailySmaAdxTrendParameters(fast_period=200, slow_period=50),
+            lambda: DailySmaAdxTrendParameters(directional_period=True),
+            lambda: DailySmaAdxTrendParameters(adx_threshold=101),
+            lambda: DailyMacdPvoTrendParameters(
+                macd_fast_period=26, macd_slow_period=26
+            ),
+            lambda: DailyMacdPvoTrendParameters(
+                pvo_fast_period=26, pvo_slow_period=12
+            ),
             lambda: CompletedCalendarMonthStrategy(object()),
             lambda: CompletedCalendarMonthStrategy(object(), source_minutes=60),
             lambda: IntersectionLongStrategy(object(), name="bad"),
+            lambda: MajorityVoteLongStrategy(
+                TimeSeriesMomentumStrategy(), minimum_votes=2, name="bad"
+            ),
+            lambda: MajorityVoteLongStrategy(
+                object(), minimum_votes=1, name="bad"
+            ),
             lambda: CompletedIntervalStrategy(object(), source_minutes=60, target_minutes=30),
         )
         for factory in invalid_factories:

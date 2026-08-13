@@ -10,7 +10,10 @@ from .data import aggregate_candles
 from .indicators import (
     bollinger_bandwidth,
     bollinger_bands,
+    directional_indicators,
     ema,
+    macd,
+    percentage_volume_oscillator,
     rolling_percentile,
     rolling_volatility,
     simple_moving_average,
@@ -99,6 +102,49 @@ class IntersectionLongStrategy:
         return [
             Signal.LONG
             if all(Signal(signals[index]) is Signal.LONG for signals in generated)
+            else Signal.FLAT
+            for index in range(len(candles))
+        ]
+
+
+class MajorityVoteLongStrategy:
+    """Stay long while at least ``minimum_votes`` constituents are long."""
+
+    def __init__(
+        self,
+        *strategies: object,
+        minimum_votes: int,
+        name: str,
+    ) -> None:
+        if (
+            not name
+            or not strategies
+            or isinstance(minimum_votes, bool)
+            or not isinstance(minimum_votes, int)
+            or not 1 <= minimum_votes <= len(strategies)
+            or any(
+                not callable(getattr(strategy, "generate", None))
+                for strategy in strategies
+            )
+        ):
+            raise ValueError("majority vote requires valid strategies, threshold, and name")
+        self.strategies = strategies
+        self.minimum_votes = minimum_votes
+        self.name = name
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        generated = [
+            strategy.generate(candles)  # type: ignore[attr-defined]
+            for strategy in self.strategies
+        ]
+        if any(len(signals) != len(candles) for signals in generated):
+            raise ValueError("constituent strategy returned the wrong signal count")
+        return [
+            Signal.LONG
+            if sum(
+                Signal(signals[index]) is Signal.LONG for signals in generated
+            )
+            >= self.minimum_votes
             else Signal.FLAT
             for index in range(len(candles))
         ]
@@ -331,6 +377,179 @@ class DonchianBreakoutStrategy:
         return signals
 
 
+@dataclass(frozen=True, slots=True)
+class TradingRangeBreakoutParameters:
+    lookback_period: int = 50
+    entry_band_fraction: float = 0.01
+    exit_band_fraction: float = 0.01
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.lookback_period, bool)
+            or not isinstance(self.lookback_period, int)
+            or self.lookback_period <= 0
+        ):
+            raise ValueError("trading-range lookback must be a positive integer")
+        bands = (self.entry_band_fraction, self.exit_band_fraction)
+        if not all(isfinite(value) and 0 <= value < 1 for value in bands):
+            raise ValueError("trading-range bands must be finite fractions on [0, 1)")
+
+
+class TradingRangeBreakoutStrategy:
+    """Stateful close-confirmed breakout of the prior trading range.
+
+    Both channels deliberately exclude the current candle.  A configured band
+    is applied above the prior high for entry and below the prior low for exit.
+    """
+
+    def __init__(
+        self, parameters: TradingRangeBreakoutParameters | None = None
+    ) -> None:
+        self.parameters = parameters or TradingRangeBreakoutParameters()
+        band_bps = round(self.parameters.entry_band_fraction * 10_000)
+        self.name = f"trading_range_{self.parameters.lookback_period}_{band_bps}bps"
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        signals = [Signal.FLAT] * len(candles)
+        position = Signal.FLAT
+        period = self.parameters.lookback_period
+        for index in range(period, len(candles)):
+            prior = candles[index - period : index]
+            if position is Signal.LONG:
+                prior_low = min(candle.low for candle in prior)
+                if candles[index].close < prior_low * (
+                    1.0 - self.parameters.exit_band_fraction
+                ):
+                    position = Signal.FLAT
+            else:
+                prior_high = max(candle.high for candle in prior)
+                if candles[index].close > prior_high * (
+                    1.0 + self.parameters.entry_band_fraction
+                ):
+                    position = Signal.LONG
+            signals[index] = position
+        return signals
+
+
+@dataclass(frozen=True, slots=True)
+class DailySmaAdxTrendParameters:
+    fast_period: int = 50
+    slow_period: int = 200
+    directional_period: int = 14
+    adx_threshold: float = 25.0
+
+    def __post_init__(self) -> None:
+        periods = (self.fast_period, self.slow_period, self.directional_period)
+        if any(
+            isinstance(period, bool) or not isinstance(period, int) or period <= 1
+            for period in periods
+        ):
+            raise ValueError("SMA/ADX periods must be integers greater than one")
+        if self.fast_period >= self.slow_period:
+            raise ValueError("fast SMA period must be below slow period")
+        if not isfinite(self.adx_threshold) or not 0 <= self.adx_threshold <= 100:
+            raise ValueError("ADX threshold must be finite and between zero and 100")
+
+
+class DailySmaAdxTrendStrategy:
+    """Long when daily SMA trend and directional strength agree."""
+
+    def __init__(self, parameters: DailySmaAdxTrendParameters | None = None) -> None:
+        self.parameters = parameters or DailySmaAdxTrendParameters()
+        self.name = (
+            f"daily_sma{self.parameters.fast_period}_{self.parameters.slow_period}_"
+            f"adx{self.parameters.directional_period}_{self.parameters.adx_threshold:g}"
+        )
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        closes = [candle.close for candle in candles]
+        fast = simple_moving_average(closes, self.parameters.fast_period)
+        slow = simple_moving_average(closes, self.parameters.slow_period)
+        positive, negative, strength = directional_indicators(
+            [candle.high for candle in candles],
+            [candle.low for candle in candles],
+            closes,
+            self.parameters.directional_period,
+        )
+        return [
+            Signal.LONG
+            if None not in (fast_value, slow_value, positive_value, negative_value, adx_value)
+            and fast_value > slow_value  # type: ignore[operator]
+            and positive_value > negative_value  # type: ignore[operator]
+            and adx_value > self.parameters.adx_threshold  # type: ignore[operator]
+            else Signal.FLAT
+            for fast_value, slow_value, positive_value, negative_value, adx_value in zip(
+                fast, slow, positive, negative, strength, strict=True
+            )
+        ]
+
+
+@dataclass(frozen=True, slots=True)
+class DailyMacdPvoTrendParameters:
+    macd_fast_period: int = 12
+    macd_slow_period: int = 26
+    macd_signal_period: int = 9
+    pvo_fast_period: int = 12
+    pvo_slow_period: int = 26
+
+    def __post_init__(self) -> None:
+        periods = (
+            self.macd_fast_period,
+            self.macd_slow_period,
+            self.macd_signal_period,
+            self.pvo_fast_period,
+            self.pvo_slow_period,
+        )
+        if any(
+            isinstance(period, bool) or not isinstance(period, int) or period <= 1
+            for period in periods
+        ):
+            raise ValueError("MACD/PVO periods must be integers greater than one")
+        if self.macd_fast_period >= self.macd_slow_period:
+            raise ValueError("MACD fast period must be below slow period")
+        if self.pvo_fast_period >= self.pvo_slow_period:
+            raise ValueError("PVO fast period must be below slow period")
+
+
+class DailyMacdPvoTrendStrategy:
+    """Long when positive daily MACD momentum has positive volume confirmation."""
+
+    def __init__(self, parameters: DailyMacdPvoTrendParameters | None = None) -> None:
+        self.parameters = parameters or DailyMacdPvoTrendParameters()
+        self.name = (
+            f"daily_macd{self.parameters.macd_fast_period}_"
+            f"{self.parameters.macd_slow_period}_{self.parameters.macd_signal_period}_"
+            f"pvo{self.parameters.pvo_fast_period}_{self.parameters.pvo_slow_period}"
+        )
+
+    def generate(self, candles: Sequence[Candle], **_: object) -> list[Signal]:
+        _validate_candles(candles)
+        line, signal, _ = macd(
+            [candle.close for candle in candles],
+            self.parameters.macd_fast_period,
+            self.parameters.macd_slow_period,
+            self.parameters.macd_signal_period,
+        )
+        pvo = percentage_volume_oscillator(
+            [candle.volume for candle in candles],
+            self.parameters.pvo_fast_period,
+            self.parameters.pvo_slow_period,
+        )
+        return [
+            Signal.LONG
+            if None not in (line_value, signal_value, pvo_value)
+            and line_value > signal_value  # type: ignore[operator]
+            and line_value > 0  # type: ignore[operator]
+            and pvo_value > 0  # type: ignore[operator]
+            else Signal.FLAT
+            for line_value, signal_value, pvo_value in zip(
+                line, signal, pvo, strict=True
+            )
+        ]
+
+
 def daily_close_above_sma140_strategy() -> CompletedIntervalStrategy:
     """Return the fixed completed-KST-day close/SMA140 candidate."""
 
@@ -424,6 +643,73 @@ def donchian_daily_20_10_strategy() -> CompletedIntervalStrategy:
         target_minutes=1440,
     )
     strategy.name = "donchian_daily_20_10_breakout"
+    return strategy
+
+
+def trading_range_daily_50_band_1pct_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed daily prior-50 range breakout with one-percent bands."""
+
+    strategy = CompletedIntervalStrategy(
+        TradingRangeBreakoutStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trading_range_daily_50_band_1pct"
+    return strategy
+
+
+def trading_range_daily_50_no_band_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed daily prior-50 range breakout without bands."""
+
+    strategy = CompletedIntervalStrategy(
+        TradingRangeBreakoutStrategy(
+            TradingRangeBreakoutParameters(
+                lookback_period=50,
+                entry_band_fraction=0.0,
+                exit_band_fraction=0.0,
+            )
+        ),
+        source_minutes=30,
+        target_minutes=1440,
+    )
+    strategy.name = "trading_range_daily_50_no_band"
+    return strategy
+
+
+def trend_daily_sma50_200_adx14_25_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed daily SMA50/200 plus DI/ADX14 trend candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DailySmaAdxTrendStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trend_daily_sma50_200_adx14_25"
+    return strategy
+
+
+def trend_daily_macd12_26_9_pvo12_26_strategy() -> CompletedIntervalStrategy:
+    """Return the fixed daily MACD plus PVO confirmation candidate."""
+
+    strategy = CompletedIntervalStrategy(
+        DailyMacdPvoTrendStrategy(), source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "trend_daily_macd12_26_9_pvo12_26"
+    return strategy
+
+
+def ensemble_daily_3_of_5_strategy() -> CompletedIntervalStrategy:
+    """Return one daily wrapper around a three-of-five trend vote."""
+
+    inner = MajorityVoteLongStrategy(
+        TimeSeriesMomentumStrategy(),
+        TradingRangeBreakoutStrategy(),
+        DailySmaTrendStrategy(),
+        DailySmaAdxTrendStrategy(),
+        DailyMacdPvoTrendStrategy(),
+        minimum_votes=3,
+        name="ensemble_daily_3_of_5",
+    )
+    strategy = CompletedIntervalStrategy(
+        inner, source_minutes=30, target_minutes=1440
+    )
+    strategy.name = "ensemble_daily_3_of_5"
     return strategy
 
 
