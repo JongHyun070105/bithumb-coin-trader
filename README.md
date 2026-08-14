@@ -93,6 +93,18 @@ RSI·볼린저 재진입, 추세 필터, 시계열 모멘텀, Donchian 돌파 �
 
 따라서 현재 결론은 계속 `RESEARCH_ONLY`입니다. 상세 후보, fold 회계, 비용 스트레스, bootstrap과 재현 명령은 [Wave 3 연구](docs/CANDIDATE_RESEARCH_2026-08-13.md)에 있습니다.
 
+### Wave 4 두 자아 반증 연구
+
+2026-08-14에는 탐색자와 비평자가 후보·실패 기준을 먼저 토론한 뒤 84일 모멘텀, 저변동성 gate, train-only 볼륨-클록을 평가했습니다.
+
+| 후보 | OOS 수익률 | MDD | non-final 거래 | 수익 fold | 2배 비용 |
+|---|---:|---:|---:|---:|---:|
+| 84일 모멘텀 | +5.95% | 3.16% | 1 | 2/8 | +5.62% |
+| RV20 중앙값 gate | 0.00% | 0.00% | 0 | 0/8 | 0.00% |
+| 볼륨-클록 | -42.55% | 42.55% | 178 | 0/8 | -50.38% |
+
+84일 모멘텀은 숫자만 높고 수익이 단 한 거래에 100% 집중돼 기각했습니다. 볼륨-클록은 충분히 거래했지만 강한 손실로 반증됐습니다. nested 선택기는 8/8 fold에서 Cash를 골랐고, 이전 1위 대비 bootstrap 95% 하한은 `-2.32%`였습니다. 새 후보 동결 후의 전진 표본은 아직 0봉이므로 결론은 계속 `RESEARCH_ONLY`입니다. 상세한 두 자아의 합의, gap 처리, 여덟 반증 gate와 재현 절차는 [Wave 4 연구](docs/CANDIDATE_RESEARCH_2026-08-14.md)에 있습니다.
+
 ## 주요 구성요소
 
 | 모듈 | 역할 |
@@ -170,6 +182,19 @@ PYTHONPATH=src .venv/bin/python scripts/run_wave3_research.py \
 
 PYTHONPATH=src .venv/bin/python scripts/validate_wave3_research.py \
   reports/krw-btc-wave3-study-2026-08-13.json
+```
+
+Wave 4 두 자아·train-only 연구 재현:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/run_wave4_research.py \
+  --input data/krw-btc-30m-2026-08-14-wave4.csv \
+  --output reports/krw-btc-wave4-study-2026-08-14.json \
+  --generated-at 2026-08-14T11:29:00+00:00
+
+PYTHONPATH=src .venv/bin/python scripts/validate_wave4_research.py \
+  reports/krw-btc-wave4-study-2026-08-14.json \
+  --input data/krw-btc-30m-2026-08-14-wave4.csv
 ```
 
 주문 없이 최신 연구 신호 확인:
@@ -280,6 +305,7 @@ git diff --check
 - [연구 기준선](docs/RESEARCH_BASELINE.md)
 - [다중 시간대 고정 후보 연구](docs/CANDIDATE_RESEARCH_2026-08-12.md)
 - [Wave 3 지표·앙상블 연구](docs/CANDIDATE_RESEARCH_2026-08-13.md)
+- [Wave 4 두 자아 반증 연구](docs/CANDIDATE_RESEARCH_2026-08-14.md)
 - [실전 준비 런북](docs/LIVE_READINESS.md)
 
 ## 공식 문서
