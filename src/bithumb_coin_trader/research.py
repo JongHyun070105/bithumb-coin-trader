@@ -314,6 +314,8 @@ def registered_candidate_factories() -> dict[str, Callable[[], Any]]:
         donchian_daily_20_10_strategy,
         donchian_daily_55_20_strategy,
         monthly_close_above_sma10_strategy,
+        InstitutionalDisplacementStrategy,
+        TradingAgentsMultiAgentStrategy,
     )
 
     hourly_classes = (
@@ -343,6 +345,20 @@ def registered_candidate_factories() -> dict[str, Callable[[], Any]]:
             )
         )
     return factories
+
+
+def extended_candidate_factories() -> dict[str, Callable[[], Any]]:
+    """Return all factories including Tauric Research and Institutional strategies."""
+    from .strategy import (
+        InstitutionalDisplacementStrategy,
+        TradingAgentsMultiAgentStrategy,
+    )
+
+    factories = registered_candidate_factories()
+    factories["institutional_displacement"] = InstitutionalDisplacementStrategy
+    factories["tauric_tradingagents_multiagent"] = TradingAgentsMultiAgentStrategy
+    return factories
+
 
 
 def compare_registered_candidates(

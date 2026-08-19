@@ -12,6 +12,7 @@ from .indicators import (
     bollinger_bands,
     directional_indicators,
     ema,
+    institutional_displacement_signals,
     macd,
     percentage_volume_oscillator,
     rolling_percentile,
@@ -1191,3 +1192,303 @@ class TrendBreakoutStrategy:
                 position = Signal.SHORT
             signals[index] = position
         return signals
+
+
+@dataclass(frozen=True, slots=True)
+class InstitutionalDisplacementParameters:
+    vol_period: int = 20
+    vol_multiplier: float = 2.0
+    min_body_pct: float = 50.0
+    trend_ma_period: int = 100
+    use_trend_filter: bool = True
+    stop_loss_pct: float = 0.02
+    take_profit_pct: float = 0.05
+    trailing_stop_pct: float = 0.015
+    max_holding_bars: int = 48
+
+    def __post_init__(self) -> None:
+        if isinstance(self.vol_period, bool) or not isinstance(self.vol_period, int) or self.vol_period <= 0:
+            raise ValueError("vol_period must be a positive integer")
+        if not isfinite(self.vol_multiplier) or self.vol_multiplier <= 0:
+            raise ValueError("vol_multiplier must be positive")
+        if not isfinite(self.min_body_pct) or not 0 <= self.min_body_pct <= 100:
+            raise ValueError("min_body_pct must be between 0 and 100")
+        if not isfinite(self.stop_loss_pct) or self.stop_loss_pct <= 0:
+            raise ValueError("stop_loss_pct must be positive")
+        if not isfinite(self.take_profit_pct) or self.take_profit_pct <= 0:
+            raise ValueError("take_profit_pct must be positive")
+
+
+class InstitutionalDisplacementStrategy:
+    """Strategy following institutional displacement candles with dynamic risk controls."""
+
+    def __init__(self, parameters: InstitutionalDisplacementParameters | None = None) -> None:
+        self.parameters = parameters or InstitutionalDisplacementParameters()
+        self.name = (
+            f"inst_disp_v{self.parameters.vol_period}_m{self.parameters.vol_multiplier}"
+            f"_b{int(self.parameters.min_body_pct)}"
+        )
+
+    def generate(self, candles: Sequence[Candle], *, start_index: int | None = None) -> list[Signal]:
+        _validate_candles(candles)
+        signals = [Signal.FLAT] * len(candles)
+        if not candles:
+            return signals
+
+        opens = [c.open for c in candles]
+        highs = [c.high for c in candles]
+        lows = [c.low for c in candles]
+        closes = [c.close for c in candles]
+        volumes = [c.volume for c in candles]
+
+        trend_ma = simple_moving_average(closes, self.parameters.trend_ma_period)
+
+        bull_shifts, bear_shifts, _ = institutional_displacement_signals(
+            opens,
+            highs,
+            lows,
+            closes,
+            volumes,
+            vol_period=self.parameters.vol_period,
+            vol_multiplier=self.parameters.vol_multiplier,
+            min_body_pct=self.parameters.min_body_pct,
+        )
+
+        warmup = max(self.parameters.vol_period, self.parameters.trend_ma_period)
+        first_decision = warmup if start_index is None else start_index
+        if first_decision >= len(candles):
+            return signals
+
+        position = Signal.FLAT
+        entry_price: float = 0.0
+        highest_since_entry: float = 0.0
+        bars_held: int = 0
+
+        for i in range(first_decision, len(candles)):
+            close = closes[i]
+            bull = bull_shifts[i]
+            bear = bear_shifts[i]
+            t_ma = trend_ma[i]
+
+            uptrend_ok = True
+            if self.parameters.use_trend_filter and t_ma is not None:
+                uptrend_ok = close > t_ma
+
+            if position is Signal.LONG:
+                bars_held += 1
+                if close > highest_since_entry:
+                    highest_since_entry = close
+
+                # Stop-loss check
+                loss_ratio = (entry_price - close) / entry_price
+                if loss_ratio >= self.parameters.stop_loss_pct:
+                    position = Signal.FLAT
+
+                # Take-profit check
+                gain_ratio = (close - entry_price) / entry_price
+                if gain_ratio >= self.parameters.take_profit_pct:
+                    position = Signal.FLAT
+
+                # Trailing stop check
+                drawdown_from_peak = (highest_since_entry - close) / highest_since_entry
+                if (
+                    highest_since_entry > entry_price * 1.01
+                    and drawdown_from_peak >= self.parameters.trailing_stop_pct
+                ):
+                    position = Signal.FLAT
+
+                # Bearish shift exit or holding period expiration
+                if bear or (self.parameters.max_holding_bars > 0 and bars_held >= self.parameters.max_holding_bars):
+                    position = Signal.FLAT
+
+            elif position is Signal.FLAT:
+                if bull and uptrend_ok:
+                    position = Signal.LONG
+                    entry_price = close
+                    highest_since_entry = close
+                    bars_held = 0
+
+            signals[i] = position
+
+        return signals
+
+
+@dataclass(frozen=True, slots=True)
+class TradingAgentsMultiAgentParameters:
+    fast_ma_period: int = 20
+    slow_ma_period: int = 100
+    rsi_period: int = 14
+    rsi_lower: float = 40.0
+    rsi_upper: float = 70.0
+    vol_period: int = 20
+    vol_multiplier: float = 2.0
+    min_body_pct: float = 45.0
+    approval_threshold: float = 65.0
+    stop_loss_pct: float = 0.02
+    take_profit_pct: float = 0.05
+    trailing_stop_pct: float = 0.015
+
+    def __post_init__(self) -> None:
+        if self.fast_ma_period >= self.slow_ma_period:
+            raise ValueError("fast_ma_period must be less than slow_ma_period")
+
+
+class TradingAgentsMultiAgentStrategy:
+    """Multi-Agent financial decision framework based on TradingAgents & Tauric Research.
+
+    Agents involved:
+    - TARO (Technical Analyst): MA alignment, RSI momentum, MACD cross
+    - DIANA (Fundamental & Volume Analyst): Volume expansion & Displacement detection
+    - NOVA (Trend Analyst): Intermediate-term momentum
+    - VIBE (Sentiment & Volatility): Bollinger band position & volatility regime
+    - BULL / BEAR Research Room: Interactive debate & scoring
+    - ACE (Lead Trader): Generates tentative BUY proposal & confidence
+    - Risk Committee (SAFE, RISKY, NEUTRAL): Filter overextended conditions & enforce stop bounds
+    - PM (Portfolio Manager): Final gatekeeper approving or rejecting the trade
+    """
+
+    def __init__(self, parameters: TradingAgentsMultiAgentParameters | None = None) -> None:
+        self.parameters = parameters or TradingAgentsMultiAgentParameters()
+        self.name = (
+            f"tauric_tradingagents_fast{self.parameters.fast_ma_period}_slow{self.parameters.slow_ma_period}"
+        )
+
+    def generate(self, candles: Sequence[Candle], *, start_index: int | None = None) -> list[Signal]:
+        _validate_candles(candles)
+        signals = [Signal.FLAT] * len(candles)
+        if not candles:
+            return signals
+
+        opens = [c.open for c in candles]
+        highs = [c.high for c in candles]
+        lows = [c.low for c in candles]
+        closes = [c.close for c in candles]
+        volumes = [c.volume for c in candles]
+
+        fast_ma = simple_moving_average(closes, self.parameters.fast_ma_period)
+        slow_ma = simple_moving_average(closes, self.parameters.slow_ma_period)
+        rsi_vals = wilder_rsi(closes, self.parameters.rsi_period)
+        macd_line, sig_line, hist = macd(closes, 12, 26, 9)
+        _, bb_upper, bb_lower = bollinger_bands(closes, 20, 2.0)
+
+        bull_shifts, bear_shifts, _ = institutional_displacement_signals(
+            opens,
+            highs,
+            lows,
+            closes,
+            volumes,
+            vol_period=self.parameters.vol_period,
+            vol_multiplier=self.parameters.vol_multiplier,
+            min_body_pct=self.parameters.min_body_pct,
+        )
+
+        warmup = max(
+            self.parameters.slow_ma_period,
+            self.parameters.vol_period,
+            self.parameters.rsi_period + 1,
+            35,
+        )
+        first_decision = warmup if start_index is None else start_index
+        if first_decision >= len(candles):
+            return signals
+
+        position = Signal.FLAT
+        entry_price: float = 0.0
+        highest_since_entry: float = 0.0
+
+        for i in range(first_decision, len(candles)):
+            close = closes[i]
+            f_ma = fast_ma[i]
+            s_ma = slow_ma[i]
+            r_val = rsi_vals[i]
+            h_val = hist[i]
+
+            if None in (f_ma, s_ma, r_val, h_val):
+                signals[i] = position
+                continue
+
+            assert f_ma is not None and s_ma is not None and r_val is not None and h_val is not None
+
+            # 1. Analyst Scores (0 - 100)
+            # TARO (Technical): MA alignment + RSI + MACD
+            taro_score = 0.0
+            if f_ma > s_ma and close > s_ma:
+                taro_score += 45.0
+            if self.parameters.rsi_lower <= r_val <= self.parameters.rsi_upper:
+                taro_score += 30.0
+            if h_val > 0:
+                taro_score += 25.0
+
+            # DIANA (Fundamental/Volume): Institutional Displacement & High Volume
+            diana_score = 50.0
+            if bull_shifts[i]:
+                diana_score = 100.0
+            elif bear_shifts[i]:
+                diana_score = 0.0
+
+            # NOVA (Trend/Momentum): 20-bar Return
+            nova_score = 50.0
+            if i >= 20:
+                ret_20 = (close - closes[i - 20]) / closes[i - 20]
+                if ret_20 > 0.015:
+                    nova_score = 85.0
+                elif ret_20 < -0.01:
+                    nova_score = 15.0
+
+            # VIBE (Sentiment/Volatility)
+            vibe_score = 50.0
+            if bb_lower[i] is not None and bb_upper[i] is not None:
+                bb_range = bb_upper[i] - bb_lower[i]  # type: ignore[operator]
+                if bb_range > 0:
+                    pos_in_bb = (close - bb_lower[i]) / bb_range  # type: ignore[operator]
+                    vibe_score = min(max(pos_in_bb * 100.0, 0.0), 100.0)
+
+            # 2. Research Room Debate (BULL vs BEAR)
+            bull_arguments = (taro_score * 0.40) + (diana_score * 0.30) + (nova_score * 0.15) + (vibe_score * 0.15)
+            bear_arguments = 100.0 - bull_arguments
+
+            # 3. ACE Lead Trader Proposal
+            ace_confidence = bull_arguments
+
+            # 4. Risk Committee Review
+            # SAFE: Reject if RSI > 70 (overbought) or bear shift active or price below slow MA
+            safe_approved = r_val < 70.0 and not bear_shifts[i] and close > s_ma
+            # RISKY: Promote early if strong institutional volume
+            if bull_shifts[i] and f_ma > s_ma:
+                ace_confidence += 10.0
+
+            # 5. PM Final Approval
+            pm_approved = safe_approved and (ace_confidence >= self.parameters.approval_threshold)
+
+            # Execution logic & Position management
+            if position is Signal.LONG:
+                if close > highest_since_entry:
+                    highest_since_entry = close
+
+                # Stop loss
+                if (entry_price - close) / entry_price >= self.parameters.stop_loss_pct:
+                    position = Signal.FLAT
+                # Take profit
+                elif (close - entry_price) / entry_price >= self.parameters.take_profit_pct:
+                    position = Signal.FLAT
+                # Trailing stop
+                elif (
+                    highest_since_entry > entry_price * 1.01
+                    and (highest_since_entry - close) / highest_since_entry >= self.parameters.trailing_stop_pct
+                ):
+                    position = Signal.FLAT
+                # Bearish exit condition
+                elif bear_shifts[i] or close < s_ma or (f_ma < s_ma and r_val < 45.0):
+                    position = Signal.FLAT
+
+            elif position is Signal.FLAT:
+                if pm_approved and (bull_shifts[i] or (f_ma > s_ma and h_val > 0)):
+                    position = Signal.LONG
+                    entry_price = close
+                    highest_since_entry = close
+
+            signals[i] = position
+
+        return signals
+
+

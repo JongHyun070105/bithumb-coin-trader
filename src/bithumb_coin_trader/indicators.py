@@ -434,3 +434,83 @@ def rolling_volatility(values: Sequence[float], period: int) -> list[float | Non
         if len(window) == period:
             result[index] = pstdev(window) * sqrt(365)
     return result
+
+
+def candle_displacement_ratio(
+    opens: Sequence[float],
+    highs: Sequence[float],
+    lows: Sequence[float],
+    closes: Sequence[float],
+) -> list[float]:
+    """Calculate the candle body ratio: abs(close - open) / (high - low)."""
+    norm_opens = _validated_values(opens)
+    norm_highs = _validated_values(highs)
+    norm_lows = _validated_values(lows)
+    norm_closes = _validated_values(closes)
+    count = len(norm_opens)
+    if not (count == len(norm_highs) == len(norm_lows) == len(norm_closes)):
+        raise ValueError("OHLC sequences must have identical lengths")
+    ratios: list[float] = [0.0] * count
+    for i in range(count):
+        candle_range = norm_highs[i] - norm_lows[i]
+        candle_body = abs(norm_closes[i] - norm_opens[i])
+        if candle_range > 0:
+            ratios[i] = candle_body / candle_range
+        else:
+            ratios[i] = 0.0
+    return ratios
+
+
+def institutional_displacement_signals(
+    opens: Sequence[float],
+    highs: Sequence[float],
+    lows: Sequence[float],
+    closes: Sequence[float],
+    volumes: Sequence[float],
+    *,
+    vol_period: int = 20,
+    vol_multiplier: float = 2.0,
+    min_body_pct: float = 50.0,
+) -> tuple[list[bool], list[bool], list[float | None]]:
+    """Detect Bullish Shift and Bearish Shift based on Institutional Displacement & Volume.
+
+    Returns:
+        tuple(bull_shifts, bear_shifts, vol_moving_averages)
+    """
+    _validate_period(vol_period, "vol_period")
+    if not isfinite(vol_multiplier) or vol_multiplier <= 0:
+        raise ValueError("vol_multiplier must be a positive finite number")
+    if not isfinite(min_body_pct) or not (0.0 <= min_body_pct <= 100.0):
+        raise ValueError("min_body_pct must be between 0 and 100")
+
+    norm_opens = _validated_values(opens)
+    norm_highs = _validated_values(highs)
+    norm_lows = _validated_values(lows)
+    norm_closes = _validated_values(closes)
+    norm_vols = _validated_values(volumes)
+    count = len(norm_opens)
+    if not (count == len(norm_highs) == len(norm_lows) == len(norm_closes) == len(norm_vols)):
+        raise ValueError("OHLCV sequences must have identical lengths")
+
+    body_threshold = min_body_pct / 100.0
+    vol_ma = simple_moving_average(norm_vols, vol_period)
+    bull_shifts = [False] * count
+    bear_shifts = [False] * count
+
+    for i in range(count):
+        candle_range = norm_highs[i] - norm_lows[i]
+        candle_body = abs(norm_closes[i] - norm_opens[i])
+        body_ratio = (candle_body / candle_range) if candle_range > 0 else 0.0
+        is_displacement = body_ratio >= body_threshold
+
+        avg_vol = vol_ma[i]
+        high_vol = avg_vol is not None and norm_vols[i] > avg_vol * vol_multiplier
+
+        if is_displacement and high_vol:
+            if norm_closes[i] > norm_opens[i]:
+                bull_shifts[i] = True
+            elif norm_closes[i] < norm_opens[i]:
+                bear_shifts[i] = True
+
+    return bull_shifts, bear_shifts, vol_ma
+

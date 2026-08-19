@@ -58,6 +58,12 @@ READ_ONLY_TOOLS = frozenset(
         "account_get_wallet_status",
         "trade_get_order",
         "trade_get_orders",
+        "market_get_warnings",
+        "market_get_notices",
+        "market_get_orderbook",
+        "market_get_trades",
+        "market_get_ticker",
+        "market_get_markets",
     }
 )
 WRITE_TOOLS = frozenset({"trade_place_order"})

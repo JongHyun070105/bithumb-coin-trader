@@ -224,3 +224,148 @@ def status_test_notification() -> TradeNotification:
         market="KRW-BTC",
         detail="Discord finance-chat 연결 테스트 / 실주문 없음",
     )
+
+
+# ── Rich Mobile Discord Briefings ─────────────────────────────
+
+DISCORD_TARGET = "discord:1521513150682234900"
+HERMES_BIN = str(Path.home() / ".local" / "bin" / "hermes")
+
+
+def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
+    """Send markdown text message to Discord target via Hermes."""
+    path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
+            handle.write(text)
+            path = Path(handle.name)
+        result = subprocess.run(
+            [HERMES_BIN, "send", "-t", target, "-f", str(path)],
+            check=False,
+            cwd=tempfile.gettempdir(),
+            timeout=30.0,
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except Exception as exc:
+        print(f"⚠️ Discord send error: {exc}")
+        return False
+    finally:
+        if path is not None and path.exists():
+            path.unlink(missing_ok=True)
+
+
+def notify_buy_entry(
+    market: str,
+    price: float,
+    amount_krw: int,
+    volume: str,
+    confidence: float,
+    bid_ratio: float,
+    take_profit: float,
+    stop_loss: float,
+) -> bool:
+    """Send rich Buy Entry notification."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    coin_name = market.replace("KRW-", "")
+    text = f"""## 🟢 [BITHUMB] 매수 진입 알림 ({coin_name})
+> ⏱️ **체결시각**: `{now_str}`
+> 🎯 **종목**: **`{market}`**
+
+```yaml
+진입단가: {price:,.0f} KRW
+매수금액: {amount_krw:,} KRW
+체결수량: {float(volume):.4f} {coin_name}
+AI 확신도: {confidence:.1f}% (TARO/DIANA/NOVA/VIBE)
+호가 매수벽: {bid_ratio*100:.1f}% (30호가 Imbalance)
+```
+
+- 🎯 **1차 목표가 (TP +4.0%)**: `{take_profit:,.0f} KRW`
+- ⛔ **손절 기준선 (SL -2.0%)**: `{stop_loss:,.0f} KRW`
+- 📈 **트레일링 스탑**: 고점 +1% 돌파 시 고점 대비 -1.5% 자동 추종
+"""
+    return send_discord_message(text)
+
+
+def notify_sell_exit(
+    market: str,
+    price: float,
+    volume: str,
+    amount_krw: float,
+    pnl_krw: float,
+    pnl_pct: float,
+    reason: str,
+    total_capital: float,
+    target_capital: float = 45000.0,
+) -> bool:
+    """Send rich Sell Exit & P&L notification."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    coin_name = market.replace("KRW-", "")
+    status_tag = "익절 성공 🎉" if pnl_krw >= 0 else "손절 방어 🛡️"
+
+    progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
+    filled_bars = int(progress / 10)
+    bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
+
+    text = f"""## 🔴 [BITHUMB] 포지션 청산 알림 ({status_tag})
+> ⏱️ **청산시각**: `{now_str}`
+> 🎯 **종목**: **`{market}`**
+
+```yaml
+청산단가: {price:,.0f} KRW
+청산금액: {amount_krw:,.0f} KRW
+실현손익: {pnl_krw:+,.0f} KRW ({pnl_pct:+.2f}%)
+청산사유: {reason}
+```
+
+### 💰 포트폴리오 현황
+- **현재 총 자산**: **`{total_capital:,.0f} KRW`**
+- **9/1 목표 (45,000원)**: `[{bar_str}] {progress:.1f}%`
+- **남은 목표 금액**: `{target_capital - total_capital:+,.0f} KRW`
+"""
+    return send_discord_message(text)
+
+
+def notify_hourly_briefing(
+    total_capital: float,
+    cash_available: float,
+    active_market: str,
+    active_price: float,
+    entry_price: float,
+    active_pnl_pct: float,
+    active_val_krw: float,
+    top_candidates: list[dict[str, Any]],
+    target_capital: float = 45000.0,
+) -> bool:
+    """Send periodic briefing with portfolio and market rankings."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
+    filled_bars = int(progress / 10)
+    bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
+
+    pos_info = "현재 현금 100% 보유 대기 중 (다음 1위 코인 탐색)"
+    if active_market and entry_price > 0:
+        pos_info = f"**{active_market}** ({active_pnl_pct:+.2f}%) | 평가금: `{active_val_krw:,.0f} KRW`"
+
+    rank_lines = []
+    for i, c in enumerate(top_candidates[:3]):
+        tag = "⭐ 1위" if i == 0 else f"#{i+1}"
+        rank_lines.append(f"- {tag} **{c['market']}**: 확신도 `{c['confidence']:.1f}%` | 호가매수벽 `{c['bid_ratio']:.1f}%` | {c['status']}")
+    ranks_text = "\n".join(rank_lines) if rank_lines else "- 스캔 진행 중"
+
+    text = f"""## 📊 [BITHUMB] 정기 트레이딩 브리핑
+> ⏱️ **기준시각**: `{now_str}`
+
+### 💰 자산 및 목표 현황
+- **총 자산**: **`{total_capital:,.0f} KRW`** (가용 현금: `{cash_available:,.0f} KRW`)
+- **목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: 45,000 KRW)
+- **보유 포지션**: {pos_info}
+
+### 📡 빗썸 10대 코인 실시간 랭킹 Top 3
+{ranks_text}
+
+---
+*24시간 무중단 자율 운용 중* 🤖
+"""
+    return send_discord_message(text)

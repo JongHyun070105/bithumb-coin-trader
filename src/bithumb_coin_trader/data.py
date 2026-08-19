@@ -261,7 +261,10 @@ def _fetch_candles(
             params["to"] = cursor_for_api.replace(tzinfo=None).isoformat(timespec="seconds")
         request = Request(
             f"{endpoint}?{urlencode(params)}",
-            headers={"Accept": "application/json", "User-Agent": "bithumb-coin-trader/1"},
+            headers={
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            },
             method="GET",
         )
         page = _decode_page(get(request, timeout), market)
