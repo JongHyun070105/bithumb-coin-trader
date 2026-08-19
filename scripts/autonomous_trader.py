@@ -34,6 +34,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.data import fetch_minute_candles
 from bithumb_coin_trader.discord_notify import (
+    SilentNotifier,
     notify_buy_entry,
     notify_sell_exit,
     notify_hourly_briefing,
@@ -44,7 +45,7 @@ from bithumb_coin_trader.execution import (
 )
 from bithumb_coin_trader.mcp_client import McpStdioClient, LIVE_COMMAND
 from bithumb_coin_trader.models import Signal
-from bithumb_coin_trader.risk import RiskContext, evaluate_pretrade
+from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
 from bithumb_coin_trader.state import BotState, load_state, save_state
 from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
@@ -257,7 +258,7 @@ def execute_buy(
         daily_entries=portfolio.daily_entries,
         data_is_fresh=True,
     )
-    decision = evaluate_pretrade(risk_context)
+    decision = evaluate_pretrade(risk_context, limits=RiskLimits(maximum_daily_entries=50))
     if not decision.allowed:
         print(f"  ❌ Risk gate rejected: {decision.reasons}")
         return False
@@ -268,7 +269,7 @@ def execute_buy(
         save_state(STATE_PATH, temp_state)
 
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings)
+            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
@@ -371,7 +372,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings)
+            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
             result = executor.execute(
                 plan,
                 risk_context=risk_context,

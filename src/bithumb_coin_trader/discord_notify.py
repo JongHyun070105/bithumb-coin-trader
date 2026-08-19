@@ -206,6 +206,13 @@ class DiscordNotifier:
                 path.unlink(missing_ok=True)
 
 
+class SilentNotifier:
+    """No-op sink to suppress low-level raw debug notifications when using rich custom alerts."""
+
+    def send(self, notification: Any) -> bool:
+        return True
+
+
 def _minimal_hermes_env() -> dict[str, str]:
     environment = {
         "HOME": str(Path.home()),
