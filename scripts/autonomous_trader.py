@@ -435,6 +435,7 @@ def main():
 
     settings = TradingSettings(
         initial_capital_krw=portfolio.total_capital or 100_000,
+        fee_rate=0.0004,
         mode=TradingMode.LIVE,
         live_trading_enabled=True,
         minimum_order_krw=MIN_ORDER_KRW,
