@@ -558,15 +558,17 @@ def main():
                                 print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
                                 execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
 
-                    # Dynamic Pyramiding Scale-In when LONG and High Confidence
+                    # Dynamic Pyramiding Scale-In (Only if total position <= 60% of capital & min 33% cash preserved)
                     elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
-                          and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.0 and analyses):
+                          and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.20 and analyses):
                         top_market = analyses[0][0].market
                         top_conf = analyses[0][2]
-                        if top_market == portfolio.active_market and top_conf >= 72.0:
-                            scale_amount = min(int(portfolio.cash_available * 0.5), 10_000)
-                            scale_amount = max(scale_amount, MIN_ORDER_KRW)
-                            if scale_amount <= portfolio.cash_available:
+                        # Enforce 60% Max Position Limit
+                        max_pos_allowed = portfolio.total_capital * 0.60
+                        if (top_market == portfolio.active_market and top_conf >= 75.0 
+                                and cur_val_krw < max_pos_allowed and portfolio.cash_available > portfolio.total_capital * 0.30):
+                            scale_amount = min(int(max_pos_allowed - cur_val_krw), int(portfolio.cash_available * 0.5))
+                            if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
                                 print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {top_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
                                 execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=top_conf, bid_ratio=analyses[0][1], is_pyramiding=True)
 
