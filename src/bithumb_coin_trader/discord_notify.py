@@ -362,7 +362,7 @@ def notify_hourly_briefing(
 - **목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: 45,000 KRW)
 - **보유 포지션**: {pos_info}
 
-### 📡 빗썸 10대 코인 실시간 랭킹 Top 3
+### 📡 빗썸 다이내믹 25-유니버스 실시간 랭킹 Top 3
 {ranks_text}
 
 ---

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-🤖 AUTONOMOUS TRADING DAEMON v3.2 (Dynamic Universe & Dual-Engine Scanner)
+🤖 AUTONOMOUS TRADING DAEMON v3.3 (Dynamic Universe Always-On Radar)
 ──────────────────────────────────────────────────────────────────────────
 Target   : Dynamic Compounding Milestone (+50.0% Target Return)
 Engines  : 
-  - Dynamic Universe Radar (Top 25 Liquid & Volume Spike Markets)
+  - Dynamic 25-Universe Always-On Radar (Top 25 Liquid & Momentum Markets)
   - Tauric Multi-Agent (TARO, DIANA, NOVA, VIBE, ACE, PM)
   - Institutional Volume Delta & Candle Displacement
   - Bithumb Realtime 30-Orderbook Imbalance (Bid-Ask Depth Ratio)
@@ -24,7 +24,7 @@ import urllib.request
 from dataclasses import dataclass, asdict
 from decimal import Decimal
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -191,6 +191,37 @@ def get_recent_notices(client: McpStdioClient) -> list[str]:
     return titles
 
 
+def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict[str, Any]]]:
+    """Scan dynamic universe and return (sorted_analyses, top_candidates)."""
+    active_universe = fetch_dynamic_universe(min_24h_krw=500_000_000, max_markets=25)
+    warned_markets = get_market_warnings(client)
+
+    analyses = []
+    for m in active_universe:
+        if m in warned_markets:
+            continue
+        res = analyze_market(m)
+        if res:
+            ob_ratio = get_market_orderbook_ratio(client, m)
+            ob_adj = (ob_ratio - 0.50) * 20.0
+            final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
+            analyses.append((res, ob_ratio, final_conf))
+
+    top_candidates = []
+    if analyses:
+        analyses.sort(key=lambda x: x[2], reverse=True)
+        top_candidates = [
+            {
+                "market": a.market,
+                "confidence": fconf,
+                "bid_ratio": ob * 100.0,
+                "status": a.recommendation,
+            }
+            for a, ob, fconf in analyses[:3]
+        ]
+    return analyses, top_candidates
+
+
 def execute_buy(
     market: str,
     amount_krw: int,
@@ -260,7 +291,6 @@ def execute_buy(
 
                 log_trade("BUY", market, fill_price, vol, amount_krw, "Dynamic-Radar Entry")
 
-                # Send Discord Notification
                 tp = fill_price * (1 + TAKE_PROFIT_PCT)
                 sl = fill_price * (1 - STOP_LOSS_PCT)
                 notify_buy_entry(
@@ -369,7 +399,7 @@ def main():
         portfolio.save(PORTFOLIO_PATH)
 
     print("=" * 80)
-    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.2 (Dynamic Universe & Dual-Engine Scanner)")
+    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.3 (Dynamic Universe Always-On Radar)")
     print(f" 🎯 TARGET: +{TARGET_RETURN_PCT:.1f}% Return Milestone (Compounding Engine)")
     print(f" 📡 Integrated: Dynamic 25-Universe Radar + Orderbook Imbalance + Bithumb Warnings + Discord")
     print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
@@ -397,10 +427,20 @@ def main():
     print(f"  Win/Loss: {portfolio.winning_trades}W / {portfolio.losing_trades}L")
     print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (+{TARGET_RETURN_PCT:.1f}%)\n")
 
-    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.2 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 📡 **스캔 레이더**: `다이내믹 25개 유동성/급등 마켓 통합 감시`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`")
+    # Initial Scan on Startup to populate cached_top_candidates immediately
+    print("🔍 Performing initial Dynamic Universe scan...")
+    cached_top_candidates = []
+    try:
+        with McpStdioClient(LIVE_COMMAND) as client:
+            _, cached_top_candidates = scan_and_rank_universe(client)
+            if cached_top_candidates:
+                print(f"  ✅ Initial Scan complete! Top 1: {cached_top_candidates[0]['market']} ({cached_top_candidates[0]['confidence']:.1f}%)")
+    except Exception as exc:
+        print(f"  ⚠️ Initial scan warning: {exc}")
+
+    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.3 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 📡 **스캔 레이더**: `다이내믹 25-유니버스 상시 레이더 가동`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`")
 
     loop_count = 0
-    cached_top_candidates = []
 
     while True:
         loop_count += 1
@@ -468,47 +508,19 @@ def main():
                     print(f"⚠️ Position check error: {exc}")
 
         # ═══════════════════════════════════════════════════════════════
-        # 2. SCAN FOR DYNAMIC UNIVERSE OPPORTUNITIES (every ~30s)
+        # 2. ALWAYS-ON DYNAMIC UNIVERSE SCAN (every ~30s)
         # ═══════════════════════════════════════════════════════════════
         if loop_count % SCAN_INTERVAL_LOOPS == 1:
-            state = load_state(STATE_PATH)
+            try:
+                with McpStdioClient(LIVE_COMMAND) as client:
+                    analyses, new_top_candidates = scan_and_rank_universe(client)
+                    if new_top_candidates:
+                        cached_top_candidates = new_top_candidates
 
-            if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW:
-                try:
-                    active_universe = fetch_dynamic_universe(min_24h_krw=500_000_000, max_markets=25)
-                    print(f"\n[{now_str}] 🔍 Dynamic Scanning {len(active_universe)} liquid markets...")
+                    state = load_state(STATE_PATH)
 
-                    with McpStdioClient(LIVE_COMMAND) as client:
-                        warned_markets = get_market_warnings(client)
-
-                        analyses = []
-                        for m in active_universe:
-                            if m in warned_markets:
-                                continue
-                            res = analyze_market(m)
-                            if res:
-                                ob_ratio = get_market_orderbook_ratio(client, m)
-                                ob_adj = (ob_ratio - 0.50) * 20.0
-                                final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
-                                analyses.append((res, ob_ratio, final_conf))
-
-                    if analyses:
-                        analyses.sort(key=lambda x: x[2], reverse=True)
-                        cached_top_candidates = [
-                            {
-                                "market": a.market,
-                                "confidence": fconf,
-                                "bid_ratio": ob * 100.0,
-                                "status": a.recommendation,
-                            }
-                            for a, ob, fconf in analyses[:3]
-                        ]
-
-                        for i, (a, ob, fconf) in enumerate(analyses[:3]):
-                            marker = "⭐" if i == 0 else "  "
-                            ob_str = f"BidRatio: {ob*100:.1f}%"
-                            print(f"  {marker} #{i+1} {a.market} | FusedConf: {fconf:.1f}% (Base: {a.ace_confidence}%, {ob_str}) | {a.recommendation}")
-
+                    # ENTRY LOGIC (Only when flat and have cash)
+                    if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
                         best_tuple = analyses[0]
                         best, best_ob, best_fconf = best_tuple
 
@@ -526,8 +538,14 @@ def main():
                                 print(f"\n🎯 RADAR ENTRY: {best.market} (Conf: {best_fconf:.1f}%)")
                                 execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob)
 
-                except Exception as exc:
-                    print(f"⚠️ Scanner error: {exc}")
+                    elif state.position == "long" and loop_count % 100 == 1 and analyses:
+                        best = analyses[0][0]
+                        best_fconf = analyses[0][2]
+                        if best.market != portfolio.active_market and best_fconf >= 75.0:
+                            print(f"  💡 High-Confidence Alternative: {best.market} (Conf: {best_fconf:.1f}%) vs Holding {portfolio.active_market}")
+
+            except Exception as exc:
+                print(f"⚠️ Dynamic scan error: {exc}")
 
         # ═══════════════════════════════════════════════════════════════
         # 3. HOURLY DISCORD BRIEFING (every ~1 hour)
