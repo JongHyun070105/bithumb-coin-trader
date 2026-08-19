@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """
-🤖 AUTONOMOUS TRADING DAEMON v3.3 (Dynamic Universe Always-On Radar)
-──────────────────────────────────────────────────────────────────────────
+🤖 AUTONOMOUS TRADING DAEMON v3.4 (Dynamic Universe & Pyramiding Scaling Engine)
+────────────────────────────────────────────────────────────────────────────────
 Target   : Dynamic Compounding Milestone (+50.0% Target Return)
 Engines  : 
   - Dynamic 25-Universe Always-On Radar (Top 25 Liquid & Momentum Markets)
   - Tauric Multi-Agent (TARO, DIANA, NOVA, VIBE, ACE, PM)
+  - Dynamic Pyramiding Engine (Automatic 2nd Scale-In for High-Conviction Setups)
   - Institutional Volume Delta & Candle Displacement
   - Bithumb Realtime 30-Orderbook Imbalance (Bid-Ask Depth Ratio)
   - Bithumb Market Warnings & Delisting Safeguard
@@ -82,6 +83,7 @@ class PortfolioState:
     daily_entries: int = 0
     last_trade_day: str = ""
     goal_target: float = 0.0
+    pyramiding_count: int = 0  # number of scale-in entries
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -229,20 +231,17 @@ def execute_buy(
     settings: TradingSettings,
     confidence: float = 75.0,
     bid_ratio: float = 0.55,
+    is_pyramiding: bool = False,
 ) -> bool:
-    """Execute a market buy order and send rich Discord alert."""
-    print(f"\n🟢 EXECUTING BUY: {market} for {amount_krw:,} KRW")
-    state = load_state(STATE_PATH)
-
-    if state.position == "long":
-        print(f"  ⚠️ Already in LONG position, skipping buy")
-        return False
+    """Execute a market buy order (Initial or Pyramiding Scale-In) and send rich Discord alert."""
+    action_label = "피라미딩(불타기 2차 매수)" if is_pyramiding else "신규 매수"
+    print(f"\n🟢 EXECUTING BUY ({action_label}): {market} for {amount_krw:,} KRW")
 
     intent = TradeIntent(
         market=market,
         target=Signal.LONG,
         quote_amount=Decimal(amount_krw),
-        reason=f"Auto-entry {market}",
+        reason=f"{action_label} {market}",
     )
     plan = plan_execution(intent, current=Signal.FLAT)
     if plan.is_noop:
@@ -264,46 +263,73 @@ def execute_buy(
         return False
 
     try:
+        # Save temp flat state for execution validation
+        temp_state = BotState(version=1, position="flat", position_volume="0")
+        save_state(STATE_PATH, temp_state)
+
         with McpStdioClient(LIVE_COMMAND) as client:
             executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings)
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
-                bot_state=state,
+                bot_state=temp_state,
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
             print(f"  🎉 Buy order submitted: {result.submitted}")
 
             updated = executor.reconcile_active_order()
-            if updated.position == "long":
-                vol = updated.position_volume
-                candles = fetch_minute_candles(market, 1, 5)
-                fill_price = candles[-1].close
+            assets_res = client.call_read_tool("account_get_assets", {})
+            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+            currency = market.replace("KRW-", "")
+            coin_asset = next((a for a in assets if a["currency"] == currency), None)
+            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
 
-                portfolio.active_market = market
-                portfolio.entry_price = fill_price
-                portfolio.position_volume = vol
-                portfolio.highest_price = fill_price
-                portfolio.cash_available -= amount_krw
-                portfolio.total_trades += 1
-                portfolio.daily_entries += 1
-                portfolio.save(PORTFOLIO_PATH)
+            tot_vol = coin_asset["balance"] if coin_asset else updated.position_volume
+            tot_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available - amount_krw)
 
-                log_trade("BUY", market, fill_price, vol, amount_krw, "Dynamic-Radar Entry")
+            candles = fetch_minute_candles(market, 1, 5)
+            fill_price = candles[-1].close
 
-                tp = fill_price * (1 + TAKE_PROFIT_PCT)
-                sl = fill_price * (1 - STOP_LOSS_PCT)
-                notify_buy_entry(
-                    market=market,
-                    price=fill_price,
-                    amount_krw=amount_krw,
-                    volume=vol,
-                    confidence=confidence,
-                    bid_ratio=bid_ratio,
-                    take_profit=tp,
-                    stop_loss=sl,
-                )
-                return True
+            # Calculate weighted average entry price
+            if is_pyramiding and float(portfolio.position_volume) > 0:
+                prev_vol = float(portfolio.position_volume)
+                prev_val = prev_vol * portfolio.entry_price
+                new_vol = float(tot_vol) - prev_vol
+                weighted_entry = (prev_val + amount_krw) / float(tot_vol) if float(tot_vol) > 0 else fill_price
+                portfolio.pyramiding_count += 1
+            else:
+                weighted_entry = fill_price
+                portfolio.pyramiding_count = 1
+
+            new_state = BotState(version=1, position="long", position_volume=str(tot_vol))
+            save_state(STATE_PATH, new_state)
+
+            portfolio.active_market = market
+            portfolio.entry_price = weighted_entry
+            portfolio.position_volume = str(tot_vol)
+            portfolio.highest_price = max(portfolio.highest_price, fill_price)
+            portfolio.cash_available = tot_krw
+            portfolio.total_capital = tot_krw + (float(tot_vol) * fill_price)
+            portfolio.total_trades += 1
+            portfolio.daily_entries += 1
+            portfolio.save(PORTFOLIO_PATH)
+
+            log_trade("BUY", market, fill_price, str(tot_vol), amount_krw, action_label)
+
+            tp = weighted_entry * (1 + TAKE_PROFIT_PCT)
+            sl = weighted_entry * (1 - STOP_LOSS_PCT)
+            notify_buy_entry(
+                market=market,
+                price=fill_price,
+                amount_krw=amount_krw,
+                volume=str(tot_vol),
+                confidence=confidence,
+                bid_ratio=bid_ratio,
+                take_profit=tp,
+                stop_loss=sl,
+            )
+            print(f"  ✅ {action_label} complete! Total Volume: {tot_vol}, Weighted Entry: {weighted_entry:,.0f} KRW")
+            return True
     except Exception as exc:
         print(f"  ❌ Buy error: {exc}")
     return False
@@ -369,6 +395,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.entry_price = 0.0
             portfolio.position_volume = "0"
             portfolio.highest_price = 0.0
+            portfolio.pyramiding_count = 0
             portfolio.save(PORTFOLIO_PATH)
 
             log_trade("SELL", market, current_price, str(vol), val_krw, reason, pnl)
@@ -399,10 +426,10 @@ def main():
         portfolio.save(PORTFOLIO_PATH)
 
     print("=" * 80)
-    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.3 (Dynamic Universe Always-On Radar)")
+    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.4 (Dynamic Universe & Pyramiding Engine)")
     print(f" 🎯 TARGET: +{TARGET_RETURN_PCT:.1f}% Return Milestone (Compounding Engine)")
-    print(f" 📡 Integrated: Dynamic 25-Universe Radar + Orderbook Imbalance + Bithumb Warnings + Discord")
-    print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
+    print(f" 📡 Integrated: Dynamic 25-Universe Radar + Pyramiding Scale-In + Discord")
+    print(f" ⏱️ Price Watch: 3s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
     print("=" * 80)
 
     settings = TradingSettings(
@@ -423,11 +450,12 @@ def main():
     print(f"  Total Capital: {portfolio.total_capital:,.0f} KRW")
     print(f"  Cash Available: {portfolio.cash_available:,.0f} KRW")
     print(f"  Active Position: {portfolio.active_market or 'None'}")
+    print(f"  Position Volume: {portfolio.position_volume}")
+    print(f"  Weighted Entry: {portfolio.entry_price:,.0f} KRW")
     print(f"  Cumulative P&L: {portfolio.total_pnl_krw:+,.0f} KRW")
     print(f"  Win/Loss: {portfolio.winning_trades}W / {portfolio.losing_trades}L")
     print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (+{TARGET_RETURN_PCT:.1f}%)\n")
 
-    # Initial Scan on Startup to populate cached_top_candidates immediately
     print("🔍 Performing initial Dynamic Universe scan...")
     cached_top_candidates = []
     try:
@@ -437,8 +465,6 @@ def main():
                 print(f"  ✅ Initial Scan complete! Top 1: {cached_top_candidates[0]['market']} ({cached_top_candidates[0]['confidence']:.1f}%)")
     except Exception as exc:
         print(f"  ⚠️ Initial scan warning: {exc}")
-
-    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.3 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 📡 **스캔 레이더**: `다이내믹 25-유니버스 상시 레이더 가동`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`")
 
     loop_count = 0
 
@@ -460,7 +486,7 @@ def main():
         state = load_state(STATE_PATH)
 
         # ═══════════════════════════════════════════════════════════════
-        # 1. MANAGE ACTIVE POSITION (every 3 seconds)
+        # 1. MANAGE ACTIVE POSITION & PYRAMIDING (every 3 seconds)
         # ═══════════════════════════════════════════════════════════════
         cur_val_krw = 0.0
         cur_pnl_pct = 0.0
@@ -508,7 +534,7 @@ def main():
                     print(f"⚠️ Position check error: {exc}")
 
         # ═══════════════════════════════════════════════════════════════
-        # 2. ALWAYS-ON DYNAMIC UNIVERSE SCAN (every ~30s)
+        # 2. ALWAYS-ON SCAN & DYNAMIC ENTRY / PYRAMIDING (every ~30s)
         # ═══════════════════════════════════════════════════════════════
         if loop_count % SCAN_INTERVAL_LOOPS == 1:
             try:
@@ -519,30 +545,29 @@ def main():
 
                     state = load_state(STATE_PATH)
 
-                    # ENTRY LOGIC (Only when flat and have cash)
+                    # Initial Entry when FLAT
                     if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
                         best_tuple = analyses[0]
                         best, best_ob, best_fconf = best_tuple
 
                         if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
-                            invest = min(int(portfolio.cash_available * 0.6), 20_000)
+                            invest = min(int(portfolio.cash_available * 0.5), 10_000)
                             invest = max(invest, MIN_ORDER_KRW)
                             if invest <= portfolio.cash_available:
-                                print(f"\n🎯 STRONG RADAR ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
-                                execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob)
+                                print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
+                                execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
 
-                        elif best_fconf >= MIN_CONFIDENCE_ENTRY and best.pm_decision is Signal.LONG:
-                            invest = min(int(portfolio.cash_available * 0.4), 15_000)
-                            invest = max(invest, MIN_ORDER_KRW)
-                            if invest <= portfolio.cash_available:
-                                print(f"\n🎯 RADAR ENTRY: {best.market} (Conf: {best_fconf:.1f}%)")
-                                execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob)
-
-                    elif state.position == "long" and loop_count % 100 == 1 and analyses:
-                        best = analyses[0][0]
-                        best_fconf = analyses[0][2]
-                        if best.market != portfolio.active_market and best_fconf >= 75.0:
-                            print(f"  💡 High-Confidence Alternative: {best.market} (Conf: {best_fconf:.1f}%) vs Holding {portfolio.active_market}")
+                    # Dynamic Pyramiding Scale-In when LONG and High Confidence
+                    elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
+                          and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.0 and analyses):
+                        top_market = analyses[0][0].market
+                        top_conf = analyses[0][2]
+                        if top_market == portfolio.active_market and top_conf >= 72.0:
+                            scale_amount = min(int(portfolio.cash_available * 0.5), 10_000)
+                            scale_amount = max(scale_amount, MIN_ORDER_KRW)
+                            if scale_amount <= portfolio.cash_available:
+                                print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {top_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
+                                execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=top_conf, bid_ratio=analyses[0][1], is_pyramiding=True)
 
             except Exception as exc:
                 print(f"⚠️ Dynamic scan error: {exc}")

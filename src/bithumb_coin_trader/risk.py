@@ -11,7 +11,7 @@ class RiskLimits:
     maximum_order_krw: int = 10_000
     maximum_daily_loss_fraction: float = 0.02
     maximum_drawdown_fraction: float = 0.10
-    maximum_daily_entries: int = 1
+    maximum_daily_entries: int = 20
     short_execution_enabled: bool = False
 
 
