@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-🤖 AUTONOMOUS TRADING DAEMON v3.1 (Discord Mobile Briefings & Intelligence Fusion)
-────────────────────────────────────────────────────────────────────────────────
+🤖 AUTONOMOUS TRADING DAEMON v3.2 (Dynamic Universe & Dual-Engine Scanner)
+──────────────────────────────────────────────────────────────────────────
 Target   : Dynamic Compounding Milestone (+50.0% Target Return)
 Engines  : 
+  - Dynamic Universe Radar (Top 25 Liquid & Volume Spike Markets)
   - Tauric Multi-Agent (TARO, DIANA, NOVA, VIBE, ACE, PM)
   - Institutional Volume Delta & Candle Displacement
   - Bithumb Realtime 30-Orderbook Imbalance (Bid-Ask Depth Ratio)
   - Bithumb Market Warnings & Delisting Safeguard
-  - Bithumb Official Notices Event Detector
   - 📱 Discord Finance-Chat Rich Mobile Alerts & Hourly Briefings
 Risk     : SL -2.0%, TP +4.0%, Trailing-Stop -1.5% from peak (Activates at +1.0%)
 Cycle    : 3s Price Watch, 30s Multi-Market Fusion Scan, 1h Discord Briefing
@@ -20,6 +20,7 @@ import json
 import os
 import time
 import sys
+import urllib.request
 from dataclasses import dataclass, asdict
 from decimal import Decimal
 from pathlib import Path
@@ -95,6 +96,30 @@ class PortfolioState:
             except Exception:
                 pass
         return PortfolioState()
+
+
+def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 25) -> list[str]:
+    """Fetch top liquid markets by 24h volume from Bithumb."""
+    try:
+        url = "https://api.bithumb.com/v1/market/all"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            all_mkts = [m["market"] for m in json.loads(resp.read().decode("utf-8")) if m.get("market", "").startswith("KRW-")]
+
+        batch = ",".join(all_mkts[:80])
+        t_url = f"https://api.bithumb.com/v1/ticker?markets={batch}"
+        t_req = urllib.request.Request(t_url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(t_req, timeout=5) as resp:
+            tickers = json.loads(resp.read().decode("utf-8"))
+
+        qualified = [t for t in tickers if t.get("acc_trade_price_24h", 0) >= min_24h_krw]
+        qualified.sort(key=lambda x: x.get("acc_trade_price_24h", 0), reverse=True)
+        top_markets = [t["market"] for t in qualified[:max_markets]]
+
+        combined = list(dict.fromkeys(DEFAULT_MARKETS + top_markets))
+        return combined[:max_markets]
+    except Exception:
+        return DEFAULT_MARKETS
 
 
 def log_trade(action: str, market: str, price: float, volume: str, amount_krw: float, reason: str, pnl: float = 0.0):
@@ -233,7 +258,7 @@ def execute_buy(
                 portfolio.daily_entries += 1
                 portfolio.save(PORTFOLIO_PATH)
 
-                log_trade("BUY", market, fill_price, vol, amount_krw, "Orderbook-Enhanced Entry")
+                log_trade("BUY", market, fill_price, vol, amount_krw, "Dynamic-Radar Entry")
 
                 # Send Discord Notification
                 tp = fill_price * (1 + TAKE_PROFIT_PCT)
@@ -318,9 +343,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
             log_trade("SELL", market, current_price, str(vol), val_krw, reason, pnl)
             print(f"  📊 Trade P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%)")
-            print(f"  💰 Portfolio: {portfolio.total_capital:,.0f} KRW (Goal: {TARGET_CAPITAL:,} KRW, Remaining: {TARGET_CAPITAL - portfolio.total_capital:+,.0f} KRW)")
+            print(f"  💰 Portfolio: {portfolio.total_capital:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
 
-            # Send Discord Notification
             notify_sell_exit(
                 market=market,
                 price=current_price,
@@ -345,9 +369,9 @@ def main():
         portfolio.save(PORTFOLIO_PATH)
 
     print("=" * 80)
-    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.1 (Discord Briefings & Intelligence Fusion)")
+    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.2 (Dynamic Universe & Dual-Engine Scanner)")
     print(f" 🎯 TARGET: +{TARGET_RETURN_PCT:.1f}% Return Milestone (Compounding Engine)")
-    print(f" 📡 Integrated: Tauric Multi-Agent + Orderbook Imbalance + Bithumb Warnings + Discord Alerts")
+    print(f" 📡 Integrated: Dynamic 25-Universe Radar + Orderbook Imbalance + Bithumb Warnings + Discord")
     print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
     print("=" * 80)
 
@@ -373,8 +397,7 @@ def main():
     print(f"  Win/Loss: {portfolio.winning_trades}W / {portfolio.losing_trades}L")
     print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (+{TARGET_RETURN_PCT:.1f}%)\n")
 
-    # Send startup discord briefing
-    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.1 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`\n*지금부터 매수/매도 및 정기 브리핑이 실시간으로 발송됩니다.*")
+    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.2 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 📡 **스캔 레이더**: `다이내믹 25개 유동성/급등 마켓 통합 감시`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`")
 
     loop_count = 0
     cached_top_candidates = []
@@ -445,20 +468,21 @@ def main():
                     print(f"⚠️ Position check error: {exc}")
 
         # ═══════════════════════════════════════════════════════════════
-        # 2. SCAN FOR NEW OPPORTUNITIES WITH ORDERBOOK (every ~30s)
+        # 2. SCAN FOR DYNAMIC UNIVERSE OPPORTUNITIES (every ~30s)
         # ═══════════════════════════════════════════════════════════════
         if loop_count % SCAN_INTERVAL_LOOPS == 1:
             state = load_state(STATE_PATH)
 
             if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW:
                 try:
-                    print(f"\n[{now_str}] 🔍 Scanning {len(DEFAULT_MARKETS)} markets with Orderbook & Intelligence...")
-                    
+                    active_universe = fetch_dynamic_universe(min_24h_krw=500_000_000, max_markets=25)
+                    print(f"\n[{now_str}] 🔍 Dynamic Scanning {len(active_universe)} liquid markets...")
+
                     with McpStdioClient(LIVE_COMMAND) as client:
                         warned_markets = get_market_warnings(client)
-                        
+
                         analyses = []
-                        for m in DEFAULT_MARKETS:
+                        for m in active_universe:
                             if m in warned_markets:
                                 continue
                             res = analyze_market(m)
@@ -489,19 +513,17 @@ def main():
                         best, best_ob, best_fconf = best_tuple
 
                         if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
-                            # Dynamic Sizing: 60% of cash for strong setup
                             invest = min(int(portfolio.cash_available * 0.6), 20_000)
                             invest = max(invest, MIN_ORDER_KRW)
                             if invest <= portfolio.cash_available:
-                                print(f"\n🎯 STRONG ORDERBOOK-BACKED ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
+                                print(f"\n🎯 STRONG RADAR ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
                                 execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob)
 
                         elif best_fconf >= MIN_CONFIDENCE_ENTRY and best.pm_decision is Signal.LONG:
-                            # Moderate sizing: 40% of cash
                             invest = min(int(portfolio.cash_available * 0.4), 15_000)
                             invest = max(invest, MIN_ORDER_KRW)
                             if invest <= portfolio.cash_available:
-                                print(f"\n🎯 ENTRY SIGNAL: {best.market} (Conf: {best_fconf:.1f}%)")
+                                print(f"\n🎯 RADAR ENTRY: {best.market} (Conf: {best_fconf:.1f}%)")
                                 execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob)
 
                 except Exception as exc:
