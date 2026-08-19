@@ -51,14 +51,13 @@ TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
 
 # ── Target & Risk Parameters ──────────────────────────────────
-INITIAL_CAPITAL = float(os.environ.get("INITIAL_CAPITAL", "30000"))
-TARGET_CAPITAL = float(os.environ.get("TARGET_CAPITAL", "45000"))
-STOP_LOSS_PCT = 0.020       # -2.0%
-TAKE_PROFIT_PCT = 0.040     # +4.0%
-TRAILING_STOP_PCT = 0.015   # -1.5% from peak
-TRAILING_ACTIVATE_PCT = 0.01  # activate trailing after +1.0% gain
-MIN_CONFIDENCE_ENTRY = 70.0  # minimum ACE confidence to enter
-MIN_CONFIDENCE_STRONG = 75.0 # strong buy threshold
+TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 목표 수익률 (+50.0%)
+STOP_LOSS_PCT = 0.020       # 손절가 비율 (-2.0%)
+TAKE_PROFIT_PCT = 0.040     # 1차 목표가 비율 (+4.0%)
+TRAILING_STOP_PCT = 0.015   # 트레일링 스탑 비율 (-1.5% from peak)
+TRAILING_ACTIVATE_PCT = 0.01  # 트레일링 활성화 기준 (+1.0% gain)
+MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
+MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
 PRICE_CHECK_INTERVAL = 3     # seconds
 SCAN_INTERVAL_LOOPS = 10     # every 10 loops = ~30 seconds
@@ -69,19 +68,19 @@ NOTICE_CHECK_LOOPS = 200     # every ~10 minutes
 @dataclass
 class PortfolioState:
     """Tracks portfolio across multiple trades for compounding."""
-    total_capital: float = INITIAL_CAPITAL
-    cash_available: float = 20_006.0
-    active_market: str = "KRW-LINK"
-    entry_price: float = 13_550.0
-    position_volume: str = "0.73800738"
-    highest_price: float = 13_690.0
-    total_trades: int = 1
+    total_capital: float = 0.0
+    cash_available: float = 0.0
+    active_market: str = ""
+    entry_price: float = 0.0
+    position_volume: str = "0"
+    highest_price: float = 0.0
+    total_trades: int = 0
     winning_trades: int = 0
     losing_trades: int = 0
     total_pnl_krw: float = 0.0
-    daily_entries: int = 1
+    daily_entries: int = 0
     last_trade_day: str = ""
-    goal_target: float = TARGET_CAPITAL
+    goal_target: float = 0.0
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -331,7 +330,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
                 pnl_pct=pnl_pct,
                 reason=reason,
                 total_capital=portfolio.total_capital,
-                target_capital=TARGET_CAPITAL,
+                target_capital=portfolio.goal_target,
             )
             return True
     except Exception as exc:
@@ -340,22 +339,26 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
 
 def main():
+    portfolio = PortfolioState.load(PORTFOLIO_PATH)
+    if portfolio.goal_target <= 0 and portfolio.total_capital > 0:
+        portfolio.goal_target = portfolio.total_capital * (1.0 + TARGET_RETURN_PCT / 100.0)
+        portfolio.save(PORTFOLIO_PATH)
+
     print("=" * 80)
     print(" 🤖 AUTONOMOUS TRADING DAEMON v3.1 (Discord Briefings & Intelligence Fusion)")
-    print(f" 🎯 MISSION: {INITIAL_CAPITAL:,} KRW → {TARGET_CAPITAL:,} KRW (+50%) by Sep 1")
+    print(f" 🎯 TARGET: +{TARGET_RETURN_PCT:.1f}% Return Milestone (Compounding Engine)")
     print(f" 📡 Integrated: Tauric Multi-Agent + Orderbook Imbalance + Bithumb Warnings + Discord Alerts")
     print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
     print("=" * 80)
 
     settings = TradingSettings(
-        initial_capital_krw=INITIAL_CAPITAL,
+        initial_capital_krw=portfolio.total_capital or 100_000,
         mode=TradingMode.LIVE,
         live_trading_enabled=True,
         minimum_order_krw=MIN_ORDER_KRW,
         cash_reserve_krw=0,
     )
 
-    portfolio = PortfolioState.load(PORTFOLIO_PATH)
     today = time.strftime('%Y-%m-%d')
     if portfolio.last_trade_day != today:
         portfolio.daily_entries = 0
@@ -368,10 +371,10 @@ def main():
     print(f"  Active Position: {portfolio.active_market or 'None'}")
     print(f"  Cumulative P&L: {portfolio.total_pnl_krw:+,.0f} KRW")
     print(f"  Win/Loss: {portfolio.winning_trades}W / {portfolio.losing_trades}L")
-    print(f"  Distance to Goal: {TARGET_CAPITAL - portfolio.total_capital:+,.0f} KRW\n")
+    print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (+{TARGET_RETURN_PCT:.1f}%)\n")
 
     # Send startup discord briefing
-    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.1 가동]**\n> 🎯 **목표**: `{INITIAL_CAPITAL:,}원 → {TARGET_CAPITAL:,}원 (+50%)`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`\n*지금부터 매수/매도 및 정기 브리핑이 실시간으로 발송됩니다.*")
+    send_discord_message(f"🚀 **[빗썸 24H 자율 트레이더 v3.1 가동]**\n> 🎯 **목표**: `+{TARGET_RETURN_PCT:.1f}% Return Milestone`\n> 💰 **현재 총 자산**: `{portfolio.total_capital:,.0f} KRW` (가용 현금: `{portfolio.cash_available:,.0f} KRW`)\n> 📈 **현재 포지션**: `{portfolio.active_market or 'FLAT'}`\n*지금부터 매수/매도 및 정기 브리핑이 실시간으로 발송됩니다.*")
 
     loop_count = 0
     cached_top_candidates = []
@@ -386,9 +389,9 @@ def main():
             portfolio.last_trade_day = today
             portfolio.save(PORTFOLIO_PATH)
 
-        if portfolio.total_capital >= TARGET_CAPITAL:
-            print(f"\n🏆🏆🏆 GOAL REACHED! Portfolio: {portfolio.total_capital:,.0f} KRW >= {TARGET_CAPITAL:,} KRW 🏆🏆🏆")
-            send_discord_message(f"🏆🏆🏆 **[축하합니다!] 목표 50% 달성 완료!** 🏆🏆🏆\n> 최종 자산: `{portfolio.total_capital:,.0f} KRW`\n> 모든 포지션을 안전하게 전량 현금화했습니다.")
+        if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
+            print(f"\n🏆🏆🏆 GOAL REACHED! Portfolio: {portfolio.total_capital:,.0f} KRW >= {portfolio.goal_target:,.0f} KRW 🏆🏆🏆")
+            send_discord_message(f"🏆🏆🏆 **[축하합니다!] 목표 +{TARGET_RETURN_PCT:.1f}% 달성 완료!** 🏆🏆🏆\n> 최종 자산: `{portfolio.total_capital:,.0f} KRW`\n> 모든 포지션을 안전하게 전량 현금화했습니다.")
             break
 
         state = load_state(STATE_PATH)
@@ -416,10 +419,9 @@ def main():
                 trailing_stop_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
 
                 if loop_count % 10 == 1:
-                    progress = (portfolio.total_capital + cur_val_krw - portfolio.cash_available - INITIAL_CAPITAL) / (TARGET_CAPITAL - INITIAL_CAPITAL) * 100
                     print(f"\n[{now_str}] 📈 {portfolio.active_market} | {cur_price:,.0f} KRW | PnL: {cur_pnl_pct:+.2f}% ({cur_val_krw:,.0f} KRW)")
                     print(f"  SL: {stop_loss_price:,.0f} | TP: {take_profit_price:,.0f} | Trail: {trailing_stop_price:,.0f} | Peak: {portfolio.highest_price:,.0f}")
-                    print(f"  💰 Portfolio: ~{portfolio.cash_available + cur_val_krw:,.0f} KRW | Goal Progress: {progress:.1f}%")
+                    print(f"  💰 Portfolio: ~{portfolio.cash_available + cur_val_krw:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
 
                 trigger_exit = False
                 exit_reason = ""
@@ -520,7 +522,7 @@ def main():
                     active_pnl_pct=cur_pnl_pct,
                     active_val_krw=cur_val_krw,
                     top_candidates=cached_top_candidates,
-                    target_capital=TARGET_CAPITAL,
+                    target_capital=portfolio.goal_target,
                 )
             except Exception as exc:
                 print(f"⚠️ Hourly briefing error: {exc}")
