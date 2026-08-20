@@ -125,8 +125,12 @@ def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 
         return DEFAULT_MARKETS
 
 
+JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
+
+
 def log_trade(action: str, market: str, price: float, volume: str, amount_krw: float, reason: str, pnl: float = 0.0):
-    """Append trade to history log."""
+    """Append trade to history log and TRADING_JOURNAL.md."""
+    t_now = time.strftime('%Y-%m-%d %H:%M:%S')
     record = {
         "timestamp": time.strftime('%Y-%m-%dT%H:%M:%S+09:00'),
         "action": action,
@@ -141,6 +145,15 @@ def log_trade(action: str, market: str, price: float, volume: str, amount_krw: f
     with TRADE_LOG_PATH.open("a") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
     print(f"  📝 Trade logged: {action} {market} @ {price:,.0f} KRW ({reason})")
+
+    if JOURNAL_PATH.exists():
+        try:
+            with JOURNAL_PATH.open("a", encoding="utf-8") as f:
+                emoji = "🟢" if action == "BUY" else "🔴"
+                pnl_str = f" | 실현손익: `{pnl:+,.0f} KRW`" if action == "SELL" else ""
+                f.write(f"\n> **{emoji} [{t_now}] {action} {market}** | 단가: `{price:,.0f} KRW` | 금액: `{amount_krw:,.0f} KRW` | 사유: `{reason}`{pnl_str}\n")
+        except Exception:
+            pass
 
 
 def get_market_orderbook_ratio(client: McpStdioClient, market: str) -> float:
