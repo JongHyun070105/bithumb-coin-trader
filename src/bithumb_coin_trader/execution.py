@@ -20,7 +20,7 @@ from .state import STATE_VERSION, BotState, load_state, save_state
 
 LIVE_ENV_VAR = "BITHUMB_LIVE_TRADING"
 LIVE_CONFIRMATION_TOKEN = "CONFIRM_BITHUMB_LIVE_ORDER"
-_MARKET_PATTERN = re.compile(r"^KRW-[A-Z0-9]{2,12}$")
+_MARKET_PATTERN = re.compile(r"^KRW-[A-Z0-9]{1,12}$")
 _CLIENT_ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,36}$")
 
 

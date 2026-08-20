@@ -13,7 +13,7 @@ from typing import Any, Protocol
 from .state import BotState
 
 
-_MARKET_PATTERN = re.compile(r"^KRW-[A-Z0-9]{2,12}$")
+_MARKET_PATTERN = re.compile(r"^KRW-[A-Z0-9]{1,12}$")
 _DISCORD_PATTERN = re.compile(r"^discord:[0-9]{6,30}$")
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 
