@@ -242,8 +242,30 @@ DISCORD_TARGET = "discord:1521513150682234900"
 HERMES_BIN = str(Path.home() / ".local" / "bin" / "hermes")
 
 
+import hashlib
+import time
+
+_RECENT_MESSAGES_CACHE: dict[str, float] = {}
+_DEDUP_WINDOW_SECONDS = 60.0
+
+
 def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
-    """Send markdown text message to Discord target via Hermes."""
+    """Send markdown text message to Discord target via Hermes with 60s deduplication guard."""
+    now = time.time()
+    # Clean expired entries
+    for key in list(_RECENT_MESSAGES_CACHE.keys()):
+        if now - _RECENT_MESSAGES_CACHE[key] > _DEDUP_WINDOW_SECONDS:
+            del _RECENT_MESSAGES_CACHE[key]
+
+    # Create content hash normalized by ignoring raw timestamp line if needed
+    normalized = "\n".join([line for line in text.splitlines() if not line.startswith("⏱️") and not line.startswith("> ⏱️")])
+    msg_hash = hashlib.sha256(f"{target}:{normalized}".encode()).hexdigest()
+
+    if msg_hash in _RECENT_MESSAGES_CACHE:
+        # Duplicate message within window, discard silently
+        return True
+    _RECENT_MESSAGES_CACHE[msg_hash] = now
+
     path: Path | None = None
     try:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
