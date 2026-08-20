@@ -173,6 +173,9 @@ class DiscordNotifier:
     def send(self, notification: TradeNotification) -> bool:
         if not self.target:
             return False
+        # Suppress raw internal execution noise (BLOCKED, ACCEPTED, PENDING) from Discord
+        if notification.event in {TradeEvent.BLOCKED, TradeEvent.ACCEPTED, TradeEvent.PENDING}:
+            return True
         message = format_trade_notification(notification)
         path: Path | None = None
         try:

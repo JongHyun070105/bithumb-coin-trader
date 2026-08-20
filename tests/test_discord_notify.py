@@ -51,7 +51,7 @@ class DiscordConfigurationTests(unittest.TestCase):
 
 
 class DiscordDeliveryTests(unittest.TestCase):
-    def notification(self, event: TradeEvent = TradeEvent.ACCEPTED) -> TradeNotification:
+    def notification(self, event: TradeEvent = TradeEvent.FILLED) -> TradeNotification:
         return TradeNotification(
             event=event,
             market="KRW-BTC",
@@ -63,7 +63,7 @@ class DiscordDeliveryTests(unittest.TestCase):
         )
 
     def test_formatter_distinguishes_acceptance_from_fill(self) -> None:
-        accepted = format_trade_notification(self.notification())
+        accepted = format_trade_notification(self.notification(TradeEvent.ACCEPTED))
         ambiguous = format_trade_notification(self.notification(TradeEvent.AMBIGUOUS))
         paper = format_trade_notification(self.notification(TradeEvent.PAPER))
         self.assertIn("접수 (체결 아님)", accepted)
