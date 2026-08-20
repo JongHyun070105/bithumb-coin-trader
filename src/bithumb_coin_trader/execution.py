@@ -494,6 +494,7 @@ def _validate_pretrade(
     limits = RiskLimits(
         minimum_order_krw=settings.minimum_order_krw,
         maximum_order_krw=10_000 if plan.target is Signal.LONG else 100_000,
+        maximum_daily_entries=50,
         short_execution_enabled=False,
     )
     decision = evaluate_pretrade(effective_context, limits)

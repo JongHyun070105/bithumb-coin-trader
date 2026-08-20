@@ -513,7 +513,9 @@ def main():
                 cur_price = candles[-1].close
                 vol = Decimal(state.position_volume)
                 cur_val_krw = float(vol) * cur_price
-                cur_pnl_pct = (cur_price - portfolio.entry_price) / portfolio.entry_price * 100.0
+
+                if portfolio.entry_price > 0:
+                    cur_pnl_pct = (cur_price - portfolio.entry_price) / portfolio.entry_price * 100.0
 
                 if cur_price > portfolio.highest_price:
                     portfolio.highest_price = cur_price
@@ -523,10 +525,11 @@ def main():
                 take_profit_price = portfolio.entry_price * (1 + TAKE_PROFIT_PCT)
                 trailing_stop_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
 
-                if loop_count % 10 == 1:
+                if loop_count % 10 == 0:
+                    tot_est = portfolio.cash_available + cur_val_krw
                     print(f"\n[{now_str}] 📈 {portfolio.active_market} | {cur_price:,.0f} KRW | PnL: {cur_pnl_pct:+.2f}% ({cur_val_krw:,.0f} KRW)")
                     print(f"  SL: {stop_loss_price:,.0f} | TP: {take_profit_price:,.0f} | Trail: {trailing_stop_price:,.0f} | Peak: {portfolio.highest_price:,.0f}")
-                    print(f"  💰 Portfolio: ~{portfolio.cash_available + cur_val_krw:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
+                    print(f"  💰 Portfolio: ~{tot_est:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
 
                 trigger_exit = False
                 exit_reason = ""
@@ -576,16 +579,15 @@ def main():
                     # Dynamic Pyramiding Scale-In (Only if total position <= 60% of capital & min 33% cash preserved)
                     elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
                           and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.20 and analyses):
-                        top_market = analyses[0][0].market
-                        top_conf = analyses[0][2]
-                        # Enforce 60% Max Position Limit
-                        max_pos_allowed = portfolio.total_capital * 0.60
-                        if (top_market == portfolio.active_market and top_conf >= 75.0 
-                                and cur_val_krw < max_pos_allowed and portfolio.cash_available > portfolio.total_capital * 0.30):
-                            scale_amount = min(int(max_pos_allowed - cur_val_krw), int(portfolio.cash_available * 0.5))
-                            if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
-                                print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {top_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
-                                execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=top_conf, bid_ratio=analyses[0][1], is_pyramiding=True)
+                        active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
+                        if active_tuple:
+                            active_res, active_ob, active_conf = active_tuple
+                            max_pos_allowed = portfolio.total_capital * 0.60
+                            if (active_conf >= 70.0 and cur_val_krw < max_pos_allowed and portfolio.cash_available > portfolio.total_capital * 0.30):
+                                scale_amount = min(int(max_pos_allowed - cur_val_krw), int(portfolio.cash_available * 0.5), 10_000)
+                                if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
+                                    print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
+                                    execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=active_conf, bid_ratio=active_ob, is_pyramiding=True)
 
             except Exception as exc:
                 print(f"⚠️ Dynamic scan error: {exc}")
