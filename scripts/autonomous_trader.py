@@ -398,6 +398,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.highest_price = 0.0
             portfolio.pyramiding_count = 0
             portfolio.save(PORTFOLIO_PATH)
+            save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
             log_trade("SELL", market, current_price, str(vol), val_krw, reason, pnl)
             print(f"  📊 Trade P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%)")
@@ -435,7 +436,7 @@ def main():
 
     settings = TradingSettings(
         initial_capital_krw=portfolio.total_capital or 100_000,
-        fee_rate=0.0004,
+        fee_rate=0.0025,
         mode=TradingMode.LIVE,
         live_trading_enabled=True,
         minimum_order_krw=MIN_ORDER_KRW,
