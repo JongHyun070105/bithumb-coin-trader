@@ -459,8 +459,9 @@ def _validate_pretrade(
         raise RiskRejectedError("risk context notional must be finite and positive")
     if requested_notional < settings.minimum_order_krw:
         raise RiskRejectedError("requested order is below the configured minimum")
-    if plan.target is Signal.LONG and requested_notional > Decimal("10000"):
-        raise RiskRejectedError("requested order exceeds the hard 10,000 KRW cap")
+    max_order = Decimal(str(settings.maximum_order_krw))
+    if plan.target is Signal.LONG and requested_notional > max_order:
+        raise RiskRejectedError(f"requested order exceeds the hard {settings.maximum_order_krw:,} KRW cap")
     if plan.target is Signal.LONG:
         planned_notional = Decimal(plan.arguments["price"])
         if requested_notional != planned_notional:
@@ -493,8 +494,8 @@ def _validate_pretrade(
     )
     limits = RiskLimits(
         minimum_order_krw=settings.minimum_order_krw,
-        maximum_order_krw=10_000 if plan.target is Signal.LONG else 100_000,
-        maximum_daily_entries=50,
+        maximum_order_krw=100_000 if plan.target is Signal.FLAT else settings.maximum_order_krw,
+        maximum_daily_entries=settings.maximum_daily_entries,
         short_execution_enabled=False,
     )
     decision = evaluate_pretrade(effective_context, limits)

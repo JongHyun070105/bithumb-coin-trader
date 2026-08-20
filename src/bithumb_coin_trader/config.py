@@ -29,6 +29,8 @@ class TradingSettings:
     slippage_bps: float = 5.0
     allocation_fraction: float = 0.50
     minimum_order_krw: int = 5_000
+    maximum_order_krw: int = 10_000
+    maximum_daily_entries: int = 1
     cash_reserve_krw: int = 5_000
     mode: TradingMode = TradingMode.PAPER
     live_trading_enabled: bool = False
@@ -44,6 +46,10 @@ class TradingSettings:
             raise ValueError("allocation fraction must be in (0, 1]")
         if self.minimum_order_krw <= 0 or self.cash_reserve_krw < 0:
             raise ValueError("order minimum and reserve must be non-negative")
+        if self.maximum_order_krw < self.minimum_order_krw:
+            raise ValueError("maximum order cannot be less than minimum order")
+        if self.maximum_daily_entries <= 0:
+            raise ValueError("maximum daily entries must be positive")
         if self.initial_capital_krw - self.cash_reserve_krw < self.minimum_order_krw:
             raise ValueError("capital after reserve is below the minimum order")
         if self.mode is TradingMode.LIVE and not self.live_trading_enabled:
@@ -58,6 +64,8 @@ class TradingSettings:
             slippage_bps=float(os.getenv("SLIPPAGE_BPS", "5")),
             allocation_fraction=float(os.getenv("ALLOCATION_FRACTION", "0.50")),
             minimum_order_krw=int(os.getenv("MINIMUM_ORDER_KRW", "5000")),
+            maximum_order_krw=int(os.getenv("MAXIMUM_ORDER_KRW", "10000")),
+            maximum_daily_entries=int(os.getenv("MAXIMUM_DAILY_ENTRIES", "1")),
             cash_reserve_krw=int(os.getenv("CASH_RESERVE_KRW", "5000")),
             mode=mode,
             live_trading_enabled=_env_bool("BITHUMB_LIVE_TRADING", False),

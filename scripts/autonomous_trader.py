@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-🤖 AUTONOMOUS TRADING DAEMON v3.4 (Dynamic Universe & Pyramiding Scaling Engine)
+🤖 AUTONOMOUS TRADING DAEMON v4.0 (Self-Healing Infinite Compounding Engine)
 ────────────────────────────────────────────────────────────────────────────────
-Target   : Dynamic Compounding Milestone (+50.0% Target Return)
-Engines  : 
+Target   : Infinite Compounding (Auto-Rolling Milestones, Never Stops)
+Engines  :
   - Dynamic 25-Universe Always-On Radar (Top 25 Liquid & Momentum Markets)
   - Tauric Multi-Agent (TARO, DIANA, NOVA, VIBE, ACE, PM)
   - Dynamic Pyramiding Engine (Automatic 2nd Scale-In for High-Conviction Setups)
@@ -11,7 +11,10 @@ Engines  :
   - Bithumb Realtime 30-Orderbook Imbalance (Bid-Ask Depth Ratio)
   - Bithumb Market Warnings & Delisting Safeguard
   - 📱 Discord Finance-Chat Rich Mobile Alerts & Hourly Briefings
+  - 🛡️ Self-Healing Error Recovery (Auto-Restart on ANY failure)
+  - 🔄 Exchange Balance Reconciliation (Source of Truth = Bithumb)
 Risk     : SL -2.0%, TP +4.0%, Trailing-Stop -1.5% from peak (Activates at +1.0%)
+           MDD 10% Daily Loss 2% Enforced
 Cycle    : 3s Price Watch, 30s Multi-Market Fusion Scan, 1h Discord Briefing
 """
 
@@ -21,6 +24,7 @@ import json
 import os
 import time
 import sys
+import traceback
 import urllib.request
 from dataclasses import dataclass, asdict
 from decimal import Decimal
@@ -52,9 +56,10 @@ from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 STATE_PATH = PROJECT_ROOT / "state" / "live.json"
 TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
+JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
 # ── Target & Risk Parameters ──────────────────────────────────
-TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 목표 수익률 (+50.0%)
+TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률
 STOP_LOSS_PCT = 0.020       # 손절가 비율 (-2.0%)
 TAKE_PROFIT_PCT = 0.040     # 1차 목표가 비율 (+4.0%)
 TRAILING_STOP_PCT = 0.015   # 트레일링 스탑 비율 (-1.5% from peak)
@@ -62,10 +67,16 @@ TRAILING_ACTIVATE_PCT = 0.01  # 트레일링 활성화 기준 (+1.0% gain)
 MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
 MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
+MAX_POSITION_RATIO = 0.60   # 최대 포지션 비율 (자산의 60%)
+MIN_RESERVE_CASH_RATIO = 0.33  # 최소 현금 보존 비율 (33%)
 PRICE_CHECK_INTERVAL = 3     # seconds
 SCAN_INTERVAL_LOOPS = 10     # every 10 loops = ~30 seconds
 HOURLY_REPORT_LOOPS = 1200   # every 1200 loops = ~1 hour
 NOTICE_CHECK_LOOPS = 200     # every ~10 minutes
+RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliation
+MAX_CONSECUTIVE_ERRORS = 5   # 연속 에러 시 긴급 알림
+ERROR_COOLDOWN_SEC = 60      # 에러 발생 시 대기 시간
+FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
 
 
 @dataclass
@@ -85,6 +96,10 @@ class PortfolioState:
     last_trade_day: str = ""
     goal_target: float = 0.0
     pyramiding_count: int = 0  # number of scale-in entries
+    # v4.0 additions
+    start_of_day_equity: float = 0.0   # 당일 시작 자산 (MDD/일일손실 계산)
+    peak_equity: float = 0.0           # 역대 최고 자산 (MDD 계산)
+    milestone_count: int = 0           # 달성한 마일스톤 횟수
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -106,13 +121,13 @@ def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 
     try:
         url = "https://api.bithumb.com/v1/market/all"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
+        with urllib.request.urlopen(req, timeout=10) as resp:
             all_mkts = [m["market"] for m in json.loads(resp.read().decode("utf-8")) if m.get("market", "").startswith("KRW-")]
 
         batch = ",".join(all_mkts[:80])
         t_url = f"https://api.bithumb.com/v1/ticker?markets={batch}"
         t_req = urllib.request.Request(t_url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
-        with urllib.request.urlopen(t_req, timeout=5) as resp:
+        with urllib.request.urlopen(t_req, timeout=10) as resp:
             tickers = json.loads(resp.read().decode("utf-8"))
 
         qualified = [t for t in tickers if t.get("acc_trade_price_24h", 0) >= min_24h_krw]
@@ -123,9 +138,6 @@ def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 
         return combined[:max_markets]
     except Exception:
         return DEFAULT_MARKETS
-
-
-JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
 
 def log_trade(action: str, market: str, price: float, volume: str, amount_krw: float, reason: str, pnl: float = 0.0):
@@ -238,6 +250,127 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
     return analyses, top_candidates
 
 
+def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -> None:
+    """
+    거래소 실잔고를 Source of Truth로 하여 portfolio.json을 자동 교정합니다.
+    - 크래시 후 재시작 시 포지션을 잃지 않음
+    - 수동 매매 후에도 자동 반영
+    """
+    try:
+        assets_res = client.call_read_tool("account_get_assets", {})
+        assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+
+        krw_balance = 0.0
+        coin_holdings = {}  # currency -> balance
+        for a in assets:
+            currency = a.get("currency", "")
+            balance = float(a.get("balance", 0))
+            if currency == "KRW":
+                krw_balance = balance
+            elif balance > 0 and currency not in ("P",):  # P(포인트) 제외
+                coin_holdings[currency] = balance
+
+        # 현금 동기화
+        if abs(portfolio.cash_available - krw_balance) > 1.0:
+            print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
+            portfolio.cash_available = krw_balance
+
+        # 포지션 동기화
+        state = load_state(STATE_PATH)
+        active_currency = portfolio.active_market.replace("KRW-", "") if portfolio.active_market else ""
+
+        if state.position == "long" and active_currency:
+            actual_balance = coin_holdings.get(active_currency, 0.0)
+            tracked_volume = float(portfolio.position_volume)
+
+            if actual_balance == 0.0 and tracked_volume > 0:
+                # 거래소에 코인이 없는데 long이라고 기록됨 → flat으로 교정
+                print(f"  ⚠️ 포지션 교정: {portfolio.active_market} long → flat (거래소 잔고 없음)")
+                portfolio.active_market = ""
+                portfolio.entry_price = 0.0
+                portfolio.position_volume = "0"
+                portfolio.highest_price = 0.0
+                portfolio.pyramiding_count = 0
+                save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
+
+            elif abs(actual_balance - tracked_volume) / max(tracked_volume, 0.0001) > 0.01:
+                # 1% 이상 차이나면 거래소 잔고로 교정
+                print(f"  🔄 수량 불일치 교정: {tracked_volume} → {actual_balance}")
+                portfolio.position_volume = str(actual_balance)
+                save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(actual_balance)))
+
+        elif state.position == "flat" and not active_currency:
+            # flat인데 코인을 보유하고 있으면? → 고아 포지션 존재
+            if coin_holdings:
+                orphans = list(coin_holdings.keys())
+                print(f"  ⚠️ 고아 코인 감지: {orphans} (flat 상태인데 코인 보유)")
+                # 가장 큰 포지션을 active로 복구
+                biggest = max(coin_holdings.items(), key=lambda x: x[1])
+                market = f"KRW-{biggest[0]}"
+                volume = biggest[1]
+                try:
+                    candles = fetch_minute_candles(market, 1, 5)
+                    price = candles[-1].close
+                    portfolio.active_market = market
+                    portfolio.entry_price = price  # 평단가 모르니 현재가로 대체
+                    portfolio.position_volume = str(volume)
+                    portfolio.highest_price = price
+                    portfolio.pyramiding_count = 1
+                    save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(volume)))
+                    print(f"  ✅ 고아 포지션 복구: {market} {volume} @ {price:,.0f} KRW")
+                except Exception:
+                    print(f"  ⚠️ 고아 포지션 복구 실패, 수동 확인 필요")
+
+        # 총자산 재계산
+        total = krw_balance
+        for curr, bal in coin_holdings.items():
+            try:
+                candles = fetch_minute_candles(f"KRW-{curr}", 1, 3)
+                total += bal * candles[-1].close
+            except Exception:
+                pass
+        if abs(portfolio.total_capital - total) > 10.0:
+            portfolio.total_capital = total
+
+        # peak equity 업데이트
+        if total > portfolio.peak_equity:
+            portfolio.peak_equity = total
+
+        portfolio.save(PORTFOLIO_PATH)
+    except Exception as exc:
+        print(f"  ⚠️ Reconciliation error (non-fatal): {exc}")
+
+
+def calculate_dynamic_order_amount(portfolio: PortfolioState, is_pyramiding: bool = False) -> int:
+    """
+    자산 비율 기반 동적 주문 금액 계산 (복리 스케일링).
+    - 신규 매수: 총자산의 30%, 가용현금의 50% 중 작은 값
+    - 피라미딩: 남은 허용 포지션의 50%
+    - 수수료 버퍼 0.3% 적용
+    """
+    if is_pyramiding:
+        # 현재 포지션 가치 계산
+        cur_vol = float(portfolio.position_volume)
+        cur_val = cur_vol * portfolio.entry_price
+        max_pos = portfolio.total_capital * MAX_POSITION_RATIO
+        remaining = max_pos - cur_val
+        invest = min(int(remaining * 0.5), int(portfolio.cash_available * 0.5))
+    else:
+        invest = min(
+            int(portfolio.total_capital * 0.30),
+            int(portfolio.cash_available * 0.50),
+        )
+
+    # 수수료 버퍼 적용 (잔고 부족 방지)
+    invest = int(invest / FEE_BUFFER)
+
+    # 최소/최대 클램핑
+    invest = max(invest, MIN_ORDER_KRW)
+    invest = min(invest, int(portfolio.cash_available / FEE_BUFFER))  # 잔고 초과 방지
+
+    return invest
+
+
 def execute_buy(
     market: str,
     amount_krw: int,
@@ -250,6 +383,12 @@ def execute_buy(
     """Execute a market buy order (Initial or Pyramiding Scale-In) and send rich Discord alert."""
     action_label = "피라미딩(불타기 2차 매수)" if is_pyramiding else "신규 매수"
     print(f"\n🟢 EXECUTING BUY ({action_label}): {market} for {amount_krw:,} KRW")
+
+    # 잔고 부족 체크 (수수료 포함)
+    required = amount_krw * FEE_BUFFER
+    if required > portfolio.cash_available:
+        print(f"  ❌ 잔고 부족: 필요 {required:,.0f} > 가용 {portfolio.cash_available:,.0f} KRW")
+        return False
 
     intent = TradeIntent(
         market=market,
@@ -266,15 +405,21 @@ def execute_buy(
         requested_side=Signal.LONG,
         requested_notional_krw=amount_krw,
         current_equity_krw=portfolio.total_capital,
-        start_of_day_equity_krw=portfolio.total_capital,
-        peak_equity_krw=portfolio.total_capital,
+        start_of_day_equity_krw=portfolio.start_of_day_equity or portfolio.total_capital,
+        peak_equity_krw=portfolio.peak_equity or portfolio.total_capital,
         daily_entries=portfolio.daily_entries,
         data_is_fresh=True,
     )
-    decision = evaluate_pretrade(risk_context, limits=RiskLimits(maximum_daily_entries=50))
+    decision = evaluate_pretrade(risk_context, limits=RiskLimits(
+        maximum_daily_entries=50,
+        maximum_order_krw=int(portfolio.total_capital * MAX_POSITION_RATIO),
+    ))
     if not decision.allowed:
         print(f"  ❌ Risk gate rejected: {decision.reasons}")
         return False
+
+    # 피라미딩 시 백업 생성 (크래시 복구용)
+    backup_state = load_state(STATE_PATH)
 
     try:
         # Save temp flat state for execution validation
@@ -291,7 +436,10 @@ def execute_buy(
             )
             print(f"  🎉 Buy order submitted: {result.submitted}")
 
+            # 체결 확인
             updated = executor.reconcile_active_order()
+
+            # 거래소 실잔고 조회 (Source of Truth)
             assets_res = client.call_read_tool("account_get_assets", {})
             assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
             currency = market.replace("KRW-", "")
@@ -326,6 +474,8 @@ def execute_buy(
             portfolio.total_capital = tot_krw + (float(tot_vol) * fill_price)
             portfolio.total_trades += 1
             portfolio.daily_entries += 1
+            if portfolio.total_capital > portfolio.peak_equity:
+                portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
 
             log_trade("BUY", market, fill_price, str(tot_vol), amount_krw, action_label)
@@ -346,11 +496,18 @@ def execute_buy(
             return True
     except Exception as exc:
         print(f"  ❌ Buy error: {exc}")
+        # 피라미딩 실패 시 원래 상태 복원
+        if is_pyramiding:
+            try:
+                save_state(STATE_PATH, backup_state)
+                print(f"  🔄 피라미딩 실패 - 원래 상태 복원 완료")
+            except Exception:
+                pass
     return False
 
 
 def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: str) -> bool:
-    """Execute a market sell order and send rich Discord alert."""
+    """Execute a market sell order with reconciliation and send rich Discord alert."""
     state = load_state(STATE_PATH)
     if state.position != "long":
         print(f"  ⚠️ Not in LONG position, skipping sell")
@@ -376,8 +533,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
         requested_side=Signal.FLAT,
         requested_notional_krw=float(vol * Decimal(str(current_price))),
         current_equity_krw=portfolio.total_capital,
-        start_of_day_equity_krw=portfolio.total_capital,
-        peak_equity_krw=portfolio.total_capital,
+        start_of_day_equity_krw=portfolio.start_of_day_equity or portfolio.total_capital,
+        peak_equity_krw=portfolio.peak_equity or portfolio.total_capital,
         daily_entries=portfolio.daily_entries,
         data_is_fresh=True,
         reference_price_krw=current_price,
@@ -394,12 +551,22 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             )
             print(f"  🎉 Sell order submitted: {result.submitted}")
 
+            # 체결 확인 (v4.0: reconcile 추가)
+            executor.reconcile_active_order()
+
+            # 거래소 실잔고 조회로 정확한 매도 대금 확인
+            assets_res = client.call_read_tool("account_get_assets", {})
+            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
+            actual_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available + val_krw)
+
             entry_val = float(vol) * portfolio.entry_price
-            pnl = val_krw - entry_val
+            actual_val = actual_krw - portfolio.cash_available  # 실제 매도 대금
+            pnl = actual_val - entry_val if actual_val > 0 else val_krw - entry_val
             pnl_pct = (current_price - portfolio.entry_price) / portfolio.entry_price * 100.0
 
-            portfolio.cash_available += val_krw
-            portfolio.total_capital = portfolio.cash_available
+            portfolio.cash_available = actual_krw
+            portfolio.total_capital = actual_krw
             portfolio.total_pnl_krw += pnl
             if pnl >= 0:
                 portfolio.winning_trades += 1
@@ -410,6 +577,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.position_volume = "0"
             portfolio.highest_price = 0.0
             portfolio.pyramiding_count = 0
+            if portfolio.total_capital > portfolio.peak_equity:
+                portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
             save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
@@ -431,6 +600,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             return True
     except Exception as exc:
         print(f"  ❌ Sell error: {exc}")
+        # 매도 실패해도 상태는 보존 (다음 루프에서 재시도)
     return False
 
 
@@ -438,21 +608,33 @@ def main():
     portfolio = PortfolioState.load(PORTFOLIO_PATH)
     if portfolio.goal_target <= 0 and portfolio.total_capital > 0:
         portfolio.goal_target = portfolio.total_capital * (1.0 + TARGET_RETURN_PCT / 100.0)
-        portfolio.save(PORTFOLIO_PATH)
+
+    # v4.0: peak_equity / start_of_day_equity 초기화
+    if portfolio.peak_equity <= 0:
+        portfolio.peak_equity = portfolio.total_capital
+    if portfolio.start_of_day_equity <= 0:
+        portfolio.start_of_day_equity = portfolio.total_capital
+
+    portfolio.save(PORTFOLIO_PATH)
 
     print("=" * 80)
-    print(" 🤖 AUTONOMOUS TRADING DAEMON v3.4 (Dynamic Universe & Pyramiding Engine)")
-    print(f" 🎯 TARGET: +{TARGET_RETURN_PCT:.1f}% Return Milestone (Compounding Engine)")
-    print(f" 📡 Integrated: Dynamic 25-Universe Radar + Pyramiding Scale-In + Discord")
-    print(f" ⏱️ Price Watch: 3s | Market Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s")
+    print(" 🤖 AUTONOMOUS TRADING DAEMON v4.0 (Self-Healing Infinite Compounding)")
+    print(f" 🎯 MILESTONE: +{TARGET_RETURN_PCT:.1f}% → {portfolio.goal_target:,.0f} KRW (Auto-Rolling)")
+    print(f" 📡 Engines: 25-Universe Radar + Pyramiding + Reconciliation + Self-Healing")
+    print(f" 🛡️ Risk: SL {STOP_LOSS_PCT*100:.1f}% | TP {TAKE_PROFIT_PCT*100:.1f}% | Trail {TRAILING_STOP_PCT*100:.1f}% | MDD 10% | DailyLoss 2%")
+    print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s | Reconcile: ~{PRICE_CHECK_INTERVAL * RECONCILE_LOOPS}s")
     print("=" * 80)
 
+    # v4.0: dynamic max order based on portfolio
+    dynamic_max_order = max(int(portfolio.total_capital * MAX_POSITION_RATIO), MIN_ORDER_KRW)
     settings = TradingSettings(
-        initial_capital_krw=portfolio.total_capital or 100_000,
+        initial_capital_krw=max(int(portfolio.total_capital), 20_000),
         fee_rate=0.0025,
         mode=TradingMode.LIVE,
         live_trading_enabled=True,
         minimum_order_krw=MIN_ORDER_KRW,
+        maximum_order_krw=dynamic_max_order,
+        maximum_daily_entries=50,
         cash_reserve_krw=0,
     )
 
@@ -460,6 +642,7 @@ def main():
     if portfolio.last_trade_day != today:
         portfolio.daily_entries = 0
         portfolio.last_trade_day = today
+        portfolio.start_of_day_equity = portfolio.total_capital  # 당일 시작 자산 스냅샷
         portfolio.save(PORTFOLIO_PATH)
 
     print(f"\n📦 Portfolio State:")
@@ -470,12 +653,16 @@ def main():
     print(f"  Weighted Entry: {portfolio.entry_price:,.0f} KRW")
     print(f"  Cumulative P&L: {portfolio.total_pnl_krw:+,.0f} KRW")
     print(f"  Win/Loss: {portfolio.winning_trades}W / {portfolio.losing_trades}L")
-    print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (+{TARGET_RETURN_PCT:.1f}%)\n")
+    print(f"  Peak Equity: {portfolio.peak_equity:,.0f} KRW")
+    print(f"  Day Start Equity: {portfolio.start_of_day_equity:,.0f} KRW")
+    print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (#{portfolio.milestone_count + 1})\n")
 
     print("🔍 Performing initial Dynamic Universe scan...")
     cached_top_candidates = []
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
+            # v4.0: 최초 가동 시 거래소 잔고 기반 복구
+            reconcile_with_exchange(client, portfolio)
             _, cached_top_candidates = scan_and_rank_universe(client)
             if cached_top_candidates:
                 print(f"  ✅ Initial Scan complete! Top 1: {cached_top_candidates[0]['market']} ({cached_top_candidates[0]['confidence']:.1f}%)")
@@ -483,150 +670,221 @@ def main():
         print(f"  ⚠️ Initial scan warning: {exc}")
 
     loop_count = 0
+    consecutive_errors = 0  # v4.0: 연속 에러 카운터
 
+    # ═══════════════════════════════════════════════════════════════
+    # 🔄 INFINITE MAIN LOOP (Never Stops, Self-Healing)
+    # ═══════════════════════════════════════════════════════════════
     while True:
-        loop_count += 1
-        now_str = time.strftime('%Y-%m-%d %H:%M:%S')
+        try:
+            loop_count += 1
+            now_str = time.strftime('%Y-%m-%d %H:%M:%S')
 
-        today = time.strftime('%Y-%m-%d')
-        if portfolio.last_trade_day != today:
-            portfolio.daily_entries = 0
-            portfolio.last_trade_day = today
-            portfolio.save(PORTFOLIO_PATH)
+            # ── 날짜 변경 감지 ──
+            today = time.strftime('%Y-%m-%d')
+            if portfolio.last_trade_day != today:
+                portfolio.daily_entries = 0
+                portfolio.last_trade_day = today
+                portfolio.start_of_day_equity = portfolio.total_capital
+                portfolio.save(PORTFOLIO_PATH)
+                print(f"\n📅 새로운 거래일: {today} | 시작 자산: {portfolio.total_capital:,.0f} KRW")
 
-        if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
-            print(f"\n🏆🏆🏆 GOAL REACHED! Portfolio: {portfolio.total_capital:,.0f} KRW >= {portfolio.goal_target:,.0f} KRW 🏆🏆🏆")
-            send_discord_message(f"🏆🏆🏆 **[축하합니다!] 목표 +{TARGET_RETURN_PCT:.1f}% 달성 완료!** 🏆🏆🏆\n> 최종 자산: `{portfolio.total_capital:,.0f} KRW`\n> 모든 포지션을 안전하게 전량 현금화했습니다.")
-            break
-
-        state = load_state(STATE_PATH)
-
-        # ═══════════════════════════════════════════════════════════════
-        # 1. MANAGE ACTIVE POSITION & PYRAMIDING (every 3 seconds)
-        # ═══════════════════════════════════════════════════════════════
-        cur_val_krw = 0.0
-        cur_pnl_pct = 0.0
-        cur_price = 0.0
-        if state.position == "long" and portfolio.active_market:
-            try:
-                candles = fetch_minute_candles(portfolio.active_market, 1, 10)
-                cur_price = candles[-1].close
-                vol = Decimal(state.position_volume)
-                cur_val_krw = float(vol) * cur_price
-
-                if portfolio.entry_price > 0:
-                    cur_pnl_pct = (cur_price - portfolio.entry_price) / portfolio.entry_price * 100.0
-
-                if cur_price > portfolio.highest_price:
-                    portfolio.highest_price = cur_price
-                    portfolio.save(PORTFOLIO_PATH)
-
-                stop_loss_price = portfolio.entry_price * (1 - STOP_LOSS_PCT)
-                take_profit_price = portfolio.entry_price * (1 + TAKE_PROFIT_PCT)
-                trailing_stop_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
-
-                if loop_count % 10 == 0:
-                    tot_est = portfolio.cash_available + cur_val_krw
-                    print(f"\n[{now_str}] 📈 {portfolio.active_market} | {cur_price:,.0f} KRW | PnL: {cur_pnl_pct:+.2f}% ({cur_val_krw:,.0f} KRW)")
-                    print(f"  SL: {stop_loss_price:,.0f} | TP: {take_profit_price:,.0f} | Trail: {trailing_stop_price:,.0f} | Peak: {portfolio.highest_price:,.0f}")
-                    print(f"  💰 Portfolio: ~{tot_est:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
-
-                trigger_exit = False
-                exit_reason = ""
-
-                if cur_price <= stop_loss_price:
-                    trigger_exit = True
-                    exit_reason = f"⛔ STOP-LOSS ({cur_price:,.0f} <= {stop_loss_price:,.0f})"
-                elif cur_price >= take_profit_price:
-                    trigger_exit = True
-                    exit_reason = f"🎯 TAKE-PROFIT ({cur_price:,.0f} >= {take_profit_price:,.0f})"
-                elif (portfolio.highest_price > portfolio.entry_price * (1 + TRAILING_ACTIVATE_PCT)
-                      and cur_price <= trailing_stop_price):
-                    trigger_exit = True
-                    exit_reason = f"📉 TRAILING-STOP ({cur_price:,.0f} <= {trailing_stop_price:,.0f}, Peak: {portfolio.highest_price:,.0f})"
-
-                if trigger_exit:
-                    execute_sell(portfolio, settings, exit_reason)
-
-            except Exception as exc:
-                if loop_count % 20 == 1:
-                    print(f"⚠️ Position check error: {exc}")
-
-        # ═══════════════════════════════════════════════════════════════
-        # 2. ALWAYS-ON SCAN & DYNAMIC ENTRY / PYRAMIDING (every ~30s)
-        # ═══════════════════════════════════════════════════════════════
-        if loop_count % SCAN_INTERVAL_LOOPS == 1:
-            try:
-                with McpStdioClient(LIVE_COMMAND) as client:
-                    analyses, new_top_candidates = scan_and_rank_universe(client)
-                    if new_top_candidates:
-                        cached_top_candidates = new_top_candidates
-
-                    state = load_state(STATE_PATH)
-
-                    # Initial Entry when FLAT
-                    if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
-                        best_tuple = analyses[0]
-                        best, best_ob, best_fconf = best_tuple
-
-                        if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
-                            invest = min(int(portfolio.cash_available * 0.5), 10_000)
-                            invest = max(invest, MIN_ORDER_KRW)
-                            if invest <= portfolio.cash_available:
-                                print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
-                                execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
-
-                    # Dynamic Pyramiding Scale-In (Only if total position <= 60% of capital & min 33% cash preserved)
-                    elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
-                          and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.20 and analyses):
-                        active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
-                        if active_tuple:
-                            active_res, active_ob, active_conf = active_tuple
-                            max_pos_allowed = portfolio.total_capital * 0.60
-                            if (active_conf >= 70.0 and cur_val_krw < max_pos_allowed and portfolio.cash_available > portfolio.total_capital * 0.30):
-                                scale_amount = min(int(max_pos_allowed - cur_val_krw), int(portfolio.cash_available * 0.5), 10_000)
-                                if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
-                                    print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
-                                    execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=active_conf, bid_ratio=active_ob, is_pyramiding=True)
-
-            except Exception as exc:
-                print(f"⚠️ Dynamic scan error: {exc}")
-
-        # ═══════════════════════════════════════════════════════════════
-        # 3. HOURLY DISCORD BRIEFING (every ~1 hour)
-        # ═══════════════════════════════════════════════════════════════
-        if loop_count % HOURLY_REPORT_LOOPS == 0:
-            try:
-                tot_est = portfolio.cash_available + cur_val_krw if state.position == "long" else portfolio.total_capital
-                notify_hourly_briefing(
-                    total_capital=tot_est,
-                    cash_available=portfolio.cash_available,
-                    active_market=portfolio.active_market,
-                    active_price=cur_price,
-                    entry_price=portfolio.entry_price,
-                    active_pnl_pct=cur_pnl_pct,
-                    active_val_krw=cur_val_krw,
-                    top_candidates=cached_top_candidates,
-                    target_capital=portfolio.goal_target,
+            # ── 마일스톤 도달 체크 (멈추지 않고 다음 목표 자동 갱신!) ──
+            if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
+                portfolio.milestone_count += 1
+                old_target = portfolio.goal_target
+                portfolio.goal_target = portfolio.total_capital * (1.0 + TARGET_RETURN_PCT / 100.0)
+                portfolio.save(PORTFOLIO_PATH)
+                msg = (
+                    f"🏆🏆🏆 **[마일스톤 #{portfolio.milestone_count} 달성!]** 🏆🏆🏆\n"
+                    f"> 달성 목표: `{old_target:,.0f} KRW`\n"
+                    f"> 현재 자산: `{portfolio.total_capital:,.0f} KRW`\n"
+                    f"> 🔄 **다음 목표 자동 갱신: `{portfolio.goal_target:,.0f} KRW` (+{TARGET_RETURN_PCT:.0f}%)**\n"
+                    f"> ♾️ 무한 복리 회전 모드 계속 가동 중..."
                 )
-            except Exception as exc:
-                print(f"⚠️ Hourly briefing error: {exc}")
+                print(f"\n{msg}")
+                send_discord_message(msg)
+                # settings 업데이트 (maximum_order_krw 스케일 업)
+                settings = TradingSettings(
+                    initial_capital_krw=max(int(portfolio.total_capital), 20_000),
+                    fee_rate=0.0025,
+                    mode=TradingMode.LIVE,
+                    live_trading_enabled=True,
+                    minimum_order_krw=MIN_ORDER_KRW,
+                    maximum_order_krw=max(int(portfolio.total_capital * MAX_POSITION_RATIO), MIN_ORDER_KRW),
+                    maximum_daily_entries=50,
+                    cash_reserve_krw=0,
+                )
 
-        # ═══════════════════════════════════════════════════════════════
-        # 4. NOTICE & EVENT MONITOR (every ~10m)
-        # ═══════════════════════════════════════════════════════════════
-        if loop_count % NOTICE_CHECK_LOOPS == 1 and loop_count > 1:
-            try:
-                with McpStdioClient(LIVE_COMMAND) as client:
-                    notices = get_recent_notices(client)
-                    print(f"\n[{now_str}] 📢 Bithumb Latest Notices Check:")
-                    for n in notices:
-                        print(f"  - {n}")
-            except Exception:
-                pass
+            state = load_state(STATE_PATH)
 
-        sys.stdout.flush()
-        time.sleep(PRICE_CHECK_INTERVAL)
+            # ═══════════════════════════════════════════════════════════════
+            # 1. MANAGE ACTIVE POSITION & PYRAMIDING (every 3 seconds)
+            # ═══════════════════════════════════════════════════════════════
+            cur_val_krw = 0.0
+            cur_pnl_pct = 0.0
+            cur_price = 0.0
+            if state.position == "long" and portfolio.active_market:
+                try:
+                    candles = fetch_minute_candles(portfolio.active_market, 1, 10)
+                    cur_price = candles[-1].close
+                    vol = Decimal(state.position_volume)
+                    cur_val_krw = float(vol) * cur_price
+
+                    if portfolio.entry_price > 0:
+                        cur_pnl_pct = (cur_price - portfolio.entry_price) / portfolio.entry_price * 100.0
+
+                    if cur_price > portfolio.highest_price:
+                        portfolio.highest_price = cur_price
+                        portfolio.save(PORTFOLIO_PATH)
+
+                    stop_loss_price = portfolio.entry_price * (1 - STOP_LOSS_PCT)
+                    take_profit_price = portfolio.entry_price * (1 + TAKE_PROFIT_PCT)
+                    trailing_stop_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
+
+                    if loop_count % 10 == 0:
+                        tot_est = portfolio.cash_available + cur_val_krw
+                        print(f"\n[{now_str}] 📈 {portfolio.active_market} | {cur_price:,.0f} KRW | PnL: {cur_pnl_pct:+.2f}% ({cur_val_krw:,.0f} KRW)")
+                        print(f"  SL: {stop_loss_price:,.0f} | TP: {take_profit_price:,.0f} | Trail: {trailing_stop_price:,.0f} | Peak: {portfolio.highest_price:,.0f}")
+                        print(f"  💰 Portfolio: ~{tot_est:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
+
+                    trigger_exit = False
+                    exit_reason = ""
+
+                    if cur_price <= stop_loss_price:
+                        trigger_exit = True
+                        exit_reason = f"⛔ STOP-LOSS ({cur_price:,.0f} <= {stop_loss_price:,.0f})"
+                    elif cur_price >= take_profit_price:
+                        trigger_exit = True
+                        exit_reason = f"🎯 TAKE-PROFIT ({cur_price:,.0f} >= {take_profit_price:,.0f})"
+                    elif (portfolio.highest_price > portfolio.entry_price * (1 + TRAILING_ACTIVATE_PCT)
+                          and cur_price <= trailing_stop_price):
+                        trigger_exit = True
+                        exit_reason = f"📉 TRAILING-STOP ({cur_price:,.0f} <= {trailing_stop_price:,.0f}, Peak: {portfolio.highest_price:,.0f})"
+
+                    if trigger_exit:
+                        execute_sell(portfolio, settings, exit_reason)
+
+                except Exception as exc:
+                    if loop_count % 20 == 1:
+                        print(f"⚠️ Position check error: {exc}")
+
+            # ═══════════════════════════════════════════════════════════════
+            # 2. ALWAYS-ON SCAN & DYNAMIC ENTRY / PYRAMIDING (every ~30s)
+            # ═══════════════════════════════════════════════════════════════
+            if loop_count % SCAN_INTERVAL_LOOPS == 1:
+                try:
+                    with McpStdioClient(LIVE_COMMAND) as client:
+                        analyses, new_top_candidates = scan_and_rank_universe(client)
+                        if new_top_candidates:
+                            cached_top_candidates = new_top_candidates
+
+                        state = load_state(STATE_PATH)
+
+                        # Initial Entry when FLAT
+                        if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
+                            # v4.0: 다른 코인 보유 중인지 확인 (단일 종목 강제)
+                            best_tuple = analyses[0]
+                            best, best_ob, best_fconf = best_tuple
+
+                            if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
+                                invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
+                                if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
+                                    print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
+                                    execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
+
+                        # Dynamic Pyramiding Scale-In
+                        elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
+                              and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.20 and analyses):
+                            active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
+                            if active_tuple:
+                                active_res, active_ob, active_conf = active_tuple
+                                max_pos_allowed = portfolio.total_capital * MAX_POSITION_RATIO
+                                if (active_conf >= 70.0 and cur_val_krw < max_pos_allowed
+                                    and portfolio.cash_available > portfolio.total_capital * MIN_RESERVE_CASH_RATIO):
+                                    scale_amount = calculate_dynamic_order_amount(portfolio, is_pyramiding=True)
+                                    if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
+                                        print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
+                                        execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=active_conf, bid_ratio=active_ob, is_pyramiding=True)
+
+                except Exception as exc:
+                    print(f"⚠️ Dynamic scan error: {exc}")
+
+            # ═══════════════════════════════════════════════════════════════
+            # 3. EXCHANGE BALANCE RECONCILIATION (every ~30 minutes)
+            # ═══════════════════════════════════════════════════════════════
+            if loop_count % RECONCILE_LOOPS == 0:
+                try:
+                    with McpStdioClient(LIVE_COMMAND) as client:
+                        reconcile_with_exchange(client, portfolio)
+                        print(f"[{now_str}] 🔄 거래소 잔고 동기화 완료")
+                except Exception as exc:
+                    print(f"⚠️ Reconciliation error: {exc}")
+
+            # ═══════════════════════════════════════════════════════════════
+            # 4. HOURLY DISCORD BRIEFING (every ~1 hour)
+            # ═══════════════════════════════════════════════════════════════
+            if loop_count % HOURLY_REPORT_LOOPS == 0:
+                try:
+                    tot_est = portfolio.cash_available + cur_val_krw if state.position == "long" else portfolio.total_capital
+                    notify_hourly_briefing(
+                        total_capital=tot_est,
+                        cash_available=portfolio.cash_available,
+                        active_market=portfolio.active_market,
+                        active_price=cur_price,
+                        entry_price=portfolio.entry_price,
+                        active_pnl_pct=cur_pnl_pct,
+                        active_val_krw=cur_val_krw,
+                        top_candidates=cached_top_candidates,
+                        target_capital=portfolio.goal_target,
+                    )
+                except Exception as exc:
+                    print(f"⚠️ Hourly briefing error: {exc}")
+
+            # ═══════════════════════════════════════════════════════════════
+            # 5. NOTICE & EVENT MONITOR (every ~10m)
+            # ═══════════════════════════════════════════════════════════════
+            if loop_count % NOTICE_CHECK_LOOPS == 1 and loop_count > 1:
+                try:
+                    with McpStdioClient(LIVE_COMMAND) as client:
+                        notices = get_recent_notices(client)
+                        print(f"\n[{now_str}] 📢 Bithumb Latest Notices Check:")
+                        for n in notices:
+                            print(f"  - {n}")
+                except Exception:
+                    pass
+
+            # ── 에러 없이 루프 완료 → 연속 에러 카운터 리셋 ──
+            consecutive_errors = 0
+
+            sys.stdout.flush()
+            time.sleep(PRICE_CHECK_INTERVAL)
+
+        except KeyboardInterrupt:
+            print("\n\n🛑 사용자 중단 (Ctrl+C). 안전하게 종료합니다.")
+            break
+        except Exception as exc:
+            consecutive_errors += 1
+            print(f"\n💥 LOOP ERROR #{consecutive_errors}: {exc}")
+            traceback.print_exc()
+
+            if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                error_msg = (
+                    f"🚨🚨🚨 **[긴급] 연속 에러 {consecutive_errors}회 발생!** 🚨🚨🚨\n"
+                    f"> 에러: `{str(exc)[:200]}`\n"
+                    f"> 포트폴리오: `{portfolio.total_capital:,.0f} KRW`\n"
+                    f"> 포지션: `{portfolio.active_market or 'FLAT'}`\n"
+                    f"> ⏳ {ERROR_COOLDOWN_SEC}초 후 자동 재시작 시도..."
+                )
+                print(error_msg)
+                try:
+                    send_discord_message(error_msg)
+                except Exception:
+                    pass
+                consecutive_errors = 0  # 알림 보냈으니 리셋
+
+            print(f"  ⏳ {ERROR_COOLDOWN_SEC}초 대기 후 재시작...")
+            time.sleep(ERROR_COOLDOWN_SEC)
 
 
 if __name__ == "__main__":
