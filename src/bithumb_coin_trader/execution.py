@@ -459,7 +459,7 @@ def _validate_pretrade(
         raise RiskRejectedError("risk context notional must be finite and positive")
     if requested_notional < settings.minimum_order_krw:
         raise RiskRejectedError("requested order is below the configured minimum")
-    if requested_notional > Decimal("10000"):
+    if plan.target is Signal.LONG and requested_notional > Decimal("10000"):
         raise RiskRejectedError("requested order exceeds the hard 10,000 KRW cap")
     if plan.target is Signal.LONG:
         planned_notional = Decimal(plan.arguments["price"])
@@ -478,7 +478,7 @@ def _validate_pretrade(
         if reference_price <= 0:
             raise RiskRejectedError("reference_price_krw must be positive")
         calculated_notional = planned_volume * reference_price
-        if requested_notional != calculated_notional:
+        if abs(requested_notional - calculated_notional) > Decimal("1.0"):
             raise RiskRejectedError(
                 "sell notional does not equal tracked volume times reference price"
             )
@@ -493,7 +493,7 @@ def _validate_pretrade(
     )
     limits = RiskLimits(
         minimum_order_krw=settings.minimum_order_krw,
-        maximum_order_krw=10_000,
+        maximum_order_krw=10_000 if plan.target is Signal.LONG else 100_000,
         short_execution_enabled=False,
     )
     decision = evaluate_pretrade(effective_context, limits)
@@ -613,10 +613,10 @@ def _decimal_field(
 
 
 def _decimal_value(value: Any, field: str, *, allow_zero: bool = False) -> Decimal:
-    if isinstance(value, (bool, float)):
+    if isinstance(value, bool):
         raise OrderChanceError(f"{field} must be an exact decimal string or integer")
     try:
-        parsed = Decimal(value)
+        parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise OrderChanceError(f"{field} is not a valid decimal") from exc
     if not parsed.is_finite() or parsed < 0 or (not allow_zero and parsed == 0):

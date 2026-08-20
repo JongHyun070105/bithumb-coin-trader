@@ -361,7 +361,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
     risk_context = RiskContext(
         requested_side=Signal.FLAT,
-        requested_notional_krw=int(val_krw),
+        requested_notional_krw=float(vol * Decimal(str(current_price))),
         current_equity_krw=portfolio.total_capital,
         start_of_day_equity_krw=portfolio.total_capital,
         peak_equity_krw=portfolio.total_capital,
