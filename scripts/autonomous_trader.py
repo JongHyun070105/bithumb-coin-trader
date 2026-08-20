@@ -63,7 +63,9 @@ TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일
 STOP_LOSS_PCT = 0.020       # 손절가 비율 (-2.0%)
 TAKE_PROFIT_PCT = 0.040     # 1차 목표가 비율 (+4.0%)
 TRAILING_STOP_PCT = 0.015   # 트레일링 스탑 비율 (-1.5% from peak)
-TRAILING_ACTIVATE_PCT = 0.01  # 트레일링 활성화 기준 (+1.0% gain)
+TRAILING_ACTIVATE_PCT = 0.025 # 트레일링 활성화 기준 (+2.5% gain 이상 시에만 활성화하여 노이즈 털림 방어)
+PYRAMIDING_MIN_GAIN_PCT = 0.80 # 2차 불타기 진입 기준 (+0.8% 이상 유의미한 상승 확인 시)
+REENTRY_COOLDOWN_SEC = 900  # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
 MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
 MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
@@ -77,6 +79,8 @@ RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliatio
 MAX_CONSECUTIVE_ERRORS = 5   # 연속 에러 시 긴급 알림
 ERROR_COOLDOWN_SEC = 60      # 에러 발생 시 대기 시간
 FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
+
+_RECENT_EXITS: dict[str, float] = {}  # 마켓별 최근 청산 시각 (재진입 쿨다운 관리)
 
 
 @dataclass
@@ -582,6 +586,9 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.save(PORTFOLIO_PATH)
             save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
+            # 청산 후 동일 종목 재진입 15분 쿨다운 활성화
+            _RECENT_EXITS[market] = time.time()
+
             log_trade("SELL", market, current_price, str(vol), val_krw, reason, pnl)
             print(f"  📊 Trade P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%)")
             print(f"  💰 Portfolio: {portfolio.total_capital:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
@@ -782,46 +789,57 @@ def main():
                         state = load_state(STATE_PATH)
 
                         # ── 스마트 모멘텀 회전 (Smart Momentum Rotation) ──
-                        # 조건: 현재 보유 중이고, 수익권(>= +0.5%)이며,
-                        # 1위 종목이 다르고, 1위 확신도가 강력(>= 75%)하며 현재 종목보다 8%p 이상 높거나 현재 확신도가 68% 미만일 때
                         rotated = False
                         if (state.position == "long" and portfolio.active_market and analyses):
-                            best_tuple = analyses[0]
-                            best, best_ob, best_fconf = best_tuple
-                            active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
-                            active_conf = active_tuple[2] if active_tuple else 0.0
+                            valid_candidates = [
+                                t for t in analyses
+                                if time.time() - _RECENT_EXITS.get(t[0].market, 0) >= REENTRY_COOLDOWN_SEC
+                            ]
+                            if valid_candidates:
+                                best_tuple = valid_candidates[0]
+                                best, best_ob, best_fconf = best_tuple
+                                active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
+                                active_conf = active_tuple[2] if active_tuple else 0.0
 
-                            is_different_market = best.market != portfolio.active_market
-                            is_strong_leader = best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50
-                            is_in_profit = cur_pnl_pct >= 0.50  # 수수료 커버하는 확실한 수익권
-                            has_significant_gap = (best_fconf - active_conf >= 8.0) or (active_conf < 68.0)
+                                is_different_market = best.market != portfolio.active_market
+                                is_strong_leader = best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50
+                                is_in_profit = cur_pnl_pct >= 0.50  # 수수료 커버하는 확실한 수익권
+                                has_significant_gap = (best_fconf - active_conf >= 8.0) or (active_conf < 68.0)
 
-                            if is_different_market and is_strong_leader and is_in_profit and has_significant_gap:
-                                print(f"\n🔄 SMART MOMENTUM ROTATION: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%) → {best.market} (Conf: {best_fconf:.1f}%)")
-                                rotation_reason = f"🔄 스마트 회전 익절 ({portfolio.active_market} {cur_pnl_pct:+.2f}% → 1위 {best.market} {best_fconf:.1f}%)"
-                                if execute_sell(portfolio, settings, rotation_reason):
-                                    rotated = True
-                                    state = load_state(STATE_PATH)
-                                    time.sleep(1)  # 거래소 체결 정산 대기
+                                if is_different_market and is_strong_leader and is_in_profit and has_significant_gap:
+                                    print(f"\n🔄 SMART MOMENTUM ROTATION: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%) → {best.market} (Conf: {best_fconf:.1f}%)")
+                                    rotation_reason = f"🔄 스마트 회전 익절 ({portfolio.active_market} {cur_pnl_pct:+.2f}% → 1위 {best.market} {best_fconf:.1f}%)"
+                                    if execute_sell(portfolio, settings, rotation_reason):
+                                        rotated = True
+                                        state = load_state(STATE_PATH)
+                                        time.sleep(1)  # 거래소 체결 정산 대기
+                                        invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
+                                        if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
+                                            print(f"🎯 ROTATION BUY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
+                                            execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
+
+                        # Initial Entry when FLAT (회전으로 방금 매수하지 않은 경우 & 15분 재진입 쿨다운 필터링)
+                        if not rotated and state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
+                            for cand in analyses:
+                                mkt = cand[0].market
+                                last_exit = _RECENT_EXITS.get(mkt, 0)
+                                if time.time() - last_exit < REENTRY_COOLDOWN_SEC:
+                                    rem = int(REENTRY_COOLDOWN_SEC - (time.time() - last_exit))
+                                    if loop_count % 10 == 1:
+                                        print(f"  ⏳ {mkt} 재진입 쿨다운 대기 중 ({rem}초 남음) - 중복 진입 방어")
+                                    continue
+
+                                best, best_ob, best_fconf = cand
+                                if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
                                     invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
                                     if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
-                                        print(f"🎯 ROTATION BUY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
+                                        print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
                                         execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
+                                        break
 
-                        # Initial Entry when FLAT (회전으로 방금 매수하지 않은 경우)
-                        if not rotated and state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
-                            best_tuple = analyses[0]
-                            best, best_ob, best_fconf = best_tuple
-
-                            if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
-                                invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
-                                if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
-                                    print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
-                                    execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
-
-                        # Dynamic Pyramiding Scale-In
+                        # Dynamic Pyramiding Scale-In (2차 불타기는 +0.8% 이상 유의미한 상승 시에만!)
                         elif not rotated and (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
-                              and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= 0.20 and analyses):
+                              and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= PYRAMIDING_MIN_GAIN_PCT and analyses):
                             active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
                             if active_tuple:
                                 active_res, active_ob, active_conf = active_tuple
