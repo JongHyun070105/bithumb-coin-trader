@@ -271,13 +271,17 @@ def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
             handle.write(text)
             path = Path(handle.name)
+        env = dict(os.environ)
+        if "HOME" not in env:
+            env["HOME"] = str(Path.home())
         result = subprocess.run(
             [HERMES_BIN, "send", "-t", target, "-f", str(path)],
             check=False,
             cwd=tempfile.gettempdir(),
-            timeout=30.0,
+            timeout=15.0,
             capture_output=True,
             text=True,
+            env=env,
         )
         return result.returncode == 0
     except Exception as exc:
