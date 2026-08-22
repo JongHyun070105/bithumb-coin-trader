@@ -1004,6 +1004,10 @@ def main():
                         active_val_krw=cur_val_krw,
                         top_candidates=cached_top_candidates,
                         target_capital=portfolio.goal_target,
+                        winning_trades=portfolio.winning_trades,
+                        losing_trades=portfolio.losing_trades,
+                        total_pnl_krw=portfolio.total_pnl_krw,
+                        initial_capital=20000.0,
                     )
                 except Exception as exc:
                     print(f"⚠️ Hourly briefing error: {exc}")

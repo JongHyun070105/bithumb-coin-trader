@@ -417,12 +417,22 @@ def notify_hourly_briefing(
     active_val_krw: float,
     top_candidates: list[dict[str, Any]],
     target_capital: float = 45000.0,
+    winning_trades: int = 0,
+    losing_trades: int = 0,
+    total_pnl_krw: float = 0.0,
+    initial_capital: float = 20000.0,
 ) -> bool:
-    """Send periodic briefing with portfolio and market rankings."""
+    """Send periodic briefing with portfolio, win-rate, returns, and market rankings."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
     filled_bars = int(progress / 10)
     bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
+
+    # 승률 및 누적 수익률 계산
+    total_trades = winning_trades + losing_trades
+    win_rate = (winning_trades / total_trades * 100.0) if total_trades > 0 else 0.0
+    total_return_pct = ((total_capital - initial_capital) / initial_capital * 100.0) if initial_capital > 0 else 0.0
+    net_profit = total_capital - initial_capital
 
     pos_info = "현재 현금 100% 보유 대기 중 (다음 1위 코인 탐색)"
     if active_market and entry_price > 0:
@@ -437,9 +447,11 @@ def notify_hourly_briefing(
     text = f"""## 📊 [BITHUMB] 정기 트레이딩 브리핑
 > ⏱️ **기준시각**: `{now_str}`
 
-### 💰 자산 및 목표 현황
+### 💰 자산 및 수익률 성적표
 - **총 자산**: **`{total_capital:,.0f} KRW`** (가용 현금: `{cash_available:,.0f} KRW`)
-- **목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: 45,000 KRW)
+- **누적 수익률**: **`{total_return_pct:+.2f}%`** (`{net_profit:+,.0f} KRW` 순익 / 원금: `{initial_capital:,.0f} KRW`)
+- **실매매 승률**: **`{win_rate:.1f}%`** (`{winning_trades}승 {losing_trades}패` | 실현손익: `{total_pnl_krw:+,.0f} KRW`)
+- **목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: {target_capital:,.0f} KRW)
 - **보유 포지션**: {pos_info}
 
 ### 📡 빗썸 다이내믹 25-유니버스 실시간 랭킹 Top 3
