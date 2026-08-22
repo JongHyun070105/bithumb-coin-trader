@@ -420,7 +420,7 @@ def notify_hourly_briefing(
     winning_trades: int = 0,
     losing_trades: int = 0,
     total_pnl_krw: float = 0.0,
-    initial_capital: float = 20000.0,
+    initial_capital: float = 30000.0,
 ) -> bool:
     """Send periodic briefing with portfolio, win-rate, returns, and market rankings."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

@@ -61,7 +61,8 @@ PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
 # ── Target & Risk Parameters (v4.1 High-Turnover Quant Engine) ──
-TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률
+INITIAL_CAPITAL = 30000.0       # 최초 시작 원금 (30,000 KRW)
+TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률 (+50%)
 STOP_LOSS_PCT = 0.018          # 손절가 비율 (-1.8%)
 TAKE_PROFIT_PCT = 0.038        # 2차 최종 목표가 비율 (+3.8%)
 SPLIT_TP_PCT = 0.020           # 1차 50% 분할 익절 비율 (+2.0%)
@@ -1011,7 +1012,7 @@ def main():
                         winning_trades=portfolio.winning_trades,
                         losing_trades=portfolio.losing_trades,
                         total_pnl_krw=portfolio.total_pnl_krw,
-                        initial_capital=20000.0,
+                        initial_capital=INITIAL_CAPITAL,
                     )
                     print(f"\n[{now_str}] 📊 매 시 정각 브리핑 전송 완료 ({now_dt.hour}시 정각)")
                 except Exception as exc:
