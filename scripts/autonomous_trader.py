@@ -69,7 +69,7 @@ TRAILING_ACTIVATE_PCT = 0.022  # 트레일링 활성화 기준 (+2.2% 이상 상
 PYRAMIDING_MIN_GAIN_PCT = 0.70 # 2차 불타기 진입 기준 (+0.7% 이상 유의미한 상승 확인 시)
 TIMECUT_SECONDS = 14400        # 4시간 (14,400초) 횡보 시 타임컷
 TIMECUT_THRESHOLD_PCT = 0.60   # ±0.6% 내 횡보 판정
-REENTRY_COOLDOWN_SEC = 1800  # 청산 후 동일 종목 30분(1800초) 재진입 완전 금지     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
+REENTRY_COOLDOWN_SEC = 600  # 청산 후 동일 종목 10분(600초) 재진입 쿨다운  # 청산 후 동일 종목 30분(1800초) 재진입 완전 금지     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
 MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
 MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
@@ -941,7 +941,7 @@ def main():
                                     continue
 
                                 best, best_ob, best_fconf = cand
-                                if best_fconf >= MIN_CONFIDENCE_STRONG and best.pm_decision is Signal.LONG and best_ob >= 0.50:
+                                if best_fconf >= MIN_CONFIDENCE_ENTRY and best.pm_decision is Signal.LONG and best_ob >= 0.50:
                                     invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
                                     if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
                                         print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
