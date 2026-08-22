@@ -69,7 +69,7 @@ TRAILING_ACTIVATE_PCT = 0.022  # 트레일링 활성화 기준 (+2.2% 이상 상
 PYRAMIDING_MIN_GAIN_PCT = 0.70 # 2차 불타기 진입 기준 (+0.7% 이상 유의미한 상승 확인 시)
 TIMECUT_SECONDS = 14400        # 4시간 (14,400초) 횡보 시 타임컷
 TIMECUT_THRESHOLD_PCT = 0.60   # ±0.6% 내 횡보 판정
-REENTRY_COOLDOWN_SEC = 900     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
+REENTRY_COOLDOWN_SEC = 1800  # 청산 후 동일 종목 30분(1800초) 재진입 완전 금지     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
 MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
 MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
@@ -84,7 +84,23 @@ MAX_CONSECUTIVE_ERRORS = 5   # 연속 에러 시 긴급 알림
 ERROR_COOLDOWN_SEC = 60      # 에러 발생 시 대기 시간
 FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
 
-_RECENT_EXITS: dict[str, float] = {}  # 마켓별 최근 청산 시각 (재진입 쿨다운 관리)
+EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
+
+
+def load_recent_exits() -> dict[str, float]:
+    if EXITS_PATH.exists():
+        try:
+            return json.loads(EXITS_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def record_exit(market: str):
+    exits = load_recent_exits()
+    exits[market] = time.time()
+    EXITS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    EXITS_PATH.write_text(json.dumps(exits, indent=2), encoding="utf-8")
 
 
 @dataclass
@@ -597,7 +613,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
             # 청산 후 동일 종목 재진입 15분 쿨다운 활성화
-            _RECENT_EXITS[market] = time.time()
+            record_exit(market)
 
             log_trade("SELL", market, current_price, str(vol), val_krw, reason, pnl)
             print(f"  📊 Trade P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%)")
@@ -907,7 +923,7 @@ def main():
                         if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
                             for cand in analyses:
                                 mkt = cand[0].market
-                                last_exit = _RECENT_EXITS.get(mkt, 0)
+                                exits = load_recent_exits(); last_exit = exits.get(mkt, 0)
                                 if time.time() - last_exit < REENTRY_COOLDOWN_SEC:
                                     rem = int(REENTRY_COOLDOWN_SEC - (time.time() - last_exit))
                                     if loop_count % 10 == 1:
