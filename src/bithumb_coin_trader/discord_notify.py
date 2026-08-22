@@ -324,6 +324,50 @@ AI 확신도: {confidence:.1f}% (TARO/DIANA/NOVA/VIBE)
     return send_discord_message(text)
 
 
+def notify_partial_sell_exit(
+    market: str,
+    price: float,
+    volume: str,
+    amount_krw: float,
+    pnl_krw: float,
+    pnl_pct: float,
+    remaining_volume: str,
+    reason: str,
+    total_capital: float,
+    target_capital: float = 45000.0,
+) -> bool:
+    """Send rich Partial 50% Take-Profit notification."""
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    coin_name = market.replace("KRW-", "")
+
+    progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
+    filled_bars = int(progress / 10)
+    bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
+
+    text = f"""## ✂️ [BITHUMB] 1차 50% 분할 익절 알림 (수익 확정 💵)
+> ⏱️ **체결시각**: `{now_str}`
+> 🎯 **종목**: **`{market}`**
+
+```yaml
+분할매도단가: {price:,.0f} KRW
+매도수량(50%): {volume} {coin_name}
+회수현금: {amount_krw:,.0f} KRW
+실현손익: {pnl_krw:+,.0f} KRW ({pnl_pct:+.2f}%)
+잔여물량(50%): {remaining_volume} {coin_name}
+사유: {reason}
+```
+
+### 🛡️ 후속 전략
+- 🔒 **본전 스탑 자동 적용**: 잔여 물량은 진입가 아래로 하락 시 본전에서 자동 청산 (원금 100% 안전)
+- 🚀 **2차 최종 목표가**: +3.8% 전량 익절 또는 트레일링 스탑 추종
+
+### 💰 포트폴리오 현황
+- **현재 총 자산**: **`{total_capital:,.0f} KRW`**
+- **목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: {target_capital:,.0f} KRW)
+"""
+    return send_discord_message(text)
+
+
 def notify_sell_exit(
     market: str,
     price: float,

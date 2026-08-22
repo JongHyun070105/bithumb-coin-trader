@@ -40,6 +40,7 @@ from bithumb_coin_trader.data import fetch_minute_candles
 from bithumb_coin_trader.discord_notify import (
     SilentNotifier,
     notify_buy_entry,
+    notify_partial_sell_exit,
     notify_sell_exit,
     notify_hourly_briefing,
     send_discord_message,
@@ -58,14 +59,17 @@ TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
-# ── Target & Risk Parameters ──────────────────────────────────
+# ── Target & Risk Parameters (v4.1 High-Turnover Quant Engine) ──
 TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률
-STOP_LOSS_PCT = 0.020       # 손절가 비율 (-2.0%)
-TAKE_PROFIT_PCT = 0.040     # 1차 목표가 비율 (+4.0%)
-TRAILING_STOP_PCT = 0.015   # 트레일링 스탑 비율 (-1.5% from peak)
-TRAILING_ACTIVATE_PCT = 0.025 # 트레일링 활성화 기준 (+2.5% gain 이상 시에만 활성화하여 노이즈 털림 방어)
-PYRAMIDING_MIN_GAIN_PCT = 0.80 # 2차 불타기 진입 기준 (+0.8% 이상 유의미한 상승 확인 시)
-REENTRY_COOLDOWN_SEC = 900  # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
+STOP_LOSS_PCT = 0.018          # 손절가 비율 (-1.8%)
+TAKE_PROFIT_PCT = 0.038        # 2차 최종 목표가 비율 (+3.8%)
+SPLIT_TP_PCT = 0.020           # 1차 50% 분할 익절 비율 (+2.0%)
+TRAILING_STOP_PCT = 0.010      # 트레일링 스탑 추종 폭 (-1.0% from peak)
+TRAILING_ACTIVATE_PCT = 0.015  # 트레일링 조기 활성화 기준 (+1.5% 이상 상승 시 즉시 가동)
+PYRAMIDING_MIN_GAIN_PCT = 0.70 # 2차 불타기 진입 기준 (+0.7% 이상 유의미한 상승 확인 시)
+TIMECUT_SECONDS = 14400        # 4시간 (14,400초) 횡보 시 타임컷
+TIMECUT_THRESHOLD_PCT = 0.60   # ±0.6% 내 횡보 판정
+REENTRY_COOLDOWN_SEC = 900     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
 MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
 MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
@@ -104,6 +108,9 @@ class PortfolioState:
     start_of_day_equity: float = 0.0   # 당일 시작 자산 (MDD/일일손실 계산)
     peak_equity: float = 0.0           # 역대 최고 자산 (MDD 계산)
     milestone_count: int = 0           # 달성한 마일스톤 횟수
+    # v4.1 additions
+    entry_timestamp: float = 0.0       # 진입 시각 (타임컷 추적)
+    partial_tp_taken: bool = False     # 50% 분할 익절 완료 여부
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -478,6 +485,9 @@ def execute_buy(
             portfolio.total_capital = tot_krw + (float(tot_vol) * fill_price)
             portfolio.total_trades += 1
             portfolio.daily_entries += 1
+            if not is_pyramiding:
+                portfolio.entry_timestamp = time.time()
+                portfolio.partial_tp_taken = False
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -609,6 +619,111 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
         print(f"  ❌ Sell error: {exc}")
         # 매도 실패해도 상태는 보존 (다음 루프에서 재시도)
     return False
+
+
+def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, ratio: float = 0.5, reason: str = "🎯 1차 50% 분할 익절") -> bool:
+    """Execute a partial market sell order (e.g. 50%) for risk-free profit locking."""
+    state = load_state(STATE_PATH)
+    if state.position != "long":
+        print("  ⚠️ Not in LONG position, skipping partial sell")
+        return False
+
+    market = portfolio.active_market
+    total_vol = Decimal(state.position_volume)
+    sell_vol = total_vol * Decimal(str(ratio))
+
+    candles = fetch_minute_candles(market, 1, 5)
+    current_price = candles[-1].close
+    sell_val_krw = float(sell_vol) * current_price
+
+    if sell_val_krw < 500:
+        print(f"  ⚠️ Partial sell value {sell_val_krw:,.0f} KRW is below 500 KRW threshold, skipping partial sell")
+        return False
+
+    print(f"\n✂️ EXECUTING PARTIAL SELL ({ratio*100:.0f}%): {market} | SellVol: {sell_vol:.4f} | Price: {current_price:,.0f} KRW | Reason: {reason}")
+
+    intent = TradeIntent(
+        market=market,
+        target=Signal.FLAT,
+        base_volume=sell_vol,
+        reason=reason,
+    )
+    plan = plan_execution(intent, current=Signal.LONG)
+
+    risk_context = RiskContext(
+        requested_side=Signal.FLAT,
+        requested_notional_krw=sell_val_krw,
+        current_equity_krw=portfolio.total_capital,
+        start_of_day_equity_krw=portfolio.start_of_day_equity or portfolio.total_capital,
+        peak_equity_krw=portfolio.peak_equity or portfolio.total_capital,
+        daily_entries=portfolio.daily_entries,
+        data_is_fresh=True,
+        reference_price_krw=current_price,
+    )
+
+    try:
+        with McpStdioClient(LIVE_COMMAND) as client:
+            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
+            result = executor.execute(
+                plan,
+                risk_context=risk_context,
+                bot_state=state,
+                confirmation_token=LIVE_CONFIRMATION_TOKEN,
+            )
+            print(f"  🎉 Partial sell order submitted: {result.submitted}")
+            executor.reconcile_active_order()
+
+            assets_res = client.call_read_tool("account_get_assets", {})
+            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+            currency = market.replace("KRW-", "")
+            coin_asset = next((a for a in assets if a["currency"] == currency), None)
+            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
+
+            actual_rem_vol = Decimal(coin_asset["balance"]) if coin_asset else (total_vol - sell_vol)
+            actual_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available + sell_val_krw)
+
+            entry_val_portion = float(sell_vol) * portfolio.entry_price
+            actual_val = actual_krw - portfolio.cash_available
+            pnl = actual_val - entry_val_portion if actual_val > 0 else sell_val_krw - entry_val_portion
+            pnl_pct = (current_price - portfolio.entry_price) / portfolio.entry_price * 100.0
+
+            portfolio.cash_available = actual_krw
+            portfolio.position_volume = str(actual_rem_vol)
+            portfolio.total_capital = actual_krw + (float(actual_rem_vol) * current_price)
+            portfolio.total_pnl_krw += pnl
+            if pnl >= 0:
+                portfolio.winning_trades += 1
+            else:
+                portfolio.losing_trades += 1
+            portfolio.partial_tp_taken = True
+            if portfolio.total_capital > portfolio.peak_equity:
+                portfolio.peak_equity = portfolio.total_capital
+            portfolio.save(PORTFOLIO_PATH)
+
+            new_state = BotState(version=1, position="long", position_volume=str(actual_rem_vol))
+            save_state(STATE_PATH, new_state)
+
+            log_trade("PARTIAL_SELL", market, current_price, str(sell_vol), sell_val_krw, reason, pnl)
+            print(f"  📊 Partial P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%) | Remaining: {actual_rem_vol} {currency}")
+            print(f"  💰 Portfolio: {portfolio.total_capital:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
+
+            notify_partial_sell_exit(
+                market=market,
+                price=current_price,
+                volume=f"{sell_vol:.4f}",
+                amount_krw=sell_val_krw,
+                pnl_krw=pnl,
+                pnl_pct=pnl_pct,
+                remaining_volume=f"{actual_rem_vol:.4f}",
+                reason=reason,
+                total_capital=portfolio.total_capital,
+                target_capital=portfolio.goal_target,
+            )
+            return True
+    except Exception as exc:
+        print(f"  ❌ Partial sell error: {exc}")
+    return False
+
 
 
 def main():
