@@ -143,6 +143,21 @@ class PortfolioState:
         return PortfolioState()
 
 
+def get_realtime_ticker_price(market: str) -> float:
+    """Fetch 100% realtime trade price from Bithumb REST Ticker API without candle lag."""
+    try:
+        url = f"https://api.bithumb.com/v1/ticker?markets={market}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if isinstance(data, list) and data:
+                return float(data[0]["trade_price"])
+    except Exception:
+        pass
+    # Fallback to candle
+    candles = fetch_minute_candles(market, 1, 3)
+    return candles[-1].close if candles else 0.0
+
 def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 25) -> list[str]:
     """Fetch top liquid markets by 24h volume from Bithumb."""
     try:
@@ -549,8 +564,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
     market = portfolio.active_market
     vol = Decimal(state.position_volume)
-    candles = fetch_minute_candles(market, 1, 5)
-    current_price = candles[-1].close
+    current_price = get_realtime_ticker_price(market)
     val_krw = float(vol) * current_price
 
     print(f"\n🔴 EXECUTING SELL: {market} | Vol: {vol:.4f} | Price: {current_price:,.0f} KRW | Reason: {reason}")
@@ -654,8 +668,7 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
     total_vol = Decimal(state.position_volume)
     sell_vol = total_vol * Decimal(str(ratio))
 
-    candles = fetch_minute_candles(market, 1, 5)
-    current_price = candles[-1].close
+    current_price = get_realtime_ticker_price(market)
     sell_val_krw = float(sell_vol) * current_price
 
     if sell_val_krw < 500:
@@ -874,8 +887,7 @@ def main():
             cur_price = 0.0
             if state.position == "long" and portfolio.active_market:
                 try:
-                    candles = fetch_minute_candles(portfolio.active_market, 1, 10)
-                    cur_price = candles[-1].close
+                    cur_price = get_realtime_ticker_price(portfolio.active_market)
                     vol = Decimal(state.position_volume)
                     cur_val_krw = float(vol) * cur_price
 
