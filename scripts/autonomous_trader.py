@@ -27,6 +27,7 @@ import sys
 import traceback
 import urllib.request
 from dataclasses import dataclass, asdict
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Optional
@@ -832,6 +833,7 @@ def main():
 
     loop_count = 0
     consecutive_errors = 0  # v4.0: 연속 에러 카운터
+    last_briefing_hour = -1  # 매 시 정각(8시, 9시, 10시...) 브리핑 추적 변수
 
     # ═══════════════════════════════════════════════════════════════
     # 🔄 INFINITE MAIN LOOP (Never Stops, Self-Healing)
@@ -989,10 +991,12 @@ def main():
                     print(f"⚠️ Reconciliation error: {exc}")
 
             # ═══════════════════════════════════════════════════════════════
-            # 4. HOURLY DISCORD BRIEFING (every ~1 hour)
+            # 4. HOURLY DISCORD BRIEFING (매 시 정각: 8시, 9시, 10시...)
             # ═══════════════════════════════════════════════════════════════
-            if loop_count % HOURLY_REPORT_LOOPS == 0:
+            now_dt = datetime.now()
+            if now_dt.minute == 0 and now_dt.hour != last_briefing_hour:
                 try:
+                    last_briefing_hour = now_dt.hour
                     tot_est = portfolio.cash_available + cur_val_krw if state.position == "long" else portfolio.total_capital
                     notify_hourly_briefing(
                         total_capital=tot_est,
@@ -1009,6 +1013,7 @@ def main():
                         total_pnl_krw=portfolio.total_pnl_krw,
                         initial_capital=20000.0,
                     )
+                    print(f"\n[{now_str}] 📊 매 시 정각 브리핑 전송 완료 ({now_dt.hour}시 정각)")
                 except Exception as exc:
                     print(f"⚠️ Hourly briefing error: {exc}")
 
