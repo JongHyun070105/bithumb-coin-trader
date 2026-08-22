@@ -318,6 +318,8 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
                 portfolio.position_volume = "0"
                 portfolio.highest_price = 0.0
                 portfolio.pyramiding_count = 0
+                portfolio.partial_tp_taken = False
+                portfolio.entry_timestamp = 0.0
                 save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
             elif abs(actual_balance - tracked_volume) / max(tracked_volume, 0.0001) > 0.01:
@@ -343,6 +345,8 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
                     portfolio.position_volume = str(volume)
                     portfolio.highest_price = price
                     portfolio.pyramiding_count = 1
+                    portfolio.partial_tp_taken = False
+                    portfolio.entry_timestamp = time.time()
                     save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(volume)))
                     print(f"  ✅ 고아 포지션 복구: {market} {volume} @ {price:,.0f} KRW")
                 except Exception:
@@ -607,6 +611,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.position_volume = "0"
             portfolio.highest_price = 0.0
             portfolio.pyramiding_count = 0
+            portfolio.partial_tp_taken = False
+            portfolio.entry_timestamp = 0.0
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -677,13 +683,17 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
         reference_price_krw=current_price,
     )
 
+    # BithumbExecutor는 tracked volume 전체 매도를 검증하므로 partial_state를 임시 저장
+    partial_state = BotState(version=1, position="long", position_volume=str(sell_vol))
+    save_state(STATE_PATH, partial_state)
+
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
             executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
-                bot_state=state,
+                bot_state=partial_state,
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
             print(f"  🎉 Partial sell order submitted: {result.submitted}")
