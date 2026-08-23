@@ -235,19 +235,20 @@ def log_trade(action: str, market: str, price: float, volume: str, amount_krw: f
             pass
 
 
-def get_market_orderbook_ratio(client: McpStdioClient, market: str) -> float:
-    """Fetch 30-level orderbook and return Bid/(Bid+Ask) ratio (0.0 to 1.0)."""
+def get_market_orderbook_ratio(client: Any, market: str) -> float:
+    """Fetch 30-level orderbook and return Bid/(Bid+Ask) ratio (0.0 to 1.0) with ultra-fast REST."""
     try:
-        res = client.call_read_tool("market_get_orderbook", {"markets": market})
-        text = res["content"][0]["text"]
-        payload = json.loads(text).get("data", {}).get("data", [])
-        if payload:
-            item = payload[0]
-            total_ask = float(item.get("total_ask_size", 0.0))
-            total_bid = float(item.get("total_bid_size", 0.0))
-            total = total_ask + total_bid
-            if total > 0:
-                return total_bid / total
+        url = f"https://api.bithumb.com/v1/orderbook?markets={market}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+            if isinstance(payload, list) and payload:
+                item = payload[0]
+                total_ask = float(item.get("total_ask_size", 0.0))
+                total_bid = float(item.get("total_bid_size", 0.0))
+                total = total_ask + total_bid
+                if total > 0:
+                    return total_bid / total
     except Exception:
         pass
     return 0.50

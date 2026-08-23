@@ -9,7 +9,7 @@ from .models import Signal
 class RiskLimits:
     minimum_order_krw: int = 5_000
     maximum_order_krw: int = 10_000
-    maximum_daily_loss_fraction: float = 0.02
+    maximum_daily_loss_fraction: float = 0.05  # 일일 최대 손실 한도 5.0%로 현실화 (기존 2.0%의 과도한 조기 차단 방지)
     maximum_drawdown_fraction: float = 0.10
     maximum_daily_entries: int = 1
     short_execution_enabled: bool = False
