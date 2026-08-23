@@ -52,6 +52,7 @@ from bithumb_coin_trader.execution import (
 from bithumb_coin_trader.mcp_client import McpStdioClient, LIVE_COMMAND
 from bithumb_coin_trader.models import Signal
 from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
+from bithumb_coin_trader.self_growth import EvolutionaryReviewer, apply_learned_heuristics
 from bithumb_coin_trader.state import BotState, load_state, save_state
 from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
@@ -297,7 +298,8 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
             ob_ratio = get_market_orderbook_ratio(client, m)
             ob_adj = (ob_ratio - 0.50) * 20.0
             final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
-            analyses.append((res, ob_ratio, final_conf))
+            evolved_conf, _ = apply_learned_heuristics(m, final_conf)
+            analyses.append((res, ob_ratio, evolved_conf))
 
     top_candidates = []
     if analyses:
@@ -869,14 +871,26 @@ def main():
             loop_count += 1
             now_str = time.strftime('%Y-%m-%d %H:%M:%S')
 
-            # ── 날짜 변경 감지 ──
+            # ── 날짜 변경 감지: 일일 자가 성장 & AI 복기 자동 실행 ──
             today = time.strftime('%Y-%m-%d')
-            if portfolio.last_trade_day != today:
+            if portfolio.last_trade_day != today and portfolio.last_trade_day != "":
+                try:
+                    print(f"\n[{now_str}] 🧬 자정 도달: 일일 자가 성장 및 AI 복기 엔진 가동...")
+                    rev = EvolutionaryReviewer()
+                    _, evo_report = rev.run_evolutionary_cycle()
+                    send_discord_message(evo_report)
+                    print(f"[{now_str}] ✅ 일일 자가 성장 리포트 디스코드 전송 완료")
+                except Exception as evo_exc:
+                    print(f"⚠️ Evolutionary review error: {evo_exc}")
+
                 portfolio.daily_entries = 0
                 portfolio.last_trade_day = today
                 portfolio.start_of_day_equity = portfolio.total_capital
                 portfolio.save(PORTFOLIO_PATH)
                 print(f"\n📅 새로운 거래일: {today} | 시작 자산: {portfolio.total_capital:,.0f} KRW")
+            elif portfolio.last_trade_day == "":
+                portfolio.last_trade_day = today
+                portfolio.save(PORTFOLIO_PATH)
 
             # ── 마일스톤 도달 체크 (멈추지 않고 다음 목표 자동 갱신!) ──
             if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
