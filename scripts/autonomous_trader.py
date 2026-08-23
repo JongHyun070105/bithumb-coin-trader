@@ -60,20 +60,23 @@ TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
-# ── Target & Risk Parameters (v4.1 High-Turnover Quant Engine) ──
+# ── Target & Risk Parameters (v4.2 Pro-Defense & High-Conviction Engine) ──
 INITIAL_CAPITAL = 30000.0       # 최초 시작 원금 (30,000 KRW)
 TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률 (+50%)
 STOP_LOSS_PCT = 0.018          # 손절가 비율 (-1.8%)
 TAKE_PROFIT_PCT = 0.038        # 2차 최종 목표가 비율 (+3.8%)
 SPLIT_TP_PCT = 0.020           # 1차 50% 분할 익절 비율 (+2.0%)
+BREAKEVEN_ACTIVATE_PCT = 0.010 # +1.0% 도달 시 즉시 본전 스탑 가동 (수익 났던 포지션 손실 전락 100% 방지)
 TRAILING_STOP_PCT = 0.018      # 트레일링 스탑 추종 폭 (-1.8% from peak으로 호가 털림 방어)
 TRAILING_ACTIVATE_PCT = 0.022  # 트레일링 활성화 기준 (+2.2% 이상 상승 확인 시에만 가동)
 PYRAMIDING_MIN_GAIN_PCT = 0.70 # 2차 불타기 진입 기준 (+0.7% 이상 유의미한 상승 확인 시)
 TIMECUT_SECONDS = 14400        # 4시간 (14,400초) 횡보 시 타임컷
 TIMECUT_THRESHOLD_PCT = 0.60   # ±0.6% 내 횡보 판정
-REENTRY_COOLDOWN_SEC = 600  # 청산 후 동일 종목 10분(600초) 재진입 쿨다운  # 청산 후 동일 종목 30분(1800초) 재진입 완전 금지     # 청산 후 동일 종목 재진입 쿨다운 (15분 = 900초, 웝소 수수료 낭비 방어)
-MIN_CONFIDENCE_ENTRY = 70.0  # 최소 진입 확신도
-MIN_CONFIDENCE_STRONG = 75.0 # 강력 매수 확신도
+MIN_MARKET_PRICE = 50.0        # 50원 미만 극초저가 잡코인 매수 배제 (10~16원 갭하락 참사 원천 차단)
+LOSS_COOLDOWN_SEC = 900        # 손절 발생 시 시장 15분 휴식 (Market Rest, 하락장 연쇄 털림 방어)
+REENTRY_COOLDOWN_SEC = 600     # 청산 후 동일 종목 10분(600초) 재진입 쿨다운
+MIN_CONFIDENCE_ENTRY = 75.0    # 진입 확신도 75.0% 이상 고확신 대장주만 진입
+MIN_CONFIDENCE_STRONG = 78.0   # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
 MAX_POSITION_RATIO = 0.60   # 최대 포지션 비율 (자산의 60%)
 MIN_RESERVE_CASH_RATIO = 0.33  # 최소 현금 보존 비율 (33%)
@@ -88,6 +91,22 @@ FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
 
 EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
 
+
+REST_PATH = PROJECT_ROOT / "state" / "market_rest.json"
+
+
+def load_market_rest() -> float:
+    if REST_PATH.exists():
+        try:
+            return float(json.loads(REST_PATH.read_text(encoding="utf-8")).get("rest_until", 0))
+        except Exception:
+            pass
+    return 0.0
+
+
+def set_market_rest(seconds: int = LOSS_COOLDOWN_SEC):
+    REST_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REST_PATH.write_text(json.dumps({"rest_until": time.time() + seconds, "set_at": time.time()}), encoding="utf-8")
 
 def load_recent_exits() -> dict[str, float]:
     if EXITS_PATH.exists():
@@ -622,12 +641,15 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
                 portfolio.winning_trades += 1
             else:
                 portfolio.losing_trades += 1
+                set_market_rest(LOSS_COOLDOWN_SEC)
+                print(f"  🛡️ 손절 방어 발생! 시장 하락 충격 진정을 위해 15분간(900초) 신규 진입 일시정지 (Market Rest)")
             portfolio.active_market = ""
             portfolio.entry_price = 0.0
             portfolio.position_volume = "0"
             portfolio.highest_price = 0.0
             portfolio.pyramiding_count = 0
             portfolio.partial_tp_taken = False
+            portfolio.breakeven_locked = False
             portfolio.entry_timestamp = 0.0
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
@@ -736,6 +758,8 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
                 portfolio.winning_trades += 1
             else:
                 portfolio.losing_trades += 1
+                set_market_rest(LOSS_COOLDOWN_SEC)
+                print(f"  🛡️ 손절 방어 발생! 시장 하락 충격 진정을 위해 15분간(900초) 신규 진입 일시정지 (Market Rest)")
             portfolio.partial_tp_taken = True
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
@@ -901,7 +925,18 @@ def main():
                         portfolio.highest_price = cur_price
                         portfolio.save(PORTFOLIO_PATH)
 
-                    stop_loss_price = portfolio.entry_price * (1 - STOP_LOSS_PCT)
+                    # v4.2 Breakeven Lock: +1.0% 이상 상승 시 즉시 본전 스탑 가동
+                    max_gain_pct = (portfolio.highest_price - portfolio.entry_price) / portfolio.entry_price if portfolio.entry_price > 0 else 0
+                    if max_gain_pct >= BREAKEVEN_ACTIVATE_PCT and not portfolio.breakeven_locked:
+                        portfolio.breakeven_locked = True
+                        portfolio.save(PORTFOLIO_PATH)
+                        print(f"  🛡️ +1.0% 상승 확인! 본전 스탑(Breakeven Lock) 가동 (손절선 -> 평단가 {portfolio.entry_price:,.0f} KRW 무위험 전환)")
+
+                    if portfolio.breakeven_locked:
+                        stop_loss_price = portfolio.entry_price * 1.001 # 본전 + 0.1% 수수료 버퍼
+                    else:
+                        stop_loss_price = portfolio.entry_price * (1 - STOP_LOSS_PCT)
+
                     take_profit_price = portfolio.entry_price * (1 + TAKE_PROFIT_PCT)
                     trailing_stop_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
 
