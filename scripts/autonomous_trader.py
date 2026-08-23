@@ -53,6 +53,7 @@ from bithumb_coin_trader.mcp_client import McpStdioClient, LIVE_COMMAND
 from bithumb_coin_trader.models import Signal
 from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer, apply_learned_heuristics
+from bithumb_coin_trader.ai_brain import evaluate_with_ai_brain, load_ai_memory
 from bithumb_coin_trader.state import BotState, load_state, save_state
 from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
@@ -298,8 +299,11 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
             ob_ratio = get_market_orderbook_ratio(client, m)
             ob_adj = (ob_ratio - 0.50) * 20.0
             final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
-            evolved_conf, _ = apply_learned_heuristics(m, final_conf)
-            analyses.append((res, ob_ratio, evolved_conf))
+            
+            # 🧠 Antigravity AI Council 전략 메모리 평가
+            ai_conf, is_allowed, _ = evaluate_with_ai_brain(m, final_conf)
+            if is_allowed:
+                analyses.append((res, ob_ratio, ai_conf))
 
     top_candidates = []
     if analyses:
