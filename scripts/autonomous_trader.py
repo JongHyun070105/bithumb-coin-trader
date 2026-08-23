@@ -145,9 +145,10 @@ class PortfolioState:
     start_of_day_equity: float = 0.0   # 당일 시작 자산 (MDD/일일손실 계산)
     peak_equity: float = 0.0           # 역대 최고 자산 (MDD 계산)
     milestone_count: int = 0           # 달성한 마일스톤 횟수
-    # v4.1 additions
+    # v4.1 & v4.2 additions
     entry_timestamp: float = 0.0       # 진입 시각 (타임컷 추적)
     partial_tp_taken: bool = False     # 50% 분할 익절 완료 여부
+    breakeven_locked: bool = False     # +1.0% 도달 시 본전 스탑 락 여부
 
     def save(self, path: Path):
         path.parent.mkdir(parents=True, exist_ok=True)
