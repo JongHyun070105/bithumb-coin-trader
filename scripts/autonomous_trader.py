@@ -54,6 +54,7 @@ from bithumb_coin_trader.models import Signal
 from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer, apply_learned_heuristics
 from bithumb_coin_trader.ai_brain import evaluate_with_ai_brain, load_ai_memory
+from bithumb_coin_trader.gemini_council import run_gemini_autonomous_review
 from bithumb_coin_trader.state import BotState, load_state, save_state
 from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
@@ -875,17 +876,16 @@ def main():
             loop_count += 1
             now_str = time.strftime('%Y-%m-%d %H:%M:%S')
 
-            # ── 날짜 변경 감지: 일일 자가 성장 & AI 복기 자동 실행 ──
+            # ── 날짜 변경 감지: Gemini AI 일일 자가 성장 & 사후 복기 자동 실행 ──
             today = time.strftime('%Y-%m-%d')
             if portfolio.last_trade_day != today and portfolio.last_trade_day != "":
                 try:
-                    print(f"\n[{now_str}] 🧬 자정 도달: 일일 자가 성장 및 AI 복기 엔진 가동...")
-                    rev = EvolutionaryReviewer()
-                    _, evo_report = rev.run_evolutionary_cycle()
+                    print(f"\n[{now_str}] 🧬 자정 도달: Gemini AI 자율 사후 복기 및 전략 진화 엔진 가동...")
+                    _, evo_report = run_gemini_autonomous_review()
                     send_discord_message(evo_report)
-                    print(f"[{now_str}] ✅ 일일 자가 성장 리포트 디스코드 전송 완료")
+                    print(f"[{now_str}] ✅ Gemini AI 일일 자가 성장 리포트 디스코드 전송 완료")
                 except Exception as evo_exc:
-                    print(f"⚠️ Evolutionary review error: {evo_exc}")
+                    print(f"⚠️ Gemini review error: {evo_exc}")
 
                 portfolio.daily_entries = 0
                 portfolio.last_trade_day = today
