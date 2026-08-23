@@ -24,35 +24,39 @@ from bithumb_coin_trader.ai_brain import AIStrategyMemory, save_ai_memory, AI_ME
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-ENV_PATH = PROJECT_ROOT / ".env"
+ENV_PATHS = [PROJECT_ROOT / ".env.local", PROJECT_ROOT / ".env"]
 TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
 
 
 def get_gemini_api_key() -> str:
-    """Load GEMINI_API_KEY from os.environ or .env file."""
+    """Load GEMINI_API_KEY from os.environ, .env.local, or .env file."""
     key = os.environ.get("GEMINI_API_KEY", "")
-    if key and key != "YOUR_GEMINI_API_KEY_HERE":
+    if key and "여기에" not in key and "YOUR_" not in key:
         return key
-    if ENV_PATH.exists():
-        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("GEMINI_API_KEY=") and not line.startswith("#"):
-                v = line.split("=", 1)[1].strip().strip("\"'")
-                if v and v != "YOUR_GEMINI_API_KEY_HERE":
-                    return v
+    for p in ENV_PATHS:
+        if p.exists():
+            for line in p.read_text(encoding="utf-8").splitlines():
+                line = line.strip()
+                if (line.startswith("GEMINI_API_KEY=") or line.startswith("export GEMINI_API_KEY=")) and not line.startswith("#"):
+                    v = line.split("=", 1)[1].strip().strip("\"'")
+                    if v and "여기에" not in v and "YOUR_" not in v:
+                        return v
     return ""
 
 
 def get_gemini_model() -> str:
     """Load GEMINI_MODEL name."""
     model = os.environ.get("GEMINI_MODEL", "")
-    if not model and ENV_PATH.exists():
-        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line.startswith("GEMINI_MODEL=") and not line.startswith("#"):
-                model = line.split("=", 1)[1].strip().strip("\"'")
-    # Default to fast flash-lite / flash models
-    return model or "gemini-2.0-flash-lite"
+    if not model:
+        for p in ENV_PATHS:
+            if p.exists():
+                for line in p.read_text(encoding="utf-8").splitlines():
+                    line = line.strip()
+                    if (line.startswith("GEMINI_MODEL=") or line.startswith("export GEMINI_MODEL=")) and not line.startswith("#"):
+                        model = line.split("=", 1)[1].strip().strip("\"'")
+                        if model:
+                            break
+    return model or "gemini-3.5-flash-lite"
 
 
 def call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
@@ -62,13 +66,8 @@ def call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
         print("  ⚠️ GEMINI_API_KEY is not set in .env or environment.")
         return None
 
-    model = get_gemini_model()
-    # Support various model aliases
-    model_clean = model.strip()
-    if "3.5" in model_clean:
-        model_clean = "gemini-2.0-flash-lite" # fallback or mapped to available model
-    
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_clean}:generateContent?key={api_key}"
+    model = get_gemini_model().strip()
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
     payload: Dict[str, Any] = {
         "contents": [
