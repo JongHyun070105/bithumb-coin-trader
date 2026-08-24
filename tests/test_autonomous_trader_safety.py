@@ -11,6 +11,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from scripts.autonomous_trader import (
+    ExitAction,
+    ScanSnapshot,
     NEW_ENTRIES_ENV,
     PYRAMIDING_ENV,
     PortfolioState,
@@ -18,6 +20,7 @@ from scripts.autonomous_trader import (
     _read_asset_balances,
     fetch_dynamic_universe,
     acquire_daemon_lock,
+    decide_position_exit,
     get_market_orderbook_ratio,
     get_market_warnings,
     get_realtime_ticker_price,
@@ -28,6 +31,7 @@ from scripts.autonomous_trader import (
     recover_pending_order,
     reconcile_with_exchange,
     repair_portfolio_invariant,
+    scan_snapshot_is_fresh,
 )
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.fill_ledger import FillLedger
@@ -39,6 +43,84 @@ from scripts import execute_live_trader
 
 
 class AutonomousTraderSafetyTests(unittest.TestCase):
+    @staticmethod
+    def exit_portfolio(**overrides: object) -> PortfolioState:
+        values: dict[str, object] = {
+            "total_capital": 20_000.0,
+            "cash_available": 0.0,
+            "active_market": "KRW-BTC",
+            "entry_price": 100.0,
+            "position_volume": "200",
+            "highest_price": 100.0,
+            "entry_timestamp": 1_000.0,
+            "enhanced_exit_eligible": True,
+        }
+        values.update(overrides)
+        return PortfolioState(**values)
+
+    def test_exit_decision_precedence_and_partial_take_profit(self) -> None:
+        portfolio = self.exit_portfolio()
+        partial = decide_position_exit(portfolio, 102.0, now_timestamp=1_100.0)
+        self.assertIs(partial.action, ExitAction.PARTIAL_EXIT)
+
+        portfolio.partial_tp_taken = True
+        self.assertIs(
+            decide_position_exit(portfolio, 102.0, now_timestamp=1_100.0).action,
+            ExitAction.HOLD,
+        )
+        portfolio.partial_tp_taken = False
+        self.assertIs(
+            decide_position_exit(portfolio, 103.8, now_timestamp=20_000.0).action,
+            ExitAction.FULL_EXIT,
+        )
+
+    def test_timecut_boundaries_and_existing_position_grandfathering(self) -> None:
+        portfolio = self.exit_portfolio()
+        self.assertIs(
+            decide_position_exit(portfolio, 100.0, now_timestamp=15_399.9).action,
+            ExitAction.HOLD,
+        )
+        self.assertIs(
+            decide_position_exit(portfolio, 100.0, now_timestamp=15_400.0).action,
+            ExitAction.FULL_EXIT,
+        )
+        self.assertIn(
+            "TIMECUT",
+            decide_position_exit(portfolio, 100.0, now_timestamp=15_400.0).reason,
+        )
+        self.assertIs(
+            decide_position_exit(portfolio, 100.6001, now_timestamp=15_400.0).action,
+            ExitAction.HOLD,
+        )
+        portfolio.enhanced_exit_eligible = False
+        self.assertIs(
+            decide_position_exit(portfolio, 100.0, now_timestamp=50_000.0).action,
+            ExitAction.HOLD,
+        )
+
+    def test_trailing_precedes_partial_and_timecut(self) -> None:
+        portfolio = self.exit_portfolio(highest_price=103.0)
+        decision = decide_position_exit(portfolio, 100.5, now_timestamp=20_000.0)
+        self.assertIs(decision.action, ExitAction.FULL_EXIT)
+        self.assertIn("TRAILING-STOP", decision.reason)
+
+    def test_partial_exit_requires_two_tradeable_legs(self) -> None:
+        portfolio = self.exit_portfolio(position_volume="90")
+        self.assertIs(
+            decide_position_exit(portfolio, 102.0, now_timestamp=1_100.0).action,
+            ExitAction.HOLD,
+        )
+
+    def test_scan_freshness_is_bounded_from_start_to_decision(self) -> None:
+        snapshot = ScanSnapshot((), (), 100.0, 150.0)
+        self.assertTrue(scan_snapshot_is_fresh(snapshot, now_monotonic=160.0))
+        self.assertFalse(scan_snapshot_is_fresh(snapshot, now_monotonic=160.001))
+        self.assertFalse(
+            scan_snapshot_is_fresh(
+                ScanSnapshot((), (), 200.0, 199.0), now_monotonic=200.0
+            )
+        )
+
     def test_new_entries_fail_closed(self) -> None:
         self.assertFalse(new_entries_enabled({}))
         self.assertFalse(new_entries_enabled({NEW_ENTRIES_ENV: "false"}))
@@ -238,6 +320,198 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
             self.assertEqual(Decimal(portfolio.position_volume), Decimal("0.1"))
             self.assertGreater(portfolio.entry_price, 100000.0)  # buy fee included
             self.assertFalse(portfolio.legacy_position)
+
+    def test_partial_sell_recovery_accepts_fill_already_in_ledger(self) -> None:
+        buy = {
+            "uuid": "buy-order",
+            "market": "KRW-BTC",
+            "side": "bid",
+            "paid_fee": "4",
+            "trades": [{
+                "uuid": "buy-fill", "market": "KRW-BTC", "side": "bid",
+                "price": "100000", "volume": "0.1", "funds": "10000",
+                "created_at": "2026-08-24T14:00:00+09:00",
+            }],
+        }
+        sell = {
+            "uuid": "partial-order",
+            "client_order_id": "partial-recovery",
+            "market": "KRW-BTC",
+            "side": "ask",
+            "state": "done",
+            "executed_volume": "0.04",
+            "paid_fee": "2",
+            "trades": [{
+                "uuid": "partial-fill", "market": "KRW-BTC", "side": "ask",
+                "price": "102000", "volume": "0.04", "funds": "4080",
+                "created_at": "2026-08-24T15:00:00+09:00",
+            }],
+        }
+
+        class RecoveryClient:
+            def call_read_tool(self, name: str, _arguments: object) -> object:
+                payload = sell if name == "trade_get_order" else {
+                    "data": {"data": [
+                        {"currency": "KRW", "balance": "14078"},
+                        {"currency": "BTC", "balance": "0.06"},
+                    ]}
+                }
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "fills.jsonl"
+            ledger = FillLedger(ledger_path)
+            ledger.append_order(buy)
+            ledger.append_order(sell)  # crash after ledger append, before state clear
+            save_state(
+                state_path,
+                BotState(
+                    position="long",
+                    position_volume="0.1",
+                    active_client_order_id="partial-recovery",
+                    pending_order_side="ask",
+                    pending_market="KRW-BTC",
+                    pending_order_volume="0.04",
+                    position_policy_version=1,
+                ),
+            )
+            portfolio = PortfolioState(
+                total_capital=20_000,
+                cash_available=10_000,
+                active_market="KRW-BTC",
+                entry_price=100_040,
+                position_volume="0.1",
+                highest_price=102_000,
+                entry_timestamp=1,
+                enhanced_exit_eligible=True,
+                total_trades=1,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.PORTFOLIO_PATH", portfolio_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", ledger_path),
+                patch("scripts.autonomous_trader.get_realtime_ticker_price", return_value=102000.0),
+            ):
+                self.assertTrue(
+                    recover_pending_order(
+                        RecoveryClient(),  # type: ignore[arg-type]
+                        portfolio,
+                        TradingSettings(mode=TradingMode.LIVE, live_trading_enabled=True),
+                        notifier=SilentNotifier(),
+                    )
+                )
+            self.assertTrue(portfolio.partial_tp_taken)
+            self.assertEqual(Decimal(portfolio.position_volume), Decimal("0.06"))
+            self.assertEqual(portfolio.winning_trades, 0)
+
+    def test_full_sell_recovery_accepts_flat_ledger_already_applied(self) -> None:
+        buy = {
+            "uuid": "buy-order", "market": "KRW-BTC", "side": "bid", "paid_fee": "4",
+            "trades": [{
+                "uuid": "buy-fill", "market": "KRW-BTC", "side": "bid",
+                "price": "100000", "volume": "0.1", "funds": "10000",
+                "created_at": "2026-08-24T14:00:00+09:00",
+            }],
+        }
+        sell = {
+            "uuid": "full-order", "client_order_id": "full-recovery",
+            "market": "KRW-BTC", "side": "ask", "state": "done",
+            "executed_volume": "0.1", "paid_fee": "5",
+            "trades": [{
+                "uuid": "full-fill", "market": "KRW-BTC", "side": "ask",
+                "price": "105000", "volume": "0.1", "funds": "10500",
+                "created_at": "2026-08-24T15:00:00+09:00",
+            }],
+        }
+
+        class RecoveryClient:
+            def call_read_tool(self, name: str, _arguments: object) -> object:
+                payload = sell if name == "trade_get_order" else {
+                    "data": {"data": [{"currency": "KRW", "balance": "20500"}]}
+                }
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "fills.jsonl"
+            exits_path = root / "exits.json"
+            ledger = FillLedger(ledger_path)
+            ledger.append_order(buy)
+            ledger.append_order(sell)
+            save_state(
+                state_path,
+                BotState(
+                    position="long", position_volume="0.1",
+                    active_client_order_id="full-recovery", pending_order_side="ask",
+                    pending_market="KRW-BTC", pending_order_volume="0.1",
+                    position_policy_version=1,
+                ),
+            )
+            portfolio = PortfolioState(
+                total_capital=20_000, cash_available=10_000,
+                active_market="KRW-BTC", entry_price=100_040,
+                position_volume="0.1", highest_price=105_000,
+                entry_timestamp=1, enhanced_exit_eligible=True, total_trades=1,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.PORTFOLIO_PATH", portfolio_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", ledger_path),
+                patch("scripts.autonomous_trader.EXITS_PATH", exits_path),
+            ):
+                self.assertTrue(
+                    recover_pending_order(
+                        RecoveryClient(),  # type: ignore[arg-type]
+                        portfolio,
+                        TradingSettings(mode=TradingMode.LIVE, live_trading_enabled=True),
+                        notifier=SilentNotifier(),
+                    )
+                )
+            self.assertEqual(portfolio.active_market, "")
+            self.assertEqual(portfolio.winning_trades, 1)
+
+    def test_tracked_sell_recovery_blocks_when_ledger_history_is_missing(self) -> None:
+        class NoCallClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                raise AssertionError("exchange must not be queried without ledger history")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "missing-ledger.jsonl"
+            save_state(
+                state_path,
+                BotState(
+                    position="long", position_volume="0.1",
+                    active_client_order_id="missing-ledger-sell",
+                    pending_order_side="ask", pending_market="KRW-BTC",
+                    pending_order_volume="0.1", position_policy_version=1,
+                ),
+            )
+            portfolio = PortfolioState(
+                total_capital=20_000, cash_available=10_000,
+                active_market="KRW-BTC", entry_price=100_000,
+                position_volume="0.1", highest_price=100_000,
+                entry_timestamp=1, enhanced_exit_eligible=True,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.PORTFOLIO_PATH", portfolio_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", ledger_path),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "ledger history"):
+                    recover_pending_order(
+                        NoCallClient(),  # type: ignore[arg-type]
+                        portfolio,
+                        TradingSettings(mode=TradingMode.LIVE, live_trading_enabled=True),
+                        notifier=SilentNotifier(),
+                    )
 
     def test_asset_parser_rejects_missing_duplicate_and_non_finite_balances(self) -> None:
         class AssetClient:

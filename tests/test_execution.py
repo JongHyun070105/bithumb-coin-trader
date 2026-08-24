@@ -20,7 +20,7 @@ from bithumb_coin_trader.execution import (
     UnsupportedPositionError,
     plan_execution,
 )
-from bithumb_coin_trader.fill_ledger import FillLedger
+from bithumb_coin_trader.fill_ledger import FillLedger, FillLedgerError
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.discord_notify import TradeEvent, TradeNotification
 from bithumb_coin_trader.mcp_client import (
@@ -746,6 +746,53 @@ class ExecutionGateTests(unittest.TestCase):
         self.assertIsNone(reconciled.active_client_order_id)
         self.assertEqual(ledger.position("KRW-BTC").volume, Decimal("0.1"))
 
+    def test_versioned_sell_recovery_rejects_unrelated_closed_history(self) -> None:
+        ledger = FillLedger(Path(self.temporary_directory.name) / "fills.jsonl")
+        ledger.append_order({
+            "uuid": "old-buy", "market": "KRW-BTC", "side": "bid", "paid_fee": "1",
+            "trades": [{
+                "uuid": "old-buy-fill", "market": "KRW-BTC", "side": "bid",
+                "price": "100000", "volume": "0.1", "funds": "10000",
+                "created_at": "2026-08-20T10:00:00+09:00",
+            }],
+        })
+        ledger.append_order({
+            "uuid": "old-sell", "market": "KRW-BTC", "side": "ask", "paid_fee": "1",
+            "trades": [{
+                "uuid": "old-sell-fill", "market": "KRW-BTC", "side": "ask",
+                "price": "101000", "volume": "0.1", "funds": "10100",
+                "created_at": "2026-08-20T11:00:00+09:00",
+            }],
+        })
+        active = BotState(
+            position="long", position_volume="0.1",
+            active_client_order_id="current-sell", pending_order_side="ask",
+            pending_market="KRW-BTC", pending_order_volume="0.1",
+            position_policy_version=1,
+        )
+        save_state(self.state_path, active)
+        payload = {
+            "uuid": "current-sell-order", "client_order_id": "current-sell",
+            "market": "KRW-BTC", "side": "ask", "state": "done",
+            "executed_volume": "0.1", "paid_fee": "1",
+            "trades": [{
+                "uuid": "current-sell-fill", "market": "KRW-BTC", "side": "ask",
+                "price": "102000", "volume": "0.1", "funds": "10200",
+                "created_at": "2026-08-24T15:00:00+09:00",
+            }],
+        }
+        client = FakeClient(
+            order={"content": [{"type": "text", "text": json.dumps(payload)}]}
+        )
+        with self.assertRaisesRegex(FillLedgerError, "exceeds tracked position"):
+            BithumbExecutor(
+                client,
+                state_path=self.state_path,
+                fill_ledger=ledger,
+            ).reconcile_active_order()
+        self.assertEqual(load_state(self.state_path), active)
+        self.assertNotIn("current-sell-fill", ledger.path.read_text(encoding="utf-8"))
+
     def test_reconcile_filled_sell_updates_position_before_clearing(self) -> None:
         active = BotState(
             position="long",
@@ -826,6 +873,59 @@ class ExecutionGateTests(unittest.TestCase):
                 client, state_path=self.state_path
             ).reconcile_active_order()
         self.assertEqual(load_state(self.state_path), active)
+
+    def test_reconcile_done_intentional_partial_sell_preserves_remainder(self) -> None:
+        active = BotState(
+            position="long",
+            position_volume="0.1",
+            active_client_order_id="partial-tp",
+            pending_order_side="ask",
+            pending_market="KRW-BTC",
+            pending_order_volume="0.04",
+        )
+        save_state(self.state_path, active)
+        reconciled = BithumbExecutor(
+            FakeClient(
+                order=order_result(
+                    "partial-tp", "done", side="ask", executed_volume="0.04"
+                )
+            ),
+            state_path=self.state_path,
+        ).reconcile_active_order()
+        self.assertEqual(reconciled.position, "long")
+        self.assertEqual(reconciled.position_volume, "0.06")
+        self.assertIsNone(reconciled.pending_order_volume)
+
+    def test_partial_exit_cannot_leave_unsellable_remainder(self) -> None:
+        state = BotState(
+            position="long",
+            position_volume="0.1",
+            position_policy_version=1,
+        )
+        save_state(self.state_path, state)
+        plan = plan_execution(
+            TradeIntent("KRW-BTC", "FLAT", base_volume="0.099"),
+            "LONG",
+            client_order_id="dust-blocked",
+            allow_partial_exit=True,
+        )
+        with self.assertRaisesRegex(RiskRejectedError, "below the minimum"):
+            BithumbExecutor(
+                self.client,
+                state_path=self.state_path,
+                settings=self.live_settings(),
+                env=self.live_env(),
+            ).execute(
+                plan,
+                risk_context=self.risk_context(
+                    requested_side=Signal.FLAT,
+                    requested_notional_krw=9_900,
+                    reference_price_krw=100_000,
+                ),
+                bot_state=state,
+                confirmation_token=LIVE_CONFIRMATION_TOKEN,
+            )
+        self.assertEqual(self.client.calls, [])
 
     def test_reconcile_unknown_or_mismatched_status_fails_closed(self) -> None:
         active = self.state(

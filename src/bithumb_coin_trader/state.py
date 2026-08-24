@@ -22,7 +22,9 @@ class BotState:
     active_client_order_id: str | None = None
     pending_order_side: str | None = None
     pending_market: str | None = None
+    pending_order_volume: str | None = None
     untracked_order: bool = False
+    position_policy_version: int = 0
 
     def __post_init__(self) -> None:
         if self.position not in {"flat", "long"}:
@@ -39,13 +41,38 @@ class BotState:
             raise ValueError("flat state must have zero position_volume")
         if self.position == "long" and volume <= 0:
             raise ValueError("long state must have positive position_volume")
+        if (
+            isinstance(self.position_policy_version, bool)
+            or not isinstance(self.position_policy_version, int)
+            or self.position_policy_version < 0
+        ):
+            raise ValueError("position_policy_version must be a non-negative integer")
+        if self.position == "flat" and self.position_policy_version != 0:
+            raise ValueError("flat state cannot retain a position policy version")
         if self.active_client_order_id is None:
-            if self.pending_order_side is not None or self.pending_market is not None:
+            if (
+                self.pending_order_side is not None
+                or self.pending_market is not None
+                or self.pending_order_volume is not None
+            ):
                 raise ValueError("pending order metadata requires an active_client_order_id")
         elif self.pending_order_side not in {"bid", "ask"}:
             raise ValueError("active order requires pending_order_side bid or ask")
         elif not isinstance(self.pending_market, str) or not self.pending_market:
             raise ValueError("active order requires pending_market")
+        elif self.pending_order_side == "bid" and self.pending_order_volume is not None:
+            raise ValueError("pending buy cannot declare a base volume")
+        elif self.pending_order_side == "ask" and self.pending_order_volume is not None:
+            if not isinstance(self.pending_order_volume, str):
+                raise ValueError("pending sell order volume must be an exact decimal string")
+            try:
+                pending_volume = Decimal(self.pending_order_volume)
+            except InvalidOperation as exc:
+                raise ValueError("pending order volume must be a valid decimal") from exc
+            if not pending_volume.is_finite() or pending_volume <= 0:
+                raise ValueError("pending order volume must be finite and positive")
+            if self.position != "long" or pending_volume > volume:
+                raise ValueError("pending sell volume cannot exceed the tracked position")
 
 
 def load_state(path: Path) -> BotState:

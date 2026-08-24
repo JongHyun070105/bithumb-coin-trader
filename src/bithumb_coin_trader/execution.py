@@ -114,6 +114,8 @@ class ExecutionPlan:
     tool_name: str | None
     arguments: Mapping[str, str]
     client_order_id: str | None
+    allow_partial_exit: bool = False
+    position_policy_version: int = 0
 
     @property
     def is_noop(self) -> bool:
@@ -144,15 +146,32 @@ def plan_execution(
     current: Signal | str,
     *,
     client_order_id: str | None = None,
+    allow_partial_exit: bool = False,
+    position_policy_version: int = 0,
 ) -> ExecutionPlan:
     current_position = _position(current, "current")
+    if (
+        isinstance(position_policy_version, bool)
+        or not isinstance(position_policy_version, int)
+        or position_policy_version < 0
+    ):
+        raise ValueError("position_policy_version must be a non-negative integer")
+    if position_policy_version and intent.target is not Signal.LONG:
+        raise ValueError("position policy version can be assigned only on entry")
     if current_position is Signal.SHORT:
         raise UnsupportedPositionError("Bithumb spot execution does not support SHORT positions")
     if intent.target is Signal.SHORT:
         raise UnsupportedPositionError("Bithumb spot execution does not support SHORT positions")
     if current_position is intent.target:
         return ExecutionPlan(
-            intent.market, current_position, intent.target, None, {}, None
+            intent.market,
+            current_position,
+            intent.target,
+            None,
+            {},
+            None,
+            allow_partial_exit,
+            position_policy_version,
         )
 
     order_id = client_order_id or f"btc-trader-{uuid.uuid4().hex[:24]}"
@@ -186,6 +205,8 @@ def plan_execution(
         "trade_place_order",
         arguments,
         order_id,
+        allow_partial_exit,
+        position_policy_version,
     )
 
 
@@ -264,6 +285,16 @@ class BithumbExecutor:
             active_client_order_id=plan.client_order_id,
             pending_order_side=plan.arguments["side"],
             pending_market=plan.market,
+            pending_order_volume=(
+                plan.arguments.get("volume")
+                if plan.arguments["side"] == "ask"
+                else None
+            ),
+            position_policy_version=(
+                plan.position_policy_version
+                if plan.arguments["side"] == "bid"
+                else persisted_state.position_policy_version
+            ),
             untracked_order=False,
         )
         save_state(self.state_path, active_state)
@@ -303,7 +334,11 @@ class BithumbExecutor:
                 existing = self.fill_ledger.position(state.pending_market or "")
                 # Pre-ledger holdings may be liquidated, but all newly opened
                 # positions and their exits require immutable exchange fills.
-                if side == "bid" or existing.volume > 0:
+                if (
+                    side == "bid"
+                    or existing.volume > 0
+                    or (side == "ask" and state.position_policy_version > 0)
+                ):
                     self.fill_ledger.append_order(payload)
             save_state(self.state_path, reconciled)
             event = TradeEvent.FILLED if status == "done" else TradeEvent.CANCELLED
@@ -397,10 +432,24 @@ def _apply_terminal_fill(
     elif side == "ask":
         if state.position != "long" or tracked <= 0:
             raise ExecutionError("pending sell is inconsistent with tracked position")
+        requested = (
+            Decimal(state.pending_order_volume)
+            if state.pending_order_volume is not None
+            else tracked
+        )
+        if requested > tracked:
+            raise ExecutionError("pending sell volume exceeds tracked position")
+        if executed > requested:
+            raise ExecutionError("sell executed_volume exceeds requested order volume")
         if executed > tracked:
             raise ExecutionError("sell executed_volume exceeds tracked position")
-        if status == "done" and executed != tracked:
-            raise ExecutionError("completed sell did not execute the full tracked position")
+        if status == "done" and executed != requested:
+            detail = (
+                "requested order volume"
+                if state.pending_order_volume is not None
+                else "full tracked position"
+            )
+            raise ExecutionError(f"completed sell did not execute the {detail}")
         volume = tracked - executed
         position = "flat" if volume == 0 else "long"
     else:
@@ -412,6 +461,8 @@ def _apply_terminal_fill(
         active_client_order_id=None,
         pending_order_side=None,
         pending_market=None,
+        pending_order_volume=None,
+        position_policy_version=(0 if position == "flat" else state.position_policy_version),
         untracked_order=False,
     )
 
@@ -441,6 +492,10 @@ def _validate_live_plan(plan: ExecutionPlan) -> None:
         raise UnsupportedPositionError(
             "live execution supports only FLAT-to-LONG or LONG-to-FLAT transitions"
         )
+    if plan.allow_partial_exit and not (
+        plan.current is Signal.LONG and plan.target is Signal.FLAT
+    ):
+        raise ExecutionError("partial-exit authorization is valid only for a sell transition")
     if set(plan.arguments) != expected_keys:
         raise ExecutionError("live order payload contains missing or unexpected fields")
     if (
@@ -502,7 +557,9 @@ def _validate_pretrade(
     else:
         position_volume = _risk_decimal(state.position_volume, "position_volume")
         planned_volume = Decimal(plan.arguments["volume"])
-        if planned_volume != position_volume:
+        if planned_volume > position_volume:
+            raise RiskRejectedError("sell volume exceeds the tracked position volume")
+        if planned_volume != position_volume and not plan.allow_partial_exit:
             raise RiskRejectedError("sell volume does not match the tracked position volume")
         if context.reference_price_krw is None:
             raise RiskRejectedError("sell risk context requires reference_price_krw")
@@ -511,6 +568,10 @@ def _validate_pretrade(
         )
         if reference_price <= 0:
             raise RiskRejectedError("reference_price_krw must be positive")
+        if planned_volume != position_volume:
+            remaining_notional = (position_volume - planned_volume) * reference_price
+            if remaining_notional < Decimal(str(settings.minimum_order_krw)):
+                raise RiskRejectedError("partial exit would leave a position below the minimum order")
         calculated_notional = planned_volume * reference_price
         if abs(requested_notional - calculated_notional) > Decimal("1.0"):
             raise RiskRejectedError(

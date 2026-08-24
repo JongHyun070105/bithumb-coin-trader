@@ -30,9 +30,11 @@ import time
 import sys
 import traceback
 import urllib.request
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from decimal import Decimal
+from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -93,6 +95,8 @@ MAX_POSITION_RATIO = 0.60   # 최대 포지션 비율 (자산의 60%)
 MIN_RESERVE_CASH_RATIO = 0.33  # 최소 현금 보존 비율 (33%)
 PRICE_CHECK_INTERVAL = 3     # seconds
 SCAN_INTERVAL_LOOPS = 10     # every 10 loops = ~30 seconds
+SCAN_RESULT_MAX_AGE_SEC = 60
+ENHANCED_EXIT_POLICY_VERSION = 1
 HOURLY_REPORT_LOOPS = 1200   # every 1200 loops = ~1 hour
 NOTICE_CHECK_LOOPS = 200     # every ~10 minutes
 RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliation
@@ -196,8 +200,14 @@ def record_exit(market: str):
     _write_private_json(EXITS_PATH, exits)
 
 
-def account_ledger_exit(portfolio: "PortfolioState", market: str, position: Any) -> float:
-    """Apply cumulative ledger P&L exactly once, including loss cooldown state."""
+def account_ledger_realization(
+    portfolio: "PortfolioState",
+    market: str,
+    position: Any,
+    *,
+    terminal: bool,
+) -> float:
+    """Apply cumulative ledger P&L exactly once and score only complete trades."""
     cumulative = Decimal(position.realized_pnl)
     previous = Decimal(portfolio.accounted_realized_pnl.get(market, "0"))
     delta = cumulative - previous
@@ -206,13 +216,20 @@ def account_ledger_exit(portfolio: "PortfolioState", market: str, position: Any)
     pnl = float(delta)
     portfolio.total_pnl_krw += pnl
     portfolio.accounted_realized_pnl[market] = format(cumulative, "f")
-    if pnl >= 0:
-        portfolio.winning_trades += 1
-    else:
-        portfolio.losing_trades += 1
-        set_market_rest(LOSS_COOLDOWN_SEC)
-    record_exit(market)
+    if terminal:
+        trade_pnl = cumulative - Decimal(portfolio.position_realized_pnl_baseline)
+        if trade_pnl >= 0:
+            portfolio.winning_trades += 1
+        else:
+            portfolio.losing_trades += 1
+            set_market_rest(LOSS_COOLDOWN_SEC)
+        record_exit(market)
     return pnl
+
+
+def account_ledger_exit(portfolio: "PortfolioState", market: str, position: Any) -> float:
+    """Backward-compatible full-exit accounting wrapper."""
+    return account_ledger_realization(portfolio, market, position, terminal=True)
 
 
 @dataclass
@@ -242,6 +259,8 @@ class PortfolioState:
     breakeven_locked: bool = False     # +1.0% 도달 시 본전 스탑 락 여부
     legacy_position: bool = False      # fill-ledger 도입 전 포지션의 1회성 이관 표시
     accounted_realized_pnl: dict[str, str] = field(default_factory=dict)
+    position_realized_pnl_baseline: str = "0"
+    enhanced_exit_eligible: bool = False
 
     def __post_init__(self) -> None:
         nonnegative_numbers = (
@@ -281,13 +300,23 @@ class PortfolioState:
             self.active_market and not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", self.active_market)
         ):
             raise ValueError("active market must be a KRW market")
-        flags = (self.partial_tp_taken, self.breakeven_locked, self.legacy_position)
+        flags = (
+            self.partial_tp_taken,
+            self.breakeven_locked,
+            self.legacy_position,
+            self.enhanced_exit_eligible,
+        )
         if any(type(value) is not bool for value in flags):
             raise TypeError("portfolio flags must be booleans")
         if self.active_market:
             if volume <= 0 or self.entry_price <= 0:
                 raise ValueError("active portfolio requires positive volume and entry price")
-        elif volume != 0 or self.entry_price != 0 or self.legacy_position:
+        elif (
+            volume != 0
+            or self.entry_price != 0
+            or self.legacy_position
+            or self.enhanced_exit_eligible
+        ):
             raise ValueError("flat portfolio cannot retain position accounting")
         if not isinstance(self.accounted_realized_pnl, dict):
             raise TypeError("accounted realized P&L must be an object")
@@ -299,6 +328,13 @@ class PortfolioState:
             parsed = Decimal(value)
             if not parsed.is_finite():
                 raise ValueError("accounted realized P&L values must be finite")
+        if not isinstance(self.position_realized_pnl_baseline, str):
+            raise TypeError("position realized P&L baseline must be a decimal string")
+        baseline = Decimal(self.position_realized_pnl_baseline)
+        if not baseline.is_finite():
+            raise ValueError("position realized P&L baseline must be finite")
+        if not self.active_market and baseline != 0:
+            raise ValueError("flat portfolio cannot retain a position P&L baseline")
 
     def save(self, path: Path):
         self.__post_init__()
@@ -331,6 +367,107 @@ class PortfolioState:
                 )
             return PortfolioState(**data)
         return PortfolioState()
+
+
+class ExitAction(str, Enum):
+    HOLD = "hold"
+    FULL_EXIT = "full_exit"
+    PARTIAL_EXIT = "partial_exit"
+
+
+@dataclass(frozen=True)
+class ExitDecision:
+    action: ExitAction
+    reason: str = ""
+
+
+@dataclass(frozen=True)
+class ScanSnapshot:
+    analyses: tuple[Any, ...]
+    top_candidates: tuple[dict[str, Any], ...]
+    started_monotonic: float
+    completed_monotonic: float
+
+
+def scan_snapshot_is_fresh(
+    snapshot: ScanSnapshot, *, now_monotonic: float | None = None
+) -> bool:
+    observed_now = time.monotonic() if now_monotonic is None else now_monotonic
+    return (
+        snapshot.started_monotonic
+        <= snapshot.completed_monotonic
+        <= observed_now
+        and observed_now - snapshot.started_monotonic <= SCAN_RESULT_MAX_AGE_SEC
+    )
+
+
+def decide_position_exit(
+    portfolio: PortfolioState,
+    current_price: float,
+    *,
+    now_timestamp: float | None = None,
+    minimum_order_krw: int = MIN_ORDER_KRW,
+) -> ExitDecision:
+    """Choose one deterministic protective action without touching the exchange."""
+    if current_price <= 0 or portfolio.entry_price <= 0 or not portfolio.active_market:
+        return ExitDecision(ExitAction.HOLD)
+
+    stop_price = (
+        portfolio.entry_price * 1.003
+        if portfolio.breakeven_locked
+        else portfolio.entry_price * (1 - STOP_LOSS_PCT)
+    )
+    take_profit_price = portfolio.entry_price * (1 + TAKE_PROFIT_PCT)
+    trailing_price = portfolio.highest_price * (1 - TRAILING_STOP_PCT)
+
+    if current_price <= stop_price:
+        label = "BREAKEVEN-LOCK" if portfolio.breakeven_locked else "STOP-LOSS"
+        return ExitDecision(
+            ExitAction.FULL_EXIT,
+            f"{'🛡️' if portfolio.breakeven_locked else '⛔'} {label} "
+            f"({current_price:,.0f} <= {stop_price:,.0f})",
+        )
+    if current_price >= take_profit_price:
+        return ExitDecision(
+            ExitAction.FULL_EXIT,
+            f"🎯 TAKE-PROFIT ({current_price:,.0f} >= {take_profit_price:,.0f})",
+        )
+    if (
+        portfolio.highest_price > portfolio.entry_price * (1 + TRAILING_ACTIVATE_PCT)
+        and current_price <= trailing_price
+    ):
+        return ExitDecision(
+            ExitAction.FULL_EXIT,
+            f"📉 TRAILING-STOP ({current_price:,.0f} <= {trailing_price:,.0f}, "
+            f"Peak: {portfolio.highest_price:,.0f})",
+        )
+
+    position_value = float(Decimal(portfolio.position_volume)) * current_price
+    if (
+        portfolio.enhanced_exit_eligible
+        and not portfolio.legacy_position
+        and not portfolio.partial_tp_taken
+        and current_price >= portfolio.entry_price * (1 + SPLIT_TP_PCT)
+        and position_value * 0.5 >= minimum_order_krw
+    ):
+        return ExitDecision(
+            ExitAction.PARTIAL_EXIT,
+            f"🎯 PARTIAL-TAKE-PROFIT (+{SPLIT_TP_PCT * 100:.1f}%, 50%)",
+        )
+
+    observed_at = time.time() if now_timestamp is None else now_timestamp
+    pnl_pct = (current_price - portfolio.entry_price) / portfolio.entry_price * 100.0
+    if (
+        portfolio.enhanced_exit_eligible
+        and portfolio.entry_timestamp > 0
+        and observed_at - portfolio.entry_timestamp >= TIMECUT_SECONDS
+        and abs(pnl_pct) <= TIMECUT_THRESHOLD_PCT
+    ):
+        return ExitDecision(
+            ExitAction.FULL_EXIT,
+            f"⏱️ TIMECUT ({TIMECUT_SECONDS // 3600}h, PnL {pnl_pct:+.2f}%)",
+        )
+    return ExitDecision(ExitAction.HOLD)
 
 
 def get_realtime_ticker_price(market: str) -> float:
@@ -542,6 +679,19 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
     return analyses, top_candidates
 
 
+def scan_and_rank_universe_isolated() -> ScanSnapshot:
+    """Run the read-only scanner in its own MCP session for background polling."""
+    started = time.monotonic()
+    with McpStdioClient(LIVE_COMMAND) as client:
+        analyses, top_candidates = scan_and_rank_universe(client)
+    return ScanSnapshot(
+        analyses=tuple(analyses),
+        top_candidates=tuple(top_candidates),
+        started_monotonic=started,
+        completed_monotonic=time.monotonic(),
+    )
+
+
 def _read_asset_balances(
     client: McpStdioClient, *, required_market: str | None = None
 ) -> dict[str, Decimal]:
@@ -630,12 +780,22 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
             portfolio.partial_tp_taken = False
             portfolio.entry_timestamp = 0.0
             portfolio.legacy_position = False
+            portfolio.position_realized_pnl_baseline = "0"
+            portfolio.enhanced_exit_eligible = False
             save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
         elif abs(actual_balance - tracked_volume) / max(tracked_volume, 0.0001) > 0.01:
             print(f"  🔄 수량 불일치 교정: {tracked_volume} → {actual_balance}")
             portfolio.position_volume = str(actual_balance)
-            save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(actual_balance)))
+            save_state(
+                STATE_PATH,
+                BotState(
+                    version=1,
+                    position="long",
+                    position_volume=str(actual_balance),
+                    position_policy_version=state.position_policy_version,
+                ),
+            )
 
     elif state.position == "flat" and not active_currency:
         if coin_holdings:
@@ -682,18 +842,37 @@ def repair_portfolio_invariant(client: McpStdioClient, portfolio: PortfolioState
         balances = _read_asset_balances(client, required_market=market)
         position = ledger.position(market)
         if position.volume > 0:
+            prior_volume = Decimal(portfolio.position_volume)
             currency = market.removeprefix("KRW-")
             if balances[currency] != position.volume:
                 raise RuntimeError("exchange balance conflicts with the fill ledger")
+            if 0 < position.volume < prior_volume:
+                account_ledger_realization(
+                    portfolio, market, position, terminal=False
+                )
+                portfolio.partial_tp_taken = True
             portfolio.active_market = market
             portfolio.position_volume = format(position.volume, "f")
             portfolio.entry_price = float(position.average_cost)
             portfolio.highest_price = max(portfolio.highest_price, portfolio.entry_price)
             portfolio.legacy_position = False
+            if portfolio.entry_timestamp <= 0:
+                portfolio.entry_timestamp = time.time()
+                portfolio.position_realized_pnl_baseline = format(
+                    position.realized_pnl, "f"
+                )
+            portfolio.enhanced_exit_eligible = (
+                state.position_policy_version >= ENHANCED_EXIT_POLICY_VERSION
+            )
             if Decimal(state.position_volume) != position.volume:
                 save_state(
                     STATE_PATH,
-                    BotState(version=1, position="long", position_volume=format(position.volume, "f")),
+                    BotState(
+                        version=1,
+                        position="long",
+                        position_volume=format(position.volume, "f"),
+                        position_policy_version=state.position_policy_version,
+                    ),
                 )
         elif not portfolio.legacy_position:
             raise RuntimeError("long state has no fill-ledger position or legacy marker")
@@ -720,6 +899,8 @@ def repair_portfolio_invariant(client: McpStdioClient, portfolio: PortfolioState
         portfolio.breakeven_locked = False
         portfolio.entry_timestamp = 0.0
         portfolio.legacy_position = False
+        portfolio.position_realized_pnl_baseline = "0"
+        portfolio.enhanced_exit_eligible = False
         portfolio.cash_available = float(balances["KRW"])
         portfolio.total_capital = portfolio.cash_available
         portfolio.save(PORTFOLIO_PATH)
@@ -742,7 +923,10 @@ def recover_pending_order(
         raise RuntimeError("pending order metadata is incomplete")
 
     ledger = FillLedger(FILL_LEDGER_PATH)
-    ledger_before = ledger.position(market)
+    if side == "ask" and not portfolio.legacy_position:
+        if market not in ledger.positions():
+            raise RuntimeError("tracked sell recovery requires immutable ledger history")
+    pending_volume_before = Decimal(pending.position_volume)
     executor = BithumbExecutor(
         client=client,
         state_path=STATE_PATH,
@@ -772,7 +956,16 @@ def recover_pending_order(
             portfolio.daily_entries += 1
             portfolio.legacy_position = False
             portfolio.entry_timestamp = portfolio.entry_timestamp or time.time()
-            portfolio.legacy_position = False
+            portfolio.position_realized_pnl_baseline = format(position.realized_pnl, "f")
+            portfolio.enhanced_exit_eligible = (
+                updated.position_policy_version >= ENHANCED_EXIT_POLICY_VERSION
+            )
+        elif side == "ask":
+            if position.volume != Decimal(updated.position_volume):
+                raise RuntimeError("partial sell recovery ledger disagrees with reconciled state")
+            if position.volume < pending_volume_before:
+                account_ledger_realization(portfolio, market, position, terminal=False)
+                portfolio.partial_tp_taken = True
         current_price = get_realtime_ticker_price(market)
         portfolio.total_capital = portfolio.cash_available + float(volume) * current_price
         portfolio.save(PORTFOLIO_PATH)
@@ -780,10 +973,8 @@ def recover_pending_order(
 
     if side == "ask":
         ledger_after = ledger.position(market)
-        if ledger_before.volume > 0:
+        if not portfolio.legacy_position:
             account_ledger_exit(portfolio, market, ledger_after)
-        elif not portfolio.legacy_position:
-            raise RuntimeError("sell recovery lacks a ledger position or legacy marker")
         portfolio.active_market = ""
         portfolio.entry_price = 0.0
         portfolio.position_volume = "0"
@@ -793,6 +984,8 @@ def recover_pending_order(
         portfolio.breakeven_locked = False
         portfolio.entry_timestamp = 0.0
         portfolio.legacy_position = False
+        portfolio.position_realized_pnl_baseline = "0"
+        portfolio.enhanced_exit_eligible = False
         portfolio.total_capital = portfolio.cash_available
         portfolio.save(PORTFOLIO_PATH)
         record_exit(market)
@@ -857,7 +1050,11 @@ def execute_buy(
         quote_amount=Decimal(amount_krw),
         reason=f"{action_label} {market}",
     )
-    plan = plan_execution(intent, current=Signal.FLAT)
+    plan = plan_execution(
+        intent,
+        current=Signal.FLAT,
+        position_policy_version=ENHANCED_EXIT_POLICY_VERSION,
+    )
     if plan.is_noop:
         print(f"  ⚠️ Plan is no-op, skipping")
         return False
@@ -927,7 +1124,12 @@ def execute_buy(
             fill_price = weighted_entry
             portfolio.pyramiding_count = 1
 
-            new_state = BotState(version=1, position="long", position_volume=str(tot_vol))
+            new_state = BotState(
+                version=1,
+                position="long",
+                position_volume=str(tot_vol),
+                position_policy_version=updated.position_policy_version,
+            )
             save_state(STATE_PATH, new_state)
 
             portfolio.active_market = market
@@ -941,6 +1143,10 @@ def execute_buy(
             if not is_pyramiding:
                 portfolio.entry_timestamp = time.time()
                 portfolio.partial_tp_taken = False
+                portfolio.position_realized_pnl_baseline = format(
+                    ledger_position.realized_pnl, "f"
+                )
+                portfolio.enhanced_exit_eligible = True
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -1003,6 +1209,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
         with McpStdioClient(LIVE_COMMAND) as client:
             fill_ledger = FillLedger(FILL_LEDGER_PATH)
             ledger_before = fill_ledger.position(market)
+            if not portfolio.legacy_position and ledger_before.volume != vol:
+                raise RuntimeError("tracked full exit requires an exact fill-ledger position")
             executor = BithumbExecutor(
                 client=client,
                 state_path=STATE_PATH,
@@ -1070,6 +1278,8 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.breakeven_locked = False
             portfolio.entry_timestamp = 0.0
             portfolio.legacy_position = False
+            portfolio.position_realized_pnl_baseline = "0"
+            portfolio.enhanced_exit_eligible = False
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -1102,14 +1312,12 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
 def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, ratio: float = 0.5, reason: str = "🎯 1차 50% 분할 익절") -> bool:
     """Execute a partial market sell order (e.g. 50%) for risk-free profit locking."""
-    print("  🛑 부분매도 비활성화: 부분체결 원장/복구 상태 머신 구현 전에는 실행하지 않음")
-    return False
-
-    # Retained temporarily as migration reference; unreachable by design.
     state = load_state(STATE_PATH)
-    if state.position != "long":
+    if state.position != "long" or portfolio.legacy_position:
         print("  ⚠️ Not in LONG position, skipping partial sell")
         return False
+    if not 0 < ratio < 1:
+        raise ValueError("partial sell ratio must be between zero and one")
 
     market = portfolio.active_market
     total_vol = Decimal(state.position_volume)
@@ -1118,8 +1326,15 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
     current_price = get_realtime_ticker_price(market)
     sell_val_krw = float(sell_vol) * current_price
 
-    if sell_val_krw < 500:
-        print(f"  ⚠️ Partial sell value {sell_val_krw:,.0f} KRW is below 500 KRW threshold, skipping partial sell")
+    remaining_value_krw = float(total_vol - sell_vol) * current_price
+    if (
+        sell_val_krw < settings.minimum_order_krw
+        or remaining_value_krw < settings.minimum_order_krw
+    ):
+        print(
+            f"  ⚠️ Partial sell skipped: sold/remnant leg must each remain above "
+            f"{settings.minimum_order_krw:,} KRW"
+        )
         return False
 
     print(f"\n✂️ EXECUTING PARTIAL SELL ({ratio*100:.0f}%): {market} | SellVol: {sell_vol:.4f} | Price: {current_price:,.0f} KRW | Reason: {reason}")
@@ -1130,7 +1345,7 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
         base_volume=sell_vol,
         reason=reason,
     )
-    plan = plan_execution(intent, current=Signal.LONG)
+    plan = plan_execution(intent, current=Signal.LONG, allow_partial_exit=True)
 
     risk_context = RiskContext(
         requested_side=Signal.FLAT,
@@ -1143,53 +1358,55 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
         reference_price_krw=current_price,
     )
 
-    # BithumbExecutor는 tracked volume 전체 매도를 검증하므로 partial_state를 임시 저장
-    partial_state = BotState(version=1, position="long", position_volume=str(sell_vol))
-    save_state(STATE_PATH, partial_state)
-
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=DiscordNotifier())
+            fill_ledger = FillLedger(FILL_LEDGER_PATH)
+            ledger_before = fill_ledger.position(market)
+            if ledger_before.volume != total_vol:
+                raise RuntimeError("partial sell requires an exact fill-ledger position")
+            executor = BithumbExecutor(
+                client=client,
+                state_path=STATE_PATH,
+                settings=settings,
+                notifier=DiscordNotifier(),
+                fill_ledger=fill_ledger,
+            )
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
-                bot_state=partial_state,
+                bot_state=state,
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
             print(f"  🎉 Partial sell order submitted: {result.submitted}")
-            executor.reconcile_until_terminal()
+            updated = executor.reconcile_until_terminal()
+            if updated.position != "long":
+                raise RuntimeError("partial sell unexpectedly closed the full position")
 
-            assets_res = client.call_read_tool("account_get_assets", {})
-            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+            balances = _read_asset_balances(client, required_market=market)
             currency = market.replace("KRW-", "")
-            coin_asset = next((a for a in assets if a["currency"] == currency), None)
-            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
+            actual_rem_vol = balances[currency]
+            actual_krw = float(balances["KRW"])
+            ledger_after = fill_ledger.position(market)
+            if (
+                ledger_after.volume != actual_rem_vol
+                or Decimal(updated.position_volume) != actual_rem_vol
+                or ledger_after.volume >= ledger_before.volume
+            ):
+                raise RuntimeError("partial sell state does not match exchange and fill ledger")
 
-            actual_rem_vol = Decimal(coin_asset["balance"]) if coin_asset else (total_vol - sell_vol)
-            actual_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available + sell_val_krw)
-
-            entry_val_portion = float(sell_vol) * portfolio.entry_price
-            actual_val = actual_krw - portfolio.cash_available
-            pnl = actual_val - entry_val_portion if actual_val > 0 else sell_val_krw - entry_val_portion
+            pnl = account_ledger_realization(
+                portfolio, market, ledger_after, terminal=False
+            )
             pnl_pct = (current_price - portfolio.entry_price) / portfolio.entry_price * 100.0
 
             portfolio.cash_available = actual_krw
-            portfolio.position_volume = str(actual_rem_vol)
+            portfolio.position_volume = format(actual_rem_vol, "f")
+            portfolio.entry_price = float(ledger_after.average_cost)
             portfolio.total_capital = actual_krw + (float(actual_rem_vol) * current_price)
-            portfolio.total_pnl_krw += pnl
-            if pnl >= 0:
-                portfolio.winning_trades += 1
-            else:
-                portfolio.losing_trades += 1
-                set_market_rest(LOSS_COOLDOWN_SEC)
-                print(f"  🛡️ 손절 방어 발생! 시장 하락 충격 진정을 위해 15분간(900초) 신규 진입 일시정지 (Market Rest)")
             portfolio.partial_tp_taken = True
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
-
-            new_state = BotState(version=1, position="long", position_volume=str(actual_rem_vol))
-            save_state(STATE_PATH, new_state)
 
             log_trade("PARTIAL_SELL", market, current_price, str(sell_vol), sell_val_krw, reason, pnl)
             print(f"  📊 Partial P&L: {pnl:+,.0f} KRW ({pnl_pct:+.2f}%) | Remaining: {actual_rem_vol} {currency}")
@@ -1231,9 +1448,9 @@ def main():
     print("=" * 80)
     print(" 🤖 AUTONOMOUS TRADING DAEMON v4.0 (Self-Healing Infinite Compounding)")
     print(f" 🎯 MILESTONE: +{TARGET_RETURN_PCT:.1f}% → {portfolio.goal_target:,.0f} KRW (Auto-Rolling)")
-    print(f" 📡 Engines: 25-Universe Radar + Pyramiding + Reconciliation + Self-Healing")
-    print(f" 🛡️ Risk: SL {STOP_LOSS_PCT*100:.1f}% | TP {TAKE_PROFIT_PCT*100:.1f}% | Trail {TRAILING_STOP_PCT*100:.1f}% | MDD 10% | DailyLoss 2%")
-    print(f" ⏱️ Price Watch: {PRICE_CHECK_INTERVAL}s | Scan: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s | Reconcile: ~{PRICE_CHECK_INTERVAL * RECONCILE_LOOPS}s")
+    print(" 📡 Engines: 25-Universe Background Radar + Reconciliation + Self-Healing")
+    print(f" 🛡️ Risk: SL {STOP_LOSS_PCT*100:.1f}% | TP {TAKE_PROFIT_PCT*100:.1f}% | Trail {TRAILING_STOP_PCT*100:.1f}% | MDD 10% | DailyLoss 5%")
+    print(f" ⏱️ Price Watch target: {PRICE_CHECK_INTERVAL}s | Scan target: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s | Reconcile: ~{PRICE_CHECK_INTERVAL * RECONCILE_LOOPS}s")
     print("=" * 80)
 
     # v4.0: dynamic max order based on portfolio
@@ -1268,7 +1485,7 @@ def main():
     print(f"  Day Start Equity: {portfolio.start_of_day_equity:,.0f} KRW")
     print(f"  Target Milestone: {portfolio.goal_target:,.0f} KRW (#{portfolio.milestone_count + 1})\n")
 
-    print("🔍 Performing initial Dynamic Universe scan...")
+    print("🔍 Starting background Dynamic Universe scan...")
     cached_top_candidates = []
     reconciliation_healthy = False
     try:
@@ -1279,15 +1496,18 @@ def main():
             repair_portfolio_invariant(client, portfolio)
             reconcile_with_exchange(client, portfolio)
             reconciliation_healthy = True
-            _, cached_top_candidates = scan_and_rank_universe(client)
-            if cached_top_candidates:
-                print(f"  ✅ Initial Scan complete! Top 1: {cached_top_candidates[0]['market']} ({cached_top_candidates[0]['confidence']:.1f}%)")
     except Exception as exc:
-        print(f"  ⚠️ Initial scan warning: {exc}")
+        print(f"  ⚠️ Initial account reconciliation warning: {exc}")
 
     loop_count = 0
     consecutive_errors = 0  # v4.0: 연속 에러 카운터
     last_briefing_hour = -1  # 매 시 정각(8시, 9시, 10시...) 브리핑 추적 변수
+    scan_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="market-scan")
+    scan_future: Future[ScanSnapshot] | None = (
+        scan_executor.submit(scan_and_rank_universe_isolated)
+    )
+    next_scan_at = time.monotonic() + PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS
+    next_price_check_at = time.monotonic()
 
     # ═══════════════════════════════════════════════════════════════
     # 🔄 INFINITE MAIN LOOP (Never Stops, Self-Healing)
@@ -1396,101 +1616,120 @@ def main():
                         print(f"  SL: {stop_loss_price:,.0f} | TP: {take_profit_price:,.0f} | Trail: {trailing_stop_price:,.0f} | Peak: {portfolio.highest_price:,.0f}")
                         print(f"  💰 Portfolio: ~{tot_est:,.0f} KRW (Target: {portfolio.goal_target:,.0f} KRW)")
 
-                    trigger_exit = False
-                    exit_reason = ""
-
-                    if cur_price <= stop_loss_price:
-                        trigger_exit = True
-                        if portfolio.breakeven_locked:
-                            exit_reason = f"🛡️ BREAKEVEN-LOCK ({cur_price:,.0f} <= {stop_loss_price:,.0f}, 본전 방어 무위험 탈출)"
-                        else:
-                            exit_reason = f"⛔ STOP-LOSS ({cur_price:,.0f} <= {stop_loss_price:,.0f})"
-                    elif cur_price >= take_profit_price:
-                        trigger_exit = True
-                        exit_reason = f"🎯 TAKE-PROFIT ({cur_price:,.0f} >= {take_profit_price:,.0f})"
-                    elif (portfolio.highest_price > portfolio.entry_price * (1 + TRAILING_ACTIVATE_PCT)
-                          and cur_price <= trailing_stop_price):
-                        trigger_exit = True
-                        exit_reason = f"📉 TRAILING-STOP ({cur_price:,.0f} <= {trailing_stop_price:,.0f}, Peak: {portfolio.highest_price:,.0f})"
-
-                    if trigger_exit:
-                        execute_sell(portfolio, settings, exit_reason)
+                    exit_decision = decide_position_exit(portfolio, cur_price)
+                    if exit_decision.action is ExitAction.FULL_EXIT:
+                        execute_sell(portfolio, settings, exit_decision.reason)
+                    elif exit_decision.action is ExitAction.PARTIAL_EXIT:
+                        execute_sell_partial(
+                            portfolio,
+                            settings,
+                            ratio=0.5,
+                            reason=exit_decision.reason,
+                        )
 
                 except Exception as exc:
                     if loop_count % 20 == 1:
                         print(f"⚠️ Position check error: {exc}")
 
             # ═══════════════════════════════════════════════════════════════
-            # 2. ALWAYS-ON SCAN & DYNAMIC ENTRY / PYRAMIDING (every ~30s)
+            # 2. BACKGROUND SCAN RESULT & DYNAMIC ENTRY (target every ~30s)
             # ═══════════════════════════════════════════════════════════════
-            if loop_count % SCAN_INTERVAL_LOOPS == 1:
+            analyses: list[Any] = []
+            if scan_future is not None and scan_future.done():
                 try:
-                    with McpStdioClient(LIVE_COMMAND) as client:
-                        analyses, new_top_candidates = scan_and_rank_universe(client)
-                        if new_top_candidates:
-                            cached_top_candidates = new_top_candidates
-
-                        state = load_state(STATE_PATH)
-
-                        # Initial Entry when FLAT (AI 전략 메모리 동적 파라미터 적용)
-                        ai_mem = load_ai_memory()
-                        effective_min_conf = ai_mem.min_entry_confidence or MIN_CONFIDENCE_ENTRY
-                        effective_min_price = ai_mem.min_coin_price_krw or MIN_MARKET_PRICE
-                        banned_set = set(ai_mem.banned_markets or [])
-
-                        entries_enabled = new_entries_enabled()
-                        market_rest_until = load_market_rest()
-                        market_is_resting = time.time() < market_rest_until
-
-                        if not entries_enabled and loop_count % 100 == 1:
-                            print(f"  🔒 신규 진입 차단: {NEW_ENTRIES_ENV}=true가 명시되지 않음 (청산 관리는 계속)")
-                        elif market_is_resting and loop_count % 10 == 1:
-                            remaining = max(0, int(market_rest_until - time.time()))
-                            print(f"  ⏸️ 손절 후 시장 휴식 중 ({remaining}초 남음) - 모든 신규 진입 차단")
-
-                        if (entries_enabled and reconciliation_healthy and not market_is_resting and state.position == "flat"
-                                and portfolio.cash_available >= MIN_ORDER_KRW and analyses):
-                            for cand in analyses:
-                                mkt = cand[0].market
-                                if mkt in banned_set:
-                                    continue
-
-                                cand_p = get_realtime_ticker_price(mkt)
-                                if cand_p < effective_min_price:
-                                    continue
-
-                                exits = load_recent_exits(); last_exit = exits.get(mkt, 0)
-                                if time.time() - last_exit < REENTRY_COOLDOWN_SEC:
-                                    rem = int(REENTRY_COOLDOWN_SEC - (time.time() - last_exit))
-                                    if loop_count % 10 == 1:
-                                        print(f"  ⏳ {mkt} 재진입 쿨다운 대기 중 ({rem}초 남음) - 중복 진입 방어")
-                                    continue
-
-                                best, best_ob, best_fconf = cand
-                                if best_fconf >= effective_min_conf and best.pm_decision is Signal.LONG and best_ob >= 0.50:
-                                    invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
-                                    if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
-                                        print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")
-                                        execute_buy(best.market, invest, portfolio, settings, confidence=best_fconf, bid_ratio=best_ob, is_pyramiding=False)
-                                        break
-
-                        # Dynamic Pyramiding Scale-In (2차 불타기는 +0.8% 이상 유의미한 상승 시에만!)
-                        elif (entries_enabled and pyramiding_enabled() and not market_is_resting and state.position == "long"
-                              and portfolio.active_market and portfolio.pyramiding_count < 2
-                              and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= PYRAMIDING_MIN_GAIN_PCT and analyses):
-                            active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
-                            if active_tuple:
-                                active_res, active_ob, active_conf = active_tuple
-                                max_pos_allowed = portfolio.total_capital * MAX_POSITION_RATIO
-                                if (active_conf >= 70.0 and cur_val_krw < max_pos_allowed
-                                    and portfolio.cash_available > portfolio.total_capital * MIN_RESERVE_CASH_RATIO):
-                                    scale_amount = calculate_dynamic_order_amount(portfolio, is_pyramiding=True)
-                                    if scale_amount >= MIN_ORDER_KRW and scale_amount <= portfolio.cash_available:
-                                        print(f"\n🚀 AUTOMATIC PYRAMIDING SCALE-IN: {portfolio.active_market} (Conf: {active_conf:.1f}%, PnL: {cur_pnl_pct:+.2f}%)")
-                                        execute_buy(portfolio.active_market, scale_amount, portfolio, settings, confidence=active_conf, bid_ratio=active_ob, is_pyramiding=True)
-
+                    snapshot = scan_future.result()
+                    if not scan_snapshot_is_fresh(snapshot):
+                        raise RuntimeError("completed scan result is stale")
+                    analyses = list(snapshot.analyses)
+                    if snapshot.top_candidates:
+                        cached_top_candidates = list(snapshot.top_candidates)
+                    if cached_top_candidates:
+                        top = cached_top_candidates[0]
+                        print(
+                            f"  ✅ Background scan complete! Top 1: {top['market']} "
+                            f"({top['confidence']:.1f}%)"
+                        )
                 except Exception as exc:
                     print(f"⚠️ Dynamic scan error: {exc}")
+                finally:
+                    scan_future = None
+
+            if scan_future is None and time.monotonic() >= next_scan_at:
+                scan_future = scan_executor.submit(scan_and_rank_universe_isolated)
+                next_scan_at = time.monotonic() + PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS
+
+            if analyses:
+                state = load_state(STATE_PATH)
+                ai_mem = load_ai_memory()
+                effective_min_conf = ai_mem.min_entry_confidence or MIN_CONFIDENCE_ENTRY
+                effective_min_price = ai_mem.min_coin_price_krw or MIN_MARKET_PRICE
+                banned_set = set(ai_mem.banned_markets or [])
+                entries_enabled = new_entries_enabled()
+                market_rest_until = load_market_rest()
+                market_is_resting = time.time() < market_rest_until
+
+                if not entries_enabled and loop_count % 100 == 1:
+                    print(
+                        f"  🔒 신규 진입 차단: {NEW_ENTRIES_ENV}=true가 명시되지 않음 "
+                        "(청산 관리는 계속)"
+                    )
+                elif market_is_resting:
+                    remaining = max(0, int(market_rest_until - time.time()))
+                    print(f"  ⏸️ 손절 후 시장 휴식 중 ({remaining}초 남음) - 모든 신규 진입 차단")
+
+                if (
+                    entries_enabled
+                    and reconciliation_healthy
+                    and not market_is_resting
+                    and state.position == "flat"
+                    and portfolio.cash_available >= MIN_ORDER_KRW
+                ):
+                    for cand in analyses:
+                        mkt = cand[0].market
+                        if mkt in banned_set:
+                            continue
+                        cand_p = get_realtime_ticker_price(mkt)
+                        if cand_p < effective_min_price:
+                            continue
+                        last_exit = load_recent_exits().get(mkt, 0)
+                        if time.time() - last_exit < REENTRY_COOLDOWN_SEC:
+                            continue
+                        best, _scanned_ob, _scanned_conf = cand
+                        if best.pm_decision is not Signal.LONG:
+                            continue
+                        with McpStdioClient(LIVE_COMMAND) as entry_client:
+                            fresh_warnings = get_market_warnings(entry_client)
+                            fresh_ob = get_market_orderbook_ratio(entry_client, mkt)
+                        if (
+                            fresh_warnings is None
+                            or mkt in fresh_warnings
+                            or fresh_ob is None
+                            or fresh_ob < 0.50
+                        ):
+                            continue
+                        refreshed_base = min(
+                            max(best.ace_confidence + (fresh_ob - 0.50) * 20.0, 0.0),
+                            100.0,
+                        )
+                        best_fconf, is_allowed, _ = evaluate_with_ai_brain(
+                            mkt, refreshed_base
+                        )
+                        if is_allowed and best_fconf >= effective_min_conf:
+                            invest = calculate_dynamic_order_amount(portfolio)
+                            if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
+                                print(
+                                    f"\n🎯 STRONG INITIAL ENTRY: {best.market} "
+                                    f"(Conf: {best_fconf:.1f}%, BidRatio: {fresh_ob*100:.1f}%)"
+                                )
+                                execute_buy(
+                                    best.market,
+                                    invest,
+                                    portfolio,
+                                    settings,
+                                    confidence=best_fconf,
+                                    bid_ratio=fresh_ob,
+                                )
+                                break
 
             # ═══════════════════════════════════════════════════════════════
             # 3. EXCHANGE BALANCE RECONCILIATION (every ~30 minutes)
@@ -1550,10 +1789,16 @@ def main():
             consecutive_errors = 0
 
             sys.stdout.flush()
-            time.sleep(PRICE_CHECK_INTERVAL)
+            next_price_check_at += PRICE_CHECK_INTERVAL
+            delay = next_price_check_at - time.monotonic()
+            if delay < 0:
+                next_price_check_at = time.monotonic()
+                delay = 0
+            time.sleep(delay)
 
         except KeyboardInterrupt:
             print("\n\n🛑 사용자 중단 (Ctrl+C). 안전하게 종료합니다.")
+            scan_executor.shutdown(wait=False, cancel_futures=True)
             break
         except Exception as exc:
             consecutive_errors += 1
@@ -1577,6 +1822,7 @@ def main():
 
             print(f"  ⏳ {ERROR_COOLDOWN_SEC}초 대기 후 재시작...")
             time.sleep(ERROR_COOLDOWN_SEC)
+            next_price_check_at = time.monotonic()
 
 
 if __name__ == "__main__":
