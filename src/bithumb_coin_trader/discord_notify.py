@@ -381,8 +381,12 @@ def notify_sell_exit(
 ) -> bool:
     """Send rich Sell Exit & P&L notification."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    coin_name = market.replace("KRW-", "")
-    status_tag = "익절 성공 🎉" if pnl_krw >= 0 else "손절 방어 🛡️"
+    if "BREAKEVEN-LOCK" in reason or "본전" in reason:
+        status_tag = "본전 방어 무위험 탈출 🛡️"
+    elif pnl_krw >= 0:
+        status_tag = "익절 성공 🎉"
+    else:
+        status_tag = "손절 방어 🛡️"
 
     progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
     filled_bars = int(progress / 10)

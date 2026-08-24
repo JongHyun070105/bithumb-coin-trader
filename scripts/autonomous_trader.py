@@ -646,8 +646,10 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.cash_available = actual_krw
             portfolio.total_capital = actual_krw
             portfolio.total_pnl_krw += pnl
-            if pnl >= 0:
+            if pnl >= 0 or "BREAKEVEN-LOCK" in reason:
                 portfolio.winning_trades += 1
+                if "BREAKEVEN-LOCK" in reason:
+                    print(f"  🛡️ 본전 방어 무위험 탈출 성공 (원금 100% 보존 완료)")
             else:
                 portfolio.losing_trades += 1
                 set_market_rest(LOSS_COOLDOWN_SEC)
@@ -953,7 +955,7 @@ def main():
                         print(f"  🛡️ +1.0% 상승 확인! 본전 스탑(Breakeven Lock) 가동 (손절선 -> 평단가 {portfolio.entry_price:,.0f} KRW 무위험 전환)")
 
                     if portfolio.breakeven_locked:
-                        stop_loss_price = portfolio.entry_price * 1.001 # 본전 + 0.1% 수수료 버퍼
+                        stop_loss_price = portfolio.entry_price * 1.003 # 본전 + 0.3% 수수료 완벽 방어 버퍼
                     else:
                         stop_loss_price = portfolio.entry_price * (1 - STOP_LOSS_PCT)
 
@@ -971,7 +973,10 @@ def main():
 
                     if cur_price <= stop_loss_price:
                         trigger_exit = True
-                        exit_reason = f"⛔ STOP-LOSS ({cur_price:,.0f} <= {stop_loss_price:,.0f})"
+                        if portfolio.breakeven_locked:
+                            exit_reason = f"🛡️ BREAKEVEN-LOCK ({cur_price:,.0f} <= {stop_loss_price:,.0f}, 본전 방어 무위험 탈출)"
+                        else:
+                            exit_reason = f"⛔ STOP-LOSS ({cur_price:,.0f} <= {stop_loss_price:,.0f})"
                     elif cur_price >= take_profit_price:
                         trigger_exit = True
                         exit_reason = f"🎯 TAKE-PROFIT ({cur_price:,.0f} >= {take_profit_price:,.0f})"
@@ -999,10 +1004,22 @@ def main():
 
                         state = load_state(STATE_PATH)
 
-                        # Initial Entry when FLAT (포지션이 없을 때만 25-유니버스 1위 종목 탐색 & 15분 쿨다운 필터링)
+                        # Initial Entry when FLAT (AI 전략 메모리 동적 파라미터 적용)
+                        ai_mem = load_ai_memory()
+                        effective_min_conf = ai_mem.min_entry_confidence or MIN_CONFIDENCE_ENTRY
+                        effective_min_price = ai_mem.min_coin_price_krw or MIN_MARKET_PRICE
+                        banned_set = set(ai_mem.banned_markets or [])
+
                         if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
                             for cand in analyses:
                                 mkt = cand[0].market
+                                if mkt in banned_set:
+                                    continue
+
+                                cand_p = get_realtime_ticker_price(mkt)
+                                if cand_p < effective_min_price:
+                                    continue
+
                                 exits = load_recent_exits(); last_exit = exits.get(mkt, 0)
                                 if time.time() - last_exit < REENTRY_COOLDOWN_SEC:
                                     rem = int(REENTRY_COOLDOWN_SEC - (time.time() - last_exit))
@@ -1011,7 +1028,7 @@ def main():
                                     continue
 
                                 best, best_ob, best_fconf = cand
-                                if best_fconf >= MIN_CONFIDENCE_ENTRY and best.pm_decision is Signal.LONG and best_ob >= 0.50:
+                                if best_fconf >= effective_min_conf and best.pm_decision is Signal.LONG and best_ob >= 0.50:
                                     invest = calculate_dynamic_order_amount(portfolio, is_pyramiding=False)
                                     if invest >= MIN_ORDER_KRW and invest <= portfolio.cash_available:
                                         print(f"\n🎯 STRONG INITIAL ENTRY: {best.market} (Conf: {best_fconf:.1f}%, BidRatio: {best_ob*100:.1f}%)")

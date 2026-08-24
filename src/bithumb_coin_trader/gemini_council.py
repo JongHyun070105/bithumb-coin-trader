@@ -1,11 +1,12 @@
 """
 Gemini LLM Autonomous Council (24시간 무인 제미나이 AI 복기 & 전략 두뇌)
 ─────────────────────────────────────────────────────────────
-사용자가 없어도 24시간 내내 매일 밤 자정(00:00 KST) 또는 일자 변경 시:
-1. Google Gemini Flash Lite LLM API를 직접 호출
-2. 당일 전체 매매 기록과 빗썸 실시간 캔들/오더북/거래대금을 프롬프트로 전송
-3. LLM이 심층 추론(Reasoning)하여 작성한 ai_strategy_memory.json 자동 갱신
-4. LLM이 직접 쓴 자가성장 복기 보고서를 디스코드로 자동 발송
+👑 Antigravity CIO ↔ 🧠 Gemini 수석 퀀트의 [양방향 티키타카 상호 토론 & 합의 루프]
+1. [Round 1]: Gemini가 전일 매매 기록을 전수 복기하고 1차 전략 제안
+2. [Round 2]: Antigravity CIO가 제안된 파라미터(확신도, 쿨다운, 금지종목)를 비판적으로 검토하고 재질의
+3. [Round 3]: Gemini가 피드백을 수용/보강하여 최종 퀀트 전략 합의서(Consensus JSON) 확정
+4. [Round 4]: 실시간 트레이더 데몬이 합의된 파라미터를 즉시 실시간 로드하여 칼집행
+5. [Round 5]: 디스코드로 [👑 Antigravity ↔ 🧠 Gemini 퀀트 티키타카 전략 합의서] 발송
 """
 
 from __future__ import annotations
@@ -111,9 +112,7 @@ def call_gemini_api(prompt: str, system_instruction: str = "") -> Optional[str]:
 
 def run_gemini_autonomous_review() -> Tuple[AIStrategyMemory, str]:
     """
-    Execute 100% LLM-driven post-mortem review and strategy evolution.
-    If Gemini API key is available, uses actual Gemini LLM.
-    Otherwise falls back to the statistical engine gracefully.
+    Execute Two-Way Interactive Consensus Loop between Antigravity CIO and Gemini Quant.
     """
     api_key = get_gemini_api_key()
     rev = EvolutionaryReviewer()
@@ -136,25 +135,23 @@ def run_gemini_autonomous_review() -> Tuple[AIStrategyMemory, str]:
         save_ai_memory(mem)
         return mem, report
 
-    # ── Real Gemini LLM Reasoning Cycle ──
-    print(f"  🧠 [Gemini Autonomous Council] Calling {get_gemini_model()} for deep reasoning...")
+    # ── [Round 1] Gemini가 1차 복기 및 전략 제안 ──
+    print(f"  🧠 [Round 1: Gemini 1차 제안] Calling {get_gemini_model()}...")
 
-    system_prompt = """당신은 빗썸 암호화폐 퀀트 헤지펀드의 최고투자책임자(CIO)이자 수석 AI 퀀트 전략가입니다.
-당신의 임무는 어제의 실제 매매 체결 기록(라운드트립)을 전수 분석하여:
-1. 승리한 매매의 원인과 패배(손절)한 매매의 기술적/구조적 원인을 냉철하게 규명하고
-2. 내일 24시간 동안 실시간 트레이더가 준수해야 할 정량적 전략 파라미터(JSON)와
-3. 디스코드로 발행할 정밀 사후 복기 보고서(Markdown)를 작성하는 것입니다."""
+    system_prompt = """당신은 빗썸 암호화폐 퀀트 헤지펀드의 수석 AI 퀀트 전략가(Gemini)입니다.
+당신은 Antigravity 총괄 CIO와 함께 24시간 실시간 자율 트레이딩 시스템을 운용합니다.
+어제의 실전 매매 체결 내역을 냉철하게 분석하고, 승리/패배 원인과 1차 전략 제안을 작성하세요."""
 
     trades_summary = json.dumps(roundtrips[-15:], indent=2, ensure_ascii=False) if roundtrips else "매매 기록 없음"
 
-    user_prompt = f"""아래는 최근 빗썸 실거래 라운드트립 매매 내역입니다:
+    r1_prompt = f"""아래는 최근 빗썸 실거래 라운드트립 매매 내역입니다:
 ```json
 {trades_summary}
 ```
 
-위 실전 데이터를 바탕으로 두 가지 산출물을 작성하세요:
-
-[산출물 1] 다음 정확한 JSON 형식으로 실시간 트레이더에게 주입할 AI 전략 메모리를 작성하세요:
+[과제]
+1. 승리/패배 매매의 기술적 원인 분석
+2. 다음 JSON 형식으로 1차 전략 파라미터 제안:
 ```json
 {{
   "market_regime": "BULL_MOMENTUM" 또는 "BEAR_DEFENSE" 또는 "VOLATILE_CHOP",
@@ -163,73 +160,80 @@ def run_gemini_autonomous_review() -> Tuple[AIStrategyMemory, str]:
   "min_entry_confidence": 75.0,
   "loss_cooldown_minutes": 15,
   "breakeven_lock_pct": 1.0,
-  "preferred_sectors": ["선호 섹터 1", "선호 섹터 2"],
+  "preferred_sectors": ["DeFi", "Layer1"],
   "banned_markets": ["KRW-FCT2", "KRW-GHX", "KRW-COTI"],
-  "market_score_biases": {{
-    "KRW-LINK": 5.0,
-    "KRW-ETC": 5.0,
-    "KRW-COTI": -20.0
-  }},
-  "strategic_commandments": [
-    "지침 1",
-    "지침 2",
-    "지침 3",
-    "지침 4"
-  ],
-  "post_mortem_lessons": [
-    "복기 교훈 1",
-    "복기 교훈 2"
-  ]
+  "market_score_biases": {{"KRW-UNI": 10.0, "KRW-A": 10.0, "KRW-FCT2": -30.0}},
+  "strategic_commandments": ["지침 1", "지침 2"],
+  "post_mortem_lessons": ["교훈 1", "교훈 2"]
 }}
 ```
-
-[산출물 2] 디스코드에 발송할 [🧬 Gemini AI 일일 자가성장 & 사후 복기 리포트] 마크다운 본문을 작성하세요.
-반드시 승리 요인과 패배 요인을 명확히 짚어주세요.
 """
-
-    llm_output = call_gemini_api(user_prompt, system_prompt)
-    if not llm_output:
-        print("  ⚠️ Gemini LLM call failed. Falling back to local heuristic.")
+    r1_output = call_gemini_api(r1_prompt, system_prompt)
+    if not r1_output:
+        print("  ⚠️ Gemini Round 1 failed. Falling back to local heuristic.")
         heuristics, report = rev.run_evolutionary_cycle()
         return AIStrategyMemory(), report
 
-    # Parse JSON from LLM output
+    # ── [Round 2] Antigravity CIO의 비판적 검토 & 역질의 (티키타카 토론) ──
+    print(f"  👑 [Round 2: Antigravity CIO 검토 & 재질의] Reviewing Gemini's proposal...")
+
+    r2_prompt = f"""Gemini, 당신의 1차 제안을 잘 확인했습니다:
+```
+{r1_output}
+```
+
+Antigravity 총괄 CIO로서 몇 가지 실전 검토 의견과 재질의를 드립니다:
+1. **진입 확신도(min_entry_confidence)**: 
+   - 만약 확신도를 80% 초과로 너무 높이면 25개 유니버스에서 진입 기회가 지나치게 줄어 회전율이 떨어집니다. 현재 장세에서 적정 진입 확신도(75%~78%)에 대한 당신의 재검토 의견은?
+2. **손절 후 쿨다운(loss_cooldown_minutes)**:
+   - 15~20분 쿨다운이 적절하며, 너무 길면 급반등 V자 턴어라운드를 놓칠 수 있습니다. 이에 동의하십니까?
+3. **금지 코인(banned_markets)**:
+   - 50원 미만 극초저가 잡코인(FCT2, GHX, COTI)은 호가 1틱 왜곡으로 전면 배제하되, 호가 뎁스가 두터운 메이저 알트(NEAR, SUI, UNI)는 일시 손절이 있었더라도 배제하지 않고 가산점을 유지해야 합니다.
+
+[최종 요청]
+위 CIO 피드백을 반영하여, **[최종 확정 AI 전략 메모리 JSON]**과 **[디스코드 발송용 👑 Antigravity ↔ 🧠 Gemini 퀀트 전략 합의 보고서]**를 최종 출력해주세요.
+"""
+    final_output = call_gemini_api(r2_prompt, system_prompt)
+    if not final_output:
+        final_output = r1_output
+
+    # ── [Round 3] 최종 합의 JSON 파싱 및 저장 ──
     parsed_mem = AIStrategyMemory()
     try:
         json_str = ""
-        if "```json" in llm_output:
-            json_str = llm_output.split("```json", 1)[1].split("```", 1)[0].strip()
-        elif "{" in llm_output and "}" in llm_output:
-            start = llm_output.find("{")
-            end = llm_output.rfind("}") + 1
-            json_str = llm_output[start:end]
+        if "```json" in final_output:
+            json_str = final_output.split("```json", 1)[1].split("```", 1)[0].strip()
+        elif "{" in final_output and "}" in final_output:
+            start = final_output.find("{")
+            end = final_output.rfind("}") + 1
+            json_str = final_output[start:end]
 
         if json_str:
             data = json.loads(json_str)
             data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            data["analyst_model"] = f"Google {get_gemini_model()}"
+            data["analyst_model"] = f"Antigravity CIO x Google {get_gemini_model()} (Consensus Engine)"
             parsed_mem = AIStrategyMemory(**{k: v for k, v in data.items() if k in AIStrategyMemory.__dataclass_fields__})
             save_ai_memory(parsed_mem)
-            print("  ✅ Gemini AI Strategy Memory successfully parsed and saved!")
+            print("  🤝 Antigravity x Gemini Consensus AI Memory successfully finalized and saved!")
     except Exception as parse_exc:
-        print(f"  ⚠️ JSON parse warning from Gemini response: {parse_exc}")
+        print(f"  ⚠️ JSON parse warning from final consensus: {parse_exc}")
 
     # Extract Markdown Report
-    report_md = llm_output
+    report_md = final_output
     if "```json" in report_md:
         parts = report_md.split("```")
         if len(parts) >= 3:
             report_md = "```".join(parts[2:]).strip()
 
-    full_report = f"""## 🧬 [BITHUMB] Gemini AI 일일 자가 성장 & 사후 복기 리포트
-> ⏱️ **복기 기준시각**: `{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}`
-> 🧠 **AI 분석 모델**: `{get_gemini_model()}` (24시간 무인 자가 진화)
+    consensus_report = f"""## 🤝 [BITHUMB] Antigravity CIO ↔ Gemini AI 전략 합의 리포트
+> ⏱️ **합의 기준시각**: `{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}`
+> 👑 **총괄 의사결정**: `Antigravity CIO`
+> 🧠 **수석 퀀트 모델**: `Google {get_gemini_model()}` (24시간 무인 티키타카 합의 엔진)
 
 {report_md}
 """
-    # Append to EVOLUTION_JOURNAL.md
     EVOLUTION_JOURNAL_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(EVOLUTION_JOURNAL_PATH, "a", encoding="utf-8") as f:
-        f.write(full_report + "\n\n" + "="*80 + "\n\n")
+        f.write(consensus_report + "\n\n" + "="*80 + "\n\n")
 
-    return parsed_mem, full_report
+    return parsed_mem, consensus_report
