@@ -2,12 +2,13 @@
 
 빗썸 KRW 현물 시장용 **연구·검증·안전 실행 프레임워크**입니다. 공개 OHLCV 데이터의 시간순 백테스트와 실제 거래소 체결 원장을 분리하며, 검증을 통과하지 못한 전략은 자동으로 실전에 승격하지 않습니다.
 
-현재 운영 경계는 `LONG / FLAT`입니다. 빗썸 현물 API에는 공매도 실행을 연결하지 않았으며 피라미딩은 비활성화되어 있습니다. `+2%` 50% 분할익절과 4시간 `±0.6%` 타임컷은 원장·최소주문·크래시 복구까지 구현되어 있지만, 비용 반영 역사 검증에서 탈락해 활성 진입 정책에서는 제외했습니다. 현재 신규 포지션은 기존 손절·최종익절·본전방어·트레일링 청산만 사용하며, 검증되지 않은 강화 정책을 자동 승격하지 않습니다.
+현재 운영 경계는 `LONG / FLAT`입니다. 빗썸 현물 API에는 공매도 실행을 연결하지 않았으며 피라미딩은 비활성화되어 있습니다. `+2%` 50% 분할익절과 4시간 `±0.6%` 타임컷은 원장·최소주문·크래시 복구까지 구현되어 있지만, 비용 반영 역사 검증에서 탈락해 활성 진입 정책에서는 제외했습니다. 2026-08-24의 37개 후보 연구에서도 개발 게이트를 모두 통과한 전략이 없어 현금 대기를 선택했으며, 설치된 데몬은 감시·알림만 수행하고 신규 매수는 잠금 상태입니다.
 
 ## 핵심 구조
 
 - `strategy.py`, `wave5.py`: 재현 가능한 현물 전략과 후보 비교
 - `backtest.py`, `research.py`: 닫힌 봉 신호, 다음 봉 시가 체결, 시간순 워크포워드 및 비용 스트레스
+- `winrate_research.py`, `winrate_*_candidates.py`: 추세·평균회귀·변동성·세션·온라인 메타 후보의 공통 사전등록 게이트
 - `execution.py`: 주문 가능 정보 사전 조회, 고유 `client_order_id`, 단일 주문 제출, 조회 기반 체결 확정
 - `fill_ledger.py`: 거래소가 반환한 개별 체결 ID·가격·수량·수수료만 기록하는 append-only 원장
 - `risk.py`: 신규 위험 노출 제한과 보호성 청산의 분리
@@ -53,9 +54,11 @@ PYTHONPATH=src python3 scripts/run_wave5_research.py
 PYTHONPATH=src python3 scripts/validate_wave5_research.py \
   .omx/specs/autoresearch-wave5/result.json \
   --data data/krw-btc-30m-2026-08-14-wave4.csv
+PYTHONPATH=src python3 scripts/run_winrate_research.py
+PYTHONPATH=src python3 scripts/validate_winrate_research.py
 ```
 
-Wave 5 결과는 `.omx/specs/autoresearch-wave5/`에 생성됩니다. 결과의 `can_promote`는 항상 `false`이며, 후보가 검증 게이트를 통과하지 못하면 현금 대기를 선택합니다.
+Wave 5 결과는 `.omx/specs/autoresearch-wave5/`에 생성됩니다. 최신 37개 후보 연구 결과와 검증 증거는 `.omx/specs/autoresearch-winrate70/` 및 [`reports/krw-btc-winrate70-research-2026-08-24.json`](reports/krw-btc-winrate70-research-2026-08-24.json)에 생성됩니다. 기본 연구 명령은 개발 구간만 평가합니다. 후보가 개발 게이트를 통과하지 못하면 봉인 홀드아웃은 열지 않고 현금 대기를 선택합니다. 통과 후보가 생긴 경우에도 명시적 holdout 실행은 평가 전에 1회성 원장을 생성하며, 기존·크래시 상태 원장이 있으면 재실행을 거부합니다. 자세한 결론은 [`docs/WINRATE_RESEARCH_2026-08-24.md`](docs/WINRATE_RESEARCH_2026-08-24.md)를 참고하십시오.
 
 ## 안전 원칙
 
@@ -63,6 +66,8 @@ Wave 5 결과는 `.omx/specs/autoresearch-wave5/`에 생성됩니다. 결과의 
 - 미확정 주문, 손상된 상태 파일, 경보·호가 조회 실패는 신규 진입을 차단합니다.
 - 손실 한도와 일일 진입 한도는 보호성 전량 매도를 막지 않습니다.
 - 실제 체결 손익은 OHLC 종가가 아니라 거래소 체결 원장에서 계산합니다.
+- 백테스트는 데이터 갭의 첫 관측 시가에 포지션을 강제 정리하고, 최대 주문금액·KST 일일 진입 횟수를 실행 정책과 동일하게 제한합니다.
+- 마지막 봉의 평가용 강제청산은 자산곡선에는 반영하지만 정규 청산 거래 수와 승률에서는 제외합니다.
 - 부분매도는 요청 수량을 별도 상태로 보존하며, 상태·원장·거래소 잔고가 모두 일치한 뒤에만 완료 처리합니다.
-- Wave 5와 AI 연구 설정은 별도 검증을 통과하지 않으면 라이브 전략으로 승격하지 않습니다.
+- 모든 연구 후보와 AI 보조 결과는 별도 검증을 통과하지 않으면 라이브 전략으로 승격하지 않습니다.
 - 백테스트 성과는 미래 수익을 보장하지 않으며, 연구 결과는 자동으로 실전 설정을 변경하지 않습니다.

@@ -1,0 +1,23 @@
+{
+  "automatic_promotion": "forbidden",
+  "candidate_manifest_sha256": "724c59328bbc000f34ba3d09c36f4b2e994a12c47b636fd6f3e797b5cda6ec4c",
+  "dataset_sha256": "aaeae174f944b1ca86ad4af6ec059a1eb86c8e2877d99af0cdfd3e3d4746018d",
+  "issues": [],
+  "live_new_entries_off": {
+    "installed_plist_off": true,
+    "installed_plist_sha256": "92812e33cfe735f533896e62d88eed15b558c08c96f70a250567318dc4b6a39c",
+    "installed_wrapper_off": true,
+    "installed_wrapper_sha256": "08b80e638f089005b9ceeec68ec85dbb3cb5b669a7931d780f437f83a1aa3c7b",
+    "launchctl_off": true
+  },
+  "metrics_and_gates_recomputed_independently": true,
+  "passed": true,
+  "protocol_sha256": "da10bb6503a3196b6d6ad9dbd7eb8dcf0528c2dad0e6bd7a19a097d1ab4d7b4a",
+  "report": ".omx/specs/autoresearch-winrate70/result.json",
+  "report_sha256": "d44b39dd19be56dabc35fb17ecf9a7d18b8b1fd5e53c65df043e11f02038093f",
+  "schema_version": 1,
+  "shared_execution_engine_sha256": "820f241f92ca7ef03d0d551a074d72e3ba65b0f692fb12183bb646e2530b011e",
+  "status": "passed",
+  "summary": "raw-candle metrics/gates recomputation and live-entry lock passed",
+  "validator_sha256": "dd0964d2a2b9acb798bad2a48e0fc17ed35c22593a7bd46a0a8385d386c6a0ba"
+}

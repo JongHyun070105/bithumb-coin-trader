@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from math import sqrt
 
@@ -62,6 +63,74 @@ class BacktestTests(unittest.TestCase):
 
         self.assertEqual(result.trade_count, 1)
         self.assertTrue(result.trades[0].is_final_liquidation)
+        self.assertEqual(result.closed_trade_count, 0)
+        self.assertEqual(result.win_rate, 0.0)
+
+        with self.assertRaisesRegex(ValueError, "closed_trade_count"):
+            replace(result, closed_trade_count=1)
+
+    def test_gap_forces_flat_before_processing_stale_signal(self) -> None:
+        candles = make_candles([100, 110, 120, 130])
+        candles[2] = Candle(
+            candles[2].timestamp + timedelta(days=1),
+            120,
+            120,
+            120,
+            120,
+            1,
+        )
+        candles[3] = Candle(
+            candles[3].timestamp + timedelta(days=1),
+            130,
+            130,
+            130,
+            130,
+            1,
+        )
+        result = Backtester(
+            self.settings,
+            expected_interval=timedelta(days=1),
+        ).run(candles, [Signal.LONG, Signal.LONG, Signal.FLAT, Signal.FLAT])
+        self.assertEqual(result.position_curve[2], Signal.FLAT)
+        self.assertTrue(result.trades[0].is_gap_liquidation)
+
+    def test_order_notional_respects_maximum_order(self) -> None:
+        settings = TradingSettings(
+            initial_capital_krw=100_000,
+            fee_rate=0,
+            slippage_bps=0,
+            allocation_fraction=1,
+            minimum_order_krw=5_000,
+            maximum_order_krw=10_000,
+            cash_reserve_krw=0,
+        )
+        result = Backtester(settings).run(
+            make_candles([100, 100, 100]),
+            [Signal.LONG, Signal.FLAT, Signal.FLAT],
+        )
+        self.assertEqual(result.trades[0].notional, 10_000)
+
+    def test_daily_entry_limit_does_not_defer_stale_long_to_next_day(self) -> None:
+        start = datetime(2024, 1, 1, tzinfo=UTC)
+        candles = [
+            Candle(start + timedelta(minutes=30 * index), 100, 100, 100, 100, 1)
+            for index in range(8)
+        ]
+        signals = [
+            Signal.LONG,
+            Signal.FLAT,
+            Signal.LONG,
+            Signal.LONG,
+            Signal.LONG,
+            Signal.FLAT,
+            Signal.FLAT,
+            Signal.FLAT,
+        ]
+        result = Backtester(
+            self.settings,
+            expected_interval=timedelta(minutes=30),
+        ).run(candles, signals)
+        self.assertEqual(result.trade_count, 1)
 
     def test_sharpe_annualization_uses_candle_frequency(self) -> None:
         daily = make_candles([100, 110, 105, 115, 110])

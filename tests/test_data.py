@@ -496,12 +496,14 @@ class ResearchTests(unittest.TestCase):
                 SimpleNamespace(
                     equity_curve=(100.0, 200.0, 150.0),
                     trade_count=0,
+                    closed_trade_count=0,
                     win_rate=0.0,
                     sharpe=1.0,
                 ),
                 SimpleNamespace(
                     equity_curve=(100.0, 80.0),
                     trade_count=0,
+                    closed_trade_count=0,
                     win_rate=0.0,
                     sharpe=-1.0,
                 ),

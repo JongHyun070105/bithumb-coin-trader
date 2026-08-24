@@ -163,6 +163,7 @@ class CandidateResearchTests(unittest.TestCase):
             slippage_bps=0,
             allocation_fraction=1,
             cash_reserve_krw=0,
+            maximum_order_krw=20_000,
         )
 
         report = compare_candidate_factories(
@@ -175,6 +176,7 @@ class CandidateResearchTests(unittest.TestCase):
 
         self.assertEqual(len(report.folds), 2)
         self.assertEqual(report.trade_count, 1)
+        self.assertEqual(report.weighted_win_rate, 0.0)
         self.assertEqual([fold.result.trade_count for fold in report.folds], [0, 1])
         trade = report.folds[1].result.trades[0]
         self.assertEqual((trade.entry_index, trade.exit_index), (1, 4))

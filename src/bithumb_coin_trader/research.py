@@ -203,7 +203,11 @@ def run_chronological_research(
 
     results = [fold.result for fold in folds]
     trade_count = sum(result.trade_count for result in results)
-    weighted_wins = sum(result.win_rate * result.trade_count for result in results)
+    closed_trade_count = sum(result.closed_trade_count for result in results)
+    weighted_wins = sum(
+        result.win_rate * result.closed_trade_count
+        for result in results
+    )
     oos_equity_curve = _stitch_equity_curves([result.equity_curve for result in results])
     return ProjectResearchReport(
         folds=tuple(folds),
@@ -211,7 +215,9 @@ def run_chronological_research(
         maximum_drawdown=_maximum_drawdown(oos_equity_curve),
         mean_sharpe=fmean(result.sharpe for result in results),
         trade_count=trade_count,
-        weighted_win_rate=weighted_wins / trade_count if trade_count else 0.0,
+        weighted_win_rate=(
+            weighted_wins / closed_trade_count if closed_trade_count else 0.0
+        ),
         oos_equity_curve=oos_equity_curve,
         candidate_name=candidate_name,
     )
