@@ -1,0 +1,9 @@
+{
+  "automatic_promotion": "forbidden",
+  "issues": [],
+  "report": ".omx/specs/autoresearch-wave5/result.json",
+  "report_sha256": "054df4396ca0673a1690d381b0318e188c28330e8916a5afd274509c04093e3a",
+  "schema_version": 1,
+  "status": "PASS",
+  "validator": "scripts/validate_wave5_research.py"
+}

@@ -115,7 +115,23 @@ class EvolutionaryReviewer:
             elif action in ("SELL", "PARTIAL_SELL"):
                 buys = active_buys.get(mkt, [])
                 if buys:
-                    tot_vol = sum(float(b.get("volume", 0)) for b in buys)
+                    # BUY records store the authoritative *cumulative* exchange
+                    # balance after each fill.  Summing those values double-counts
+                    # earlier lots and fabricated +50~70% returns after a scale-in.
+                    cumulative_volumes = [float(b.get("volume", 0)) for b in buys]
+                    increments: List[float] = []
+                    prior = 0.0
+                    for cumulative in cumulative_volumes:
+                        increment = cumulative - prior
+                        if increment <= 0:
+                            increments = []
+                            break
+                        increments.append(increment)
+                        prior = cumulative
+                    if not increments:
+                        active_buys[mkt] = []
+                        continue
+                    tot_vol = sum(increments)
                     tot_spent = sum(float(b.get("amount_krw", 0)) for b in buys)
                     avg_entry = tot_spent / tot_vol if tot_vol > 0 else float(buys[0].get("price", 0))
 
@@ -131,7 +147,7 @@ class EvolutionaryReviewer:
                         pass
 
                     pnl = float(t.get("pnl_krw", 0))
-                    pnl_pct = ((float(t.get("price", 0)) - avg_entry) / avg_entry * 100.0) if avg_entry > 0 else 0.0
+                    pnl_pct = (pnl / tot_spent * 100.0) if tot_spent > 0 else 0.0
 
                     roundtrips.append({
                         "market": mkt,

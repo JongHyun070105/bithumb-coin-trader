@@ -1,113 +1,62 @@
-# Bithumb Coin Trader (Autonomous Multi-Agent Quant System)
+# Bithumb Coin Trader
 
-빗썸(Bithumb) KRW 현물 시장을 대상으로 **Tauric 멀티에이전트 아키텍처**, **기관 수급 캔들 디스플레이스먼트(Institutional Displacement)**, 그리고 **실시간 30호가창 불균형(Orderbook Imbalance)**을 결합한 24시간 자율 트레이딩 시스템입니다.
+빗썸 KRW 현물 시장용 **연구·검증·안전 실행 프레임워크**입니다. 공개 OHLCV 데이터의 시간순 백테스트와 실제 거래소 체결 원장을 분리하며, 검증을 통과하지 못한 전략은 자동으로 실전에 승격하지 않습니다.
 
----
+현재 운영 경계는 `LONG / FLAT`입니다. 빗썸 현물 API에는 공매도 실행을 연결하지 않았으며, 피라미딩과 부분매도도 안전한 주문 상태 전이가 완성될 때까지 비활성화되어 있습니다.
 
-## 🏛️ 시스템 아키텍처 (Pixel Trading Floor)
+## 핵심 구조
 
-본 시스템은 정적 지표 하나에 의존하지 않고, 4개 전문 분석실과 2개 리스크 위원회, 그리고 최종 포트폴리오 매니저(PM) 파이프라인을 거쳐 매매를 집행합니다.
+- `strategy.py`, `wave5.py`: 재현 가능한 현물 전략과 후보 비교
+- `backtest.py`, `research.py`: 닫힌 봉 신호, 다음 봉 시가 체결, 시간순 워크포워드 및 비용 스트레스
+- `execution.py`: 주문 가능 정보 사전 조회, 고유 `client_order_id`, 단일 주문 제출, 조회 기반 체결 확정
+- `fill_ledger.py`: 거래소가 반환한 개별 체결 ID·가격·수량·수수료만 기록하는 append-only 원장
+- `risk.py`: 신규 위험 노출 제한과 보호성 청산의 분리
+- `discord_notify.py`: 주문·차단·체결·청산 알림. 자식 프로세스에는 최소 환경만 전달
+- `ai_brain.py`, `gemini_council.py`: 엄격한 스키마 검증을 거친 연구 보조. 명시적 허용 전에는 실전 설정을 바꾸지 않음
 
-```text
- ┌─────────────────────────────────────────────────────────────┐
- │               📡 Bithumb Realtime 10-Market Scanner          │
- └──────────────────────────────┬──────────────────────────────┘
-                                │ (30s Cycle)
- ┌──────────────────────────────▼──────────────────────────────┐
- │                  🏢 PIXEL TRADING FLOOR                     │
- │  ├─ 👨‍💻 TARO  (Technical) : MA(20/50/100), Wilder RSI, MACD │
- │  ├─ 👩‍💼 DIANA (Institutional): 50%+ Body & 2.0x Vol Spike     │
- │  ├─ 🚀 NOVA  (Momentum)   : 20-bar Trend Velocity Factor    │
- │  └─ 🧘 VIBE  (Sentiment)  : 30-Orderbook Imbalance & BB     │
- └──────────────────────────────┬──────────────────────────────┘
-                                │
- ┌──────────────────────────────▼──────────────────────────────┐
- │            ⚔️ Research Room: BULL vs BEAR Debate             │
- └──────────────────────────────┬──────────────────────────────┘
-                                │
- ┌──────────────────────────────▼──────────────────────────────┐
- │     🛡️ Risk Committee: SAFE Bounds & Bithumb Warning Guard   │
- └──────────────────────────────┬──────────────────────────────┘
-                                │
- ┌──────────────────────────────▼──────────────────────────────┐
- │        👔 ACE & PM Decision Gate: Dynamic Capital Sizing     │
- └──────────────────────────────┬──────────────────────────────┘
-                                │
- ┌──────────────────────────────▼──────────────────────────────┐
- │     🚀 Bithumb Official MCP Execution (3s Price / SL / TP)   │
- └─────────────────────────────────────────────────────────────┘
-```
+## 빗썸 API 활용
 
-### 1. 4대 애널리스트 룸
-- **👨‍💻 TARO (Technical Analyst)**: 이평선 정배열(골든크로스), 와일더 RSI(40~70 모멘텀 존), MACD 히스토그램 0선 상향 반전 추적.
-- **👩‍💼 DIANA (Institutional & Volume Delta)**: 캔들 몸통 비율(Displacement $\ge 50\%$)과 직전 20봉 평균 대비 2.0배 이상의 거래량 스파이크(Bullish Shift) 감지.
-- **🚀 NOVA (Momentum Engine)**: 최근 20봉의 가격 변화율과 방향성 가속도 측정.
-- **🧘 VIBE (Orderbook & Sentiment)**: 볼린저 밴드 변동성 스퀴즈 및 빗썸 실시간 30호가 잔량 비율(Bid-Ask Depth Imbalance) 가산점 부여.
+실행 경로는 다음 순서를 따릅니다.
 
-### 2. 리스크 위원회 & 빗썸 세이프가드
-- **SAFE Gate**: 과매수(RSI > 72) 진입 금지, 하락 기관 시프트(Bearish Shift) 발생 시 매수 차단.
-- **Bithumb Warning Filter (`market_get_warnings`)**: 거래소 투자유의/투자경보 지정 코인 즉시 스캔 제외.
-- **Bithumb Notices Detector (`market_get_notices`)**: 상장, 입출금 중단 등 중요 이벤트 실시간 로깅.
+1. 경보·공지·시세·호가 데이터 확인. 필수 조회 실패 시 신규 진입 차단
+2. `account_get_order_chance`로 수수료, 최소 주문금액, 가용 잔고 재검증
+3. 불변 `client_order_id`로 주문을 한 번만 제출
+4. `trade_get_order`를 반복 조회해 `done` 또는 `cancel` 확인
+5. 실제 `trades` 체결 목록을 원장에 기록하고 계좌 잔고와 재조정
 
----
+연구용 MCP 설정은 `.mcp.json`에서 공식 패키지 버전을 고정하고 `market,account --read-only`로 제한합니다. 주문 실행은 별도의 최소 권한 경로를 사용합니다.
 
-## 📈 자금 관리 및 복리 운용 원칙 (Capital Management)
+## 설치
 
-- **비대칭 손익비 (Asymmetric Risk-Reward)**:
-  - **손절선 (Stop-Loss)**: **-2.0%** (3초 내 즉각적인 칼손절)
-  - **1차 목표가 (Take-Profit)**: **+4.0%** (빠른 회전율 기반 복리 사이클)
-  - **트레일링 스탑 (Trailing-Stop)**: 고점 대비 **-1.5%** (추세 확장 시 초과 수익 확보)
-- **다이내믹 포지션 사이징 (Dynamic Sizing)**:
-  - 초강력 셋업 (확신도 $\ge 80\%$ + 호가 매수벽 $\ge 55\%$): 가용 자본의 **60%** 투입
-  - 일반 우량 셋업 (확신도 $70\%\sim 79\%$): 가용 자본의 **40%** 투입
-  - 나머지 자본은 비상 현금 버퍼(Cash Buffer)로 유지하여 급격한 시장 변동성 방어.
-- **복리 스노우볼 (Compounding Acceleration)**:
-  - 1회 +4.0% 익절 사이클을 반복 누적하여 단계별 자산 퀀텀 점프 달성.
+요구사항은 Python 3.11 이상과 Node.js 18 이상입니다.
 
----
-
-## 📱 실시간 모바일 관제 (Discord Integration)
-
-로컬 게이트웨이를 통해 `finance-chat` 채널로 실시간 리치 알림을 자동 전송합니다.
-
-1. **🟢 매수 진입 알림**: 종목, 체결단가, AI 확신도, 호가 매수벽 비율, 1차 목표가/손절선.
-2. **🔴 포지션 청산 알림**: 실현 손익률(%), 실현 손익금, 청산 사유(TP/SL/Trailing), 누적 P&L.
-3. **📊 정기 1시간 포트폴리오 브리핑**: 총 자산, 가용 현금, 보유 포지션 실시간 PnL, 10대 코인 랭킹 Top 3.
-
----
-
-## 🛠️ 설치 및 실행
-
-### 요구사항
-- Python 3.11+
-- Node.js 18+ (공식 `@bithumb-official/bithumb-mcp` 연동)
-
-### 설치
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -e .
 ```
 
-### 환경변수 설정
+API 키는 저장소 파일이나 채팅에 입력하지 마십시오. 출금 권한이 없는 거래 전용 키를 사용하고, 빗썸에서 허용 IP를 제한한 뒤 로컬 비밀 저장소 또는 권한이 `0600`인 환경 파일로만 주입하십시오.
+
+기본 상태에서는 `BITHUMB_NEW_ENTRIES`가 없으므로 신규 매수가 차단됩니다. 보호성 청산 감시는 계속할 수 있지만, 신규 진입 스위치는 키 회전·실계좌 상태 확인·forward 검증을 모두 마친 운영자가 직접 관리해야 합니다.
+
+현재 저장소는 macOS LaunchAgent를 자동 설치하지 않습니다. 데몬은 `scripts/run_daemon_macos.sh`로 수동 실행하며, 재부팅 후 자동 복구가 필요하면 운영 환경의 권한과 비밀 저장소를 별도로 검증해야 합니다.
+
+## 검증
+
 ```bash
-export BITHUMB_ACCESS_KEY="your_access_key"
-export BITHUMB_SECRET_KEY="your_secret_key"
-export BITHUMB_LIVE_TRADING="true"
-export TRADING_MODE="live"
+PYTHONPATH=src python3 -m unittest discover -s tests
+PYTHONPATH=src python3 scripts/run_wave5_research.py
+PYTHONPATH=src python3 scripts/validate_wave5_research.py \
+  .omx/specs/autoresearch-wave5/result.json \
+  --data data/krw-btc-30m-2026-08-14-wave4.csv
 ```
 
-### 24시간 자율 트레이딩 데몬 실행
-```bash
-.venv/bin/python scripts/autonomous_trader.py
-```
+Wave 5 결과는 `.omx/specs/autoresearch-wave5/`에 생성됩니다. 결과의 `can_promote`는 항상 `false`이며, 후보가 검증 게이트를 통과하지 못하면 현금 대기를 선택합니다.
 
-### 10대 코인 실시간 스캔 단독 실행 (Dry-run)
-```bash
-.venv/bin/python scripts/scan_and_trade.py
-```
+## 안전 원칙
 
----
-
-## 🔒 보안 및 리스크 고지
-- 모든 API 키는 저장소에 커밋되지 않으며 환경변수로만 주입됩니다.
-- 본 시스템은 손실 방지를 위한 fail-closed 원칙을 준수하며, 가상자산 투자의 최종 책임은 사용자 본인에게 있습니다.
+- 주문 POST가 타임아웃 나면 재제출하지 않고 같은 `client_order_id`를 조회합니다.
+- 미확정 주문, 손상된 상태 파일, 경보·호가 조회 실패는 신규 진입을 차단합니다.
+- 손실 한도와 일일 진입 한도는 보호성 전량 매도를 막지 않습니다.
+- 실제 체결 손익은 OHLC 종가가 아니라 거래소 체결 원장에서 계산합니다.
+- 백테스트 성과는 미래 수익을 보장하지 않으며, 연구 결과는 자동으로 실전 설정을 변경하지 않습니다.

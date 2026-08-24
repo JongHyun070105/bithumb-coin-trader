@@ -20,6 +20,7 @@ from bithumb_coin_trader.execution import (
     UnsupportedPositionError,
     plan_execution,
 )
+from bithumb_coin_trader.fill_ledger import FillLedger
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.discord_notify import TradeEvent, TradeNotification
 from bithumb_coin_trader.mcp_client import (
@@ -90,6 +91,18 @@ class FakeClient:
     def call_tool(self, name: str, arguments: dict[str, str]) -> dict[str, str]:
         self.calls.append((name, arguments))
         return {"order_id": "server-order-id"}
+
+
+class SequentialOrderClient(FakeClient):
+    def __init__(self, orders: list[object]) -> None:
+        super().__init__()
+        self.orders = iter(orders)
+
+    def call_read_tool(self, name: str, arguments: dict[str, str]) -> object:
+        self.calls.append((name, arguments))
+        if name == "trade_get_order":
+            return next(self.orders)
+        return super().call_read_tool(name, arguments)
 
 
 class FakeReadClient:
@@ -197,6 +210,10 @@ class ExecutionGateTests(unittest.TestCase):
         return TradingSettings(mode=TradingMode.LIVE, live_trading_enabled=True)
 
     @staticmethod
+    def live_env() -> dict[str, str]:
+        return {"BITHUMB_LIVE_TRADING": "true", "BITHUMB_NEW_ENTRIES": "true"}
+
+    @staticmethod
     def risk_context(**overrides: object) -> RiskContext:
         values = {
             "requested_side": Signal.LONG,
@@ -261,7 +278,7 @@ class ExecutionGateTests(unittest.TestCase):
             self.client,
             state_path=self.state_path,
             settings=self.live_settings(),
-            env={"BITHUMB_LIVE_TRADING": "true"},
+            env=self.live_env(),
         )
         for token in (None, "confirm_bithumb_live_order", " CONFIRM_BITHUMB_LIVE_ORDER"):
             with self.subTest(token=token), self.assertRaises(LiveTradingDisabledError):
@@ -273,12 +290,33 @@ class ExecutionGateTests(unittest.TestCase):
                 )
         self.assertEqual(self.client.calls, [])
 
+    def test_new_exposure_requires_separate_exact_switch(self) -> None:
+        for env in (
+            {"BITHUMB_LIVE_TRADING": "true"},
+            {"BITHUMB_LIVE_TRADING": "true", "BITHUMB_NEW_ENTRIES": "TRUE"},
+        ):
+            with self.subTest(env=env), self.assertRaisesRegex(
+                LiveTradingDisabledError, "BITHUMB_NEW_ENTRIES"
+            ):
+                BithumbExecutor(
+                    self.client,
+                    state_path=self.state_path,
+                    settings=self.live_settings(),
+                    env=env,
+                ).execute(
+                    self.plan,
+                    risk_context=self.risk_context(),
+                    bot_state=self.state(),
+                    confirmation_token=LIVE_CONFIRMATION_TOKEN,
+                )
+        self.assertEqual(self.client.calls, [])
+
     def test_all_three_gates_allow_one_identified_call_on_fake_only(self) -> None:
         result = BithumbExecutor(
             self.client,
             state_path=self.state_path,
             settings=self.live_settings(),
-            env={"BITHUMB_LIVE_TRADING": "true"},
+            env=self.live_env(),
         ).execute(
             self.plan,
             risk_context=self.risk_context(),
@@ -301,7 +339,7 @@ class ExecutionGateTests(unittest.TestCase):
             self.client,
             state_path=self.state_path,
             settings=self.live_settings(),
-            env={"BITHUMB_LIVE_TRADING": "true"},
+            env=self.live_env(),
             notifier=notifier,
         ).execute(
             self.plan,
@@ -322,7 +360,7 @@ class ExecutionGateTests(unittest.TestCase):
                 self.client,
                 state_path=self.state_path,
                 settings=self.live_settings(),
-                env={"BITHUMB_LIVE_TRADING": "true"},
+                env=self.live_env(),
             ).execute(
                 plan,
                 risk_context=self.risk_context(),
@@ -339,7 +377,7 @@ class ExecutionGateTests(unittest.TestCase):
                 client,
                 state_path=self.state_path,
                 settings=self.live_settings(),
-                env={"BITHUMB_LIVE_TRADING": "true"},
+                env=self.live_env(),
                 notifier=notifier,
             ).execute(
                 self.plan,
@@ -365,7 +403,7 @@ class ExecutionGateTests(unittest.TestCase):
                 self.client,
                 state_path=self.state_path,
                 settings=self.live_settings(),
-                env={"BITHUMB_LIVE_TRADING": "true"},
+                env=self.live_env(),
             ).execute(
                 tampered,
                 risk_context=self.risk_context(),
@@ -388,7 +426,7 @@ class ExecutionGateTests(unittest.TestCase):
             client or self.client,
             state_path=self.state_path,
             settings=self.live_settings(),
-            env={"BITHUMB_LIVE_TRADING": "true"},
+            env=self.live_env(),
             notifier=notifier,
         ).execute(
             self.plan,
@@ -447,7 +485,7 @@ class ExecutionGateTests(unittest.TestCase):
                 self.client,
                 state_path=self.state_path,
                 settings=self.live_settings(),
-                env={"BITHUMB_LIVE_TRADING": "true"},
+                env=self.live_env(),
             ).execute(
                 larger_plan,
                 risk_context=self.risk_context(requested_notional_krw=10_001),
@@ -590,7 +628,7 @@ class ExecutionGateTests(unittest.TestCase):
                     self.client,
                     state_path=self.state_path,
                     settings=self.live_settings(),
-                    env={"BITHUMB_LIVE_TRADING": "true"},
+                    env=self.live_env(),
                 ).execute(
                     plan,
                     risk_context=risk,
@@ -639,6 +677,74 @@ class ExecutionGateTests(unittest.TestCase):
         self.assertEqual(reconciled.position, "long")
         self.assertEqual(reconciled.position_volume, "0.1")
         self.assertEqual(load_state(self.state_path), reconciled)
+
+    @patch("bithumb_coin_trader.execution.time.sleep", return_value=None)
+    def test_reconcile_until_terminal_polls_without_resubmission(self, _sleep: object) -> None:
+        active = self.state(
+            active_client_order_id="intent-gated",
+            pending_order_side="bid",
+            pending_market="KRW-BTC",
+            untracked_order=False,
+        )
+        save_state(self.state_path, active)
+        client = SequentialOrderClient(
+            [order_result("intent-gated", "wait"), order_result("intent-gated", "done")]
+        )
+        reconciled = BithumbExecutor(client, state_path=self.state_path).reconcile_until_terminal()
+        self.assertEqual(reconciled.position, "long")
+        self.assertEqual([name for name, _ in client.calls], ["trade_get_order", "trade_get_order"])
+
+    @patch("bithumb_coin_trader.execution.time.sleep", return_value=None)
+    @patch("bithumb_coin_trader.execution.time.monotonic", side_effect=[0.0, 2.0])
+    def test_reconcile_timeout_preserves_pending_state(
+        self, _clock: object, _sleep: object
+    ) -> None:
+        active = self.state(
+            active_client_order_id="intent-gated",
+            pending_order_side="bid",
+            pending_market="KRW-BTC",
+            untracked_order=True,
+        )
+        save_state(self.state_path, active)
+        client = SequentialOrderClient([order_result("intent-gated", "wait")])
+        with self.assertRaisesRegex(ExecutionError, "remained pending"):
+            BithumbExecutor(client, state_path=self.state_path).reconcile_until_terminal(
+                timeout_seconds=1.0
+            )
+        self.assertEqual(load_state(self.state_path), active)
+
+    def test_fill_ledger_is_persisted_before_pending_state_is_cleared(self) -> None:
+        active = self.state(
+            active_client_order_id="intent-gated",
+            pending_order_side="bid",
+            pending_market="KRW-BTC",
+        )
+        save_state(self.state_path, active)
+        payload = json.loads(order_result("intent-gated", "done")["content"][0]["text"])
+        payload.update(
+            {
+                "uuid": "order-1",
+                "paid_fee": "4",
+                "trades": [
+                    {
+                        "uuid": "trade-1",
+                        "market": "KRW-BTC",
+                        "side": "bid",
+                        "price": "100000",
+                        "volume": "0.1",
+                        "funds": "10000",
+                        "created_at": "2026-08-24T14:00:00+09:00",
+                    }
+                ],
+            }
+        )
+        client = FakeClient(order={"content": [{"type": "text", "text": json.dumps(payload)}]})
+        ledger = FillLedger(Path(self.temporary_directory.name) / "fills.jsonl")
+        reconciled = BithumbExecutor(
+            client, state_path=self.state_path, fill_ledger=ledger
+        ).reconcile_active_order()
+        self.assertIsNone(reconciled.active_client_order_id)
+        self.assertEqual(ledger.position("KRW-BTC").volume, Decimal("0.1"))
 
     def test_reconcile_filled_sell_updates_position_before_clearing(self) -> None:
         active = BotState(
@@ -748,7 +854,10 @@ class ReadSafetyTests(unittest.TestCase):
         self.assertIn("@bithumb-official/bithumb-mcp@0.8.5", DEFAULT_COMMAND)
         self.assertEqual(DEFAULT_COMMAND[DEFAULT_COMMAND.index("--modules") + 1], "account")
         self.assertEqual(DEFAULT_COMMAND[-1], "--read-only")
-        self.assertEqual(LIVE_COMMAND[LIVE_COMMAND.index("--modules") + 1], "account,trade")
+        self.assertEqual(
+            LIVE_COMMAND[LIVE_COMMAND.index("--modules") + 1],
+            "market,account,trade",
+        )
 
     def test_child_environment_is_minimal(self) -> None:
         child_env = minimal_child_env({"BITHUMB_ACCESS_KEY": "test-key"})

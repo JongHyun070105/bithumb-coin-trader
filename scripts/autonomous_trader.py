@@ -22,15 +22,19 @@ from __future__ import annotations
 
 import json
 import os
+import fcntl
+import math
+import re
+import tempfile
 import time
 import sys
 import traceback
 import urllib.request
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -39,6 +43,7 @@ if str(PROJECT_ROOT) not in sys.path:
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.data import fetch_minute_candles
 from bithumb_coin_trader.discord_notify import (
+    DiscordNotifier,
     SilentNotifier,
     notify_buy_entry,
     notify_partial_sell_exit,
@@ -49,6 +54,7 @@ from bithumb_coin_trader.discord_notify import (
 from bithumb_coin_trader.execution import (
     BithumbExecutor, TradeIntent, plan_execution, LIVE_CONFIRMATION_TOKEN,
 )
+from bithumb_coin_trader.fill_ledger import FillLedger
 from bithumb_coin_trader.mcp_client import McpStdioClient, LIVE_COMMAND
 from bithumb_coin_trader.models import Signal
 from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
@@ -60,7 +66,9 @@ from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
 STATE_PATH = PROJECT_ROOT / "state" / "live.json"
 TRADE_LOG_PATH = PROJECT_ROOT / "state" / "trade_history.jsonl"
+FILL_LEDGER_PATH = PROJECT_ROOT / "state" / "fill_ledger.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
+LOCK_PATH = PROJECT_ROOT / "state" / "autonomous_trader.lock"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 
 # ── Target & Risk Parameters (v4.2 Pro-Defense & High-Conviction Engine) ──
@@ -91,6 +99,8 @@ RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliatio
 MAX_CONSECUTIVE_ERRORS = 5   # 연속 에러 시 긴급 알림
 ERROR_COOLDOWN_SEC = 60      # 에러 발생 시 대기 시간
 FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
+NEW_ENTRIES_ENV = "BITHUMB_NEW_ENTRIES"
+PYRAMIDING_ENV = "BITHUMB_PYRAMIDING"
 
 EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
 
@@ -101,30 +111,108 @@ REST_PATH = PROJECT_ROOT / "state" / "market_rest.json"
 def load_market_rest() -> float:
     if REST_PATH.exists():
         try:
-            return float(json.loads(REST_PATH.read_text(encoding="utf-8")).get("rest_until", 0))
-        except Exception:
-            pass
+            payload = json.loads(REST_PATH.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict) or set(payload) != {"rest_until", "set_at"}:
+                raise ValueError("market rest state schema mismatch")
+            rest_until = float(payload["rest_until"])
+            set_at = float(payload["set_at"])
+            if not all(math.isfinite(value) and value >= 0 for value in (rest_until, set_at)):
+                raise ValueError("market rest timestamps must be finite and non-negative")
+            return rest_until
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError("market rest state is unreadable; entries remain blocked") from exc
     return 0.0
 
 
+def new_entries_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Fail closed unless live exposure increases are explicitly enabled."""
+    source = os.environ if env is None else env
+    return source.get(NEW_ENTRIES_ENV, "").strip().lower() == "true"
+
+
+def pyramiding_enabled(env: Mapping[str, str] | None = None) -> bool:
+    """Scale-ins stay disabled until LONG-to-LONG has a durable order state."""
+    del env
+    return False
+
+
+def _write_private_json(path: Path, payload: Mapping[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+        os.chmod(path, 0o600)
+    finally:
+        if os.path.exists(temporary_name):
+            os.unlink(temporary_name)
+
+
+def acquire_daemon_lock(path: Path = LOCK_PATH) -> int:
+    """Hold a non-blocking process lock for the daemon lifetime."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except Exception:
+        os.close(descriptor)
+        raise RuntimeError("another autonomous trader instance is already running")
+    return descriptor
+
+
 def set_market_rest(seconds: int = LOSS_COOLDOWN_SEC):
-    REST_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REST_PATH.write_text(json.dumps({"rest_until": time.time() + seconds, "set_at": time.time()}), encoding="utf-8")
+    now = time.time()
+    _write_private_json(REST_PATH, {"rest_until": now + seconds, "set_at": now})
 
 def load_recent_exits() -> dict[str, float]:
     if EXITS_PATH.exists():
         try:
-            return json.loads(EXITS_PATH.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+            payload = json.loads(EXITS_PATH.read_text(encoding="utf-8"))
+            if not isinstance(payload, dict):
+                raise ValueError("recent exits state must be an object")
+            parsed = {str(market): float(timestamp) for market, timestamp in payload.items()}
+            if any(
+                not market.startswith("KRW-")
+                or not math.isfinite(timestamp)
+                or timestamp < 0
+                for market, timestamp in parsed.items()
+            ):
+                raise ValueError("recent exits contain an invalid market or timestamp")
+            return parsed
+        except (OSError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise RuntimeError("recent exits state is unreadable; entries remain blocked") from exc
     return {}
 
 
 def record_exit(market: str):
     exits = load_recent_exits()
     exits[market] = time.time()
-    EXITS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    EXITS_PATH.write_text(json.dumps(exits, indent=2), encoding="utf-8")
+    _write_private_json(EXITS_PATH, exits)
+
+
+def account_ledger_exit(portfolio: "PortfolioState", market: str, position: Any) -> float:
+    """Apply cumulative ledger P&L exactly once, including loss cooldown state."""
+    cumulative = Decimal(position.realized_pnl)
+    previous = Decimal(portfolio.accounted_realized_pnl.get(market, "0"))
+    delta = cumulative - previous
+    if delta == 0:
+        return 0.0
+    pnl = float(delta)
+    portfolio.total_pnl_krw += pnl
+    portfolio.accounted_realized_pnl[market] = format(cumulative, "f")
+    if pnl >= 0:
+        portfolio.winning_trades += 1
+    else:
+        portfolio.losing_trades += 1
+        set_market_rest(LOSS_COOLDOWN_SEC)
+    record_exit(market)
+    return pnl
 
 
 @dataclass
@@ -152,19 +240,96 @@ class PortfolioState:
     entry_timestamp: float = 0.0       # 진입 시각 (타임컷 추적)
     partial_tp_taken: bool = False     # 50% 분할 익절 완료 여부
     breakeven_locked: bool = False     # +1.0% 도달 시 본전 스탑 락 여부
+    legacy_position: bool = False      # fill-ledger 도입 전 포지션의 1회성 이관 표시
+    accounted_realized_pnl: dict[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        nonnegative_numbers = (
+            self.total_capital,
+            self.cash_available,
+            self.entry_price,
+            self.highest_price,
+            self.start_of_day_equity,
+            self.peak_equity,
+            self.goal_target,
+            self.entry_timestamp,
+        )
+        if any(isinstance(value, bool) or not isinstance(value, (int, float)) for value in nonnegative_numbers):
+            raise TypeError("portfolio numeric state must use int or float values")
+        if any(not math.isfinite(float(value)) or float(value) < 0 for value in nonnegative_numbers):
+            raise ValueError("portfolio numeric state must be finite and non-negative")
+        if isinstance(self.total_pnl_krw, bool) or not isinstance(self.total_pnl_krw, (int, float)):
+            raise TypeError("portfolio P&L must use an int or float value")
+        if not math.isfinite(float(self.total_pnl_krw)):
+            raise ValueError("portfolio P&L must be finite")
+        if not isinstance(self.position_volume, str):
+            raise TypeError("portfolio position volume must be a decimal string")
+        volume = Decimal(str(self.position_volume))
+        if not volume.is_finite() or volume < 0:
+            raise ValueError("portfolio position volume must be finite and non-negative")
+        counters = (
+            self.total_trades,
+            self.winning_trades,
+            self.losing_trades,
+            self.daily_entries,
+            self.milestone_count,
+            self.pyramiding_count,
+        )
+        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counters):
+            raise ValueError("portfolio counters must be non-negative integers")
+        if not isinstance(self.active_market, str) or (
+            self.active_market and not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", self.active_market)
+        ):
+            raise ValueError("active market must be a KRW market")
+        flags = (self.partial_tp_taken, self.breakeven_locked, self.legacy_position)
+        if any(type(value) is not bool for value in flags):
+            raise TypeError("portfolio flags must be booleans")
+        if self.active_market:
+            if volume <= 0 or self.entry_price <= 0:
+                raise ValueError("active portfolio requires positive volume and entry price")
+        elif volume != 0 or self.entry_price != 0 or self.legacy_position:
+            raise ValueError("flat portfolio cannot retain position accounting")
+        if not isinstance(self.accounted_realized_pnl, dict):
+            raise TypeError("accounted realized P&L must be an object")
+        for market, value in self.accounted_realized_pnl.items():
+            if not isinstance(market, str) or not re.fullmatch(r"KRW-[A-Z0-9]{1,20}", market):
+                raise ValueError("accounted realized P&L contains an invalid market")
+            if not isinstance(value, str):
+                raise TypeError("accounted realized P&L values must be decimal strings")
+            parsed = Decimal(value)
+            if not parsed.is_finite():
+                raise ValueError("accounted realized P&L values must be finite")
 
     def save(self, path: Path):
+        self.__post_init__()
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(self), indent=2, ensure_ascii=False) + "\n")
+        descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(asdict(self), handle, indent=2, ensure_ascii=False)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_name, path)
+            os.chmod(path, 0o600)
+        finally:
+            if os.path.exists(temporary_name):
+                os.unlink(temporary_name)
 
     @staticmethod
     def load(path: Path) -> "PortfolioState":
         if path.exists():
-            try:
-                data = json.loads(path.read_text())
-                return PortfolioState(**{k: v for k, v in data.items() if k in PortfolioState.__dataclass_fields__})
-            except Exception:
-                pass
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(data, dict):
+                raise ValueError("portfolio state must be a JSON object")
+            unknown = set(data) - set(PortfolioState.__dataclass_fields__)
+            if unknown:
+                raise ValueError(f"portfolio state contains unknown fields: {sorted(unknown)!r}")
+            if "legacy_position" not in data:
+                data["legacy_position"] = bool(
+                    data.get("active_market") and Decimal(str(data.get("position_volume", "0"))) > 0
+                )
+            return PortfolioState(**data)
         return PortfolioState()
 
 
@@ -176,12 +341,19 @@ def get_realtime_ticker_price(market: str) -> float:
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if isinstance(data, list) and data:
-                return float(data[0]["trade_price"])
+                item = data[0]
+                price = float(item["trade_price"])
+                timestamp_ms = float(item["timestamp"])
+                if (
+                    item.get("market") == market
+                    and math.isfinite(price)
+                    and price > 0
+                    and _bithumb_timestamp_is_fresh(timestamp_ms)
+                ):
+                    return price
     except Exception:
         pass
-    # Fallback to candle
-    candles = fetch_minute_candles(market, 1, 3)
-    return candles[-1].close if candles else 0.0
+    raise RuntimeError(f"fresh positive ticker unavailable for {market}")
 
 def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 25) -> list[str]:
     """Fetch top liquid markets by 24h volume from Bithumb."""
@@ -203,8 +375,21 @@ def fetch_dynamic_universe(min_24h_krw: float = 500_000_000, max_markets: int = 
 
         combined = list(dict.fromkeys(DEFAULT_MARKETS + top_markets))
         return combined[:max_markets]
-    except Exception:
-        return DEFAULT_MARKETS
+    except Exception as exc:
+        print(f"  ⚠️ Dynamic universe unavailable; blocking new entries: {type(exc).__name__}")
+        return []
+
+
+def _bithumb_timestamp_is_fresh(timestamp_ms: float) -> bool:
+    """Accept documented epoch-ms and Bithumb's observed KST-shifted epoch-ms."""
+    if not math.isfinite(timestamp_ms):
+        return False
+    now_ms = time.time() * 1000.0
+    kst_offset_ms = 9 * 60 * 60 * 1000
+    return any(
+        0 <= now_ms - candidate <= 60_000
+        for candidate in (timestamp_ms, timestamp_ms - kst_offset_ms)
+    )
 
 
 def log_trade(action: str, market: str, price: float, volume: str, amount_krw: float, reason: str, pnl: float = 0.0):
@@ -235,7 +420,7 @@ def log_trade(action: str, market: str, price: float, volume: str, amount_krw: f
             pass
 
 
-def get_market_orderbook_ratio(client: Any, market: str) -> float:
+def get_market_orderbook_ratio(client: Any, market: str) -> float | None:
     """Fetch 30-level orderbook and return Bid/(Bid+Ask) ratio (0.0 to 1.0) with ultra-fast REST."""
     try:
         url = f"https://api.bithumb.com/v1/orderbook?markets={market}"
@@ -244,30 +429,59 @@ def get_market_orderbook_ratio(client: Any, market: str) -> float:
             payload = json.loads(resp.read().decode("utf-8"))
             if isinstance(payload, list) and payload:
                 item = payload[0]
+                timestamp_ms = float(item.get("timestamp", float("nan")))
+                if (
+                    item.get("market") != market
+                    or not _bithumb_timestamp_is_fresh(timestamp_ms)
+                ):
+                    return None
                 total_ask = float(item.get("total_ask_size", 0.0))
                 total_bid = float(item.get("total_bid_size", 0.0))
+                if (
+                    not math.isfinite(total_ask)
+                    or not math.isfinite(total_bid)
+                    or total_ask < 0
+                    or total_bid < 0
+                ):
+                    return None
                 total = total_ask + total_bid
                 if total > 0:
                     return total_bid / total
     except Exception:
         pass
-    return 0.50
+    return None
 
 
-def get_market_warnings(client: McpStdioClient) -> set[str]:
+def get_market_warnings(client: McpStdioClient) -> set[str] | None:
     """Fetch list of markets under warning or investment alert."""
     warned = set()
     try:
         res = client.call_read_tool("market_get_warnings", {})
-        text = res["content"][0]["text"]
-        payload = json.loads(text).get("data", {}).get("data", [])
-        if isinstance(payload, list):
-            for item in payload:
-                m = item.get("market")
-                if m:
-                    warned.add(m)
-    except Exception:
-        pass
+        if not isinstance(res, Mapping):
+            raise ValueError("warning result must be an object")
+        content = res.get("content")
+        if not isinstance(content, list) or len(content) != 1:
+            raise ValueError("warning result must contain one block")
+        block = content[0]
+        if not isinstance(block, Mapping) or block.get("type") != "text" or not isinstance(block.get("text"), str):
+            raise ValueError("warning result must be JSON text")
+        payload: Any = json.loads(block["text"])
+        for _ in range(2):
+            if not isinstance(payload, Mapping) or "data" not in payload:
+                raise ValueError("warning payload wrapper is missing")
+            payload = payload["data"]
+        if not isinstance(payload, list):
+            raise ValueError("warning payload must be a list")
+        for item in payload:
+            if not isinstance(item, Mapping):
+                raise ValueError("warning item must be an object")
+            market = item.get("market")
+            if not isinstance(market, str) or not market.startswith("KRW-"):
+                raise ValueError("warning item market is invalid")
+            warned.add(market)
+    except Exception as exc:
+        print(f"  ⚠️ Warning feed unavailable; blocking new entries: {type(exc).__name__}")
+        return None
     return warned
 
 
@@ -290,7 +504,11 @@ def get_recent_notices(client: McpStdioClient) -> list[str]:
 def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict[str, Any]]]:
     """Scan dynamic universe and return (sorted_analyses, top_candidates)."""
     active_universe = fetch_dynamic_universe(min_24h_krw=500_000_000, max_markets=25)
+    if not active_universe:
+        return [], []
     warned_markets = get_market_warnings(client)
+    if warned_markets is None:
+        return [], []
 
     analyses = []
     for m in active_universe:
@@ -299,6 +517,8 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
         res = analyze_market(m)
         if res:
             ob_ratio = get_market_orderbook_ratio(client, m)
+            if ob_ratio is None:
+                continue
             ob_adj = (ob_ratio - 0.50) * 20.0
             final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
             
@@ -322,99 +542,261 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
     return analyses, top_candidates
 
 
+def _read_asset_balances(
+    client: McpStdioClient, *, required_market: str | None = None
+) -> dict[str, Decimal]:
+    result = client.call_read_tool("account_get_assets", {})
+    if not isinstance(result, Mapping):
+        raise RuntimeError("account assets result must be an object")
+    content = result.get("content")
+    if not isinstance(content, list) or len(content) != 1:
+        raise RuntimeError("account assets must contain exactly one content block")
+    block = content[0]
+    if not isinstance(block, Mapping) or block.get("type") != "text" or not isinstance(block.get("text"), str):
+        raise RuntimeError("account assets content must be JSON text")
+    payload: Any = json.loads(block["text"])
+    for _ in range(2):
+        if isinstance(payload, Mapping) and "data" in payload:
+            payload = payload["data"]
+    if not isinstance(payload, list):
+        raise RuntimeError("account assets payload must be a list")
+    balances: dict[str, Decimal] = {}
+    for item in payload:
+        if not isinstance(item, Mapping):
+            raise RuntimeError("account asset item must be an object")
+        currency = item.get("currency")
+        if not isinstance(currency, str) or not currency or currency in balances:
+            raise RuntimeError("account asset currencies must be unique non-empty strings")
+        try:
+            balance = Decimal(str(item["balance"]))
+        except (KeyError, ArithmeticError, ValueError) as exc:
+            raise RuntimeError("account asset balance is invalid") from exc
+        if not balance.is_finite() or balance < 0:
+            raise RuntimeError("account asset balance must be finite and non-negative")
+        balances[currency] = balance
+    if "KRW" not in balances:
+        raise RuntimeError("account assets are missing KRW")
+    if required_market:
+        currency = required_market.removeprefix("KRW-")
+        if currency not in balances:
+            raise RuntimeError(f"account assets are missing {currency}")
+    return balances
+
+
 def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -> None:
     """
     거래소 실잔고를 Source of Truth로 하여 portfolio.json을 자동 교정합니다.
     - 크래시 후 재시작 시 포지션을 잃지 않음
     - 수동 매매 후에도 자동 반영
     """
-    try:
-        assets_res = client.call_read_tool("account_get_assets", {})
-        assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
+    state = load_state(STATE_PATH)
+    if state.active_client_order_id is not None or state.untracked_order:
+        raise RuntimeError("account reconciliation is blocked by a pending order")
+    required_market = portfolio.active_market or None
+    balances = _read_asset_balances(client, required_market=required_market)
 
-        krw_balance = 0.0
-        coin_holdings = {}  # currency -> balance
-        for a in assets:
-            currency = a.get("currency", "")
-            balance = float(a.get("balance", 0))
-            if currency == "KRW":
-                krw_balance = balance
-            elif balance > 0 and currency not in ("P",):  # P(포인트) 제외
-                coin_holdings[currency] = balance
+    krw_balance = float(balances["KRW"])
+    coin_holdings = {}  # currency -> balance
+    for currency, decimal_balance in balances.items():
+        balance = float(decimal_balance)
+        if currency != "KRW" and balance > 0 and currency not in ("P",):
+            coin_holdings[currency] = balance
 
-        # 현금 동기화
-        if abs(portfolio.cash_available - krw_balance) > 1.0:
-            print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
-            portfolio.cash_available = krw_balance
+    # 현금 동기화
+    if abs(portfolio.cash_available - krw_balance) > 1.0:
+        print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
+        portfolio.cash_available = krw_balance
 
-        # 포지션 동기화
-        state = load_state(STATE_PATH)
-        active_currency = portfolio.active_market.replace("KRW-", "") if portfolio.active_market else ""
+    # 포지션 동기화
+    active_currency = portfolio.active_market.replace("KRW-", "") if portfolio.active_market else ""
 
-        if state.position == "long" and active_currency:
-            actual_balance = coin_holdings.get(active_currency, 0.0)
-            tracked_volume = float(portfolio.position_volume)
+    if state.position == "long" and active_currency:
+        unexpected = set(coin_holdings) - {active_currency}
+        if unexpected:
+            raise RuntimeError(f"untracked exchange holdings block reconciliation: {sorted(unexpected)}")
+        actual_balance = coin_holdings.get(active_currency, 0.0)
+        tracked_volume = float(portfolio.position_volume)
+        ledger_position = FillLedger(FILL_LEDGER_PATH).position(portfolio.active_market)
+        if ledger_position.volume > 0 and Decimal(str(actual_balance)) != ledger_position.volume:
+            raise RuntimeError("exchange balance conflicts with the fill ledger")
 
-            if actual_balance == 0.0 and tracked_volume > 0:
-                # 거래소에 코인이 없는데 long이라고 기록됨 → flat으로 교정
-                print(f"  ⚠️ 포지션 교정: {portfolio.active_market} long → flat (거래소 잔고 없음)")
-                portfolio.active_market = ""
-                portfolio.entry_price = 0.0
-                portfolio.position_volume = "0"
-                portfolio.highest_price = 0.0
-                portfolio.pyramiding_count = 0
-                portfolio.partial_tp_taken = False
-                portfolio.entry_timestamp = 0.0
-                save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
+        if actual_balance == 0.0 and tracked_volume > 0:
+            print(f"  ⚠️ 포지션 교정: {portfolio.active_market} long → flat (거래소 잔고 없음)")
+            portfolio.active_market = ""
+            portfolio.entry_price = 0.0
+            portfolio.position_volume = "0"
+            portfolio.highest_price = 0.0
+            portfolio.pyramiding_count = 0
+            portfolio.partial_tp_taken = False
+            portfolio.entry_timestamp = 0.0
+            portfolio.legacy_position = False
+            save_state(STATE_PATH, BotState(version=1, position="flat", position_volume="0"))
 
-            elif abs(actual_balance - tracked_volume) / max(tracked_volume, 0.0001) > 0.01:
-                # 1% 이상 차이나면 거래소 잔고로 교정
-                print(f"  🔄 수량 불일치 교정: {tracked_volume} → {actual_balance}")
-                portfolio.position_volume = str(actual_balance)
-                save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(actual_balance)))
+        elif abs(actual_balance - tracked_volume) / max(tracked_volume, 0.0001) > 0.01:
+            print(f"  🔄 수량 불일치 교정: {tracked_volume} → {actual_balance}")
+            portfolio.position_volume = str(actual_balance)
+            save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(actual_balance)))
 
-        elif state.position == "flat" and not active_currency:
-            # flat인데 코인을 보유하고 있으면? → 고아 포지션 존재
-            if coin_holdings:
-                orphans = list(coin_holdings.keys())
-                print(f"  ⚠️ 고아 코인 감지: {orphans} (flat 상태인데 코인 보유)")
-                # 가장 큰 포지션을 active로 복구
-                biggest = max(coin_holdings.items(), key=lambda x: x[1])
-                market = f"KRW-{biggest[0]}"
-                volume = biggest[1]
-                try:
-                    candles = fetch_minute_candles(market, 1, 5)
-                    price = candles[-1].close
-                    portfolio.active_market = market
-                    portfolio.entry_price = price  # 평단가 모르니 현재가로 대체
-                    portfolio.position_volume = str(volume)
-                    portfolio.highest_price = price
-                    portfolio.pyramiding_count = 1
-                    portfolio.partial_tp_taken = False
-                    portfolio.entry_timestamp = time.time()
-                    save_state(STATE_PATH, BotState(version=1, position="long", position_volume=str(volume)))
-                    print(f"  ✅ 고아 포지션 복구: {market} {volume} @ {price:,.0f} KRW")
-                except Exception:
-                    print(f"  ⚠️ 고아 포지션 복구 실패, 수동 확인 필요")
+    elif state.position == "flat" and not active_currency:
+        if coin_holdings:
+            raise RuntimeError(
+                f"untracked exchange holdings require manual recovery: {sorted(coin_holdings)}"
+            )
 
-        # 총자산 재계산
-        total = krw_balance
-        for curr, bal in coin_holdings.items():
-            try:
-                candles = fetch_minute_candles(f"KRW-{curr}", 1, 3)
-                total += bal * candles[-1].close
-            except Exception:
-                pass
-        if abs(portfolio.total_capital - total) > 10.0:
-            portfolio.total_capital = total
+    # 총자산 재계산
+    total = krw_balance
+    for curr, bal in coin_holdings.items():
+        candles = fetch_minute_candles(f"KRW-{curr}", 1, 3)
+        if not candles:
+            raise RuntimeError(f"missing valuation candle for KRW-{curr}")
+        total += bal * candles[-1].close
+    if abs(portfolio.total_capital - total) > 10.0:
+        portfolio.total_capital = total
 
-        # peak equity 업데이트
-        if total > portfolio.peak_equity:
-            portfolio.peak_equity = total
+    # peak equity 업데이트
+    if total > portfolio.peak_equity:
+        portfolio.peak_equity = total
 
+    portfolio.save(PORTFOLIO_PATH)
+
+
+def repair_portfolio_invariant(client: McpStdioClient, portfolio: PortfolioState) -> None:
+    """Repair only ledger-proven cross-file crash windows; otherwise fail closed."""
+    state = load_state(STATE_PATH)
+    if state.active_client_order_id is not None or state.untracked_order:
+        raise RuntimeError("portfolio invariant repair requires a terminal order state")
+    ledger = FillLedger(FILL_LEDGER_PATH)
+    ledger_positions = {
+        market: position
+        for market, position in ledger.positions().items()
+        if position.volume > 0
+    }
+
+    if state.position == "long":
+        if portfolio.active_market:
+            market = portfolio.active_market
+        elif len(ledger_positions) == 1:
+            market = next(iter(ledger_positions))
+        else:
+            raise RuntimeError("long state cannot be mapped to exactly one ledger market")
+        balances = _read_asset_balances(client, required_market=market)
+        position = ledger.position(market)
+        if position.volume > 0:
+            currency = market.removeprefix("KRW-")
+            if balances[currency] != position.volume:
+                raise RuntimeError("exchange balance conflicts with the fill ledger")
+            portfolio.active_market = market
+            portfolio.position_volume = format(position.volume, "f")
+            portfolio.entry_price = float(position.average_cost)
+            portfolio.highest_price = max(portfolio.highest_price, portfolio.entry_price)
+            portfolio.legacy_position = False
+            if Decimal(state.position_volume) != position.volume:
+                save_state(
+                    STATE_PATH,
+                    BotState(version=1, position="long", position_volume=format(position.volume, "f")),
+                )
+        elif not portfolio.legacy_position:
+            raise RuntimeError("long state has no fill-ledger position or legacy marker")
+        portfolio.cash_available = float(balances["KRW"])
         portfolio.save(PORTFOLIO_PATH)
-    except Exception as exc:
-        print(f"  ⚠️ Reconciliation error (non-fatal): {exc}")
+        return
+
+    if ledger_positions:
+        raise RuntimeError("flat state conflicts with a positive fill-ledger position")
+    if portfolio.active_market:
+        balances = _read_asset_balances(client)
+        market = portfolio.active_market
+        currency = market.removeprefix("KRW-")
+        if balances.get(currency, Decimal("0")) > 0:
+            raise RuntimeError("flat state conflicts with an exchange asset balance")
+        if not portfolio.legacy_position:
+            account_ledger_exit(portfolio, market, ledger.position(market))
+        portfolio.active_market = ""
+        portfolio.entry_price = 0.0
+        portfolio.position_volume = "0"
+        portfolio.highest_price = 0.0
+        portfolio.pyramiding_count = 0
+        portfolio.partial_tp_taken = False
+        portfolio.breakeven_locked = False
+        portfolio.entry_timestamp = 0.0
+        portfolio.legacy_position = False
+        portfolio.cash_available = float(balances["KRW"])
+        portfolio.total_capital = portfolio.cash_available
+        portfolio.save(PORTFOLIO_PATH)
+
+
+def recover_pending_order(
+    client: McpStdioClient,
+    portfolio: PortfolioState,
+    settings: TradingSettings,
+    *,
+    notifier: Any,
+) -> bool:
+    """Resolve a persisted order before any normal position or entry logic runs."""
+    pending = load_state(STATE_PATH)
+    if pending.active_client_order_id is None:
+        return True
+    market = pending.pending_market
+    side = pending.pending_order_side
+    if not market or side not in {"bid", "ask"}:
+        raise RuntimeError("pending order metadata is incomplete")
+
+    ledger = FillLedger(FILL_LEDGER_PATH)
+    ledger_before = ledger.position(market)
+    executor = BithumbExecutor(
+        client=client,
+        state_path=STATE_PATH,
+        settings=settings,
+        notifier=notifier,
+        fill_ledger=ledger,
+    )
+    updated = executor.reconcile_until_terminal(timeout_seconds=5.0)
+
+    balances = _read_asset_balances(
+        client, required_market=market if updated.position == "long" else None
+    )
+    portfolio.cash_available = float(balances.get("KRW", Decimal("0")))
+
+    if updated.position == "long":
+        position = ledger.position(market)
+        if side == "bid" and position.volume <= 0:
+            raise RuntimeError("completed buy has no immutable fill-ledger position")
+        volume = position.volume if position.volume > 0 else Decimal(updated.position_volume)
+        portfolio.active_market = market
+        portfolio.position_volume = format(volume, "f")
+        if position.average_cost > 0:
+            portfolio.entry_price = float(position.average_cost)
+        portfolio.highest_price = max(portfolio.highest_price, portfolio.entry_price)
+        if side == "bid":
+            portfolio.total_trades += 1
+            portfolio.daily_entries += 1
+            portfolio.legacy_position = False
+            portfolio.entry_timestamp = portfolio.entry_timestamp or time.time()
+            portfolio.legacy_position = False
+        current_price = get_realtime_ticker_price(market)
+        portfolio.total_capital = portfolio.cash_available + float(volume) * current_price
+        portfolio.save(PORTFOLIO_PATH)
+        return True
+
+    if side == "ask":
+        ledger_after = ledger.position(market)
+        if ledger_before.volume > 0:
+            account_ledger_exit(portfolio, market, ledger_after)
+        elif not portfolio.legacy_position:
+            raise RuntimeError("sell recovery lacks a ledger position or legacy marker")
+        portfolio.active_market = ""
+        portfolio.entry_price = 0.0
+        portfolio.position_volume = "0"
+        portfolio.highest_price = 0.0
+        portfolio.pyramiding_count = 0
+        portfolio.partial_tp_taken = False
+        portfolio.breakeven_locked = False
+        portfolio.entry_timestamp = 0.0
+        portfolio.legacy_position = False
+        portfolio.total_capital = portfolio.cash_available
+        portfolio.save(PORTFOLIO_PATH)
+        record_exit(market)
+    return True
 
 
 def calculate_dynamic_order_amount(portfolio: PortfolioState, is_pyramiding: bool = False) -> int:
@@ -457,6 +839,9 @@ def execute_buy(
     is_pyramiding: bool = False,
 ) -> bool:
     """Execute a market buy order (Initial or Pyramiding Scale-In) and send rich Discord alert."""
+    if is_pyramiding:
+        print("  🛑 피라미딩 비활성화: LONG-to-LONG 주문 상태 머신 구현 전에는 실행하지 않음")
+        return False
     action_label = "피라미딩(불타기 2차 매수)" if is_pyramiding else "신규 매수"
     print(f"\n🟢 EXECUTING BUY ({action_label}): {market} for {amount_krw:,} KRW")
 
@@ -494,50 +879,53 @@ def execute_buy(
         print(f"  ❌ Risk gate rejected: {decision.reasons}")
         return False
 
-    # 피라미딩 시 백업 생성 (크래시 복구용)
-    backup_state = load_state(STATE_PATH)
+    current_state = load_state(STATE_PATH)
+    if (
+        current_state.position != "flat"
+        or current_state.active_client_order_id is not None
+        or current_state.pending_order_side is not None
+        or current_state.pending_market is not None
+        or current_state.untracked_order
+    ):
+        print("  🛑 신규 매수 차단: 기존 포지션 또는 미확정 주문 상태가 남아 있음")
+        return False
 
     try:
-        # Save temp flat state for execution validation
-        temp_state = BotState(version=1, position="flat", position_volume="0")
-        save_state(STATE_PATH, temp_state)
-
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
+            fill_ledger = FillLedger(FILL_LEDGER_PATH)
+            executor = BithumbExecutor(
+                client=client,
+                state_path=STATE_PATH,
+                settings=settings,
+                notifier=DiscordNotifier(),
+                fill_ledger=fill_ledger,
+            )
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
-                bot_state=temp_state,
+                bot_state=current_state,
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
             print(f"  🎉 Buy order submitted: {result.submitted}")
 
             # 체결 확인
-            updated = executor.reconcile_active_order()
+            updated = executor.reconcile_until_terminal()
+            if updated.position != "long":
+                print("  ⚠️ 매수 주문이 체결 없이 종료되어 포지션을 생성하지 않음")
+                return False
 
             # 거래소 실잔고 조회 (Source of Truth)
-            assets_res = client.call_read_tool("account_get_assets", {})
-            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
             currency = market.replace("KRW-", "")
-            coin_asset = next((a for a in assets if a["currency"] == currency), None)
-            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
+            balances = _read_asset_balances(client, required_market=market)
 
-            tot_vol = coin_asset["balance"] if coin_asset else updated.position_volume
-            tot_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available - amount_krw)
-
-            candles = fetch_minute_candles(market, 1, 5)
-            fill_price = candles[-1].close
-
-            # Calculate weighted average entry price
-            if is_pyramiding and float(portfolio.position_volume) > 0:
-                prev_vol = float(portfolio.position_volume)
-                prev_val = prev_vol * portfolio.entry_price
-                new_vol = float(tot_vol) - prev_vol
-                weighted_entry = (prev_val + amount_krw) / float(tot_vol) if float(tot_vol) > 0 else fill_price
-                portfolio.pyramiding_count += 1
-            else:
-                weighted_entry = fill_price
-                portfolio.pyramiding_count = 1
+            ledger_position = fill_ledger.position(market)
+            tot_vol = format(ledger_position.volume, "f")
+            if balances[currency] != ledger_position.volume:
+                raise RuntimeError("exchange balance does not match the immutable fill ledger")
+            tot_krw = float(balances["KRW"])
+            weighted_entry = float(ledger_position.average_cost)
+            fill_price = weighted_entry
+            portfolio.pyramiding_count = 1
 
             new_state = BotState(version=1, position="long", position_volume=str(tot_vol))
             save_state(STATE_PATH, new_state)
@@ -575,13 +963,6 @@ def execute_buy(
             return True
     except Exception as exc:
         print(f"  ❌ Buy error: {exc}")
-        # 피라미딩 실패 시 원래 상태 복원
-        if is_pyramiding:
-            try:
-                save_state(STATE_PATH, backup_state)
-                print(f"  🔄 피라미딩 실패 - 원래 상태 복원 완료")
-            except Exception:
-                pass
     return False
 
 
@@ -620,7 +1001,15 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
+            fill_ledger = FillLedger(FILL_LEDGER_PATH)
+            ledger_before = fill_ledger.position(market)
+            executor = BithumbExecutor(
+                client=client,
+                state_path=STATE_PATH,
+                settings=settings,
+                notifier=DiscordNotifier(),
+                fill_ledger=fill_ledger,
+            )
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
@@ -630,30 +1019,48 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             print(f"  🎉 Sell order submitted: {result.submitted}")
 
             # 체결 확인 (v4.0: reconcile 추가)
-            executor.reconcile_active_order()
+            updated = executor.reconcile_until_terminal()
 
             # 거래소 실잔고 조회로 정확한 매도 대금 확인
-            assets_res = client.call_read_tool("account_get_assets", {})
-            assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
-            krw_asset = next((a for a in assets if a["currency"] == "KRW"), None)
-            actual_krw = float(krw_asset["balance"]) if krw_asset else (portfolio.cash_available + val_krw)
+            balances = _read_asset_balances(
+                client, required_market=market if updated.position == "long" else None
+            )
+            actual_krw = float(balances["KRW"])
 
+            if updated.position != "flat":
+                remaining = Decimal(updated.position_volume)
+                portfolio.cash_available = actual_krw
+                portfolio.position_volume = format(remaining, "f")
+                portfolio.total_capital = actual_krw + float(remaining) * current_price
+                portfolio.save(PORTFOLIO_PATH)
+                print(
+                    "  ⚠️ 매도 주문이 부분 체결/취소되어 남은 포지션을 보존함: "
+                    f"{remaining}"
+                )
+                return False
+
+            ledger_after = fill_ledger.position(market)
             entry_val = float(vol) * portfolio.entry_price
             actual_val = actual_krw - portfolio.cash_available  # 실제 매도 대금
-            pnl = actual_val - entry_val if actual_val > 0 else val_krw - entry_val
+            if ledger_before.volume > 0:
+                pnl = account_ledger_exit(portfolio, market, ledger_after)
+            elif portfolio.legacy_position:
+                # One-time compatibility path for the position that predates
+                # the immutable fill ledger. New positions never use estimates.
+                pnl = actual_val - entry_val if actual_val > 0 else val_krw - entry_val
+            else:
+                raise RuntimeError("sell fill is missing from the immutable ledger")
             pnl_pct = (current_price - portfolio.entry_price) / portfolio.entry_price * 100.0
 
             portfolio.cash_available = actual_krw
             portfolio.total_capital = actual_krw
-            portfolio.total_pnl_krw += pnl
-            if pnl >= 0 or "BREAKEVEN-LOCK" in reason:
-                portfolio.winning_trades += 1
-                if "BREAKEVEN-LOCK" in reason:
-                    print(f"  🛡️ 본전 방어 무위험 탈출 성공 (원금 100% 보존 완료)")
-            else:
-                portfolio.losing_trades += 1
-                set_market_rest(LOSS_COOLDOWN_SEC)
-                print(f"  🛡️ 손절 방어 발생! 시장 하락 충격 진정을 위해 15분간(900초) 신규 진입 일시정지 (Market Rest)")
+            if ledger_before.volume == 0:
+                portfolio.total_pnl_krw += pnl
+                if pnl >= 0 or "BREAKEVEN-LOCK" in reason:
+                    portfolio.winning_trades += 1
+                else:
+                    portfolio.losing_trades += 1
+                    set_market_rest(LOSS_COOLDOWN_SEC)
             portfolio.active_market = ""
             portfolio.entry_price = 0.0
             portfolio.position_volume = "0"
@@ -662,6 +1069,7 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
             portfolio.partial_tp_taken = False
             portfolio.breakeven_locked = False
             portfolio.entry_timestamp = 0.0
+            portfolio.legacy_position = False
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -694,6 +1102,10 @@ def execute_sell(portfolio: PortfolioState, settings: TradingSettings, reason: s
 
 def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, ratio: float = 0.5, reason: str = "🎯 1차 50% 분할 익절") -> bool:
     """Execute a partial market sell order (e.g. 50%) for risk-free profit locking."""
+    print("  🛑 부분매도 비활성화: 부분체결 원장/복구 상태 머신 구현 전에는 실행하지 않음")
+    return False
+
+    # Retained temporarily as migration reference; unreachable by design.
     state = load_state(STATE_PATH)
     if state.position != "long":
         print("  ⚠️ Not in LONG position, skipping partial sell")
@@ -737,7 +1149,7 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
 
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
-            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=SilentNotifier())
+            executor = BithumbExecutor(client=client, state_path=STATE_PATH, settings=settings, notifier=DiscordNotifier())
             result = executor.execute(
                 plan,
                 risk_context=risk_context,
@@ -745,7 +1157,7 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
                 confirmation_token=LIVE_CONFIRMATION_TOKEN,
             )
             print(f"  🎉 Partial sell order submitted: {result.submitted}")
-            executor.reconcile_active_order()
+            executor.reconcile_until_terminal()
 
             assets_res = client.call_read_tool("account_get_assets", {})
             assets = json.loads(assets_res["content"][0]["text"]).get("data", {}).get("data", [])
@@ -803,6 +1215,7 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
 
 
 def main():
+    _daemon_lock = acquire_daemon_lock()
     portfolio = PortfolioState.load(PORTFOLIO_PATH)
     if portfolio.goal_target <= 0 and portfolio.total_capital > 0:
         portfolio.goal_target = portfolio.total_capital * (1.0 + TARGET_RETURN_PCT / 100.0)
@@ -857,10 +1270,15 @@ def main():
 
     print("🔍 Performing initial Dynamic Universe scan...")
     cached_top_candidates = []
+    reconciliation_healthy = False
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
-            # v4.0: 최초 가동 시 거래소 잔고 기반 복구
+            recover_pending_order(
+                client, portfolio, settings, notifier=DiscordNotifier()
+            )
+            repair_portfolio_invariant(client, portfolio)
             reconcile_with_exchange(client, portfolio)
+            reconciliation_healthy = True
             _, cached_top_candidates = scan_and_rank_universe(client)
             if cached_top_candidates:
                 print(f"  ✅ Initial Scan complete! Top 1: {cached_top_candidates[0]['market']} ({cached_top_candidates[0]['confidence']:.1f}%)")
@@ -898,6 +1316,16 @@ def main():
             elif portfolio.last_trade_day == "":
                 portfolio.last_trade_day = today
                 portfolio.save(PORTFOLIO_PATH)
+
+            pending_state = load_state(STATE_PATH)
+            if pending_state.active_client_order_id is not None:
+                with McpStdioClient(LIVE_COMMAND) as client:
+                    recover_pending_order(
+                        client, portfolio, settings, notifier=DiscordNotifier()
+                    )
+                    repair_portfolio_invariant(client, portfolio)
+                    reconcile_with_exchange(client, portfolio)
+                    reconciliation_healthy = True
 
             # ── 마일스톤 도달 체크 (멈추지 않고 다음 목표 자동 갱신!) ──
             if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
@@ -1010,7 +1438,18 @@ def main():
                         effective_min_price = ai_mem.min_coin_price_krw or MIN_MARKET_PRICE
                         banned_set = set(ai_mem.banned_markets or [])
 
-                        if state.position == "flat" and portfolio.cash_available >= MIN_ORDER_KRW and analyses:
+                        entries_enabled = new_entries_enabled()
+                        market_rest_until = load_market_rest()
+                        market_is_resting = time.time() < market_rest_until
+
+                        if not entries_enabled and loop_count % 100 == 1:
+                            print(f"  🔒 신규 진입 차단: {NEW_ENTRIES_ENV}=true가 명시되지 않음 (청산 관리는 계속)")
+                        elif market_is_resting and loop_count % 10 == 1:
+                            remaining = max(0, int(market_rest_until - time.time()))
+                            print(f"  ⏸️ 손절 후 시장 휴식 중 ({remaining}초 남음) - 모든 신규 진입 차단")
+
+                        if (entries_enabled and reconciliation_healthy and not market_is_resting and state.position == "flat"
+                                and portfolio.cash_available >= MIN_ORDER_KRW and analyses):
                             for cand in analyses:
                                 mkt = cand[0].market
                                 if mkt in banned_set:
@@ -1036,7 +1475,8 @@ def main():
                                         break
 
                         # Dynamic Pyramiding Scale-In (2차 불타기는 +0.8% 이상 유의미한 상승 시에만!)
-                        elif (state.position == "long" and portfolio.active_market and portfolio.pyramiding_count < 2
+                        elif (entries_enabled and pyramiding_enabled() and not market_is_resting and state.position == "long"
+                              and portfolio.active_market and portfolio.pyramiding_count < 2
                               and portfolio.cash_available >= MIN_ORDER_KRW and cur_pnl_pct >= PYRAMIDING_MIN_GAIN_PCT and analyses):
                             active_tuple = next((t for t in analyses if t[0].market == portfolio.active_market), None)
                             if active_tuple:
@@ -1058,9 +1498,12 @@ def main():
             if loop_count % RECONCILE_LOOPS == 0:
                 try:
                     with McpStdioClient(LIVE_COMMAND) as client:
+                        repair_portfolio_invariant(client, portfolio)
                         reconcile_with_exchange(client, portfolio)
+                        reconciliation_healthy = True
                         print(f"[{now_str}] 🔄 거래소 잔고 동기화 완료")
                 except Exception as exc:
+                    reconciliation_healthy = False
                     print(f"⚠️ Reconciliation error: {exc}")
 
             # ═══════════════════════════════════════════════════════════════

@@ -21,7 +21,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from bithumb_coin_trader.ai_brain import AIStrategyMemory, save_ai_memory, AI_MEMORY_PATH, EVOLUTION_JOURNAL_PATH
+from bithumb_coin_trader.ai_brain import (
+    AIStrategyMemory,
+    AI_MEMORY_PATH,
+    EVOLUTION_JOURNAL_PATH,
+    read_ai_memory,
+    save_ai_memory,
+)
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -115,6 +121,7 @@ def run_gemini_autonomous_review() -> Tuple[AIStrategyMemory, str]:
     Execute Two-Way Interactive Consensus Loop between Antigravity CIO and Gemini Quant.
     """
     api_key = get_gemini_api_key()
+    existing_memory = read_ai_memory()
     rev = EvolutionaryReviewer()
     trades = rev.load_completed_trades()
     roundtrips = rev.pair_trades(trades)
@@ -172,7 +179,7 @@ def run_gemini_autonomous_review() -> Tuple[AIStrategyMemory, str]:
     if not r1_output:
         print("  ⚠️ Gemini Round 1 failed. Falling back to local heuristic.")
         heuristics, report = rev.run_evolutionary_cycle()
-        return AIStrategyMemory(), report
+        return existing_memory, report
 
     # ── [Round 2] Antigravity CIO의 비판적 검토 & 역질의 (티키타카 토론) ──
     print(f"  👑 [Round 2: Antigravity CIO 검토 & 재질의] Reviewing Gemini's proposal...")
@@ -198,7 +205,7 @@ Antigravity 총괄 CIO로서 몇 가지 실전 검토 의견과 재질의를 드
         final_output = r1_output
 
     # ── [Round 3] 최종 합의 JSON 파싱 및 저장 ──
-    parsed_mem = AIStrategyMemory()
+    parsed_mem = existing_memory
     try:
         json_str = ""
         if "```json" in final_output:
@@ -210,13 +217,17 @@ Antigravity 총괄 CIO로서 몇 가지 실전 검토 의견과 재질의를 드
 
         if json_str:
             data = json.loads(json_str)
-            data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            data["analyst_model"] = f"Antigravity CIO x Google {get_gemini_model()} (Consensus Engine)"
-            parsed_mem = AIStrategyMemory(**{k: v for k, v in data.items() if k in AIStrategyMemory.__dataclass_fields__})
+            parsed_mem = AIStrategyMemory.from_untrusted_mapping(
+                data,
+                last_updated=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                analyst_model=f"Antigravity CIO x Google {get_gemini_model()} (Consensus Engine)",
+            )
             save_ai_memory(parsed_mem)
-            print("  🤝 Antigravity x Gemini Consensus AI Memory successfully finalized and saved!")
-    except Exception as parse_exc:
-        print(f"  ⚠️ JSON parse warning from final consensus: {parse_exc}")
+            print("  🤝 Gemini strategy report validated and saved; live use remains opt-in.")
+        else:
+            raise ValueError("Gemini response did not contain a JSON object")
+    except (json.JSONDecodeError, TypeError, ValueError, OSError) as parse_exc:
+        print(f"  ⚠️ Gemini strategy rejected; existing memory preserved: {parse_exc}")
 
     # Extract Markdown Report
     report_md = final_output

@@ -8,6 +8,7 @@ import os
 import sys
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Sequence
@@ -67,10 +68,29 @@ class MarketAnalysis:
     recommendation: str
 
 
+def completed_candles_are_fresh(
+    candles: Sequence[Candle], *, now: datetime | None = None
+) -> bool:
+    """Require a continuous recent 30-minute series ending on a closed bar."""
+    if len(candles) < 50:
+        return False
+    recent = candles[-50:]
+    interval = timedelta(minutes=30)
+    if any(
+        current.timestamp - previous.timestamp != interval
+        for previous, current in zip(recent, recent[1:])
+    ):
+        return False
+    observed_now = (now or datetime.now(UTC)).astimezone(UTC)
+    completed_at = recent[-1].timestamp.astimezone(UTC) + interval
+    age = observed_now - completed_at
+    return timedelta(0) <= age <= interval + timedelta(minutes=5)
+
+
 def analyze_market(market: str) -> MarketAnalysis | None:
     try:
         candles = fetch_minute_candles(market, 30, 100)
-        if len(candles) < 50:
+        if len(candles) < 50 or not completed_candles_are_fresh(candles):
             return None
     except Exception as exc:
         print(f"  ⚠️ [{market}] Failed to fetch candles: {exc}")
@@ -170,6 +190,10 @@ def analyze_market(market: str) -> MarketAnalysis | None:
 
 
 def run_scan_and_trade(live: bool, amount: int, force_best: bool) -> None:
+    if live:
+        raise RuntimeError(
+            "legacy --live execution is disabled; use autonomous_trader.py's shared safe executor"
+        )
     print("=" * 80)
     print(" 📡 BITHUMB MULTI-MARKET SCANNER (TAURIC AGENTS & INSTITUTIONAL DELTA)")
     print("=" * 80)

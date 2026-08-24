@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import uuid
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -13,12 +14,14 @@ from typing import Any, Mapping, Protocol
 
 from .config import TradingMode, TradingSettings
 from .discord_notify import DiscordNotifier, TradeEvent, TradeNotification
+from .fill_ledger import FillLedger
 from .models import Signal
 from .risk import RiskContext, RiskLimits, evaluate_pretrade
 from .state import STATE_VERSION, BotState, load_state, save_state
 
 
 LIVE_ENV_VAR = "BITHUMB_LIVE_TRADING"
+NEW_EXPOSURE_ENV_VAR = "BITHUMB_NEW_ENTRIES"
 LIVE_CONFIRMATION_TOKEN = "CONFIRM_BITHUMB_LIVE_ORDER"
 _MARKET_PATTERN = re.compile(r"^KRW-[A-Z0-9]{1,12}$")
 _CLIENT_ORDER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,36}$")
@@ -197,12 +200,14 @@ class BithumbExecutor:
         settings: TradingSettings | None = None,
         env: Mapping[str, str] | None = None,
         notifier: NotificationSink | None = None,
+        fill_ledger: FillLedger | None = None,
     ) -> None:
         self.client = client
         self.state_path = state_path
         self.settings = settings or TradingSettings()
         self.env = os.environ if env is None else env
         self.notifier = notifier
+        self.fill_ledger = fill_ledger
         if (
             self.notifier is None
             and env is None
@@ -227,6 +232,10 @@ class BithumbExecutor:
         if self.env.get(LIVE_ENV_VAR) != "true":
             raise LiveTradingDisabledError(
                 f"live submission requires {LIVE_ENV_VAR}=true exactly"
+            )
+        if plan.target is Signal.LONG and self.env.get(NEW_EXPOSURE_ENV_VAR) != "true":
+            raise LiveTradingDisabledError(
+                f"new exposure requires {NEW_EXPOSURE_ENV_VAR}=true exactly"
             )
         if confirmation_token != LIVE_CONFIRMATION_TOKEN:
             raise LiveTradingDisabledError(
@@ -290,6 +299,12 @@ class BithumbExecutor:
                 payload.get("executed_volume"), "executed_volume", allow_zero=True
             )
             reconciled = _apply_terminal_fill(state, side, status, executed)
+            if self.fill_ledger is not None and executed > 0:
+                existing = self.fill_ledger.position(state.pending_market or "")
+                # Pre-ledger holdings may be liquidated, but all newly opened
+                # positions and their exits require immutable exchange fills.
+                if side == "bid" or existing.volume > 0:
+                    self.fill_ledger.append_order(payload)
             save_state(self.state_path, reconciled)
             event = TradeEvent.FILLED if status == "done" else TradeEvent.CANCELLED
             self._notify_state(
@@ -303,6 +318,24 @@ class BithumbExecutor:
             self._notify_state(TradeEvent.PENDING, state, detail="state=wait")
             return state
         raise ExecutionError(f"unknown order reconciliation state: {status!r}")
+
+    def reconcile_until_terminal(
+        self,
+        *,
+        timeout_seconds: float = 15.0,
+        poll_interval_seconds: float = 0.25,
+    ) -> BotState:
+        """Poll a submitted order until done/cancel without ever resubmitting it."""
+        if timeout_seconds <= 0 or poll_interval_seconds <= 0:
+            raise ValueError("reconciliation timeout and poll interval must be positive")
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            reconciled = self.reconcile_active_order()
+            if reconciled.active_client_order_id is None:
+                return reconciled
+            if time.monotonic() >= deadline:
+                raise ExecutionError("order remained pending after reconciliation timeout")
+            time.sleep(poll_interval_seconds)
 
     def _notify(
         self, event: TradeEvent, plan: ExecutionPlan, *, detail: str = ""

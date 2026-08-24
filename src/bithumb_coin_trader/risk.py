@@ -48,14 +48,18 @@ def evaluate_pretrade(context: RiskContext, limits: RiskLimits | None = None) ->
             reasons.append("order is below the exchange minimum")
         if context.requested_notional_krw > limits.maximum_order_krw:
             reasons.append("order exceeds the configured maximum")
-    if context.daily_entries >= limits.maximum_daily_entries:
-        reasons.append("daily entry limit reached")
-    if context.start_of_day_equity_krw > 0:
-        daily_loss = 1 - context.current_equity_krw / context.start_of_day_equity_krw
-        if daily_loss >= limits.maximum_daily_loss_fraction:
-            reasons.append("daily loss limit reached")
-    if context.peak_equity_krw > 0:
-        drawdown = 1 - context.current_equity_krw / context.peak_equity_krw
-        if drawdown >= limits.maximum_drawdown_fraction:
-            reasons.append("maximum drawdown reached")
+    # Exposure-increasing limits must never prevent a protective exit.  A prior
+    # implementation applied these gates to FLAT orders as well, which trapped
+    # positions after the daily-loss circuit breaker had fired.
+    if context.requested_side is not Signal.FLAT:
+        if context.daily_entries >= limits.maximum_daily_entries:
+            reasons.append("daily entry limit reached")
+        if context.start_of_day_equity_krw > 0:
+            daily_loss = 1 - context.current_equity_krw / context.start_of_day_equity_krw
+            if daily_loss >= limits.maximum_daily_loss_fraction:
+                reasons.append("daily loss limit reached")
+        if context.peak_equity_krw > 0:
+            drawdown = 1 - context.current_equity_krw / context.peak_equity_krw
+            if drawdown >= limits.maximum_drawdown_fraction:
+                reasons.append("maximum drawdown reached")
     return RiskDecision(not reasons, tuple(reasons))

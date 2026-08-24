@@ -39,6 +39,30 @@ class RiskTests(unittest.TestCase):
         )
         self.assertFalse(decision.allowed)
 
+    def test_protective_exit_is_not_blocked_by_exposure_limits(self) -> None:
+        decision = evaluate_pretrade(
+            self.context(
+                requested_side=Signal.FLAT,
+                current_equity_krw=10_000,
+                start_of_day_equity_krw=20_000,
+                peak_equity_krw=25_000,
+                daily_entries=999,
+            ),
+            RiskLimits(
+                maximum_daily_entries=1,
+                maximum_daily_loss_fraction=0.01,
+                maximum_drawdown_fraction=0.01,
+            ),
+        )
+        self.assertTrue(decision.allowed, decision.reasons)
+
+    def test_untracked_order_still_blocks_protective_exit(self) -> None:
+        decision = evaluate_pretrade(
+            self.context(requested_side=Signal.FLAT, has_untracked_order=True)
+        )
+        self.assertFalse(decision.allowed)
+        self.assertIn("an order is untracked", decision.reasons)
+
 
 if __name__ == "__main__":
     unittest.main()

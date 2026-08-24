@@ -43,6 +43,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if args.live:
+        raise SystemExit(
+            "legacy --live execution is disabled; use autonomous_trader.py's shared safe executor"
+        )
     print("=" * 60)
     print(" 🤖 BITHUMB TRADING FLOOR: TAURIC MULTI-AGENT & INSTITUTIONAL")
     print("=" * 60)

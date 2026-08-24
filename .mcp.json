@@ -2,7 +2,13 @@
   "mcpServers": {
     "bithumb": {
       "command": "npx",
-      "args": ["-y", "@bithumb-official/bithumb-mcp", "--modules", "all"],
+      "args": [
+        "-y",
+        "@bithumb-official/bithumb-mcp@0.8.5",
+        "--modules",
+        "market,account",
+        "--read-only"
+      ],
       "env": {
         "BITHUMB_ACCESS_KEY": "${BITHUMB_ACCESS_KEY}",
         "BITHUMB_SECRET_KEY": "${BITHUMB_SECRET_KEY}"

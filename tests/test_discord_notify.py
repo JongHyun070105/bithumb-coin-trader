@@ -14,6 +14,7 @@ from bithumb_coin_trader.discord_notify import (
     configured_discord_target,
     format_trade_notification,
     save_local_target,
+    send_discord_message,
     target_from_crontab,
 )
 
@@ -94,6 +95,30 @@ class DiscordDeliveryTests(unittest.TestCase):
             target="discord:123456789", hermes_bin="/missing/hermes"
         )
         self.assertFalse(notifier.send(self.notification()))
+
+    @patch("bithumb_coin_trader.discord_notify.subprocess.run")
+    def test_rich_send_does_not_inherit_exchange_or_model_keys(self, run) -> None:
+        run.return_value = subprocess.CompletedProcess([], 0, "", "")
+        with patch.dict(
+            "os.environ",
+            {
+                "BITHUMB_ACCESS_KEY": "secret-access",
+                "BITHUMB_SECRET_KEY": "secret-signing",
+                "GEMINI_API_KEY": "secret-model",
+            },
+            clear=False,
+        ):
+            self.assertTrue(
+                send_discord_message(
+                    "unique secure delivery test", target="discord:123456789"
+                )
+            )
+
+        environment = run.call_args.kwargs["env"]
+        self.assertNotIn("BITHUMB_ACCESS_KEY", environment)
+        self.assertNotIn("BITHUMB_SECRET_KEY", environment)
+        self.assertNotIn("GEMINI_API_KEY", environment)
+        self.assertLessEqual(set(environment), {"HOME", "PATH", "LANG", "LC_ALL", "TMPDIR"})
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ LIVE_COMMAND = (
     "-y",
     _PACKAGE,
     "--modules",
-    "account,trade",
+    "market,account,trade",
 )
 ALLOWED_CHILD_ENV = frozenset(
     {"PATH", "HOME", "BITHUMB_ACCESS_KEY", "BITHUMB_SECRET_KEY"}

@@ -3,11 +3,15 @@ __pycache__/
 *.egg-info/
 .venv/
 .env
+.env.local
+.env.*
+logs/
 data/
 state/
 reports/*.json
 reports/*.csv
 TRADING_JOURNAL.md
+EVOLUTION_JOURNAL.md
 !reports/.gitkeep
 !reports/krw-btc-daily-baseline-2026-08-10.json
 !reports/krw-btc-candidate-study-2026-08-11.json

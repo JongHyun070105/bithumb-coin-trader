@@ -238,7 +238,6 @@ def status_test_notification() -> TradeNotification:
 
 # ── Rich Mobile Discord Briefings ─────────────────────────────
 
-DISCORD_TARGET = "discord:1521513150682234900"
 HERMES_BIN = str(Path.home() / ".local" / "bin" / "hermes")
 
 
@@ -249,8 +248,11 @@ _RECENT_MESSAGES_CACHE: dict[str, float] = {}
 _DEDUP_WINDOW_SECONDS = 60.0
 
 
-def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
+def send_discord_message(text: str, target: str | None = None) -> bool:
     """Send markdown text message to Discord target via Hermes with 60s deduplication guard."""
+    selected_target = target or configured_discord_target()
+    if selected_target is None:
+        return False
     now = time.time()
     # Clean expired entries
     for key in list(_RECENT_MESSAGES_CACHE.keys()):
@@ -259,7 +261,7 @@ def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
 
     # Create content hash normalized by ignoring raw timestamp line if needed
     normalized = "\n".join([line for line in text.splitlines() if not line.startswith("⏱️") and not line.startswith("> ⏱️")])
-    msg_hash = hashlib.sha256(f"{target}:{normalized}".encode()).hexdigest()
+    msg_hash = hashlib.sha256(f"{selected_target}:{normalized}".encode()).hexdigest()
 
     if msg_hash in _RECENT_MESSAGES_CACHE:
         # Duplicate message within window, discard silently
@@ -271,17 +273,14 @@ def send_discord_message(text: str, target: str = DISCORD_TARGET) -> bool:
         with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False, suffix=".md") as handle:
             handle.write(text)
             path = Path(handle.name)
-        env = dict(os.environ)
-        if "HOME" not in env:
-            env["HOME"] = str(Path.home())
         result = subprocess.run(
-            [HERMES_BIN, "send", "-t", target, "-f", str(path)],
+            [HERMES_BIN, "send", "-t", selected_target, "-f", str(path)],
             check=False,
             cwd=tempfile.gettempdir(),
             timeout=15.0,
             capture_output=True,
             text=True,
-            env=env,
+            env=_minimal_hermes_env(),
         )
         return result.returncode == 0
     except Exception as exc:
