@@ -24,10 +24,13 @@ from scripts.autonomous_trader import (
     get_market_orderbook_ratio,
     get_market_warnings,
     get_realtime_ticker_price,
+    enhanced_exit_eligible_for_policy,
     load_market_rest,
     load_recent_exits,
+    live_settings_for_portfolio,
     new_entries_enabled,
     pyramiding_enabled,
+    rebase_after_external_cash_flow,
     recover_pending_order,
     reconcile_with_exchange,
     repair_portfolio_invariant,
@@ -35,7 +38,7 @@ from scripts.autonomous_trader import (
 )
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.fill_ledger import FillLedger
-from bithumb_coin_trader.state import BotState, save_state
+from bithumb_coin_trader.state import BotState, load_state, save_state
 from bithumb_coin_trader.models import Candle
 from bithumb_coin_trader.discord_notify import SilentNotifier
 from scripts.scan_and_trade import analyze_market, completed_candles_are_fresh, run_scan_and_trade
@@ -56,7 +59,7 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
             "enhanced_exit_eligible": True,
         }
         values.update(overrides)
-        return PortfolioState(**values)
+        return PortfolioState(**values)  # type: ignore[arg-type]
 
     def test_exit_decision_precedence_and_partial_take_profit(self) -> None:
         portfolio = self.exit_portfolio()
@@ -73,6 +76,12 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
             decide_position_exit(portfolio, 103.8, now_timestamp=20_000.0).action,
             ExitAction.FULL_EXIT,
         )
+
+    def test_rejected_enhanced_policy_is_not_eligible_for_new_version_zero_entries(self) -> None:
+        self.assertFalse(enhanced_exit_eligible_for_policy(0))
+        self.assertTrue(enhanced_exit_eligible_for_policy(1))
+        with self.assertRaises(ValueError):
+            enhanced_exit_eligible_for_policy(True)  # type: ignore[arg-type]
 
     def test_timecut_boundaries_and_existing_position_grandfathering(self) -> None:
         portfolio = self.exit_portfolio()
@@ -603,6 +612,118 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "pending order"):
                     reconcile_with_exchange(NoCallClient(), portfolio)  # type: ignore[arg-type]
 
+    def test_account_reconciliation_accounts_manual_legacy_exit_once(self) -> None:
+        class CashOnlyClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "19900"},
+                    {"currency": "BTC", "balance": "0"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            portfolio_path = root / "portfolio.json"
+            ledger_path = root / "fills.jsonl"
+            exits_path = root / "exits.json"
+            history_path = root / "history.jsonl"
+            save_state(state_path, BotState(position="long", position_volume="0.1"))
+            portfolio = PortfolioState(
+                total_capital=20_000,
+                cash_available=10_000,
+                active_market="KRW-BTC",
+                entry_price=100_000.0,
+                position_volume="0.1",
+                legacy_position=True,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.PORTFOLIO_PATH", portfolio_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", ledger_path),
+                patch("scripts.autonomous_trader.EXITS_PATH", exits_path),
+                patch("scripts.autonomous_trader.TRADE_LOG_PATH", history_path),
+                patch("scripts.autonomous_trader.get_realtime_ticker_price", return_value=99_000.0),
+            ):
+                reconcile_with_exchange(CashOnlyClient(), portfolio)  # type: ignore[arg-type]
+                reconcile_with_exchange(CashOnlyClient(), portfolio)  # type: ignore[arg-type]  # idempotent
+
+            self.assertEqual(load_state(state_path).position, "flat")
+            self.assertEqual(portfolio.active_market, "")
+            self.assertEqual(portfolio.cash_available, 19_900.0)
+            self.assertEqual(portfolio.total_capital, 19_900.0)
+            self.assertEqual(portfolio.total_pnl_krw, 0.0)
+            self.assertEqual(portfolio.losing_trades, 0)
+            self.assertFalse(history_path.exists())
+
+    def test_account_reconciliation_blocks_manual_exit_when_cash_delta_looks_like_deposit(self) -> None:
+        class CashOnlyClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "30000"},
+                    {"currency": "BTC", "balance": "0"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            save_state(state_path, BotState(position="long", position_volume="0.1"))
+            portfolio = PortfolioState(
+                total_capital=20_000,
+                cash_available=10_000,
+                active_market="KRW-BTC",
+                entry_price=100_000.0,
+                position_volume="0.1",
+                legacy_position=True,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", root / "fills.jsonl"),
+                patch("scripts.autonomous_trader.get_realtime_ticker_price", return_value=100_000.0),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "possible deposit or withdrawal"):
+                    reconcile_with_exchange(CashOnlyClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(load_state(state_path).position, "long")
+            self.assertEqual(portfolio.active_market, "KRW-BTC")
+
+    def test_external_flat_deposit_rebases_risk_and_fifty_percent_target(self) -> None:
+        portfolio = PortfolioState(
+            total_capital=32_000,
+            cash_available=32_000,
+            start_of_day_equity=31_000,
+            peak_equity=34_000,
+            goal_target=45_000,
+            total_pnl_krw=2_400,
+        )
+        delta = rebase_after_external_cash_flow(portfolio, new_cash_balance=50_000)
+        self.assertEqual(delta, 18_000)
+        self.assertEqual(portfolio.total_capital, 50_000)
+        self.assertEqual(portfolio.start_of_day_equity, 50_000)
+        self.assertEqual(portfolio.peak_equity, 50_000)
+        self.assertEqual(portfolio.goal_target, 75_000)
+        self.assertEqual(portfolio.total_pnl_krw, 2_400)
+        self.assertEqual(live_settings_for_portfolio(portfolio).maximum_order_krw, 30_000)
+
+    def test_flat_cash_change_does_not_hide_untracked_coin_holding(self) -> None:
+        class OrphanAssetClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "50000"},
+                    {"currency": "ETH", "balance": "0.01"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            save_state(state_path, BotState(position="flat", position_volume="0"))
+            portfolio = PortfolioState(total_capital=32_000, cash_available=32_000)
+            with patch("scripts.autonomous_trader.STATE_PATH", state_path):
+                with self.assertRaisesRegex(RuntimeError, "untracked exchange holdings"):
+                    reconcile_with_exchange(OrphanAssetClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(portfolio.cash_available, 32_000)
+
     def test_cross_file_sell_crash_recovers_pnl_and_loss_cooldown_once(self) -> None:
         class CashOnlyClient:
             def call_read_tool(self, _name: str, _arguments: object) -> object:
@@ -655,13 +776,46 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
                 patch("scripts.autonomous_trader.EXITS_PATH", exits_path),
             ):
                 repair_portfolio_invariant(CashOnlyClient(), portfolio)  # type: ignore[arg-type]
-                repair_portfolio_invariant(CashOnlyClient(), portfolio)  # idempotent
+                repair_portfolio_invariant(CashOnlyClient(), portfolio)  # type: ignore[arg-type]  # idempotent
             self.assertEqual(portfolio.active_market, "")
             self.assertEqual(portfolio.losing_trades, 1)
             self.assertEqual(portfolio.total_pnl_krw, -1008.0)
             self.assertEqual(portfolio.accounted_realized_pnl["KRW-BTC"], "-1008")
             self.assertTrue(rest_path.exists())
             self.assertTrue(exits_path.exists())
+
+    def test_cross_file_manual_legacy_exit_recovers_accounting_after_state_went_flat(self) -> None:
+        class CashOnlyClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [{"currency": "KRW", "balance": "19900"}]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            portfolio_path = root / "portfolio.json"
+            save_state(state_path, BotState(position="flat", position_volume="0"))
+            portfolio = PortfolioState(
+                total_capital=20_000,
+                cash_available=10_000,
+                active_market="KRW-BTC",
+                entry_price=100_000.0,
+                position_volume="0.1",
+                legacy_position=True,
+            )
+            with (
+                patch("scripts.autonomous_trader.STATE_PATH", state_path),
+                patch("scripts.autonomous_trader.PORTFOLIO_PATH", portfolio_path),
+                patch("scripts.autonomous_trader.FILL_LEDGER_PATH", root / "fills.jsonl"),
+                patch("scripts.autonomous_trader.EXITS_PATH", root / "exits.json"),
+                patch("scripts.autonomous_trader.TRADE_LOG_PATH", root / "history.jsonl"),
+                patch("scripts.autonomous_trader.get_realtime_ticker_price", return_value=99_000.0),
+            ):
+                repair_portfolio_invariant(CashOnlyClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(portfolio.active_market, "")
+            self.assertEqual(portfolio.cash_available, 19_900.0)
+            self.assertEqual(portfolio.total_pnl_krw, 0.0)
+            self.assertEqual(portfolio.losing_trades, 0)
 
     def test_portfolio_rejects_type_confusion_and_flat_position_leakage(self) -> None:
         with self.assertRaises(TypeError):

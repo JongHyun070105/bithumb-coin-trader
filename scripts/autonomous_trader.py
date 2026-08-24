@@ -91,12 +91,16 @@ REENTRY_COOLDOWN_SEC = 600     # 청산 후 동일 종목 10분(600초) 재진�
 MIN_CONFIDENCE_ENTRY = 75.0    # 진입 확신도 75.0% 이상 고확신 대장주만 진입
 MIN_CONFIDENCE_STRONG = 78.0   # 강력 매수 확신도
 MIN_ORDER_KRW = 5_000
+MAX_DAILY_ENTRIES = 4          # 0.25% 편도 수수료 계정의 과매매/비용 누적 제한
 MAX_POSITION_RATIO = 0.60   # 최대 포지션 비율 (자산의 60%)
 MIN_RESERVE_CASH_RATIO = 0.33  # 최소 현금 보존 비율 (33%)
 PRICE_CHECK_INTERVAL = 3     # seconds
 SCAN_INTERVAL_LOOPS = 10     # every 10 loops = ~30 seconds
 SCAN_RESULT_MAX_AGE_SEC = 60
 ENHANCED_EXIT_POLICY_VERSION = 1
+# Research rejected the v1 partial-TP/timecut package. New entries stay on the
+# prior defensive exits unless a later forward-validated policy is promoted.
+ACTIVE_ENTRY_POLICY_VERSION = 0
 HOURLY_REPORT_LOOPS = 1200   # every 1200 loops = ~1 hour
 NOTICE_CHECK_LOOPS = 200     # every ~10 minutes
 RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliation
@@ -110,6 +114,27 @@ EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
 
 
 REST_PATH = PROJECT_ROOT / "state" / "market_rest.json"
+
+
+def enhanced_exit_eligible_for_policy(policy_version: int) -> bool:
+    if isinstance(policy_version, bool) or not isinstance(policy_version, int) or policy_version < 0:
+        raise ValueError("position policy version must be a non-negative integer")
+    return policy_version >= ENHANCED_EXIT_POLICY_VERSION
+
+
+def live_settings_for_portfolio(portfolio: "PortfolioState") -> TradingSettings:
+    return TradingSettings(
+        initial_capital_krw=max(int(portfolio.total_capital), 20_000),
+        fee_rate=0.0025,
+        mode=TradingMode.LIVE,
+        live_trading_enabled=True,
+        minimum_order_krw=MIN_ORDER_KRW,
+        maximum_order_krw=max(
+            int(portfolio.total_capital * MAX_POSITION_RATIO), MIN_ORDER_KRW
+        ),
+        maximum_daily_entries=MAX_DAILY_ENTRIES,
+        cash_reserve_krw=0,
+    )
 
 
 def load_market_rest() -> float:
@@ -230,6 +255,57 @@ def account_ledger_realization(
 def account_ledger_exit(portfolio: "PortfolioState", market: str, position: Any) -> float:
     """Backward-compatible full-exit accounting wrapper."""
     return account_ledger_realization(portfolio, market, position, terminal=True)
+
+
+def account_external_legacy_exit(
+    portfolio: "PortfolioState",
+    market: str,
+    *,
+    krw_balance: float,
+    reference_price: float,
+) -> tuple[float, float, float]:
+    """Validate and estimate a manual full exit of a pre-ledger position.
+
+    The exchange cash delta is used as the net proceeds, so the result already
+    includes the account's actual fee. The estimate is deliberately not added
+    to cumulative P&L because a simultaneous deposit/withdrawal cannot be
+    distinguished without an immutable exchange fill.
+    """
+    if not portfolio.legacy_position or portfolio.active_market != market:
+        raise RuntimeError("external exit accounting requires the active legacy position")
+    volume = Decimal(portfolio.position_volume)
+    prior_cash = Decimal(str(portfolio.cash_available))
+    actual_cash = Decimal(str(krw_balance))
+    proceeds = actual_cash - prior_cash
+    if volume <= 0 or proceeds <= 0:
+        raise RuntimeError("external exit cash delta is not a positive sale proceeds amount")
+
+    effective_price = proceeds / volume
+    reference = Decimal(str(reference_price))
+    if reference <= 0 or abs(effective_price - reference) / reference > Decimal("0.25"):
+        raise RuntimeError(
+            "external exit cash delta is inconsistent with the market price; "
+            "possible deposit or withdrawal requires manual review"
+        )
+
+    cost = volume * Decimal(str(portfolio.entry_price))
+    pnl = proceeds - cost
+    return float(pnl), float(effective_price), float(proceeds)
+
+
+def rebase_after_external_cash_flow(
+    portfolio: "PortfolioState", *, new_cash_balance: float
+) -> float:
+    """Rebase risk and target anchors after a flat-account deposit or withdrawal."""
+    delta = new_cash_balance - portfolio.cash_available
+    if abs(delta) <= 1.0:
+        return 0.0
+    portfolio.cash_available = new_cash_balance
+    portfolio.total_capital = new_cash_balance
+    portfolio.start_of_day_equity = new_cash_balance
+    portfolio.peak_equity = new_cash_balance
+    portfolio.goal_target = new_cash_balance * (1.0 + TARGET_RETURN_PCT / 100.0)
+    return delta
 
 
 @dataclass
@@ -742,7 +818,10 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
     state = load_state(STATE_PATH)
     if state.active_client_order_id is not None or state.untracked_order:
         raise RuntimeError("account reconciliation is blocked by a pending order")
-    required_market = portfolio.active_market or None
+    # Bithumb may omit zero-balance assets after a manual full sell. Ledger-backed
+    # positions still require the asset key; legacy positions use the validated
+    # KRW cash delta below to distinguish a sale from malformed account data.
+    required_market = portfolio.active_market if not portfolio.legacy_position else None
     balances = _read_asset_balances(client, required_market=required_market)
 
     krw_balance = float(balances["KRW"])
@@ -751,11 +830,6 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
         balance = float(decimal_balance)
         if currency != "KRW" and balance > 0 and currency not in ("P",):
             coin_holdings[currency] = balance
-
-    # 현금 동기화
-    if abs(portfolio.cash_available - krw_balance) > 1.0:
-        print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
-        portfolio.cash_available = krw_balance
 
     # 포지션 동기화
     active_currency = portfolio.active_market.replace("KRW-", "") if portfolio.active_market else ""
@@ -772,6 +846,19 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
 
         if actual_balance == 0.0 and tracked_volume > 0:
             print(f"  ⚠️ 포지션 교정: {portfolio.active_market} long → flat (거래소 잔고 없음)")
+            if portfolio.legacy_position:
+                manual_market = portfolio.active_market
+                pnl, effective_price, proceeds = account_external_legacy_exit(
+                    portfolio,
+                    manual_market,
+                    krw_balance=krw_balance,
+                    reference_price=get_realtime_ticker_price(manual_market),
+                )
+                print(
+                    f"  🧾 레거시 수동매도 추정: {proceeds:,.0f} KRW, "
+                    f"PnL {pnl:+,.0f} KRW @ {effective_price:,.0f} "
+                    "(불변 체결 없음: 누적 손익/승패에는 미반영)"
+                )
             portfolio.active_market = ""
             portfolio.entry_price = 0.0
             portfolio.position_volume = "0"
@@ -802,6 +889,23 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
             raise RuntimeError(
                 f"untracked exchange holdings require manual recovery: {sorted(coin_holdings)}"
             )
+
+    # Flat 상태의 외부 입출금은 수익으로 보지 않고 위험/목표 기준선을 재설정한다.
+    external_cash_delta = 0.0
+    if state.position == "flat" and not active_currency:
+        external_cash_delta = rebase_after_external_cash_flow(
+            portfolio, new_cash_balance=krw_balance
+        )
+        if external_cash_delta:
+            print(
+                f"  🏦 외부 자금 변동 반영: {external_cash_delta:+,.0f} KRW "
+                f"(새 +{TARGET_RETURN_PCT:.0f}% 목표 {portfolio.goal_target:,.0f} KRW)"
+            )
+
+    # 현금 동기화. 수동 청산의 실제 매도 대금 계산 이후에 갱신해야 한다.
+    if not external_cash_delta and abs(portfolio.cash_available - krw_balance) > 1.0:
+        print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
+        portfolio.cash_available = krw_balance
 
     # 총자산 재계산
     total = krw_balance
@@ -861,8 +965,8 @@ def repair_portfolio_invariant(client: McpStdioClient, portfolio: PortfolioState
                 portfolio.position_realized_pnl_baseline = format(
                     position.realized_pnl, "f"
                 )
-            portfolio.enhanced_exit_eligible = (
-                state.position_policy_version >= ENHANCED_EXIT_POLICY_VERSION
+            portfolio.enhanced_exit_eligible = enhanced_exit_eligible_for_policy(
+                state.position_policy_version
             )
             if Decimal(state.position_volume) != position.volume:
                 save_state(
@@ -888,7 +992,19 @@ def repair_portfolio_invariant(client: McpStdioClient, portfolio: PortfolioState
         currency = market.removeprefix("KRW-")
         if balances.get(currency, Decimal("0")) > 0:
             raise RuntimeError("flat state conflicts with an exchange asset balance")
-        if not portfolio.legacy_position:
+        if portfolio.legacy_position:
+            pnl, effective_price, proceeds = account_external_legacy_exit(
+                portfolio,
+                market,
+                krw_balance=float(balances["KRW"]),
+                reference_price=get_realtime_ticker_price(market),
+            )
+            print(
+                f"  🧾 레거시 수동매도 크래시 복구 추정: {proceeds:,.0f} KRW, "
+                f"PnL {pnl:+,.0f} KRW @ {effective_price:,.0f} "
+                "(불변 체결 없음: 누적 손익/승패에는 미반영)"
+            )
+        else:
             account_ledger_exit(portfolio, market, ledger.position(market))
         portfolio.active_market = ""
         portfolio.entry_price = 0.0
@@ -957,8 +1073,8 @@ def recover_pending_order(
             portfolio.legacy_position = False
             portfolio.entry_timestamp = portfolio.entry_timestamp or time.time()
             portfolio.position_realized_pnl_baseline = format(position.realized_pnl, "f")
-            portfolio.enhanced_exit_eligible = (
-                updated.position_policy_version >= ENHANCED_EXIT_POLICY_VERSION
+            portfolio.enhanced_exit_eligible = enhanced_exit_eligible_for_policy(
+                updated.position_policy_version
             )
         elif side == "ask":
             if position.volume != Decimal(updated.position_volume):
@@ -1053,7 +1169,7 @@ def execute_buy(
     plan = plan_execution(
         intent,
         current=Signal.FLAT,
-        position_policy_version=ENHANCED_EXIT_POLICY_VERSION,
+        position_policy_version=ACTIVE_ENTRY_POLICY_VERSION,
     )
     if plan.is_noop:
         print(f"  ⚠️ Plan is no-op, skipping")
@@ -1069,7 +1185,7 @@ def execute_buy(
         data_is_fresh=True,
     )
     decision = evaluate_pretrade(risk_context, limits=RiskLimits(
-        maximum_daily_entries=50,
+        maximum_daily_entries=MAX_DAILY_ENTRIES,
         maximum_order_krw=int(portfolio.total_capital * MAX_POSITION_RATIO),
     ))
     if not decision.allowed:
@@ -1146,7 +1262,9 @@ def execute_buy(
                 portfolio.position_realized_pnl_baseline = format(
                     ledger_position.realized_pnl, "f"
                 )
-                portfolio.enhanced_exit_eligible = True
+                portfolio.enhanced_exit_eligible = enhanced_exit_eligible_for_policy(
+                    updated.position_policy_version
+                )
             if portfolio.total_capital > portfolio.peak_equity:
                 portfolio.peak_equity = portfolio.total_capital
             portfolio.save(PORTFOLIO_PATH)
@@ -1453,18 +1571,7 @@ def main():
     print(f" ⏱️ Price Watch target: {PRICE_CHECK_INTERVAL}s | Scan target: ~{PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS}s | Reconcile: ~{PRICE_CHECK_INTERVAL * RECONCILE_LOOPS}s")
     print("=" * 80)
 
-    # v4.0: dynamic max order based on portfolio
-    dynamic_max_order = max(int(portfolio.total_capital * MAX_POSITION_RATIO), MIN_ORDER_KRW)
-    settings = TradingSettings(
-        initial_capital_krw=max(int(portfolio.total_capital), 20_000),
-        fee_rate=0.0025,
-        mode=TradingMode.LIVE,
-        live_trading_enabled=True,
-        minimum_order_krw=MIN_ORDER_KRW,
-        maximum_order_krw=dynamic_max_order,
-        maximum_daily_entries=50,
-        cash_reserve_krw=0,
-    )
+    settings = live_settings_for_portfolio(portfolio)
 
     today = time.strftime('%Y-%m-%d')
     if portfolio.last_trade_day != today:
@@ -1495,6 +1602,7 @@ def main():
             )
             repair_portfolio_invariant(client, portfolio)
             reconcile_with_exchange(client, portfolio)
+            settings = live_settings_for_portfolio(portfolio)
             reconciliation_healthy = True
     except Exception as exc:
         print(f"  ⚠️ Initial account reconciliation warning: {exc}")
@@ -1545,6 +1653,7 @@ def main():
                     )
                     repair_portfolio_invariant(client, portfolio)
                     reconcile_with_exchange(client, portfolio)
+                    settings = live_settings_for_portfolio(portfolio)
                     reconciliation_healthy = True
 
             # ── 마일스톤 도달 체크 (멈추지 않고 다음 목표 자동 갱신!) ──
@@ -1562,17 +1671,7 @@ def main():
                 )
                 print(f"\n{msg}")
                 send_discord_message(msg)
-                # settings 업데이트 (maximum_order_krw 스케일 업)
-                settings = TradingSettings(
-                    initial_capital_krw=max(int(portfolio.total_capital), 20_000),
-                    fee_rate=0.0025,
-                    mode=TradingMode.LIVE,
-                    live_trading_enabled=True,
-                    minimum_order_krw=MIN_ORDER_KRW,
-                    maximum_order_krw=max(int(portfolio.total_capital * MAX_POSITION_RATIO), MIN_ORDER_KRW),
-                    maximum_daily_entries=50,
-                    cash_reserve_krw=0,
-                )
+                settings = live_settings_for_portfolio(portfolio)
 
             state = load_state(STATE_PATH)
 
@@ -1739,6 +1838,7 @@ def main():
                     with McpStdioClient(LIVE_COMMAND) as client:
                         repair_portfolio_invariant(client, portfolio)
                         reconcile_with_exchange(client, portfolio)
+                        settings = live_settings_for_portfolio(portfolio)
                         reconciliation_healthy = True
                         print(f"[{now_str}] 🔄 거래소 잔고 동기화 완료")
                 except Exception as exc:
