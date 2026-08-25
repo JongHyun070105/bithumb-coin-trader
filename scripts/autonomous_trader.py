@@ -26,23 +26,32 @@ import fcntl
 import math
 import re
 import tempfile
+import threading
 import time
 import sys
 import traceback
 import urllib.request
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, asdict, field
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any, Mapping, Optional
+from uuid import uuid4
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from bithumb_coin_trader.config import TradingMode, TradingSettings
+from bithumb_coin_trader.bithumb_websocket import (
+    BithumbWebSocketObserver,
+    ObservationCache,
+    ObservationEvent,
+    build_private_subscription,
+    build_public_subscription,
+)
 from bithumb_coin_trader.data import fetch_minute_candles
 from bithumb_coin_trader.discord_notify import (
     DiscordNotifier,
@@ -60,10 +69,16 @@ from bithumb_coin_trader.fill_ledger import FillLedger
 from bithumb_coin_trader.mcp_client import McpStdioClient, LIVE_COMMAND
 from bithumb_coin_trader.models import Signal
 from bithumb_coin_trader.risk import RiskContext, RiskLimits, evaluate_pretrade
+from bithumb_coin_trader.scan_ledger import ScanAuditSnapshot, append_scan_snapshot
+from bithumb_coin_trader.reference_signals import (
+    append_reference_signals,
+    build_notice_digest,
+    parse_bithumb_notices,
+)
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer, apply_learned_heuristics
 from bithumb_coin_trader.ai_brain import evaluate_with_ai_brain, load_ai_memory
 from bithumb_coin_trader.gemini_council import run_gemini_autonomous_review
-from bithumb_coin_trader.state import BotState, load_state, save_state
+from bithumb_coin_trader.state import BotState, append_event, load_state, save_state
 from scripts.scan_and_trade import DEFAULT_MARKETS, analyze_market
 
 STATE_PATH = PROJECT_ROOT / "state" / "live.json"
@@ -72,9 +87,11 @@ FILL_LEDGER_PATH = PROJECT_ROOT / "state" / "fill_ledger.jsonl"
 PORTFOLIO_PATH = PROJECT_ROOT / "state" / "portfolio.json"
 LOCK_PATH = PROJECT_ROOT / "state" / "autonomous_trader.lock"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
+SCAN_LEDGER_PATH = PROJECT_ROOT / "state" / "scan_audit.jsonl"
+REFERENCE_SIGNAL_PATH = PROJECT_ROOT / "state" / "reference_events.jsonl"
+WEBSOCKET_OBSERVATION_PATH = PROJECT_ROOT / "state" / "websocket_observations.jsonl"
 
 # ── Target & Risk Parameters (v4.2 Pro-Defense & High-Conviction Engine) ──
-INITIAL_CAPITAL = 30000.0       # 최초 시작 원금 (30,000 KRW)
 TARGET_RETURN_PCT = float(os.environ.get("TARGET_RETURN_PCT", "50.0"))  # 마일스톤 수익률 (+50%)
 STOP_LOSS_PCT = 0.018          # 손절가 비율 (-1.8%)
 TAKE_PROFIT_PCT = 0.038        # 2차 최종 목표가 비율 (+3.8%)
@@ -302,6 +319,7 @@ def rebase_after_external_cash_flow(
         return 0.0
     portfolio.cash_available = new_cash_balance
     portfolio.total_capital = new_cash_balance
+    portfolio.capital_baseline = new_cash_balance
     portfolio.start_of_day_equity = new_cash_balance
     portfolio.peak_equity = new_cash_balance
     portfolio.goal_target = new_cash_balance * (1.0 + TARGET_RETURN_PCT / 100.0)
@@ -312,6 +330,7 @@ def rebase_after_external_cash_flow(
 class PortfolioState:
     """Tracks portfolio across multiple trades for compounding."""
     total_capital: float = 0.0
+    capital_baseline: float = 0.0
     cash_available: float = 0.0
     active_market: str = ""
     entry_price: float = 0.0
@@ -341,6 +360,7 @@ class PortfolioState:
     def __post_init__(self) -> None:
         nonnegative_numbers = (
             self.total_capital,
+            self.capital_baseline,
             self.cash_available,
             self.entry_price,
             self.highest_price,
@@ -441,6 +461,8 @@ class PortfolioState:
                 data["legacy_position"] = bool(
                     data.get("active_market") and Decimal(str(data.get("position_volume", "0"))) > 0
                 )
+            if "capital_baseline" not in data:
+                data["capital_baseline"] = float(data.get("total_capital", 0.0))
             return PortfolioState(**data)
         return PortfolioState()
 
@@ -463,6 +485,7 @@ class ScanSnapshot:
     top_candidates: tuple[dict[str, Any], ...]
     started_monotonic: float
     completed_monotonic: float
+    audit_summary: Mapping[str, Any] = field(default_factory=dict)
 
 
 def scan_snapshot_is_fresh(
@@ -698,47 +721,76 @@ def get_market_warnings(client: McpStdioClient) -> set[str] | None:
     return warned
 
 
-def get_recent_notices(client: McpStdioClient) -> list[str]:
-    """Fetch latest 3 notices from Bithumb."""
-    titles = []
-    try:
-        res = client.call_read_tool("market_get_notices", {})
-        text = res["content"][0]["text"]
-        payload = json.loads(text).get("data", {}).get("data", [])
-        for item in payload[:3]:
-            t = item.get("title")
-            if t:
-                titles.append(t)
-    except Exception:
-        pass
-    return titles
+def get_recent_notices(client: McpStdioClient) -> tuple[list[str], list[Any]]:
+    """Fetch, parse, and persist official notices as non-executable references."""
+    res = client.call_read_tool("market_get_notices", {})
+    signals = parse_bithumb_notices(
+        res,
+        observed_at=datetime.now(UTC).isoformat(),
+    )
+    appended = append_reference_signals(REFERENCE_SIGNAL_PATH, signals)
+    return [signal.title for signal in signals[:3]], appended
 
 
 def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict[str, Any]]]:
     """Scan dynamic universe and return (sorted_analyses, top_candidates)."""
+    analyses, top_candidates, _ = _scan_and_rank_universe_with_audit(client)
+    return analyses, top_candidates
+
+
+def _scan_and_rank_universe_with_audit(
+    client: McpStdioClient,
+) -> tuple[list[Any], list[dict[str, Any]], dict[str, Any]]:
+    """Return scanner results plus write-only audit evidence."""
+    audit: dict[str, Any] = {
+        "universe": [],
+        "scanned": [],
+        "skipped": {},
+        "feed_health": {
+            "warning_feed_ok": False,
+            "ticker_feed_ok": False,
+            "orderbook_feed_ok": False,
+            "mcp_ok": False,
+        },
+        "errors": [],
+    }
     active_universe = fetch_dynamic_universe(min_24h_krw=500_000_000, max_markets=25)
+    audit["universe"] = list(active_universe)
     if not active_universe:
-        return [], []
+        audit["errors"].append("dynamic_universe_unavailable_or_empty")
+        return [], [], audit
+    audit["feed_health"]["ticker_feed_ok"] = True
     warned_markets = get_market_warnings(client)
     if warned_markets is None:
-        return [], []
+        audit["errors"].append("warning_feed_unavailable")
+        return [], [], audit
+    audit["feed_health"]["warning_feed_ok"] = True
+    audit["feed_health"]["mcp_ok"] = True
+    audit["feed_health"]["orderbook_feed_ok"] = True
 
     analyses = []
     for m in active_universe:
         if m in warned_markets:
+            audit["skipped"][m] = "official_market_warning"
             continue
         res = analyze_market(m)
-        if res:
-            ob_ratio = get_market_orderbook_ratio(client, m)
-            if ob_ratio is None:
-                continue
-            ob_adj = (ob_ratio - 0.50) * 20.0
-            final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
-            
-            # 🧠 Antigravity AI Council 전략 메모리 평가
-            ai_conf, is_allowed, _ = evaluate_with_ai_brain(m, final_conf)
-            if is_allowed:
-                analyses.append((res, ob_ratio, ai_conf))
+        if not res:
+            audit["skipped"][m] = "closed_candle_analysis_unavailable"
+            continue
+        audit["scanned"].append(m)
+        ob_ratio = get_market_orderbook_ratio(client, m)
+        if ob_ratio is None:
+            audit["feed_health"]["orderbook_feed_ok"] = False
+            audit["skipped"][m] = "orderbook_unavailable_or_stale"
+            continue
+        ob_adj = (ob_ratio - 0.50) * 20.0
+        final_conf = min(max(res.ace_confidence + ob_adj, 0.0), 100.0)
+
+        ai_conf, is_allowed, _ = evaluate_with_ai_brain(m, final_conf)
+        if not is_allowed:
+            audit["skipped"][m] = "research_memory_gate_rejected"
+            continue
+        analyses.append((res, ob_ratio, ai_conf))
 
     top_candidates = []
     if analyses:
@@ -749,22 +801,70 @@ def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict
                 "confidence": fconf,
                 "bid_ratio": ob * 100.0,
                 "status": a.recommendation,
+                "pass_reasons": ["warning_clear", "fresh_orderbook", "research_gate_allowed"],
             }
             for a, ob, fconf in analyses[:3]
         ]
-    return analyses, top_candidates
+    return analyses, top_candidates, audit
 
 
 def scan_and_rank_universe_isolated() -> ScanSnapshot:
     """Run the read-only scanner in its own MCP session for background polling."""
     started = time.monotonic()
-    with McpStdioClient(LIVE_COMMAND) as client:
-        analyses, top_candidates = scan_and_rank_universe(client)
+    wall_started = datetime.now(UTC)
+    scan_id = str(uuid4())
+    analyses: list[Any] = []
+    top_candidates: list[dict[str, Any]] = []
+    audit: dict[str, Any] = {
+        "universe": [], "scanned": [], "skipped": {},
+        "feed_health": {"warning_feed_ok": False, "ticker_feed_ok": False, "orderbook_feed_ok": False, "mcp_ok": False},
+        "errors": [],
+    }
+    try:
+        with McpStdioClient(LIVE_COMMAND) as client:
+            analyses, top_candidates, audit = _scan_and_rank_universe_with_audit(client)
+    except Exception as exc:
+        audit["errors"].append(f"{type(exc).__name__}: {exc}")
+    wall_completed = datetime.now(UTC)
+    candidates = tuple(
+        {
+            **candidate,
+            "rank": index,
+            "fail_reasons": [],
+        }
+        for index, candidate in enumerate(top_candidates, start=1)
+    )
+    try:
+        append_scan_snapshot(
+            SCAN_LEDGER_PATH,
+            ScanAuditSnapshot(
+                observed_at=wall_completed.isoformat(),
+                scan_id=scan_id,
+                scan_started_at=wall_started.isoformat(),
+                scan_completed_at=wall_completed.isoformat(),
+                data_timestamp=None,
+                universe_size=len(audit["universe"]),
+                markets_scanned=tuple(audit["scanned"]),
+                markets_skipped=audit["skipped"],
+                feed_health=audit["feed_health"],
+                candidates=candidates,
+                errors=tuple(audit["errors"]),
+            ),
+        )
+    except Exception as exc:
+        audit["errors"].append(f"scan_audit_persistence_failed: {type(exc).__name__}")
+        analyses = []
+        top_candidates = []
+        print(f"⚠️ Scan audit persistence error; invalidating scan for entry safety: {exc}")
     return ScanSnapshot(
         analyses=tuple(analyses),
         top_candidates=tuple(top_candidates),
         started_monotonic=started,
         completed_monotonic=time.monotonic(),
+        audit_summary={
+            "healthy": all(audit["feed_health"].values()) and not audit["errors"],
+            "detail": f"유니버스 {len(audit['universe'])} · 통과 {len(top_candidates)} · 오류 {len(audit['errors'])}",
+        },
     )
 
 
@@ -1552,6 +1652,8 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
 def main():
     _daemon_lock = acquire_daemon_lock()
     portfolio = PortfolioState.load(PORTFOLIO_PATH)
+    if portfolio.capital_baseline <= 0 and portfolio.total_capital > 0:
+        portfolio.capital_baseline = portfolio.total_capital
     if portfolio.goal_target <= 0 and portfolio.total_capital > 0:
         portfolio.goal_target = portfolio.total_capital * (1.0 + TARGET_RETURN_PCT / 100.0)
 
@@ -1594,7 +1696,62 @@ def main():
 
     print("🔍 Starting background Dynamic Universe scan...")
     cached_top_candidates = []
+    cached_scan_status: Mapping[str, Any] = {"healthy": False, "detail": "초기 스캔 대기"}
+    cached_reference_lines: list[str] = []
     reconciliation_healthy = False
+    websocket_stop = threading.Event()
+    websocket_reconcile_requested = threading.Event()
+    public_websocket_cache = ObservationCache()
+    private_websocket_cache: ObservationCache | None = None
+
+    def record_private_observation(event: ObservationEvent) -> None:
+        observation = event.observation
+        details = {
+            "kind": type(observation).__name__,
+            "received_at": event.received_at.isoformat(),
+            "order_id": getattr(observation, "order_id", None),
+            "client_order_id": getattr(observation, "client_order_id", None),
+            "stream_type": getattr(observation, "stream_type", None),
+            "reconciliation_scopes": [hint.scope for hint in event.reconciliation_hints],
+            "execution_authority": False,
+        }
+        try:
+            append_event(WEBSOCKET_OBSERVATION_PATH, "private_websocket_observation", details)
+        except Exception as exc:
+            print(f"⚠️ Private WebSocket observation persistence error: {exc}")
+        if event.reconciliation_hints:
+            websocket_reconcile_requested.set()
+
+    public_observer = BithumbWebSocketObserver(
+        build_public_subscription(DEFAULT_MARKETS),
+        cache=public_websocket_cache,
+    )
+    threading.Thread(
+        target=public_observer.run_forever,
+        args=(websocket_stop,),
+        name="bithumb-public-observer",
+        daemon=True,
+    ).start()
+    access_key = os.environ.get("BITHUMB_ACCESS_KEY", "").strip()
+    secret_key = os.environ.get("BITHUMB_SECRET_KEY", "").strip()
+    if access_key and secret_key:
+        private_websocket_cache = ObservationCache()
+        private_observer = BithumbWebSocketObserver(
+            build_private_subscription(),
+            private=True,
+            access_key=access_key,
+            secret_key=secret_key,
+            callback=record_private_observation,
+            cache=private_websocket_cache,
+        )
+        threading.Thread(
+            target=private_observer.run_forever,
+            args=(websocket_stop,),
+            name="bithumb-private-observer",
+            daemon=True,
+        ).start()
+    else:
+        print("⚠️ Private WebSocket disabled: API 2.0 credentials unavailable to daemon")
     try:
         with McpStdioClient(LIVE_COMMAND) as client:
             recover_pending_order(
@@ -1655,6 +1812,19 @@ def main():
                     reconcile_with_exchange(client, portfolio)
                     settings = live_settings_for_portfolio(portfolio)
                     reconciliation_healthy = True
+
+            if websocket_reconcile_requested.is_set():
+                websocket_reconcile_requested.clear()
+                try:
+                    with McpStdioClient(LIVE_COMMAND) as client:
+                        repair_portfolio_invariant(client, portfolio)
+                        reconcile_with_exchange(client, portfolio)
+                        settings = live_settings_for_portfolio(portfolio)
+                        reconciliation_healthy = True
+                except Exception:
+                    reconciliation_healthy = False
+                    websocket_reconcile_requested.set()
+                    raise
 
             # ── 마일스톤 도달 체크 (멈추지 않고 다음 목표 자동 갱신!) ──
             if portfolio.goal_target > 0 and portfolio.total_capital >= portfolio.goal_target:
@@ -1739,9 +1909,13 @@ def main():
                     snapshot = scan_future.result()
                     if not scan_snapshot_is_fresh(snapshot):
                         raise RuntimeError("completed scan result is stale")
-                    analyses = list(snapshot.analyses)
-                    if snapshot.top_candidates:
-                        cached_top_candidates = list(snapshot.top_candidates)
+                    analyses = (
+                        list(snapshot.analyses)
+                        if snapshot.audit_summary.get("healthy") is True
+                        else []
+                    )
+                    cached_top_candidates = list(snapshot.top_candidates)
+                    cached_scan_status = snapshot.audit_summary
                     if cached_top_candidates:
                         top = cached_top_candidates[0]
                         print(
@@ -1866,7 +2040,19 @@ def main():
                         winning_trades=portfolio.winning_trades,
                         losing_trades=portfolio.losing_trades,
                         total_pnl_krw=portfolio.total_pnl_krw,
-                        initial_capital=INITIAL_CAPITAL,
+                        initial_capital=portfolio.capital_baseline,
+                        runtime_mode=settings.mode.value,
+                        new_entries_enabled=new_entries_enabled(),
+                        reconciliation_healthy=reconciliation_healthy,
+                        scan_status=cached_scan_status,
+                        reference_lines=cached_reference_lines,
+                        websocket_status={
+                            "public_healthy": public_websocket_cache.snapshot().health.connected,
+                            "private_healthy": bool(
+                                private_websocket_cache
+                                and private_websocket_cache.snapshot().health.connected
+                            ),
+                        },
                     )
                     print(f"\n[{now_str}] 📊 매 시 정각 브리핑 전송 완료 ({now_dt.hour}시 정각)")
                 except Exception as exc:
@@ -1878,12 +2064,16 @@ def main():
             if loop_count % NOTICE_CHECK_LOOPS == 1 and loop_count > 1:
                 try:
                     with McpStdioClient(LIVE_COMMAND) as client:
-                        notices = get_recent_notices(client)
+                        notices, new_references = get_recent_notices(client)
+                        cached_reference_lines = notices
                         print(f"\n[{now_str}] 📢 Bithumb Latest Notices Check:")
                         for n in notices:
                             print(f"  - {n}")
-                except Exception:
-                    pass
+                        if new_references:
+                            digest = build_notice_digest(new_references)
+                            print(f"  ℹ️ reference-only digest: {digest.summary}")
+                except Exception as exc:
+                    print(f"⚠️ Official notice reference error: {exc}")
 
             # ── 에러 없이 루프 완료 → 연속 에러 카운터 리셋 ──
             consecutive_errors = 0

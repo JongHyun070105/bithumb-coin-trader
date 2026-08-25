@@ -12,6 +12,7 @@ from bithumb_coin_trader.discord_notify import (
     TradeEvent,
     TradeNotification,
     configured_discord_target,
+    format_hourly_briefing,
     format_trade_notification,
     save_local_target,
     send_discord_message,
@@ -71,6 +72,54 @@ class DiscordDeliveryTests(unittest.TestCase):
         self.assertIn("자동 재시도 금지", ambiguous)
         self.assertIn("실주문 없음", paper)
         self.assertNotIn("ACCESS_KEY", accepted)
+
+    def test_hourly_briefing_is_mode_aware_and_has_no_personal_defaults(self) -> None:
+        message = format_hourly_briefing(
+            total_capital=51_000,
+            cash_available=51_000,
+            active_market="",
+            active_price=0,
+            entry_price=0,
+            active_pnl_pct=0,
+            active_val_krw=0,
+            top_candidates=[],
+            target_capital=75_000,
+            winning_trades=1,
+            losing_trades=2,
+            total_pnl_krw=1_000,
+            initial_capital=50_000,
+            runtime_mode="live",
+            new_entries_enabled=False,
+            reconciliation_healthy=True,
+            scan_status={"healthy": False, "detail": "MCP timeout"},
+        )
+        self.assertIn("감시 전용 · 신규 진입 잠금", message)
+        self.assertIn("MCP timeout", message)
+        self.assertIn("원금: `50,000 KRW`", message)
+        self.assertNotIn("9/1", message)
+        self.assertNotIn("45,000", message)
+        self.assertNotIn("무중단 자율 운용", message)
+
+    def test_hourly_briefing_requires_explicit_positive_baseline(self) -> None:
+        with self.assertRaises(ValueError):
+            format_hourly_briefing(
+                total_capital=1,
+                cash_available=1,
+                active_market="",
+                active_price=0,
+                entry_price=0,
+                active_pnl_pct=0,
+                active_val_krw=0,
+                top_candidates=[],
+                target_capital=2,
+                winning_trades=0,
+                losing_trades=0,
+                total_pnl_krw=0,
+                initial_capital=0,
+                runtime_mode="monitoring",
+                new_entries_enabled=False,
+                reconciliation_healthy=False,
+            )
 
     @patch("bithumb_coin_trader.discord_notify.subprocess.run")
     def test_send_uses_hermes_file_and_returns_success(self, run) -> None:

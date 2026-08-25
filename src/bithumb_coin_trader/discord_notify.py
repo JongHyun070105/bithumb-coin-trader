@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import Mapping
+from typing import Any, Mapping, Sequence
 
 
 TARGET_ENV = "BITHUMB_DISCORD_TARGET"
@@ -312,13 +312,13 @@ def notify_buy_entry(
 진입단가: {price:,.0f} KRW
 매수금액: {amount_krw:,} KRW
 체결수량: {float(volume):.4f} {coin_name}
-AI 확신도: {confidence:.1f}% (TARO/DIANA/NOVA/VIBE)
+스캐너 점수: {confidence:.1f}% (연구용 보조지표 조합)
 호가 매수벽: {bid_ratio*100:.1f}% (30호가 Imbalance)
 ```
 
-- 🎯 **1차 목표가 (TP +4.0%)**: `{take_profit:,.0f} KRW`
-- ⛔ **손절 기준선 (SL -2.0%)**: `{stop_loss:,.0f} KRW`
-- 📈 **트레일링 스탑**: 고점 +1% 돌파 시 고점 대비 -1.5% 자동 추종
+- 🎯 **목표 기준선**: `{take_profit:,.0f} KRW`
+- ⛔ **손실 제한 기준선**: `{stop_loss:,.0f} KRW`
+- 📈 **트레일링 스탑**: 활성 조건 충족 후 설정된 고점 추적 폭 적용
 """
     return send_discord_message(text)
 
@@ -333,12 +333,14 @@ def notify_partial_sell_exit(
     remaining_volume: str,
     reason: str,
     total_capital: float,
-    target_capital: float = 45000.0,
+    target_capital: float,
 ) -> bool:
     """Send rich Partial 50% Take-Profit notification."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     coin_name = market.replace("KRW-", "")
 
+    if target_capital <= 0:
+        raise ValueError("target_capital must be positive")
     progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
     filled_bars = int(progress / 10)
     bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
@@ -357,7 +359,7 @@ def notify_partial_sell_exit(
 ```
 
 ### 🛡️ 후속 전략
-- 🔒 **본전 스탑 자동 적용**: 잔여 물량은 진입가 아래로 하락 시 본전에서 자동 청산 (원금 100% 안전)
+- 🔒 **본전 스탑 적용**: 잔여 물량은 진입가 부근에서 보호를 시도하며 수수료·슬리피지로 손실 가능
 - 🚀 **2차 최종 목표가**: +3.8% 전량 익절 또는 트레일링 스탑 추종
 
 ### 💰 포트폴리오 현황
@@ -376,7 +378,7 @@ def notify_sell_exit(
     pnl_pct: float,
     reason: str,
     total_capital: float,
-    target_capital: float = 45000.0,
+    target_capital: float,
 ) -> bool:
     """Send rich Sell Exit & P&L notification."""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -387,6 +389,8 @@ def notify_sell_exit(
     else:
         status_tag = "손절 방어 🛡️"
 
+    if target_capital <= 0:
+        raise ValueError("target_capital must be positive")
     progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
     filled_bars = int(progress / 10)
     bar_str = "█" * filled_bars + "░" * (10 - filled_bars)
@@ -404,13 +408,13 @@ def notify_sell_exit(
 
 ### 💰 포트폴리오 현황
 - **현재 총 자산**: **`{total_capital:,.0f} KRW`**
-- **9/1 목표 (45,000원)**: `[{bar_str}] {progress:.1f}%`
+- **현재 목표 달성률**: `[{bar_str}] {progress:.1f}%` (목표: {target_capital:,.0f} KRW)
 - **남은 목표 금액**: `{target_capital - total_capital:+,.0f} KRW`
 """
     return send_discord_message(text)
 
 
-def notify_hourly_briefing(
+def format_hourly_briefing(
     total_capital: float,
     cash_available: float,
     active_market: str,
@@ -419,13 +423,22 @@ def notify_hourly_briefing(
     active_pnl_pct: float,
     active_val_krw: float,
     top_candidates: list[dict[str, Any]],
-    target_capital: float = 45000.0,
-    winning_trades: int = 0,
-    losing_trades: int = 0,
-    total_pnl_krw: float = 0.0,
-    initial_capital: float = 30000.0,
-) -> bool:
-    """Send periodic briefing with portfolio, win-rate, returns, and market rankings."""
+    target_capital: float,
+    winning_trades: int,
+    losing_trades: int,
+    total_pnl_krw: float,
+    initial_capital: float,
+    runtime_mode: str,
+    new_entries_enabled: bool,
+    reconciliation_healthy: bool,
+    scan_status: Mapping[str, Any] | None = None,
+    websocket_status: Mapping[str, Any] | None = None,
+    reference_lines: Sequence[str] = (),
+    research_status: str = "검증 대기 · 자동 승격 없음",
+) -> str:
+    """Build a mode-aware operational briefing without personal capital defaults."""
+    if target_capital <= 0 or initial_capital <= 0:
+        raise ValueError("capital baseline and target must be positive")
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     progress = min(max(total_capital / target_capital * 100.0, 0.0), 100.0)
     filled_bars = int(progress / 10)
@@ -444,11 +457,36 @@ def notify_hourly_briefing(
     rank_lines = []
     for i, c in enumerate(top_candidates[:3]):
         tag = "⭐ 1위" if i == 0 else f"#{i+1}"
-        rank_lines.append(f"- {tag} **{c['market']}**: 확신도 `{c['confidence']:.1f}%` | 호가매수벽 `{c['bid_ratio']:.1f}%` | {c['status']}")
-    ranks_text = "\n".join(rank_lines) if rank_lines else "- 스캔 진행 중"
+        reasons = c.get("pass_reasons") or c.get("fail_reasons") or ()
+        reason_text = f" | 근거: {', '.join(str(item) for item in reasons[:3])}" if reasons else ""
+        rank_lines.append(
+            f"- {tag} **{c['market']}**: 스캐너 점수 `{float(c['confidence']):.1f}%` | "
+            f"호가매수벽 `{float(c['bid_ratio']):.1f}%` | {c['status']}{reason_text}"
+        )
+    ranks_text = "\n".join(rank_lines) if rank_lines else "- 통과 후보 없음 또는 스캔 진행 중"
 
-    text = f"""## 📊 [BITHUMB] 정기 트레이딩 브리핑
+    mode_label = (
+        f"{runtime_mode.upper()} · 신규 진입 허용"
+        if new_entries_enabled
+        else f"{runtime_mode.upper()} · 감시 전용 · 신규 진입 잠금"
+    )
+    reconciliation_label = "정상" if reconciliation_healthy else "점검 필요 · 신규 진입 차단"
+    current_scan = scan_status or {}
+    scan_health = "정상" if current_scan.get("healthy") else "점검 필요"
+    scan_detail = str(current_scan.get("detail") or "최근 상세 정보 없음")
+    current_ws = websocket_status or {}
+    public_ws = "정상" if current_ws.get("public_healthy") else "REST 대체"
+    private_ws = "정상" if current_ws.get("private_healthy") else "MCP 대조"
+    references = "\n".join(f"- {line}" for line in reference_lines[:3]) or "- 새 공식 참고 이벤트 없음"
+
+    return f"""## 📊 [BITHUMB] 정기 운영 브리핑
 > ⏱️ **기준시각**: `{now_str}`
+
+### 🛡️ 실행 경계 및 상태
+- **운영 모드**: `{mode_label}`
+- **거래소 잔고 대조**: `{reconciliation_label}`
+- **최근 스캔**: `{scan_health}` · {scan_detail}
+- **WebSocket 관측**: Public `{public_ws}` / Private `{private_ws}` (주문 권한 없음)
 
 ### 💰 자산 및 수익률 성적표
 - **총 자산**: **`{total_capital:,.0f} KRW`** (가용 현금: `{cash_available:,.0f} KRW`)
@@ -460,7 +498,17 @@ def notify_hourly_briefing(
 ### 📡 빗썸 다이내믹 25-유니버스 실시간 랭킹 Top 3
 {ranks_text}
 
+### 📰 공식 참고 이벤트
+{references}
+
+### 🧪 연구 상태
+- {research_status}
+
 ---
-*24시간 무중단 자율 운용 중* 🤖
+*관측 정보와 연구 결과는 주문 승인이 아니며, 전략은 검증 없이 자동 승격되지 않습니다.*
 """
-    return send_discord_message(text)
+
+
+def notify_hourly_briefing(**kwargs: Any) -> bool:
+    """Send a mode-aware periodic operational briefing."""
+    return send_discord_message(format_hourly_briefing(**kwargs))

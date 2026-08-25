@@ -8,7 +8,7 @@ import argparse
 from decimal import Decimal
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from scripts.autonomous_trader import (
     ExitAction,
@@ -35,6 +35,7 @@ from scripts.autonomous_trader import (
     reconcile_with_exchange,
     repair_portfolio_invariant,
     scan_snapshot_is_fresh,
+    scan_and_rank_universe_isolated,
 )
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.fill_ledger import FillLedger
@@ -46,6 +47,44 @@ from scripts import execute_live_trader
 
 
 class AutonomousTraderSafetyTests(unittest.TestCase):
+    def test_scan_ledger_failure_invalidates_candidates(self) -> None:
+        analysis = object()
+        audit = {
+            "universe": ["KRW-BTC"],
+            "scanned": ["KRW-BTC"],
+            "skipped": {},
+            "feed_health": {
+                "warning_feed_ok": True,
+                "ticker_feed_ok": True,
+                "orderbook_feed_ok": True,
+                "mcp_ok": True,
+            },
+            "errors": [],
+        }
+        client_context = MagicMock()
+        client_context.return_value.__enter__.return_value = object()
+        with (
+            patch("scripts.autonomous_trader.McpStdioClient", client_context),
+            patch(
+                "scripts.autonomous_trader._scan_and_rank_universe_with_audit",
+                return_value=([analysis], [{
+                    "market": "KRW-BTC",
+                    "confidence": 90.0,
+                    "bid_ratio": 60.0,
+                    "status": "candidate",
+                    "pass_reasons": ["ok"],
+                }], audit),
+            ),
+            patch(
+                "scripts.autonomous_trader.append_scan_snapshot",
+                side_effect=OSError("disk full"),
+            ),
+        ):
+            snapshot = scan_and_rank_universe_isolated()
+        self.assertEqual(snapshot.analyses, ())
+        self.assertEqual(snapshot.top_candidates, ())
+        self.assertFalse(snapshot.audit_summary["healthy"])
+
     @staticmethod
     def exit_portfolio(**overrides: object) -> PortfolioState:
         values: dict[str, object] = {
@@ -690,6 +729,7 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
     def test_external_flat_deposit_rebases_risk_and_fifty_percent_target(self) -> None:
         portfolio = PortfolioState(
             total_capital=32_000,
+            capital_baseline=32_000,
             cash_available=32_000,
             start_of_day_equity=31_000,
             peak_equity=34_000,
@@ -699,11 +739,22 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
         delta = rebase_after_external_cash_flow(portfolio, new_cash_balance=50_000)
         self.assertEqual(delta, 18_000)
         self.assertEqual(portfolio.total_capital, 50_000)
+        self.assertEqual(portfolio.capital_baseline, 50_000)
         self.assertEqual(portfolio.start_of_day_equity, 50_000)
         self.assertEqual(portfolio.peak_equity, 50_000)
         self.assertEqual(portfolio.goal_target, 75_000)
         self.assertEqual(portfolio.total_pnl_krw, 2_400)
         self.assertEqual(live_settings_for_portfolio(portfolio).maximum_order_krw, 30_000)
+
+    def test_legacy_portfolio_load_migrates_capital_baseline_from_current_total(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "portfolio.json"
+            path.write_text(
+                json.dumps({"total_capital": 51_234, "cash_available": 51_234}),
+                encoding="utf-8",
+            )
+            portfolio = PortfolioState.load(path)
+            self.assertEqual(portfolio.capital_baseline, 51_234)
 
     def test_flat_cash_change_does_not_hide_untracked_coin_holding(self) -> None:
         class OrphanAssetClient:

@@ -6,6 +6,7 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 RUNTIME_DIR="$HOME/Library/Application Support/BithumbCoinTrader"
 LABEL="com.bithumb.coin.trader"
 SERVICE="gui/$(id -u)/$LABEL"
+RESEARCH_SERVICE="gui/$(id -u)/com.bithumb.coin.research"
 
 echo "================================================================================"
 echo " 🤖 Bithumb Trader macOS Daemon Status"
@@ -15,6 +16,15 @@ if [ -z "$DETAILS" ]; then
     echo "⚠️ Service is NOT loaded in launchd"
 else
     printf '%s\n' "$DETAILS" | awk '/state =|pid =|last exit code =/{print}'
+fi
+
+echo ""
+echo "🧪 Weekly Research Schedule:"
+RESEARCH_DETAILS="$(launchctl print "$RESEARCH_SERVICE" 2>/dev/null || true)"
+if [ -z "$RESEARCH_DETAILS" ]; then
+    echo "⚠️ Weekly research service is NOT loaded"
+else
+    printf '%s\n' "$RESEARCH_DETAILS" | awk '/state =|last exit code =/{print}'
 fi
 
 echo ""
