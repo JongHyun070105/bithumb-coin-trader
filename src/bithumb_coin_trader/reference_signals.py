@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+LEGACY_SCHEMA_VERSION = 1
 _MARKET_RE = re.compile(r"\bKRW-[A-Z0-9]{2,15}\b")
 _SYMBOL_GROUP_RE = re.compile(r"\(([A-Z0-9]{2,15}(?:\s*,\s*[A-Z0-9]{2,15})*)\)")
 
@@ -41,15 +42,16 @@ def _timestamp(value: Any, field: str, *, required: bool) -> str | None:
     return parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-def _category(title: str) -> str:
+def _category(title: str, official_categories: Sequence[str] = ()) -> str:
     compact = title.replace(" ", "")
+    official = " ".join(official_categories).replace(" ", "")
     if any(word in compact for word in ("거래지원종료", "상장폐지")):
         return "trading_support_ended"
-    if any(word in compact for word in ("거래지원", "신규상장")):
+    if any(word in compact for word in ("거래지원", "신규상장")) or "마켓추가" in official:
         return "new_listing"
-    if any(word in compact for word in ("투자유의", "유의종목")):
+    if any(word in compact for word in ("투자유의", "유의종목")) or "거래유의" in official:
         return "investment_warning"
-    if any(word in compact for word in ("입출금중단", "입출금일시중단", "입출금재개")):
+    if any(word in compact for word in ("입출금중단", "입출금일시중단", "입출금재개")) or "입출금" in official:
         return "transfer_status"
     if any(word in compact for word in ("점검", "시스템작업", "서비스중단")):
         return "maintenance"
@@ -67,7 +69,68 @@ def _markets(title: str, item: Mapping[str, Any]) -> tuple[str, ...]:
     return tuple(sorted(markets))
 
 
-def _identity(notice_id: str | None, title: str, published_at: str | None, url: str | None) -> str:
+def _lifecycle_action(title: str, category: str) -> str:
+    compact = title.replace(" ", "")
+    if any(word in compact for word in ("해제", "재개", "정상화")):
+        return "released"
+    if any(word in compact for word in ("종료", "중단", "정지", "지정")):
+        return "activated"
+    if category == "new_listing":
+        return "announced"
+    return "informational"
+
+
+def _attention_score(category: str, lifecycle_action: str) -> int:
+    base = {
+        "trading_support_ended": 100,
+        "investment_warning": 95,
+        "transfer_status": 80,
+        "maintenance": 70,
+        "new_listing": 60,
+        "general": 20,
+    }[category]
+    if lifecycle_action == "released":
+        return min(base, 45)
+    return base
+
+
+def _official_categories(item: Mapping[str, Any]) -> tuple[str, ...]:
+    raw = item.get("categories") or item.get("category")
+    if isinstance(raw, str):
+        values = [raw]
+    elif isinstance(raw, Sequence) and not isinstance(raw, (str, bytes, bytearray)):
+        values = [value for value in raw if isinstance(value, str)]
+    else:
+        values = []
+    return tuple(sorted({" ".join(value.split()) for value in values if value.strip()}))
+
+
+def _normalize_source_timestamp(value: Any, field: str) -> str | None:
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.strip())
+        except ValueError:
+            parsed = None
+        if parsed is not None and parsed.tzinfo is None:
+            value = f"{value.strip()}+09:00"
+    return _timestamp(value, field, required=False)
+
+
+def _observation_lag_seconds(observed_at: str, published_at: str | None) -> int | None:
+    if published_at is None:
+        return None
+    observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+    published = datetime.fromisoformat(published_at.replace("Z", "+00:00"))
+    return max(0, int((observed - published).total_seconds()))
+
+
+def _identity(
+    notice_id: str | None,
+    title: str,
+    published_at: str | None,
+    url: str | None,
+    modified_at: str | None = None,
+) -> str:
     if notice_id:
         key = {"source": "bithumb-official-notice", "notice_id": notice_id}
     else:
@@ -77,6 +140,8 @@ def _identity(notice_id: str | None, title: str, published_at: str | None, url: 
             "published_at": published_at,
             "url": url,
         }
+    if modified_at is not None:
+        key["modified_at"] = modified_at
     return hashlib.sha256(_canonical_json(key).encode("utf-8")).hexdigest()
 
 
@@ -89,7 +154,12 @@ class NoticeReferenceSignal:
     identity_sha256: str
     notice_id: str | None = None
     published_at: str | None = None
+    modified_at: str | None = None
     url: str | None = None
+    official_categories: tuple[str, ...] = ()
+    lifecycle_action: str = "informational"
+    attention_score: int = 20
+    observation_lag_seconds: int | None = None
     source: str = "bithumb-official-notice"
     executable: bool = False
     schema_version: int = SCHEMA_VERSION
@@ -99,7 +169,10 @@ class NoticeReferenceSignal:
         object.__setattr__(
             self, "published_at", _timestamp(self.published_at, "published_at", required=False)
         )
-        if self.schema_version != SCHEMA_VERSION:
+        object.__setattr__(
+            self, "modified_at", _timestamp(self.modified_at, "modified_at", required=False)
+        )
+        if self.schema_version not in {LEGACY_SCHEMA_VERSION, SCHEMA_VERSION}:
             raise ReferenceSignalError("unsupported notice reference signal schema")
         if not isinstance(self.title, str) or not self.title.strip():
             raise ReferenceSignalError("title must be a non-empty string")
@@ -110,13 +183,33 @@ class NoticeReferenceSignal:
             raise ReferenceSignalError("invalid notice category")
         normalized_markets = tuple(self.affected_markets)
         object.__setattr__(self, "affected_markets", normalized_markets)
+        normalized_categories = tuple(self.official_categories)
+        object.__setattr__(self, "official_categories", normalized_categories)
         if tuple(sorted(set(normalized_markets))) != normalized_markets:
             raise ReferenceSignalError("affected_markets must be sorted and unique")
         if any(not _MARKET_RE.fullmatch(market) for market in self.affected_markets):
             raise ReferenceSignalError("affected_markets must contain KRW market codes")
+        if tuple(sorted(set(normalized_categories))) != normalized_categories:
+            raise ReferenceSignalError("official_categories must be sorted and unique")
+        if any(not category.strip() for category in normalized_categories):
+            raise ReferenceSignalError("official_categories must not contain empty values")
+        if self.lifecycle_action not in {"activated", "announced", "informational", "released"}:
+            raise ReferenceSignalError("invalid notice lifecycle action")
+        if not isinstance(self.attention_score, int) or not 0 <= self.attention_score <= 100:
+            raise ReferenceSignalError("attention_score must be an integer from 0 to 100")
+        if self.observation_lag_seconds is not None and (
+            not isinstance(self.observation_lag_seconds, int) or self.observation_lag_seconds < 0
+        ):
+            raise ReferenceSignalError("observation_lag_seconds must be a non-negative integer")
         if self.executable is not False:
             raise ReferenceSignalError("official notices are reference-only and never executable")
-        expected = _identity(self.notice_id, self.title, self.published_at, self.url)
+        expected = _identity(
+            self.notice_id,
+            self.title,
+            self.published_at,
+            self.url,
+            self.modified_at if self.schema_version >= SCHEMA_VERSION else None,
+        )
         if self.identity_sha256 != expected:
             raise ReferenceSignalError("notice identity digest is invalid")
 
@@ -181,17 +274,16 @@ def parse_bithumb_notices(payload: Any, *, observed_at: str) -> list[NoticeRefer
             (item[key] for key in ("published_at", "created_at", "createdAt", "registered_at") if item.get(key)),
             None,
         )
-        if isinstance(raw_published, str):
-            try:
-                parsed_published = datetime.fromisoformat(raw_published.strip())
-            except ValueError:
-                parsed_published = None
-            if parsed_published is not None and parsed_published.tzinfo is None:
-                # The official notice API returns local Korean timestamps without
-                # an offset. Preserve source time while normalizing it to UTC.
-                raw_published = f"{raw_published.strip()}+09:00"
-        published_at = _timestamp(raw_published, "published_at", required=False)
-        identity = _identity(notice_id, title, published_at, url)
+        published_at = _normalize_source_timestamp(raw_published, "published_at")
+        raw_modified = next(
+            (item[key] for key in ("modified_at", "updated_at", "updatedAt") if item.get(key)),
+            None,
+        )
+        modified_at = _normalize_source_timestamp(raw_modified, "modified_at")
+        official_categories = _official_categories(item)
+        category = _category(title, official_categories)
+        lifecycle_action = _lifecycle_action(title, category)
+        identity = _identity(notice_id, title, published_at, url, modified_at)
         if identity in seen:
             continue
         seen.add(identity)
@@ -199,12 +291,17 @@ def parse_bithumb_notices(payload: Any, *, observed_at: str) -> list[NoticeRefer
             NoticeReferenceSignal(
                 observed_at=observed,
                 title=title,
-                category=_category(title),
+                category=category,
                 affected_markets=_markets(title, item),
                 identity_sha256=identity,
                 notice_id=notice_id,
                 published_at=published_at,
+                modified_at=modified_at,
                 url=url,
+                official_categories=official_categories,
+                lifecycle_action=lifecycle_action,
+                attention_score=_attention_score(category, lifecycle_action),
+                observation_lag_seconds=_observation_lag_seconds(observed, published_at),
             )
         )
     return signals
@@ -224,7 +321,12 @@ def _decode_reference_lines(raw: bytes) -> list[NoticeReferenceSignal]:
             payload = json.loads(line)
         except json.JSONDecodeError as exc:
             raise ReferenceSignalError(f"reference signal line {line_number} is invalid JSON") from exc
-        if not isinstance(payload, dict) or set(payload) != set(NoticeReferenceSignal.__dataclass_fields__):
+        fields = set(NoticeReferenceSignal.__dataclass_fields__)
+        legacy_fields = {
+            "observed_at", "title", "category", "affected_markets", "identity_sha256",
+            "notice_id", "published_at", "url", "source", "executable", "schema_version",
+        }
+        if not isinstance(payload, dict) or not legacy_fields.issubset(payload) or not set(payload).issubset(fields):
             raise ReferenceSignalError(f"reference signal line {line_number} has an invalid schema")
         try:
             signal = NoticeReferenceSignal(**payload)

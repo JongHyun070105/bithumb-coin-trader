@@ -26,6 +26,52 @@ class ReferenceSignalTests(unittest.TestCase):
         self.assertEqual(signals[0].url, "https://feed.bithumb.com/notice/1")
         self.assertFalse(signals[0].executable)
 
+    def test_official_categories_modified_revision_and_lifecycle_are_retained(self) -> None:
+        base = {
+            "id": "notice-9",
+            "title": "샌드박스(SAND) 거래유의 종목 지정",
+            "categories": ["거래유의", "안내"],
+            "published_at": "2026-08-24 18:30:00",
+            "modified_at": "2026-08-24 18:40:00",
+        }
+        first = parse_bithumb_notices(
+            {"data": [base]}, observed_at="2026-08-24T10:00:00Z"
+        )[0]
+        revised = parse_bithumb_notices(
+            {"data": [{**base, "modified_at": "2026-08-24 18:50:00"}]},
+            observed_at="2026-08-24T10:00:00Z",
+        )[0]
+        self.assertEqual(first.category, "investment_warning")
+        self.assertEqual(first.official_categories, ("거래유의", "안내"))
+        self.assertEqual(first.lifecycle_action, "activated")
+        self.assertEqual(first.attention_score, 95)
+        self.assertEqual(first.observation_lag_seconds, 1800)
+        self.assertNotEqual(first.identity_sha256, revised.identity_sha256)
+
+    def test_reads_legacy_schema_without_rewriting_history(self) -> None:
+        legacy = parse_bithumb_notices(
+            {"data": [self.payload_item()]}, observed_at="2026-08-24T13:00:00Z"
+        )[0]
+        payload = {
+            "observed_at": legacy.observed_at,
+            "title": legacy.title,
+            "category": legacy.category,
+            "affected_markets": list(legacy.affected_markets),
+            "identity_sha256": legacy.identity_sha256,
+            "notice_id": legacy.notice_id,
+            "published_at": legacy.published_at,
+            "url": legacy.url,
+            "source": legacy.source,
+            "executable": False,
+            "schema_version": 1,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "legacy.jsonl"
+            path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+            loaded = read_reference_signals(path)
+        self.assertEqual(loaded[0].schema_version, 1)
+        self.assertEqual(loaded[0].official_categories, ())
+
     def payload(self):
         return {
             "content": [

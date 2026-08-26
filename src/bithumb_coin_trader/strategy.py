@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from calendar import monthrange
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from math import isfinite
@@ -60,25 +61,36 @@ class CompletedIntervalStrategy:
         _validate_candles(candles)
         if not candles:
             return []
-        completed = aggregate_candles(
-            candles,
-            self.source_minutes,
-            self.target_minutes,
-            as_of=candles[-1].timestamp + timedelta(minutes=self.source_minutes),
-        )
-        target_signals = self.inner.generate(completed)  # type: ignore[attr-defined]
-        if len(target_signals) != len(completed):
-            raise ValueError("inner strategy returned the wrong signal count")
-        signal_at_close = {
-            candle.timestamp + timedelta(minutes=self.target_minutes): Signal(signal)
-            for candle, signal in zip(completed, target_signals, strict=True)
-        }
-        mapped: list[Signal] = []
-        current = Signal.FLAT
         source_delta = timedelta(minutes=self.source_minutes)
-        for candle in candles:
-            current = signal_at_close.get(candle.timestamp + source_delta, current)
-            mapped.append(current)
+        starts = [0]
+        starts.extend(
+            index
+            for index in range(1, len(candles))
+            if candles[index].timestamp - candles[index - 1].timestamp != source_delta
+        )
+        mapped = [Signal.FLAT] * len(candles)
+        for segment_number, start in enumerate(starts):
+            end = starts[segment_number + 1] if segment_number + 1 < len(starts) else len(candles)
+            segment = candles[start:end]
+            completed = aggregate_candles(
+                segment,
+                self.source_minutes,
+                self.target_minutes,
+                as_of=segment[-1].timestamp + source_delta,
+            )
+            inner = deepcopy(self.inner)
+            target_signals = inner.generate(completed)  # type: ignore[attr-defined]
+            if len(target_signals) != len(completed):
+                raise ValueError("inner strategy returned the wrong signal count")
+            signal_at_close = {
+                candle.timestamp + timedelta(minutes=self.target_minutes): Signal(signal)
+                for candle, signal in zip(completed, target_signals, strict=True)
+            }
+            current = Signal.FLAT
+            for index in range(start, end):
+                candle = candles[index]
+                current = signal_at_close.get(candle.timestamp + source_delta, current)
+                mapped[index] = current
         return mapped
 
 
@@ -1490,5 +1502,4 @@ class TradingAgentsMultiAgentStrategy:
             signals[i] = position
 
         return signals
-
 

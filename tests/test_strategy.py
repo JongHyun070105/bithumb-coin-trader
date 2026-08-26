@@ -463,6 +463,33 @@ class CandidateStrategyTests(unittest.TestCase):
         signals = DonchianBreakoutStrategy(DonchianBreakoutParameters(2, 1)).generate(bars)
         self.assertEqual(signals, [Signal.FLAT, Signal.FLAT, Signal.LONG])
 
+    def test_completed_interval_restarts_inner_history_after_source_gap(self) -> None:
+        first = self._thirty_minute_four_hour_bars(
+            [(100, 90, 95), (101, 91, 96), (110, 100, 105)]
+        )
+        second = self._thirty_minute_four_hour_bars(
+            [(120, 110, 115), (130, 120, 125)]
+        )
+        offset = timedelta(minutes=30 * len(first) + 240)
+        second = [
+            Candle(
+                candle.timestamp + offset,
+                candle.open,
+                candle.high,
+                candle.low,
+                candle.close,
+                candle.volume,
+            )
+            for candle in second
+        ]
+        signals = CompletedIntervalStrategy(
+            DonchianBreakoutStrategy(DonchianBreakoutParameters(2, 1)),
+            source_minutes=30,
+            target_minutes=240,
+        ).generate(first + second)
+        self.assertEqual(signals[len(first) - 1], Signal.LONG)
+        self.assertEqual(signals[len(first) :], [Signal.FLAT] * len(second))
+
     def test_daily_tsmom_changes_only_at_completed_day_and_is_prefix_stable(self) -> None:
         raw = self._thirty_minute_days([100, 90, 110, 80])
         strategy = CompletedIntervalStrategy(

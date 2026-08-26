@@ -8,6 +8,7 @@ from math import sqrt
 from bithumb_coin_trader.backtest import Backtester
 from bithumb_coin_trader.config import TradingSettings
 from bithumb_coin_trader.models import Candle, Signal
+from bithumb_coin_trader.risk import RiskLimits
 
 
 def make_candles(prices: list[float]) -> list[Candle]:
@@ -109,6 +110,89 @@ class BacktestTests(unittest.TestCase):
             [Signal.LONG, Signal.FLAT, Signal.FLAT],
         )
         self.assertEqual(result.trades[0].notional, 10_000)
+
+    def test_target_allocation_controls_entry_without_rebalancing(self) -> None:
+        settings = TradingSettings(
+            fee_rate=0,
+            slippage_bps=0,
+            allocation_fraction=1,
+            minimum_order_krw=1,
+            maximum_order_krw=20_000,
+            cash_reserve_krw=0,
+        )
+        result = Backtester(settings).run(
+            make_candles([100, 100, 100]),
+            [Signal.LONG, Signal.FLAT, Signal.FLAT],
+            target_allocations=[0.25, 0.25, 0.25],
+        )
+        self.assertEqual(result.trades[0].notional, 5_000)
+
+    def test_fee_and_turnover_ledger_matches_trade_evidence(self) -> None:
+        settings = TradingSettings(
+            fee_rate=0.0025,
+            slippage_bps=0,
+            allocation_fraction=1,
+            cash_reserve_krw=0,
+        )
+        result = Backtester(settings).run(
+            make_candles([100, 100, 100]),
+            [Signal.LONG, Signal.FLAT, Signal.FLAT],
+        )
+        trade = result.trades[0]
+        self.assertAlmostEqual(result.total_fees, trade.entry_fee + trade.exit_fee)
+        self.assertAlmostEqual(
+            result.gross_traded_notional,
+            trade.notional + trade.exit_notional,
+        )
+        self.assertGreater(result.turnover, 0)
+
+    def test_entry_fee_cannot_spend_the_cash_reserve(self) -> None:
+        settings = TradingSettings(
+            fee_rate=0.01,
+            slippage_bps=0,
+            allocation_fraction=1,
+            minimum_order_krw=1,
+            maximum_order_krw=20_000,
+            cash_reserve_krw=10_000,
+        )
+        result = Backtester(settings).run(
+            make_candles([100, 100, 100]),
+            [Signal.LONG, Signal.FLAT, Signal.FLAT],
+        )
+        trade = result.trades[0]
+        self.assertGreaterEqual(20_000 - trade.notional - trade.entry_fee, 10_000)
+
+    def test_live_risk_drawdown_blocks_reentry_but_not_exit(self) -> None:
+        settings = TradingSettings(
+            initial_capital_krw=20_000,
+            fee_rate=0,
+            slippage_bps=0,
+            allocation_fraction=1,
+            minimum_order_krw=1,
+            maximum_order_krw=20_000,
+            maximum_daily_entries=4,
+            cash_reserve_krw=0,
+        )
+        result = Backtester(
+            settings,
+            risk_limits=RiskLimits(
+                minimum_order_krw=1,
+                maximum_order_krw=20_000,
+                maximum_daily_loss_fraction=1,
+                maximum_drawdown_fraction=0.10,
+                maximum_daily_entries=4,
+            ),
+        ).run(
+            make_candles([100, 100, 80, 80, 80]),
+            [Signal.LONG, Signal.FLAT, Signal.LONG, Signal.FLAT, Signal.FLAT],
+        )
+        self.assertEqual(result.closed_trade_count, 1)
+        self.assertTrue(
+            any(
+                "maximum drawdown reached" in rejection.reasons
+                for rejection in result.entry_rejections
+            )
+        )
 
     def test_daily_entry_limit_does_not_defer_stale_long_to_next_day(self) -> None:
         start = datetime(2024, 1, 1, tzinfo=UTC)

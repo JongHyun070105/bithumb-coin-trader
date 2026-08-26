@@ -187,10 +187,13 @@ class CandidateResearchTests(unittest.TestCase):
             report.folds[0].result.final_equity,
             report.folds[1].result.initial_equity,
         )
-        quantity = settings.initial_capital_krw / candles[4].open
+        # The order notional must leave enough cash to pay the entry fee;
+        # otherwise a 100% allocation creates an impossible negative reserve.
+        entry_notional = settings.initial_capital_krw / (1 + settings.fee_rate)
+        quantity = entry_notional / candles[4].open
         expected_final = (
             settings.initial_capital_krw
-            - settings.initial_capital_krw * settings.fee_rate
+            - entry_notional * settings.fee_rate
             + quantity * (candles[7].close - candles[4].open)
             - quantity * candles[7].close * settings.fee_rate
         )

@@ -5,6 +5,9 @@ import os
 import tempfile
 import unittest
 import argparse
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,19 +15,24 @@ from unittest.mock import MagicMock, patch
 
 from scripts.autonomous_trader import (
     ExitAction,
+    FINNHUB_API_KEY_ENV,
+    NEWS_CACHE_TTL_SEC,
     ScanSnapshot,
     NEW_ENTRIES_ENV,
     PYRAMIDING_ENV,
     PortfolioState,
     _bithumb_timestamp_is_fresh,
     _read_asset_balances,
+    compose_reference_lines,
     fetch_dynamic_universe,
     acquire_daemon_lock,
     decide_position_exit,
     get_market_orderbook_ratio,
     get_market_warnings,
+    get_recent_external_news,
     get_realtime_ticker_price,
     enhanced_exit_eligible_for_policy,
+    external_news_cache_expired,
     load_market_rest,
     load_recent_exits,
     live_settings_for_portfolio,
@@ -36,6 +44,7 @@ from scripts.autonomous_trader import (
     repair_portfolio_invariant,
     scan_snapshot_is_fresh,
     scan_and_rank_universe_isolated,
+    start_external_news_fetch,
 )
 from bithumb_coin_trader.config import TradingMode, TradingSettings
 from bithumb_coin_trader.fill_ledger import FillLedger
@@ -47,6 +56,64 @@ from scripts import execute_live_trader
 
 
 class AutonomousTraderSafetyTests(unittest.TestCase):
+    def test_external_news_is_disabled_without_key_and_does_not_touch_network(self) -> None:
+        with (
+            patch.dict(os.environ, {}, clear=False),
+            patch("scripts.autonomous_trader.FinnhubNewsClient") as client,
+        ):
+            os.environ.pop(FINNHUB_API_KEY_ENV, None)
+            self.assertEqual(get_recent_external_news(known_markets=["KRW-BTC"]), ([], []))
+            client.assert_not_called()
+
+    def test_external_news_worker_does_not_block_protective_loop_thread(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocking_fetch(*, known_markets):
+            entered.set()
+            release.wait(timeout=2)
+            return (["done"], [])
+
+        executor = ThreadPoolExecutor(max_workers=1)
+        try:
+            with patch("scripts.autonomous_trader.get_recent_external_news", side_effect=blocking_fetch):
+                started = time.monotonic()
+                future = start_external_news_fetch(executor, known_markets=["KRW-BTC"])
+                elapsed = time.monotonic() - started
+                self.assertLess(elapsed, 0.1)
+                self.assertTrue(entered.wait(timeout=1))
+                self.assertFalse(future.done())
+                release.set()
+                self.assertEqual(future.result(timeout=1), (["done"], []))
+        finally:
+            release.set()
+            executor.shutdown(wait=True, cancel_futures=True)
+
+    def test_external_news_cache_expires_after_bounded_ttl(self) -> None:
+        self.assertTrue(external_news_cache_expired(None, now_monotonic=1.0))
+        self.assertFalse(
+            external_news_cache_expired(100.0, now_monotonic=100.0 + NEWS_CACHE_TTL_SEC)
+        )
+        self.assertTrue(
+            external_news_cache_expired(100.0, now_monotonic=100.1 + NEWS_CACHE_TTL_SEC)
+        )
+
+    def test_reference_briefing_reserves_one_slot_per_source(self) -> None:
+        lines = compose_reference_lines(
+            warning_lines=["warning-1", "warning-2", "warning-3"],
+            notice_lines=["notice-1", "notice-2"],
+            news_lines=["news-1", "news-2"],
+            news_status_line=None,
+        )
+        self.assertEqual(lines[:3], ["warning-1", "notice-1", "news-1"])
+        failed = compose_reference_lines(
+            warning_lines=["warning-1", "warning-2", "warning-3"],
+            notice_lines=["notice-1"],
+            news_lines=["stale-news"],
+            news_status_line="news-error",
+        )
+        self.assertEqual(failed[:3], ["warning-1", "notice-1", "news-error"])
+
     def test_scan_ledger_failure_invalidates_candidates(self) -> None:
         analysis = object()
         audit = {
@@ -771,9 +838,73 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
             save_state(state_path, BotState(position="flat", position_volume="0"))
             portfolio = PortfolioState(total_capital=32_000, cash_available=32_000)
             with patch("scripts.autonomous_trader.STATE_PATH", state_path):
+                # Default allowlist is empty -> any untracked coin must fail closed!
                 with self.assertRaisesRegex(RuntimeError, "untracked exchange holdings"):
                     reconcile_with_exchange(OrphanAssetClient(), portfolio)  # type: ignore[arg-type]
             self.assertEqual(portfolio.cash_available, 32_000)
+
+    def test_allowlisted_manual_holding_does_not_block_reconciliation(self) -> None:
+        class SyntheticManualHoldingClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "50000"},
+                    {"currency": "MANUAL1", "balance": "100.5"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            save_state(state_path, BotState(position="flat", position_volume="0"))
+            portfolio = PortfolioState(total_capital=50_000, cash_available=50_000)
+            with patch("scripts.autonomous_trader.STATE_PATH", state_path):
+                with patch.dict(os.environ, {"MANUAL_HOLDINGS_ALLOWLIST": "MANUAL1"}):
+                    # Explicitly allowlisted synthetic symbol -> reconciles smoothly
+                    reconcile_with_exchange(SyntheticManualHoldingClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(portfolio.cash_available, 50_000)
+            self.assertEqual(portfolio.total_capital, 50_000)
+
+    def test_default_allowlist_is_empty_and_fails_closed(self) -> None:
+        class UnallowlistedManualClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "50000"},
+                    {"currency": "MANUAL1", "balance": "100.5"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            save_state(state_path, BotState(position="flat", position_volume="0"))
+            portfolio = PortfolioState(total_capital=50_000, cash_available=50_000)
+            with patch("scripts.autonomous_trader.STATE_PATH", state_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Without MANUAL_HOLDINGS_ALLOWLIST env -> default is empty -> must fail closed!
+                    with self.assertRaisesRegex(RuntimeError, "untracked exchange holdings"):
+                        reconcile_with_exchange(UnallowlistedManualClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(portfolio.cash_available, 50_000)
+
+    def test_custom_manual_holdings_allowlist_env_override(self) -> None:
+        class MultiHoldingClient:
+            def call_read_tool(self, _name: str, _arguments: object) -> object:
+                payload = {"data": {"data": [
+                    {"currency": "KRW", "balance": "50000"},
+                    {"currency": "ASSET_A", "balance": "100"},
+                    {"currency": "ASSET_B", "balance": "2.5"},
+                ]}}
+                return {"content": [{"type": "text", "text": json.dumps(payload)}]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            state_path = root / "live.json"
+            save_state(state_path, BotState(position="flat", position_volume="0"))
+            portfolio = PortfolioState(total_capital=50_000, cash_available=50_000)
+            with patch("scripts.autonomous_trader.STATE_PATH", state_path):
+                with patch.dict(os.environ, {"MANUAL_HOLDINGS_ALLOWLIST": "ASSET_A,KRW-ASSET_B"}):
+                    # ASSET_A & ASSET_B are allowlisted -> passes smoothly
+                    reconcile_with_exchange(MultiHoldingClient(), portfolio)  # type: ignore[arg-type]
+            self.assertEqual(portfolio.cash_available, 50_000)
 
     def test_cross_file_sell_crash_recovers_pnl_and_loss_cooldown_once(self) -> None:
         class CashOnlyClient:

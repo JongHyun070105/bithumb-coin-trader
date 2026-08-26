@@ -75,6 +75,19 @@ from bithumb_coin_trader.reference_signals import (
     build_notice_digest,
     parse_bithumb_notices,
 )
+from bithumb_coin_trader.market_warning_signals import (
+    append_market_warning_snapshot,
+    format_warning_lines,
+    parse_market_warning_snapshot,
+    read_market_warning_snapshots,
+)
+from bithumb_coin_trader.external_news import (
+    ExternalNewsError,
+    FinnhubNewsClient,
+    append_news_reference_signals,
+    format_news_lines,
+    parse_finnhub_news,
+)
 from bithumb_coin_trader.self_growth import EvolutionaryReviewer, apply_learned_heuristics
 from bithumb_coin_trader.ai_brain import evaluate_with_ai_brain, load_ai_memory
 from bithumb_coin_trader.gemini_council import run_gemini_autonomous_review
@@ -89,6 +102,8 @@ LOCK_PATH = PROJECT_ROOT / "state" / "autonomous_trader.lock"
 JOURNAL_PATH = PROJECT_ROOT / "TRADING_JOURNAL.md"
 SCAN_LEDGER_PATH = PROJECT_ROOT / "state" / "scan_audit.jsonl"
 REFERENCE_SIGNAL_PATH = PROJECT_ROOT / "state" / "reference_events.jsonl"
+WARNING_REFERENCE_PATH = PROJECT_ROOT / "state" / "market_warning_snapshots.jsonl"
+NEWS_REFERENCE_PATH = PROJECT_ROOT / "state" / "external_news_references.jsonl"
 WEBSOCKET_OBSERVATION_PATH = PROJECT_ROOT / "state" / "websocket_observations.jsonl"
 
 # ── Target & Risk Parameters (v4.2 Pro-Defense & High-Conviction Engine) ──
@@ -120,12 +135,14 @@ ENHANCED_EXIT_POLICY_VERSION = 1
 ACTIVE_ENTRY_POLICY_VERSION = 0
 HOURLY_REPORT_LOOPS = 1200   # every 1200 loops = ~1 hour
 NOTICE_CHECK_LOOPS = 200     # every ~10 minutes
+NEWS_CACHE_TTL_SEC = 1200    # never present external headlines as current after 20 minutes
 RECONCILE_LOOPS = 600        # every ~30 minutes: exchange balance reconciliation
 MAX_CONSECUTIVE_ERRORS = 5   # 연속 에러 시 긴급 알림
 ERROR_COOLDOWN_SEC = 60      # 에러 발생 시 대기 시간
 FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
 NEW_ENTRIES_ENV = "BITHUMB_NEW_ENTRIES"
 PYRAMIDING_ENV = "BITHUMB_PYRAMIDING"
+FINNHUB_API_KEY_ENV = "BITHUMB_FINNHUB_API_KEY"
 
 EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
 
@@ -688,37 +705,27 @@ def get_market_orderbook_ratio(client: Any, market: str) -> float | None:
     return None
 
 
-def get_market_warnings(client: McpStdioClient) -> set[str] | None:
+def get_market_warnings(
+    client: McpStdioClient,
+    *,
+    persist_path: Path | None = None,
+) -> set[str] | None:
     """Fetch list of markets under warning or investment alert."""
-    warned = set()
     try:
         res = client.call_read_tool("market_get_warnings", {})
-        if not isinstance(res, Mapping):
-            raise ValueError("warning result must be an object")
-        content = res.get("content")
-        if not isinstance(content, list) or len(content) != 1:
-            raise ValueError("warning result must contain one block")
-        block = content[0]
-        if not isinstance(block, Mapping) or block.get("type") != "text" or not isinstance(block.get("text"), str):
-            raise ValueError("warning result must be JSON text")
-        payload: Any = json.loads(block["text"])
-        for _ in range(2):
-            if not isinstance(payload, Mapping) or "data" not in payload:
-                raise ValueError("warning payload wrapper is missing")
-            payload = payload["data"]
-        if not isinstance(payload, list):
-            raise ValueError("warning payload must be a list")
-        for item in payload:
-            if not isinstance(item, Mapping):
-                raise ValueError("warning item must be an object")
-            market = item.get("market")
-            if not isinstance(market, str) or not market.startswith("KRW-"):
-                raise ValueError("warning item market is invalid")
-            warned.add(market)
+        snapshot = parse_market_warning_snapshot(
+            res,
+            observed_at=datetime.now(UTC).isoformat(),
+        )
     except Exception as exc:
         print(f"  ⚠️ Warning feed unavailable; blocking new entries: {type(exc).__name__}")
         return None
-    return warned
+    if persist_path is not None:
+        try:
+            append_market_warning_snapshot(persist_path, snapshot)
+        except Exception as exc:
+            print(f"  ⚠️ Warning reference persistence failed: {type(exc).__name__}")
+    return {warning.market for warning in snapshot.warnings}
 
 
 def get_recent_notices(client: McpStdioClient) -> tuple[list[str], list[Any]]:
@@ -730,6 +737,78 @@ def get_recent_notices(client: McpStdioClient) -> tuple[list[str], list[Any]]:
     )
     appended = append_reference_signals(REFERENCE_SIGNAL_PATH, signals)
     return [signal.title for signal in signals[:3]], appended
+
+
+def get_recent_external_news(
+    *,
+    known_markets: list[str],
+) -> tuple[list[str], list[Any]]:
+    """Fetch optional Finnhub headlines without granting them trading authority."""
+
+    api_key = os.environ.get(FINNHUB_API_KEY_ENV, "").strip()
+    if not api_key:
+        return [], []
+    client = FinnhubNewsClient(api_key)
+    signals = parse_finnhub_news(
+        client.fetch(),
+        observed_at=datetime.now(UTC).isoformat(),
+        known_markets=known_markets,
+    )[:100]
+    appended = append_news_reference_signals(NEWS_REFERENCE_PATH, signals)
+    return format_news_lines(signals), appended
+
+
+def start_external_news_fetch(
+    executor: ThreadPoolExecutor,
+    *,
+    known_markets: list[str],
+) -> Future[tuple[list[str], list[Any]]]:
+    """Run external I/O away from the price and protective-exit loop."""
+
+    return executor.submit(get_recent_external_news, known_markets=known_markets)
+
+
+def get_latest_warning_reference_lines() -> list[str]:
+    snapshots = read_market_warning_snapshots(WARNING_REFERENCE_PATH)
+    return format_warning_lines(snapshots[-1]) if snapshots else []
+
+
+def external_news_cache_expired(
+    last_success_monotonic: float | None,
+    *,
+    now_monotonic: float | None = None,
+) -> bool:
+    if last_success_monotonic is None:
+        return True
+    now = time.monotonic() if now_monotonic is None else now_monotonic
+    return now - last_success_monotonic > NEWS_CACHE_TTL_SEC
+
+
+def compose_reference_lines(
+    *,
+    warning_lines: list[str],
+    notice_lines: list[str],
+    news_lines: list[str],
+    news_status_line: str | None,
+    limit: int = 9,
+) -> list[str]:
+    """Reserve visible Discord slots for each reference source."""
+
+    primary = [
+        *warning_lines[:1],
+        *notice_lines[:1],
+        *([news_status_line] if news_status_line else news_lines[:1]),
+    ]
+    secondary = [
+        *warning_lines[1:],
+        *notice_lines[1:],
+        *([] if news_status_line else news_lines[1:]),
+    ]
+    ordered: list[str] = []
+    for line in [*primary, *secondary]:
+        if line and line not in ordered:
+            ordered.append(line)
+    return ordered[: max(0, limit)]
 
 
 def scan_and_rank_universe(client: McpStdioClient) -> tuple[list[Any], list[dict[str, Any]]]:
@@ -760,7 +839,7 @@ def _scan_and_rank_universe_with_audit(
         audit["errors"].append("dynamic_universe_unavailable_or_empty")
         return [], [], audit
     audit["feed_health"]["ticker_feed_ok"] = True
-    warned_markets = get_market_warnings(client)
+    warned_markets = get_market_warnings(client, persist_path=WARNING_REFERENCE_PATH)
     if warned_markets is None:
         audit["errors"].append("warning_feed_unavailable")
         return [], [], audit
@@ -909,11 +988,23 @@ def _read_asset_balances(
     return balances
 
 
+def get_manual_holdings_allowlist() -> frozenset[str]:
+    raw = os.getenv("MANUAL_HOLDINGS_ALLOWLIST")
+    if raw is not None:
+        items = [i.strip().upper().removeprefix("KRW-") for i in raw.split(",") if i.strip()]
+        return frozenset(items)
+    try:
+        return frozenset(TradingSettings.from_env().manual_holdings_allowlist)
+    except Exception:
+        return frozenset()
+
+
 def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -> None:
     """
     거래소 실잔고를 Source of Truth로 하여 portfolio.json을 자동 교정합니다.
     - 크래시 후 재시작 시 포지션을 잃지 않음
     - 수동 매매 후에도 자동 반영
+    - MANUAL_HOLDINGS_ALLOWLIST에 명시된 자산은 봇의 reconciliation 및 emergency halt에서 안전하게 제외
     """
     state = load_state(STATE_PATH)
     if state.active_client_order_id is not None or state.untracked_order:
@@ -924,12 +1015,22 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
     required_market = portfolio.active_market if not portfolio.legacy_position else None
     balances = _read_asset_balances(client, required_market=required_market)
 
+    manual_allowlist = get_manual_holdings_allowlist()
     krw_balance = float(balances["KRW"])
-    coin_holdings = {}  # currency -> balance
+    coin_holdings = {}  # currency -> balance (bot-managed or untracked candidate)
+    manual_holdings = {}  # currency -> balance (user manual holding)
+
     for currency, decimal_balance in balances.items():
         balance = float(decimal_balance)
         if currency != "KRW" and balance > 0 and currency not in ("P",):
-            coin_holdings[currency] = balance
+            curr_upper = currency.upper().removeprefix("KRW-")
+            if curr_upper in manual_allowlist:
+                manual_holdings[curr_upper] = balance
+            else:
+                coin_holdings[currency] = balance
+
+    if manual_holdings:
+        print(f"  ℹ️ 수동 관리 자산(대사 제외): {sorted(manual_holdings.keys())}")
 
     # 포지션 동기화
     active_currency = portfolio.active_market.replace("KRW-", "") if portfolio.active_market else ""
@@ -1007,7 +1108,7 @@ def reconcile_with_exchange(client: McpStdioClient, portfolio: PortfolioState) -
         print(f"  🔄 현금 불일치 교정: {portfolio.cash_available:,.0f} → {krw_balance:,.0f} KRW")
         portfolio.cash_available = krw_balance
 
-    # 총자산 재계산
+    # 총자산 재계산 (봇 관리 포지션 평가액 반영)
     total = krw_balance
     for curr, bal in coin_holdings.items():
         candles = fetch_minute_candles(f"KRW-{curr}", 1, 3)
@@ -1697,6 +1798,12 @@ def main():
     print("🔍 Starting background Dynamic Universe scan...")
     cached_top_candidates = []
     cached_scan_status: Mapping[str, Any] = {"healthy": False, "detail": "초기 스캔 대기"}
+    cached_notice_lines: list[str] = []
+    cached_warning_lines: list[str] = []
+    cached_news_lines: list[str] = []
+    cached_news_status_line: str | None = None
+    news_last_success_monotonic: float | None = None
+    news_last_success_at: str | None = None
     cached_reference_lines: list[str] = []
     reconciliation_healthy = False
     websocket_stop = threading.Event()
@@ -1768,9 +1875,11 @@ def main():
     consecutive_errors = 0  # v4.0: 연속 에러 카운터
     last_briefing_hour = -1  # 매 시 정각(8시, 9시, 10시...) 브리핑 추적 변수
     scan_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="market-scan")
+    news_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reference-news")
     scan_future: Future[ScanSnapshot] | None = (
         scan_executor.submit(scan_and_rank_universe_isolated)
     )
+    news_future: Future[tuple[list[str], list[Any]]] | None = None
     next_scan_at = time.monotonic() + PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS
     next_price_check_at = time.monotonic()
 
@@ -1931,6 +2040,48 @@ def main():
                 scan_future = scan_executor.submit(scan_and_rank_universe_isolated)
                 next_scan_at = time.monotonic() + PRICE_CHECK_INTERVAL * SCAN_INTERVAL_LOOPS
 
+            if news_future is not None and news_future.done():
+                try:
+                    cached_news_lines, new_news = news_future.result()
+                    news_last_success_monotonic = time.monotonic()
+                    news_last_success_at = datetime.now(UTC).isoformat()
+                    cached_news_status_line = None
+                    cached_reference_lines = compose_reference_lines(
+                        warning_lines=cached_warning_lines,
+                        notice_lines=cached_notice_lines,
+                        news_lines=cached_news_lines,
+                        news_status_line=cached_news_status_line,
+                    )
+                    if new_news:
+                        print(f"  ℹ️ external reference-only news: {len(new_news)} new")
+                except ExternalNewsError as exc:
+                    print(f"⚠️ External news reference error: {type(exc).__name__}")
+                    cached_news_status_line = (
+                        "[외부 뉴스/수집 오류] 갱신 실패 · 마지막 성공 "
+                        f"{news_last_success_at or '없음'} · 주문 영향 없음"
+                    )
+                except Exception as exc:
+                    print(f"⚠️ External news worker error: {type(exc).__name__}")
+                    cached_news_status_line = (
+                        "[외부 뉴스/수집 오류] 갱신 실패 · 마지막 성공 "
+                        f"{news_last_success_at or '없음'} · 주문 영향 없음"
+                    )
+                finally:
+                    news_future = None
+
+            if cached_news_lines and external_news_cache_expired(news_last_success_monotonic):
+                cached_news_lines = []
+                cached_news_status_line = (
+                    "[외부 뉴스/오래됨] 20분 초과 캐시 제외 · 마지막 성공 "
+                    f"{news_last_success_at or '없음'} · 주문 영향 없음"
+                )
+            cached_reference_lines = compose_reference_lines(
+                warning_lines=cached_warning_lines,
+                notice_lines=cached_notice_lines,
+                news_lines=cached_news_lines,
+                news_status_line=cached_news_status_line,
+            )
+
             if analyses:
                 state = load_state(STATE_PATH)
                 ai_mem = load_ai_memory()
@@ -2064,10 +2215,27 @@ def main():
             if loop_count % NOTICE_CHECK_LOOPS == 1 and loop_count > 1:
                 try:
                     with McpStdioClient(LIVE_COMMAND) as client:
-                        notices, new_references = get_recent_notices(client)
-                        cached_reference_lines = notices
+                        cached_notice_lines, new_references = get_recent_notices(client)
+                        known_markets = list(DEFAULT_MARKETS)
+                        known_markets.extend(
+                            candidate["market"]
+                            for candidate in cached_top_candidates
+                            if isinstance(candidate.get("market"), str)
+                        )
+                        if news_future is None and os.environ.get(FINNHUB_API_KEY_ENV, "").strip():
+                            news_future = start_external_news_fetch(
+                                news_executor,
+                                known_markets=known_markets,
+                            )
+                        cached_warning_lines = get_latest_warning_reference_lines()
+                        cached_reference_lines = compose_reference_lines(
+                            warning_lines=cached_warning_lines,
+                            notice_lines=cached_notice_lines,
+                            news_lines=cached_news_lines,
+                            news_status_line=cached_news_status_line,
+                        )
                         print(f"\n[{now_str}] 📢 Bithumb Latest Notices Check:")
-                        for n in notices:
+                        for n in cached_notice_lines:
                             print(f"  - {n}")
                         if new_references:
                             digest = build_notice_digest(new_references)
@@ -2089,6 +2257,7 @@ def main():
         except KeyboardInterrupt:
             print("\n\n🛑 사용자 중단 (Ctrl+C). 안전하게 종료합니다.")
             scan_executor.shutdown(wait=False, cancel_futures=True)
+            news_executor.shutdown(wait=False, cancel_futures=True)
             break
         except Exception as exc:
             consecutive_errors += 1

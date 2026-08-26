@@ -8,6 +8,7 @@ from typing import Sequence
 
 from .config import TradingSettings
 from .models import Candle, Signal
+from .risk import RiskContext, RiskLimits, evaluate_pretrade
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +19,10 @@ class Trade:
     entry_price: float
     exit_price: float
     notional: float
+    exit_notional: float
+    gross_pnl: float
+    entry_fee: float
+    exit_fee: float
     net_pnl: float
     is_final_liquidation: bool = False
     is_gap_liquidation: bool = False
@@ -37,6 +42,10 @@ class BacktestResult:
     equity_curve: tuple[float, ...]
     closed_trade_count: int
     position_curve: tuple[Signal, ...] = ()
+    total_fees: float = 0.0
+    gross_traded_notional: float = 0.0
+    turnover: float = 0.0
+    entry_rejections: tuple["EntryRejection", ...] = ()
 
     def __post_init__(self) -> None:
         if self.trade_count != len(self.trades):
@@ -60,6 +69,12 @@ class _OpenPosition:
     equity_after_entry_fee: float
 
 
+@dataclass(frozen=True, slots=True)
+class EntryRejection:
+    index: int
+    reasons: tuple[str, ...]
+
+
 KST = timezone(timedelta(hours=9))
 
 
@@ -70,18 +85,34 @@ class Backtester:
         *,
         allow_short: bool = False,
         expected_interval: timedelta | None = None,
+        risk_limits: RiskLimits | None = None,
     ) -> None:
         self.settings = settings or TradingSettings()
         self.allow_short = allow_short
         if expected_interval is not None and expected_interval.total_seconds() <= 0:
             raise ValueError("expected_interval must be positive")
         self.expected_interval = expected_interval
+        self.risk_limits = risk_limits
 
-    def run(self, candles: Sequence[Candle], signals: Sequence[Signal]) -> BacktestResult:
+    def run(
+        self,
+        candles: Sequence[Candle],
+        signals: Sequence[Signal],
+        *,
+        target_allocations: Sequence[float] | None = None,
+    ) -> BacktestResult:
         if len(candles) != len(signals):
             raise ValueError("candles and signals must have the same length")
         if len(candles) < 2:
             raise ValueError("at least two candles are required")
+        if target_allocations is not None:
+            if len(target_allocations) != len(candles):
+                raise ValueError("target allocations must align with candles")
+            if any(
+                isinstance(value, bool) or not 0 <= value <= 1
+                for value in target_allocations
+            ):
+                raise ValueError("target allocations must be finite fractions in [0, 1]")
         if any(
             candles[index].timestamp <= candles[index - 1].timestamp
             for index in range(1, len(candles))
@@ -96,12 +127,20 @@ class Backtester:
         expected_interval = self.expected_interval or self._typical_interval(candles)
         entries_by_kst_day: dict[object, int] = {}
         suppressed_side: Signal | None = None
+        entry_rejections: list[EntryRejection] = []
+        peak_equity = equity
+        current_entry_day = candles[0].timestamp.astimezone(KST).date()
+        start_of_day_equity = equity
 
         for index in range(1, len(candles)):
             requested = Signal(signals[index - 1])
             if requested is Signal.SHORT and not self.allow_short:
                 requested = Signal.FLAT
             open_price = candles[index].open
+            entry_day = candles[index].timestamp.astimezone(KST).date()
+            if entry_day != current_entry_day:
+                current_entry_day = entry_day
+                start_of_day_equity = curve[-1]
             if candles[index].timestamp - candles[index - 1].timestamp != expected_interval:
                 if position is not None:
                     equity, trade = self._close(
@@ -128,14 +167,32 @@ class Backtester:
                 position = None
             if position is None and requested is not Signal.FLAT:
                 available = max(0.0, equity - self.settings.cash_reserve_krw)
+                allocation = (
+                    float(target_allocations[index - 1])
+                    if target_allocations is not None
+                    else self.settings.allocation_fraction
+                )
                 notional = min(
-                    equity * self.settings.allocation_fraction,
-                    available,
+                    equity * allocation,
+                    available / (1 + self.settings.fee_rate),
                     float(self.settings.maximum_order_krw),
                 )
-                entry_day = candles[index].timestamp.astimezone(KST).date()
                 entries = entries_by_kst_day.get(entry_day, 0)
-                if (
+                rejection_reasons: tuple[str, ...] = ()
+                if self.risk_limits is not None:
+                    rejection_reasons = evaluate_pretrade(
+                        RiskContext(
+                            requested_side=requested,
+                            requested_notional_krw=notional,
+                            current_equity_krw=equity,
+                            start_of_day_equity_krw=start_of_day_equity,
+                            peak_equity_krw=peak_equity,
+                            daily_entries=entries,
+                            data_is_fresh=True,
+                        ),
+                        limits=self.risk_limits,
+                    ).reasons
+                if not rejection_reasons and (
                     notional >= self.settings.minimum_order_krw
                     and entries < self.settings.maximum_daily_entries
                 ):
@@ -143,12 +200,20 @@ class Backtester:
                     equity = position.equity_after_entry_fee
                     entries_by_kst_day[entry_day] = entries + 1
                 else:
+                    if not rejection_reasons:
+                        rejection_reasons = (
+                            "order is below the exchange minimum"
+                            if notional < self.settings.minimum_order_krw
+                            else "daily entry limit reached",
+                        )
+                    entry_rejections.append(EntryRejection(index, rejection_reasons))
                     suppressed_side = requested
             marked = equity
             if position is not None:
                 exposed_periods += 1
-                marked += self._unrealized(position, candles[index].close)
+                marked = self._mark_equity(position, candles[index].close)
             curve.append(marked)
+            peak_equity = max(peak_equity, marked)
             position_curve.append(position.side if position is not None else Signal.FLAT)
 
         if position is not None:
@@ -171,6 +236,11 @@ class Backtester:
         sharpe = (mean(returns) / volatility * sqrt(periods_per_year)) if volatility > 0 else 0.0
         closed_trades = tuple(trade for trade in trades if not trade.is_final_liquidation)
         wins = sum(trade.net_pnl > 0 for trade in closed_trades)
+        total_fees = sum(trade.entry_fee + trade.exit_fee for trade in trades)
+        gross_traded_notional = sum(
+            trade.notional + trade.exit_notional for trade in trades
+        )
+        average_equity = mean(curve)
         return BacktestResult(
             initial_equity=float(self.settings.initial_capital_krw),
             final_equity=final_equity,
@@ -184,6 +254,10 @@ class Backtester:
             equity_curve=tuple(curve),
             position_curve=tuple(position_curve),
             closed_trade_count=len(closed_trades),
+            total_fees=total_fees,
+            gross_traded_notional=gross_traded_notional,
+            turnover=(gross_traded_notional / average_equity if average_equity > 0 else 0.0),
+            entry_rejections=tuple(entry_rejections),
         )
 
     def slice_result(
@@ -243,6 +317,21 @@ class Backtester:
             equity_curve=tuple(curve),
             position_curve=tuple(positions),
             closed_trade_count=len(closed_trades),
+            total_fees=sum(trade.entry_fee + trade.exit_fee for trade in trades),
+            gross_traded_notional=sum(
+                trade.notional + trade.exit_notional for trade in trades
+            ),
+            turnover=(
+                sum(trade.notional + trade.exit_notional for trade in trades)
+                / mean(curve)
+                if mean(curve) > 0
+                else 0.0
+            ),
+            entry_rejections=tuple(
+                rejection
+                for rejection in result.entry_rejections
+                if start < rejection.index <= end
+            ),
         )
 
     def _open(
@@ -288,15 +377,24 @@ class Backtester:
             entry_price=position.entry_price,
             exit_price=exit_price,
             notional=position.notional,
+            exit_notional=exit_notional,
+            gross_pnl=gross_pnl,
+            entry_fee=total_entry_fee,
+            exit_fee=exit_fee,
             net_pnl=gross_pnl - total_entry_fee - exit_fee,
             is_final_liquidation=is_final_liquidation,
             is_gap_liquidation=is_gap_liquidation,
         )
         return net_equity, trade
 
-    @staticmethod
-    def _unrealized(position: _OpenPosition, price: float) -> float:
-        return int(position.side) * position.quantity * (price - position.entry_price)
+    def _mark_equity(self, position: _OpenPosition, price: float) -> float:
+        slip = self.settings.slippage_bps / 10_000
+        exit_price = price * (1 - slip if position.side is Signal.LONG else 1 + slip)
+        gross_pnl = int(position.side) * position.quantity * (
+            exit_price - position.entry_price
+        )
+        exit_fee = position.quantity * exit_price * self.settings.fee_rate
+        return position.equity_after_entry_fee + gross_pnl - exit_fee
 
     @staticmethod
     def _max_drawdown(curve: Sequence[float]) -> float:

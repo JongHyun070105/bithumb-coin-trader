@@ -22,6 +22,17 @@ def _env_bool(name: str, default: bool) -> bool:
     raise ValueError(f"{name} must be a boolean")
 
 
+def _parse_allowlist(raw: str | None) -> tuple[str, ...]:
+    if not raw:
+        return ()
+    items = []
+    for item in raw.split(","):
+        clean = item.strip().upper().removeprefix("KRW-")
+        if clean:
+            items.append(clean)
+    return tuple(items)
+
+
 @dataclass(frozen=True, slots=True)
 class TradingSettings:
     initial_capital_krw: int = 20_000
@@ -34,6 +45,7 @@ class TradingSettings:
     cash_reserve_krw: int = 5_000
     mode: TradingMode = TradingMode.PAPER
     live_trading_enabled: bool = False
+    manual_holdings_allowlist: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.initial_capital_krw <= 0:
@@ -69,4 +81,5 @@ class TradingSettings:
             cash_reserve_krw=int(os.getenv("CASH_RESERVE_KRW", "5000")),
             mode=mode,
             live_trading_enabled=_env_bool("BITHUMB_LIVE_TRADING", False),
+            manual_holdings_allowlist=_parse_allowlist(os.getenv("MANUAL_HOLDINGS_ALLOWLIST")),
         )
