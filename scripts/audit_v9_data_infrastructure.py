@@ -71,10 +71,17 @@ def run_15_gate_audit() -> dict[str, Any]:
         storage.append_raw_record("bithumb", "trade", "KRW-BTC", {"sequential_id": 1001, "price": 100_000_000}, now, now)  # Dup
         storage.append_raw_record("bithumb", "trade", "KRW-BTC", {"sequential_id": 1005, "price": 100_000_000}, now, now)  # Gap of 3
         mf = storage.generate_partition_manifest(p1)
-        g3_pass = mf.duplicate_count == 1 and mf.sequence_gaps == 3
+        g3_pass = (
+            mf.trade_duplicate_count == 1
+            and mf.trade_sequence_gaps is None
+            and mf.trade_sequence_completeness == "not_directly_verifiable"
+        )
         results["Gate 3 (Sequence Gap & Duplicate Tracking)"] = {
             "status": "PASS" if g3_pass else "FAIL",
-            "details": f"Detected Duplicates: {mf.duplicate_count}, Detected Sequence Gaps: {mf.sequence_gaps}",
+            "details": (
+                f"Detected partition-local duplicates: {mf.trade_duplicate_count}; "
+                f"sequence completeness: {mf.trade_sequence_completeness}"
+            ),
         }
 
         # ---------------------------------------------------------------------
@@ -105,8 +112,8 @@ def run_15_gate_audit() -> dict[str, Any]:
         # Gate 6: Stale Stream 30s Inactivity Detection
         # ---------------------------------------------------------------------
         m_metric = CollectorMetrics(exchange="bithumb")
-        m_metric.last_event_time = time.time() - 35.0
-        is_stale = (time.time() - m_metric.last_event_time) > 30.0
+        m_metric.last_connection_event_time = time.time() - 35.0
+        is_stale = (time.time() - m_metric.last_connection_event_time) > 30.0
         g6_pass = is_stale
         results["Gate 6 (Stale Stream 30s Inactivity Detection)"] = {
             "status": "PASS" if g6_pass else "FAIL",
@@ -120,7 +127,7 @@ def run_15_gate_audit() -> dict[str, Any]:
         q = collector._write_queue
         # Fill queue to capacity in test
         for i in range(10):
-            q.put_nowait(("bithumb", "trade", "KRW-BTC", {"id": i}, now, now))
+            q.put_nowait(("bithumb", "trade", "KRW-BTC", {"id": i}, now, now, i, "audit-run"))
         g7_pass = q.qsize() == 10 and q.maxsize == 50_000
         results["Gate 7 (Bounded Queue Backpressure Protection)"] = {
             "status": "PASS" if g7_pass else "FAIL",
@@ -278,7 +285,7 @@ def run_15_gate_audit() -> dict[str, Any]:
         "passed_gates": sum(1 for g in results.values() if g["status"] == "PASS"),
         "all_gates_passed": all_passed,
         "machine_readable_status": {
-            "collector_connected": True,
+            "collector_connected": "not_tested_by_synthetic_audit",
             "collector_soak_ready": True,
             "lossless_verified": False,  # Strict: Requires 72h+ soak test, NOT 5s!
             "cross_market_status": {
