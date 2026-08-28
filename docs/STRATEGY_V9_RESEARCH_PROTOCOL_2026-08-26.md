@@ -1,8 +1,11 @@
 # Strategy V9: Bithumb Market Microstructure & Cross-Market Alpha 연구 규약 및 데이터 프로토콜
 
+> [!CAUTION]
+> **종료된 역사 문서 / 최종 감사로 대체됨.** 이 문서의 `Lossless`, `Data Ingestion Active`, alpha 연구 진입 표현은 2026-08-29 최종 FULL-SCAN 결과로 무효화됐다. 공식 상태는 `docs/STRATEGY_V9_72H_SOAK_AUDIT_REPORT_2026-08-29.md`이며, V9은 `SOAK PASS / DATA QUALITY FAIL / RESEARCH ONLY`다. 아래 본문은 당시 사전 규약과 가정을 보존하기 위해 수정하지 않는다.
+
 - **일자**: 2026-08-26
 - **연구 레인**: Strategy V9 Market Microstructure & Cross-Market Alpha Engine
-- **데이터 인프라**: 빗썸 공식 WebSocket v1 API 기반 무손실(Lossless) 실시간 호가/체결 수집 데몬
+- **당시 설계 목표**: 빗썸 공식 WebSocket v1 API 기반 실시간 호가/체결 append-only 수집. `Lossless` 목표는 최종 감사에서 입증되지 않음
 - **보존 규약**: 180일 Embargoed Quasi-OOS 홀드아웃 **0바이트 완전 미개봉 보존 유지**
 - **정직성 원칙**: **과거 호가 데이터 없는 구간의 캔들 위조 백테스트 엄격 금지 (Zero Synthetic Backtest)**
 
@@ -30,10 +33,10 @@ Strategy V9는 정보의 차원을 **실시간 L2 호가(Orderbook) 및 틱 체�
 
 ---
 
-## 2. 데이터 수집 인프라 (Lossless Partitioned Ingestion)
+## 2. 데이터 수집 인프라 (Append-Only Partitioned Ingestion; completeness unverified)
 
-- **수집 모듈**: [src/bithumb_coin_trader/microstructure_collector.py](file:///Users/macintosh/Documents/ChatGPT/bitcoin-trader/src/bithumb_coin_trader/microstructure_collector.py)
-- **실행 스크립트**: [scripts/run_microstructure_collector.py](file:///Users/macintosh/Documents/ChatGPT/bitcoin-trader/scripts/run_microstructure_collector.py)
+- **수집 모듈**: `src/bithumb_coin_trader/microstructure_collector.py`
+- **실행 스크립트**: `scripts/run_microstructure_collector.py`
 - **저장 위치**: `data/microstructure/{orderbook, trade, ticker}/YYYY-MM-DD/{stream}_{YYYY-MM-DD}_{HH}.jsonl`
 - **구독 종목**: 빗썸 KRW 유동성 상위 20~30대 코인 (Point-in-Time Universe)
 
@@ -46,7 +49,7 @@ flowchart TD
         W4["Real-time Ticker"]
     end
 
-    subgraph Storage["무손실 영구 저장소 (Lossless Append-Only)"]
+    subgraph Storage["Append-Only 저장소 (완전성 미검증)"]
         S1["data/microstructure/orderbook/YYYY-MM-DD/..."]
         S2["data/microstructure/trade/YYYY-MM-DD/..."]
         S3["data/microstructure/ticker/YYYY-MM-DD/..."]
@@ -71,7 +74,7 @@ flowchart TD
 |---|---|---|---|
 | **Layer 1: Macro Core** | **V4 Donchian (BTC 60/30 ATR)** | BTC 대추세 추종 및 거시 헤지 (연 1.2회, MDD 5.7%) | ✅ **Freeze (동결)** |
 | **Layer 2: Swing** | **V6 EMA Pullback (BTC/ETH)** | 대형 코인 단기 눌림목 스윙 (연 6.7회, MDD 5.4%) | ✅ **Freeze (동결)** |
-| **Layer 3: Microstructure Active** | **Strategy V9 (Bithumb Micro-Alpha)** | 상위 20~30개 코인 실시간 스캔 $\rightarrow$ 1일 0~3회 고품질 미시구조 엣지 진입 | 🚀 **Data Ingestion Active (연구 진행 중)** |
+| **Layer 3: Microstructure Active** | **Strategy V9 (Bithumb Micro-Alpha)** | 상위 20~30개 코인 실시간 스캔 $\rightarrow$ 1일 0~3회 고품질 미시구조 엣지 진입 | **역사적 계획 — 현재 CLOSED / DATA QUALITY FAIL** |
 | **폐기 대상** | **Strategy V8/V8.1 (Relative Strength)** | 캔들 기반 상대모멘텀 횡단면 회전 | ❌ **REJECTED (공식 폐기)** |
 
 ---

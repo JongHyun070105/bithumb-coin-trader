@@ -1,9 +1,12 @@
 # Strategy V9: Bithumb Market Microstructure & Cross-Market Data Infrastructure Audit (중간 감사 및 정밀 분석본)
 
+> [!CAUTION]
+> **역사적 중간 snapshot.** 아래의 process/append/latency 표현은 당시 관찰값이며 현재 상태가 아니다. `무손실`을 입증하지 않았고, 공식 종료 판정과 FULL-SCAN 수치는 `docs/STRATEGY_V9_72H_SOAK_AUDIT_REPORT_2026-08-29.md` 및 machine-readable final ledger를 따른다.
+
 - **일자**: 2026-08-26 13:42 KST (수집 13.3시간 경과)
 - **감사 대상**: Strategy V9 Multi-Exchange Microstructure Data Infrastructure
-- **원장 파일**: [reports/v9_data_infrastructure_audit_2026-08-26.json](file:///Users/macintosh/Documents/ChatGPT/bitcoin-trader/reports/v9_data_infrastructure_audit_2026-08-26.json)
-- **데몬 상태**: `PID 30933` (`task-680`) **무중단 정상 실행 중 (수정/중단/재시작 일절 없음)**
+- **원장 파일**: `reports/v9_data_infrastructure_audit_2026-08-26.json`
+- **당시 데몬 snapshot**: `PID 30933` (`task-680`) **해당 시점 실행 중**. 현재 상태가 아니며 최종 종료는 2026-08-29 감사에서 확인한다.
 - **보존 규약**: 180일 Embargoed Quasi-OOS 홀드아웃 **0바이트 완전 미개봉 보존 유지**
 - **안전장치**: `BITHUMB_NEW_ENTRIES=false` 실주문 차단 유지 | **Alpha Mining 전면 차단 유지**
 
@@ -34,7 +37,7 @@
 - **원인**: `scripts/run_cross_market_collector.py` 코드 상 `collector.generate_all_manifests()`가 **프로세스 정상 종료 시점(`finally` 블록)에만 호출되도록 구현**되어 있었습니다.
 - 00:21경 10초 테스트(`task-622`)가 정상 종료되며 43개의 매니페스트가 생성되었으나, 01:19:33에 가동된 72시간 실전 수집 데몬(`task-680`)은 **13시간 넘게 무중단 무한 루프로 실행 중**이므로 `finally` 블록에 도달하지 않아 새로운 매니페스트 파일이 생성되지 않았습니다.
 - `check_collector_status.py`가 디스크의 과거 43개 매니페스트만 읽었기 때문에 12시간 동안 통계가 00:21 시점으로 동결(Stale)되어 있었던 것입니다.
-- **조치**: Collector 프로세스를 건드리지 않고, 종료된 과거 파티션(mtime > 10분)에 대해 매니페스트를 독립 생성하는 오프라인 도구([scripts/generate_offline_manifests.py](file:///Users/macintosh/Documents/ChatGPT/bitcoin-trader/scripts/generate_offline_manifests.py))를 가동하여 매니페스트를 복구 중입니다.
+- **조치**: Collector 프로세스를 건드리지 않고, 종료된 과거 파티션(mtime > 10분)에 대해 매니페스트를 독립 생성하는 오프라인 도구(`scripts/generate_offline_manifests.py`)를 가동하여 매니페스트를 복구 중입니다.
 
 ### B. 실제 저장용량이 예상보다 10배 큰 이유 (22.8 GB/day vs 2.28 GB/day)
 - **원인**: 레코드 크기가 커진 것이 아니라, **실제 이벤트 유입 속도(Throughput)가 예상치보다 9.3배 높았습니다**.
@@ -58,7 +61,7 @@
 
 ### D. 실시간 Latency & Clock Offset 실측 (최신 2시간 active data 7만 건 분석)
 - **Local Write Queue 지연 (내부 버퍼링)**:
-  - $p50$: **`0.14 ms`**, $p95$: **`1.54 ms`** (1ms 이내 초고속 무손실 기록 입증).
+  - $p50$: **`0.14 ms`**, $p95$: **`1.54 ms`** (당시 측정한 write-path 시간이며 upstream 완전성이나 무손실을 입증하지 않음).
 - **거래소 시계와 로컬 수신 시계 오프셋 ($T_{\text{recv}} - T_{\text{exch}}$)**:
   - **Bithumb**: $p50 = \mathbf{19.51\text{ ms}}$, $p90 = 225.85\text{ ms}$, $p95 = 258.40\text{ ms}$ (음수 오프셋 44.9%).
   - **Binance**: $p50 = \mathbf{-37.36\text{ ms}}$, $p90 = 32.62\text{ ms}$, $p95 = 34.29\text{ ms}$ (음수 오프셋 66.7%).

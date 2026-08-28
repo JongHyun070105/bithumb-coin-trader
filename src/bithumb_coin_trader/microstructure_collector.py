@@ -5,7 +5,8 @@ Connects to Bithumb's official WebSocket v1 API to ingest:
 2. Trade stream (Tick-level aggressive buys/sells with exact timestamps)
 3. Ticker stream (Real-time mid-price, volume, and 24h stats)
 
-Saves data in lossless, partitioned, append-only JSONL files for Strategy V9 research.
+Saves data in partitioned, append-only JSONL files for infrastructure research.
+Append-only persistence alone does not prove upstream feed completeness or losslessness.
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ logger = logging.getLogger("bithumb_coin_trader.microstructure_collector")
 
 
 class BithumbMicrostructureCollector:
-    """Lossless Append-Only WebSocket Data Collector for Bithumb KRW Markets."""
+    """Append-only WebSocket data collector for Bithumb KRW markets."""
 
     def __init__(
         self,
