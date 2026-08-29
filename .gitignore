@@ -16,3 +16,18 @@ EVOLUTION_JOURNAL.md
 .DS_Store
 *.DS_Store
 print_sharpes.py
+
+# Terraform local/runtime artifacts. Configuration under infra/ is tracked.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.auto.tfvars
+*.auto.tfvars.json
+terraform.tfvars

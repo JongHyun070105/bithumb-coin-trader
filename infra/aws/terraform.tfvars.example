@@ -1,0 +1,42 @@
+# Copy to terraform.tfvars (gitignored) only after provisioning review.
+# Replace every NOT-SEALED value with evidence generated from the exact launch candidate.
+
+region            = "ap-northeast-2"
+availability_zone = "ap-northeast-2a"
+
+# Safe fallback while ARM64 Amazon Linux compatibility remains unverified.
+instance_type = "t3.medium"
+architecture  = "x86_64"
+
+# ARM candidate after the documented Amazon Linux smoke gate:
+# instance_type = "t4g.medium"
+# architecture  = "arm64"
+
+ebs_size_gib = 100
+
+# Null uses an authenticated account-derived globally unique name.
+archive_bucket_name      = null
+enable_archive_lifecycle = false
+
+# Deletion is off by default. Enable only after classification, restore, and retention review.
+enable_temporary_expiration = false
+temporary_expiration_days   = 30
+
+disk_warning_percent  = 70
+disk_high_percent     = 80
+disk_critical_percent = 90
+
+cloudwatch_log_retention_days = 14
+monthly_budget_usd             = 80
+budget_warning_percent         = 50
+
+# Leave null to omit the optional budget resource until a notification address is approved.
+budget_notification_email = null
+
+collector_epoch              = "NOT-SEALED"
+collector_git_commit         = "NOT-SEALED"
+collector_config_fingerprint = "NOT-SEALED"
+collector_run_id             = "NOT-SEALED"
+collector_schema_version     = "4"
+clock_source                 = "Amazon Time Sync Service 169.254.169.123"
+compression_candidate        = "zstd-level-1"
