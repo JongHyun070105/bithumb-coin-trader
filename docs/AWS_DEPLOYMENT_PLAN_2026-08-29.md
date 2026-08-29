@@ -17,6 +17,8 @@
 
 검증된 browser-login session은 account root identity였다. read-only 검증에는 사용했지만 실제 provisioning에는 과도한 권한이다. **apply 전에는 별도의 least-privilege deployment role/session으로 교체하고 같은 plan을 다시 생성해야 한다.** account ID, credential body, credit ID는 문서나 Git에 기록하지 않는다.
 
+2026-08-29 read-only IAM inventory에서는 재사용 가능한 deployment role이 없었다. service-linked role과 다른 프로젝트 workload role은 trust/permission 경계가 맞지 않아 재사용하지 않는다. 제안된 MFA browser-login user → 1시간 `sts:AssumeRole` 구조, exact provisioner permission, collector permissions boundary는 [`infra/aws/identity/README.md`](../infra/aws/identity/README.md)에 기록했다. 이 IAM bootstrap은 아직 승인·실행되지 않았으므로 현재 검증된 plan identity는 root이고 least-privilege re-plan은 pending이다.
+
 ## Provider-backed plan 검증 결과
 
 2026-08-29 `ap-northeast-2a`를 review AZ로 선택하고 비밀값 없는 plan-review provenance를 명시해 provider-backed plan을 실행했다. 결과는 **23 to add, 0 to change, 0 to destroy**였다. plan 파일과 Terraform state는 저장하지 않았고 AWS resource는 생성하지 않았다.

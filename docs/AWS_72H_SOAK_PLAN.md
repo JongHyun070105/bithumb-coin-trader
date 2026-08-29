@@ -123,6 +123,20 @@ SIGKILL, host terminate, Terraform destroy로 soak를 끝내지 않는다.
 
 각 결과는 `MEASURED FULL-SCAN`, `MEASURED SAMPLE`, `ESTIMATED`, `NOT VERIFIABLE`, `NOT DIRECTLY VERIFIABLE`을 구분한다. 샘플을 full-scan으로 표현하지 않는다.
 
+## 종료 runbook — retained root EBS
+
+초기 soak에서는 root EBS의 `delete_on_termination=false`를 수용한다. volume 보존은 final evidence가 instance termination과 함께 사라지는 것을 막지만 orphan storage 비용을 만들 수 있으므로 다음 순서를 강제한다.
+
+1. graceful shutdown과 final partition flush를 완료한다.
+2. final freeze와 FULL-SCAN 결과를 봉인한다.
+3. canonical soak evidence를 S3에 업로드하고 다른 경로로 restore한다.
+4. local/S3/restored artifact의 manifest, byte size, SHA-256을 비교해 모두 PASS인지 확인한다.
+5. instance 종료 또는 교체 뒤 unattached/orphan EBS volume을 ID, tag, epoch, size, 생성시각 기준으로 명시적으로 inventory한다.
+6. 필요한 recovery/reproduction copy이면 보존 사유와 비용 owner를 ledger에 남긴다.
+7. 필요 없는 것으로 승인된 volume만 별도 destructive-action 승인 후 명시적 ID로 삭제한다.
+
+S3 verification 이전 자동 삭제, tag/glob만 사용한 volume 삭제, orphan 여부를 확인하지 않은 일괄 삭제는 금지한다.
+
 ## 최종 판정
 
 독립적으로 기록한다.
