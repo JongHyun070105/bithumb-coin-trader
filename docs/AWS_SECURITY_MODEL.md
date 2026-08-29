@@ -103,7 +103,8 @@ Git 제외 대상:
 
 다음 중 하나면 launch 또는 soak promotion을 중단한다.
 
-- AWS identity/credit/cost 미확인
+- launch 시점 AWS identity/credit/cost 재확인 실패
+- root identity 또는 최소 권한이 검토되지 않은 provisioning session 사용
 - provenance 값 미봉인
 - SG ingress 존재 또는 Session Manager 실패
 - architecture smoke 미통과
@@ -120,10 +121,10 @@ Git 제외 대상:
 
 | ID / severity | Finding | 현재 판단 | provisioning 전 선택지 |
 |---|---|---|---|
-| AVD-AWS-0104 / CRITICAL | TCP/443 egress가 `0.0.0.0/0` | **ACCEPTANCE REQUIRED**. exchange/CDN과 AWS public endpoint IP가 동적이라 고정 CIDR allowlist는 안정적이지 않다. ingress는 여전히 0이다. | 현재 port-only egress 수용 또는 비용을 포함한 egress proxy/firewall 설계 |
-| AVD-AWS-0132 / HIGH | S3가 customer-managed KMS key 미사용 | **ACCEPTANCE REQUIRED**. public market data이고 SSE-S3/TLS/block-public-access를 사용한다. | SSE-S3 수용 또는 KMS key/API 비용을 추가한 SSE-KMS |
-| AVD-AWS-0178 / MEDIUM | VPC Flow Logs 미사용 | **ACCEPTANCE REQUIRED**. inbound 0인 단일 노드 최소 구성이고 log ingest 비용을 피한다. | 초기 수용 또는 별도 low-volume flow log/retention 설계 |
-| AVD-AWS-0017 / LOW | CloudWatch log group CMK 미사용 | **ACCEPTANCE REQUIRED**. operational-only이며 raw/secret/account data를 금지한다. | AWS-managed encryption 수용 또는 CMK 추가 |
-| AVD-AWS-0089 / LOW | S3 server access logging 미사용 | **ACCEPTANCE REQUIRED**. logging bucket과 추가 object/cost를 만들지 않은 초기안이다. | CloudTrail data event 또는 별도 logging bucket 설계 |
+| AVD-AWS-0104 / CRITICAL | TCP/443 egress가 `0.0.0.0/0` | **ACCEPT** for initial public-data soak. exchange/CDN과 AWS public endpoint IP가 동적이고 ingress는 0이며 outbound port는 443으로 제한된다. | live/private-data 단계 전 egress proxy/firewall의 비용 대비 효용 재평가 |
+| AVD-AWS-0132 / HIGH | S3가 customer-managed KMS key 미사용 | **ACCEPT** for public market data. SSE-S3/TLS/block-public-access/versioning을 사용한다. | private trading/account data 저장 전 SSE-KMS 재평가 |
+| AVD-AWS-0178 / MEDIUM | VPC Flow Logs 미사용 | **OPTIONAL HARDENING**. inbound 0인 단일 노드에서 초기 log ingest/storage 비용을 피한다. | incident investigation 요구가 커지거나 live 전 low-volume flow log 설계 |
+| AVD-AWS-0017 / LOW | CloudWatch log group CMK 미사용 | **ACCEPT** for operational-only logs. raw/secret/account data logging은 금지한다. | sensitive operational data가 생기면 CMK 추가 |
+| AVD-AWS-0089 / LOW | S3 server access logging 미사용 | **OPTIONAL HARDENING**. 별도 logging bucket/object/cost를 만들지 않은 초기안이다. | audit 요구에 따라 CloudTrail data event 또는 logging bucket 설계 |
 
-현재 Terraform은 비용과 단순성 요구 때문에 이 5개를 자동 수정하지 않는다. 사용자 provisioning review에서 수용 또는 강화 방향을 선택해야 한다. 어떤 선택도 AWS resource apply를 자동 승인하지 않는다.
+현재 Terraform은 비용과 단순성 요구 때문에 이 5개를 자동 수정하지 않는다. 위 분류는 초기 public market-data soak 기준이며 live/private-data 승격을 승인하지 않는다. 별도로, 이번 read-only 검증에 사용한 browser-login session이 root identity였던 점은 **FIX BEFORE APPLY**다. actual provisioning은 least-privilege deployment role/session으로 같은 plan을 다시 검증해야 한다. 어떤 선택도 AWS resource apply를 자동 승인하지 않는다.

@@ -2,7 +2,18 @@
 
 ## 증거와 한계
 
-이 문서는 2026-08-29 공식 AWS public price evidence와 V9 measured ingestion을 사용한 **세전 정가 추정**이다. AWS 인증은 `InvalidClientTokenId`이므로 현재 credit 잔액, 만료일, eligible service, MTD 사용액은 **NOT VERIFIED**다. credit 적용 후 비용을 0 또는 과거 잔액으로 가정하지 않는다.
+이 문서는 2026-08-29 공식 AWS public price evidence와 V9 measured ingestion을 사용한 **세전 정가 추정**이다. 기존 default shared credential은 여전히 유효하지 않았지만 existing browser-login profile로 `sts get-caller-identity`와 Billing console을 read-only 검증했다. account ID, credential, credit ID는 기록하지 않는다.
+
+검증 시점의 Billing 상태:
+
+- actual remaining promotional credit: **US$114.49**
+- daily-updated estimated remaining credit: **US$113.26**
+- expiration: **2026-12-13** (두 active credit 모두 동일, 검증일로부터 106일)
+- current month-to-date unblended cost: **약 US$0.00, estimated**
+- remaining-month Cost Explorer forecast: **약 US$0.04**
+- 계획 서비스 EC2/EBS, S3, CloudWatch, VPC/Public IPv4, Systems Manager, AWS Budgets: **credit eligibility 확인됨**
+
+recommended first-month 정가 US$57.58은 30일 기준 약 **US$1.92/day**다. actual remaining 기준 financial runway는 약 **1.99개월/59.7일**, estimated remaining 기준 약 **1.97개월/59.0일**이다. 만료까지 106일보다 credit 잔액 기반 runway가 먼저 끝난다. eligible usage가 유지되고 tax·미포함 비용이 없다면 첫 약 59일의 현금 청구는 credit으로 상쇄될 수 있지만, 이는 apply 후 실제 사용량을 보장하지 않는다.
 
 공식 근거:
 
@@ -106,13 +117,13 @@ CloudWatch 추정은 raw event logging을 포함하지 않는다. raw logging을
 | **recommended safe default: t3.medium + 100 GiB** | 37.96 | 9.12 | 3.65 | 5.39 | 1.46 | **US$57.58** |
 | x86 headroom: t3.medium + 120 GiB | 37.96 | 10.94 | 3.65 | 5.39 | 1.46 | **US$59.40** |
 
-표는 scenario A의 첫 달 평균 storage를 사용한 정가 추정이며 credit/tax/egress는 제외한다. scenario B의 first-month S3는 storage US$0.59 + PUT US$0.49 = 약 US$1.08이므로 recommended 합계는 약 **US$57.20**다.
+표는 scenario A의 첫 달 평균 storage를 사용한 **credit 적용 전** 정가 추정이며 tax/egress는 제외한다. scenario B의 first-month S3는 storage US$0.59 + PUT US$0.49 = 약 US$1.08이므로 recommended 합계는 약 **US$57.20**다. 검증된 credit을 단순 적용하면 eligible usage의 초기 cash outlay는 약 US$0이지만, 약 59일 뒤에는 credit 소진이 먼저 제한 요인이 된다.
 
 scenario A에서는 둘째 달부터 S3 누적분 때문에 합계가 계속 증가한다. 1개월 말 run-rate로 표현할 때 표의 합계에 약 US$0.97을 더하고, 3개월 말에는 약 US$4.83을 더한다. scenario B에서는 3개월 말 storage run-rate가 약 US$1.61로 제한되는 비교 모델이지만, retention automation은 아직 꺼져 있다.
 
 ## provisioning 직전 필수 재검증
 
-- Billing Credits page의 remaining/estimated remaining/expiration/applicable products
+- Billing Credits page의 remaining/estimated remaining/expiration/applicable products; 위 값은 2026-08-29 snapshot이므로 apply 직전에 갱신
 - current-month actual, forecast, tax
 - 서울 EC2/EBS/S3/CloudWatch/IP 최신 정가
 - architecture 최종 선택

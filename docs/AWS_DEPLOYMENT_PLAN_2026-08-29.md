@@ -4,8 +4,8 @@
 
 - AWS resource: **NOT CREATED**
 - Terraform apply: **PROHIBITED PENDING EXPLICIT APPROVAL**
-- AWS authentication: **NOT VERIFIED — `InvalidClientTokenId`**
-- Provider-backed plan: **NOT VERIFIED — AWS AUTHENTICATION REQUIRED**
+- AWS authentication: **VERIFIED** via the existing browser-login profile and `sts get-caller-identity`
+- Provider-backed plan: **VERIFIED — 23 add / 0 change / 0 destroy**
 - V9: **CLOSED / 72H SOAK PASS / DATA QUALITY FAIL**
 - V9.1: local deployment-readiness baseline only
 - V9.1 official state: **FROZEN LOCAL DEPLOYMENT-READINESS BASELINE**
@@ -14,6 +14,28 @@
 - Live trading: **DISABLED**
 
 이 단계는 AWS epoch의 reviewable infrastructure definition을 만드는 작업이다. collector 시작, raw upload, dashboard 배포, trading credential 저장, alpha mining, paper/live trading은 범위 밖이다.
+
+검증된 browser-login session은 account root identity였다. read-only 검증에는 사용했지만 실제 provisioning에는 과도한 권한이다. **apply 전에는 별도의 least-privilege deployment role/session으로 교체하고 같은 plan을 다시 생성해야 한다.** account ID, credential body, credit ID는 문서나 Git에 기록하지 않는다.
+
+## Provider-backed plan 검증 결과
+
+2026-08-29 `ap-northeast-2a`를 review AZ로 선택하고 비밀값 없는 plan-review provenance를 명시해 provider-backed plan을 실행했다. 결과는 **23 to add, 0 to change, 0 to destroy**였다. plan 파일과 Terraform state는 저장하지 않았고 AWS resource는 생성하지 않았다.
+
+| 계획 항목 | 수량 | 목적 |
+|---|---:|---|
+| VPC / Internet Gateway | 각 1 | 격리 network와 outbound public endpoint 경로 |
+| public subnet / route table / association | 각 1 | 단일 collector node route 구성 |
+| security group | 1 | ingress 0, outbound TCP/443만 허용 |
+| EC2 | 1 | `t3.medium` x86_64 collector runtime |
+| root EBS | EC2 내 1 | encrypted 100 GiB gp3 hot buffer |
+| IAM role / inline policy / SSM policy attachment / instance profile | 각 1 | static key 없는 최소 권한 S3·CloudWatch·SSM 접근 |
+| S3 bucket / public-access block / ownership / encryption / versioning / TLS policy | 각 1 | private selective archive와 transport protection |
+| CloudWatch log group | 1 | operational log only |
+| CloudWatch alarms | 5 | writer, queue, disk 70/80/90% 감시 |
+
+Secrets Manager, S3 lifecycle, Budget resource는 현재 입력에서 계획되지 않았다. SSM은 별도 resource가 아니라 instance role의 `AmazonSSMManagedInstanceCore` attachment와 Amazon Linux agent로 활성화한다. root EBS의 `delete_on_termination=false`는 데이터 보호 의도지만 instance 제거 뒤 orphan 비용 위험이 있으므로 apply 승인 때 명시적으로 수용하고 종료 runbook에 volume 정리를 포함해야 한다.
+
+plan-review용 epoch/run ID, config fingerprint와 bucket name은 launch seal이 아니다. 실제 apply 전 승인된 commit/config/environment로 새로 봉인하고 plan을 다시 검토한다.
 
 ## AWS의 실제 역할
 
