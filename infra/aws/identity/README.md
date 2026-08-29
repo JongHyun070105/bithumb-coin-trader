@@ -10,7 +10,7 @@
 - IAM roles: 7; AWS service-linked role 4개와 다른 `openloop` workload role 3개뿐
 - reusable Terraform deployment role: **없음**
 - IAM Identity Center instance: 현재 session에서 accessible instance를 확인하지 못함
-- named IAM user `ParkJongHyun`: MFA가 있고 기존 browser login principal 후보지만 현재 attached `AdministratorAccess`를 provisioning session으로 직접 사용하지 않음
+- exact bootstrap IAM user: MFA가 있고 기존 browser login principal 후보지만 실제 username은 tracked repository에 기록하지 않으며 provisioning session으로 직접 사용하지 않음
 
 기존 `openloop` role은 trust와 runtime permission이 다른 프로젝트에 묶여 있으므로 재사용하지 않는다.
 
@@ -20,7 +20,7 @@
 
 1. customer-managed permissions boundary `bitcoin-trader-collector-boundary` 생성.
 2. deployment role `bitcoin-trader-terraform-provisioner` 생성, maximum session 1 hour.
-3. trust는 같은 account의 exact IAM user `ParkJongHyun` + MFA에만 허용. account root principal이나 external principal은 trust하지 않음.
+3. trust는 같은 account의 exact `${BOOTSTRAP_USER_NAME}` IAM user + MFA에만 허용. 실제 username은 bootstrap 직전 local in-memory rendering에서만 사용하며 account root principal이나 external principal은 trust하지 않음.
 4. role inline policy는 `terraform-provisioner-permissions-policy.json.example`의 범위만 허용.
 5. collector role에 위 permissions boundary를 지정하도록 Terraform을 수정하고, boundary ARN이 없으면 plan을 fail closed하도록 함.
 6. existing browser-login mechanism으로 IAM user를 인증한 뒤 `sts:AssumeRole`로 1시간 temporary session을 얻음. static access key는 생성하지 않음.
