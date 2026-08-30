@@ -14,18 +14,21 @@
 
 기존 `openloop` role은 trust와 runtime permission이 다른 프로젝트에 묶여 있으므로 재사용하지 않는다.
 
-## proposed bootstrap changes — 별도 승인 필요
+## bootstrap result — 2026-08-30
 
-현재 금지된 resource creation 없이 least-privilege session을 만들 수 없으므로 다음 IAM 변경은 아직 실행하지 않는다.
+사용자의 root-bootstrap-only 승인을 받아 다음 IAM 변경만 실행했다.
 
 1. customer-managed permissions boundary `bitcoin-trader-collector-boundary` 생성.
 2. deployment role `bitcoin-trader-terraform-provisioner` 생성, maximum session 1 hour.
 3. trust의 `Principal` account ARN은 `aws:PrincipalArn`이 exact root ARN이고 MFA가 존재할 때만 일치하도록 제한. 단순 account-wide delegation, IAM user/role, external principal은 허용하지 않음.
-4. role inline policy는 `terraform-provisioner-permissions-policy.json.example`의 범위만 허용.
-5. collector role에 위 permissions boundary를 지정하도록 Terraform을 수정하고, boundary ARN이 없으면 plan을 fail closed하도록 함.
-6. root browser-login은 bootstrap과 provisioner `sts:AssumeRole` source에만 사용하고 즉시 logout. Terraform은 1시간 temporary assumed-role session만 사용하며 static access key는 생성하지 않음.
+4. `terraform-provisioner-permissions-policy.json.example`과 exact-match인 inline policy 1개 적용. managed policy attachment는 0개.
+5. collector role에 위 permissions boundary를 지정하도록 Terraform을 수정함.
 
-bootstrap은 IAM boundary, provisioner role, role policy라는 AWS 변경이므로 사용자의 별도 승인이 필요하다. application Terraform의 23-resource plan과 분리해 기록한다.
+Access Analyzer는 boundary, provisioner policy, trust 모두 error/warning 0이었다. 다른 region, 다른 S3 bucket, Secrets Manager, IAM user 생성, arbitrary PassRole, boundary 없는 collector role 생성은 simulation에서 모두 implicit deny였다.
+
+그러나 root browser-login credential의 `sts:AssumeRole`은 AWS가 `Roles may not be assumed by root accounts`로 거부했다. trust/MFA 조건은 완화하지 않았고 provisioner temporary session, provider-backed re-plan, application resource는 생성·실행하지 않았다. root login cache는 즉시 제거했다.
+
+다음 단계에는 root가 아닌 사용 가능한 MFA 관리 identity가 필요하다. IAM Identity Center를 구성하거나 기존 관리 identity의 인증을 복구한 뒤, 별도 승인으로 provisioner trust를 그 exact principal로 교체해야 한다. 현재 root-only trust는 account-wide exposure는 없지만 operationally unusable하므로 final apply gate를 통과하지 못한다.
 
 ## permission boundary 목적
 
@@ -53,12 +56,12 @@ VPC/subnet/route association처럼 create 전 ARN이 없거나 tag condition 지
 
 1. placeholder를 실제 non-secret account-derived ARN과 sealed epoch/bucket name으로 rendering하되 rendered policy는 Git에 저장하지 않는다.
 2. IAM Access Analyzer `validate-policy`와 policy simulation을 수행한다.
-3. approved root bootstrap session으로 boundary와 provisioner role만 생성한다.
-4. root + MFA → `sts:AssumeRole`로 temporary profile을 얻은 즉시 root login cache를 제거한다.
+3. root가 아닌 approved MFA management identity를 마련하고 trust를 exact principal로 별도 review한다.
+4. 해당 identity → `sts:AssumeRole`로 temporary profile을 얻는다.
 5. temporary role로 `sts get-caller-identity`; report에는 account ID를 쓰지 않는다.
 6. `terraform fmt -check -recursive`, `terraform validate`, provider-backed `terraform plan`을 실행한다.
 7. 기존 결과 **23 add / 0 change / 0 destroy**와 다르면 apply 금지 후 원인을 분석한다.
 8. credit/billing을 다시 read-only 확인한다.
 9. 별도 final apply 승인을 받기 전에는 `terraform apply`를 실행하지 않는다.
 
-이 root trust는 개인 단일-account 환경을 위한 temporary operational compromise다. IAM Identity Center 또는 정상적인 MFA 관리 identity가 준비되면 provisioner trust에서 root account principal을 제거하는 것을 security hardening backlog로 유지한다.
+IAM Identity Center 또는 정상적인 MFA 관리 identity를 마련하고 provisioner trust에서 root account principal을 제거하는 것이 현재 blocking security backlog다.
