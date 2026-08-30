@@ -105,7 +105,7 @@ Git 제외 대상:
 
 - launch 시점 AWS identity/credit/cost 재확인 실패
 - root identity 또는 최소 권한이 검토되지 않은 provisioning session 사용
-- root-only trust에서 provisioner `AssumeRole`이 실패하거나 usable MFA management identity가 없음
+- dedicated login identity의 MFA/browser login 또는 provisioner `AssumeRole` 검증 실패
 - provenance 값 미봉인
 - SG ingress 존재 또는 Session Manager 실패
 - architecture smoke 미통과
@@ -130,4 +130,4 @@ Git 제외 대상:
 
 현재 Terraform은 비용과 단순성 요구 때문에 이 5개를 자동 수정하지 않는다. 위 분류는 초기 public market-data soak 기준이며 live/private-data 승격을 승인하지 않는다. 별도로, 이번 read-only 검증에 사용한 browser-login session이 root identity였던 점은 **FIX BEFORE APPLY**다. actual provisioning은 least-privilege deployment role/session으로 같은 plan을 다시 검증해야 한다. 어떤 선택도 AWS resource apply를 자동 승인하지 않는다.
 
-2026-08-30 root-only + MFA trust는 `aws:PrincipalArn` exact condition과 Access Analyzer로 검증됐지만 AWS가 root account의 `AssumeRole`을 거부했다. trust를 완화하지 않았고 root cache를 제거했다. IAM Identity Center 또는 사용 가능한 MFA management identity를 마련해 exact principal trust로 교체하고 provisioner session에서 plan을 다시 검증하기 전에는 apply할 수 없다.
+2026-08-30 root-only + MFA trust는 `aws:PrincipalArn` exact condition과 Access Analyzer로 검증됐지만 AWS가 root account의 `AssumeRole`을 거부했다. 이 operationally unusable한 trust는 폐기한다. 교체안은 application 권한이 없는 dedicated IAM login identity가 console credential + MFA로 `aws login` temporary credential을 얻고, exact user ARN + MFA trust를 통해 provisioner role을 assume하는 구조다. static access key, root/account-wide trust, AdministratorAccess는 금지한다. root는 이 identity bootstrap에만 사용하고 즉시 종료해야 한다.

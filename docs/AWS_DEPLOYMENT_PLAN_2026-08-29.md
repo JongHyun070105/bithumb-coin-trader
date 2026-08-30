@@ -5,7 +5,7 @@
 - AWS application resource: **NOT CREATED**
 - IAM bootstrap: **CREATED — boundary + provisioner role + reviewed inline policy only**
 - Terraform apply: **PROHIBITED PENDING EXPLICIT APPROVAL**
-- AWS application authentication: **NOT VERIFIED — root session terminated; provisioner AssumeRole failed**
+- AWS application authentication: **NOT VERIFIED — dedicated temporary-login identity bootstrap pending**
 - Provider-backed plan: **PRIOR ROOT REVIEW 23 add / 0 change / 0 destroy; least-privilege re-plan NOT RUN**
 - V9: **CLOSED / 72H SOAK PASS / DATA QUALITY FAIL**
 - V9.1: local deployment-readiness baseline only
@@ -18,7 +18,7 @@
 
 검증된 browser-login session은 account root identity였다. read-only 검증에는 사용했지만 실제 provisioning에는 과도한 권한이다. **apply 전에는 별도의 least-privilege deployment role/session으로 교체하고 같은 plan을 다시 생성해야 한다.** account ID, credential body, credit ID는 문서나 Git에 기록하지 않는다.
 
-2026-08-29 read-only IAM inventory에서는 재사용 가능한 deployment role이 없었다. service-linked role과 다른 프로젝트 workload role은 trust/permission 경계가 맞지 않아 재사용하지 않는다. 2026-08-30 승인된 IAM bootstrap으로 boundary와 1시간 provisioner role 및 reviewed inline policy만 생성했다. root-only + MFA trust는 account-wide delegation을 막지만 AWS는 root account의 `AssumeRole` 자체를 거부했다. root cache를 제거했고 least-privilege re-plan은 실행하지 않았다. 상세 evidence와 다음 identity gate는 [`infra/aws/identity/README.md`](../infra/aws/identity/README.md)에 기록한다.
+2026-08-29 read-only IAM inventory에서는 재사용 가능한 deployment role이 없었다. service-linked role과 다른 프로젝트 workload role은 trust/permission 경계가 맞지 않아 재사용하지 않는다. 2026-08-30 승인된 IAM bootstrap으로 boundary와 1시간 provisioner role 및 reviewed inline policy만 생성했다. root-only + MFA trust는 account-wide delegation을 막지만 AWS는 root account의 `AssumeRole` 자체를 거부했다. 따라서 root trust는 폐기하고 application 권한이 없는 dedicated IAM login identity의 `aws login` temporary session → exact provisioner `AssumeRole` 구조로 교체한다. static access key와 기존 administrator user 재사용은 금지한다. 상세 evidence와 identity gate는 [`infra/aws/identity/README.md`](../infra/aws/identity/README.md)에 기록한다.
 
 ## Provider-backed plan 검증 결과
 

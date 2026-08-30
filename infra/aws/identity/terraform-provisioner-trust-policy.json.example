@@ -2,15 +2,15 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "AllowActualRootWithMfaOnly",
+      "Sid": "AllowExactBootstrapUserWithMfaOnly",
       "Effect": "Allow",
       "Principal": {
-        "AWS": "arn:aws:iam::${ACCOUNT_ID}:root"
+        "AWS": "arn:aws:iam::${ACCOUNT_ID}:user/${BOOTSTRAP_USER_NAME}"
       },
       "Action": "sts:AssumeRole",
       "Condition": {
         "ArnEquals": {
-          "aws:PrincipalArn": "arn:aws:iam::${ACCOUNT_ID}:root"
+          "aws:PrincipalArn": "arn:aws:iam::${ACCOUNT_ID}:user/${BOOTSTRAP_USER_NAME}"
         },
         "Bool": {
           "aws:MultiFactorAuthPresent": "true"

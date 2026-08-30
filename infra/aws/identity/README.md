@@ -14,13 +14,13 @@
 
 기존 `openloop` role은 trust와 runtime permission이 다른 프로젝트에 묶여 있으므로 재사용하지 않는다.
 
-## bootstrap result — 2026-08-30
+## initial bootstrap result — 2026-08-30
 
 사용자의 root-bootstrap-only 승인을 받아 다음 IAM 변경만 실행했다.
 
 1. customer-managed permissions boundary `bitcoin-trader-collector-boundary` 생성.
 2. deployment role `bitcoin-trader-terraform-provisioner` 생성, maximum session 1 hour.
-3. trust의 `Principal` account ARN은 `aws:PrincipalArn`이 exact root ARN이고 MFA가 존재할 때만 일치하도록 제한. 단순 account-wide delegation, IAM user/role, external principal은 허용하지 않음.
+3. 최초 trust는 actual root + MFA로 제한했지만 AWS root account가 일반 IAM role을 assume할 수 없어 operationally unusable함을 확인.
 4. `terraform-provisioner-permissions-policy.json.example`과 exact-match인 inline policy 1개 적용. managed policy attachment는 0개.
 5. collector role에 위 permissions boundary를 지정하도록 Terraform을 수정함.
 
@@ -28,7 +28,18 @@ Access Analyzer는 boundary, provisioner policy, trust 모두 error/warning 0이
 
 그러나 root browser-login credential의 `sts:AssumeRole`은 AWS가 `Roles may not be assumed by root accounts`로 거부했다. trust/MFA 조건은 완화하지 않았고 provisioner temporary session, provider-backed re-plan, application resource는 생성·실행하지 않았다. root login cache는 즉시 제거했다.
 
-다음 단계에는 root가 아닌 사용 가능한 MFA 관리 identity가 필요하다. IAM Identity Center를 구성하거나 기존 관리 identity의 인증을 복구한 뒤, 별도 승인으로 provisioner trust를 그 exact principal로 교체해야 한다. 현재 root-only trust는 account-wide exposure는 없지만 operationally unusable하므로 final apply gate를 통과하지 못한다.
+## dedicated browser-login identity gate
+
+현재 승인된 교체 경로는 전용 최소 권한 IAM login identity다. AWS CLI 2.32 이상에서 지원하는 `aws login`으로 console credential과 MFA를 이용해 temporary CLI credential을 얻고, 그 session으로만 provisioner role을 assume한다. static access key는 만들지 않는다.
+
+tracked example은 실제 account ID나 username 대신 `${ACCOUNT_ID}`와 `${BOOTSTRAP_USER_NAME}` placeholder만 가진다.
+
+- `bootstrap-login-assume-policy.json.example`: exact provisioner role에 대한 MFA 조건부 `sts:AssumeRole`만 허용한다.
+- AWS managed `SignInLocalDevelopmentAccess`: `aws login` OAuth flow에만 사용한다. application provisioning 권한이 아니다.
+- `terraform-provisioner-trust-policy.json.example`: exact dedicated IAM user ARN + MFA만 신뢰한다. root, account-wide principal, 다른 user/role, external principal은 포함하지 않는다.
+- 전용 user에는 EC2, S3, CloudWatch, IAM resource provisioning, Secrets Manager, trading 권한을 주지 않는다.
+
+공식 근거: [AWS CLI browser sign-in](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html), [`SignInLocalDevelopmentAccess`](https://docs.aws.amazon.com/aws-managed-policy/latest/reference/SignInLocalDevelopmentAccess.html), [IAM user console credentials](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_users.html).
 
 ## permission boundary 목적
 
@@ -56,12 +67,12 @@ VPC/subnet/route association처럼 create 전 ARN이 없거나 tag condition 지
 
 1. placeholder를 실제 non-secret account-derived ARN과 sealed epoch/bucket name으로 rendering하되 rendered policy는 Git에 저장하지 않는다.
 2. IAM Access Analyzer `validate-policy`와 policy simulation을 수행한다.
-3. root가 아닌 approved MFA management identity를 마련하고 trust를 exact principal로 별도 review한다.
-4. 해당 identity → `sts:AssumeRole`로 temporary profile을 얻는다.
+3. approved root bootstrap scope 안에서 dedicated login identity, console profile, MFA와 최소 권한 policy를 만들고 provisioner trust를 exact user ARN + MFA로 교체한다.
+4. root session을 종료한 뒤 dedicated identity의 `aws login` temporary session으로 provisioner role을 assume한다.
 5. temporary role로 `sts get-caller-identity`; report에는 account ID를 쓰지 않는다.
 6. `terraform fmt -check -recursive`, `terraform validate`, provider-backed `terraform plan`을 실행한다.
 7. 기존 결과 **23 add / 0 change / 0 destroy**와 다르면 apply 금지 후 원인을 분석한다.
 8. credit/billing을 다시 read-only 확인한다.
 9. 별도 final apply 승인을 받기 전에는 `terraform apply`를 실행하지 않는다.
 
-IAM Identity Center 또는 정상적인 MFA 관리 identity를 마련하고 provisioner trust에서 root account principal을 제거하는 것이 현재 blocking security backlog다.
+MFA가 확인된 dedicated login identity로 root trust를 교체하고 provisioner assumed-role session에서 provider-backed plan을 다시 검증하는 것이 현재 blocking gate다. IAM Identity Center/Organizations는 이 single-account 단계의 범위가 아니다.
