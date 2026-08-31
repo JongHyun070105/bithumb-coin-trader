@@ -23,7 +23,7 @@ Session Manager는 inbound port, bastion, SSH key 없이 관리 접속을 제공
 
 ## instance hardening
 
-- Amazon Linux 2023 공식 AMI만 architecture별로 조회한다.
+- Amazon Linux 2023 공식 AMI만 architecture별로 조회하며, apply 전 `ami_id_override`로 검토된 AMI를 pin한다.
 - IMDSv2 token을 강제하고 hop limit 1을 사용한다.
 - root gp3는 암호화한다.
 - termination protection을 기본 활성화한다.
@@ -36,7 +36,7 @@ Session Manager는 inbound port, bastion, SSH key 없이 관리 접속을 제공
 
 instance role은 다음만 허용한다.
 
-- `AmazonSSMManagedInstanceCore`를 통한 SSM agent 통신
+- permissions boundary와 일치하는 Session Manager agent inline policy를 통한 SSM 통신
 - 해당 epoch S3 prefix의 List/Get/Put/multipart abort
 - `BitcoinTrader/Collector` namespace의 metric publish
 - 지정 operational log group의 stream 생성/기록
@@ -128,6 +128,8 @@ Git 제외 대상:
 | AVD-AWS-0017 / LOW | CloudWatch log group CMK 미사용 | **ACCEPT** for operational-only logs. raw/secret/account data logging은 금지한다. | sensitive operational data가 생기면 CMK 추가 |
 | AVD-AWS-0089 / LOW | S3 server access logging 미사용 | **OPTIONAL HARDENING**. 별도 logging bucket/object/cost를 만들지 않은 초기안이다. | audit 요구에 따라 CloudTrail data event 또는 logging bucket 설계 |
 
-현재 Terraform은 비용과 단순성 요구 때문에 이 5개를 자동 수정하지 않는다. 위 분류는 초기 public market-data soak 기준이며 live/private-data 승격을 승인하지 않는다. 별도로, 이번 read-only 검증에 사용한 browser-login session이 root identity였던 점은 **FIX BEFORE APPLY**다. actual provisioning은 least-privilege deployment role/session으로 같은 plan을 다시 검증해야 한다. 어떤 선택도 AWS resource apply를 자동 승인하지 않는다.
+현재 Terraform은 비용과 단순성 요구 때문에 이 5개를 자동 수정하지 않는다. 위 분류는 초기 public market-data soak 기준이며 live/private-data 승격을 승인하지 않는다. 별도로, 이번 read-only 검증에 사용한 browser-login session이 root identity였던 점은 **FIX BEFORE APPLY**다. actual provisioning은 least-privilege deployment role/session으로 같은 plan을 다시 검증해야 한다. 어떤 선택도 AWS resource apply를 자동 승인하지 않는다. SSM agent는 managed policy 전체를 부여하지 않고 boundary와 일치하는 inline core policy로 제한하며, operator 세션은 태그가 맞는 collector만 대상으로 한다.
 
 2026-08-30 root-only + MFA trust는 `aws:PrincipalArn` exact condition과 Access Analyzer로 검증됐지만 AWS가 root account의 `AssumeRole`을 거부했다. 이 operationally unusable한 trust는 폐기한다. 교체안은 application 권한이 없는 dedicated IAM login identity가 console credential + MFA로 `aws login` temporary credential을 얻고, exact user ARN + MFA trust를 통해 provisioner role을 assume하는 구조다. static access key, root/account-wide trust, AdministratorAccess는 금지한다. root는 이 identity bootstrap에만 사용하고 즉시 종료해야 한다.
+
+Codex Security 앱 deep scan은 MCP proxy 오류(`-32000`)로 시작되지 않아 **NOT VERIFIED**다. 앱 스캔 결과를 PASS로 간주하지 않고 로컬 Terraform/Trivy/정적 IAM 검증을 별도 증거로 유지한다.

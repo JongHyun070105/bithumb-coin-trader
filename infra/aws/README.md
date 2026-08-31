@@ -24,10 +24,11 @@ EBS는 active raw와 압축 staging을 위한 **hot buffer**이고, S3는 선택
 - security group ingress **0개**; SSH 22와 dashboard 모두 닫힘
 - SSM Session Manager 운영 접속
 - IMDSv2 강제와 EC2 instance role 기반 최소 권한
-- Amazon Linux 2023, 암호화된 100 GiB gp3 hot buffer
+- Amazon Linux 2023, apply 전 검토된 AMI를 pin한 암호화된 100 GiB gp3 hot buffer
 - private S3 bucket, Block Public Access, versioning, SSE-S3, TLS 강제
 - canonical/temporary epoch prefix에만 제한된 S3 권한
 - operational metric/alarm/log만 CloudWatch에 저장
+- collector role의 SSM agent는 boundary와 일치하는 inline policy만 사용하며 Parameter Store를 읽지 않음
 - optional budget; 알림 주소가 없으면 resource 자체를 계획하지 않음
 - Secrets Manager resource 없음. public market-data soak에는 private exchange credential이 필요하지 않음
 - disk-used 70/80/90% warning/high/critical alarm. 검증되지 않은 raw 자동 삭제 없음

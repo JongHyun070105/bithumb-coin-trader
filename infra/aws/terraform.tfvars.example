@@ -14,6 +14,9 @@ architecture  = "x86_64"
 
 ebs_size_gib = 100
 
+# Pin a reviewed AL2023 AMI ID from the final read-only account inspection.
+ami_id_override = "ami-REPLACE_WITH_REVIEWED_ID"
+
 # Null uses an authenticated account-derived globally unique name.
 archive_bucket_name      = null
 enable_archive_lifecycle = false

@@ -3,6 +3,7 @@ provider "aws" {
 
   default_tags {
     tags = merge(
+      var.additional_tags,
       {
         ManagedBy   = "terraform"
         Project     = var.project_name
@@ -11,7 +12,6 @@ provider "aws" {
         LiveTrading = "disabled"
         AlphaReady  = "false"
       },
-      var.additional_tags,
     )
   }
 }

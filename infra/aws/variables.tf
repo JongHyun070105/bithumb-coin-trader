@@ -46,7 +46,7 @@ variable "architecture" {
 }
 
 variable "ami_id_override" {
-  description = "Optional reviewed Amazon Linux 2023 AMI ID. Null resolves the latest AL2023 AMI for architecture."
+  description = "Reviewed and pinned Amazon Linux 2023 AMI ID required before apply. Null is allowed only for local static validation."
   type        = string
   default     = null
   nullable    = true
@@ -261,4 +261,18 @@ variable "additional_tags" {
   description = "Additional non-secret tags."
   type        = map(string)
   default     = {}
+
+  validation {
+    condition = alltrue([
+      for key in keys(var.additional_tags) : !contains([
+        "ManagedBy",
+        "Project",
+        "Environment",
+        "Repository",
+        "LiveTrading",
+        "AlphaReady",
+      ], key)
+    ])
+    error_message = "additional_tags cannot override mandatory safety/provenance tags."
+  }
 }

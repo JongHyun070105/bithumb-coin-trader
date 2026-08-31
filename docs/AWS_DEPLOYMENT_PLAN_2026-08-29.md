@@ -5,8 +5,8 @@
 - AWS application resource: **NOT CREATED**
 - IAM bootstrap: **CREATED — boundary + provisioner role + reviewed inline policy only**
 - Terraform apply: **PROHIBITED PENDING EXPLICIT APPROVAL**
-- AWS application authentication: **NOT VERIFIED — dedicated temporary-login identity bootstrap pending**
-- Provider-backed plan: **PRIOR ROOT REVIEW 23 add / 0 change / 0 destroy; least-privilege re-plan NOT RUN**
+- AWS application authentication: **DEDICATED LOGIN + MFA / PROVISIONER ASSUME VERIFIED**
+- Provider-backed plan: **23 add / 0 change / 0 destroy with reviewed template; live policy reconciliation still pending**
 - V9: **CLOSED / 72H SOAK PASS / DATA QUALITY FAIL**
 - V9.1: local deployment-readiness baseline only
 - V9.1 official state: **FROZEN LOCAL DEPLOYMENT-READINESS BASELINE**
@@ -16,7 +16,7 @@
 
 이 단계는 AWS epoch의 reviewable infrastructure definition을 만드는 작업이다. collector 시작, raw upload, dashboard 배포, trading credential 저장, alpha mining, paper/live trading은 범위 밖이다.
 
-검증된 browser-login session은 account root identity였다. read-only 검증에는 사용했지만 실제 provisioning에는 과도한 권한이다. **apply 전에는 별도의 least-privilege deployment role/session으로 교체하고 같은 plan을 다시 생성해야 한다.** account ID, credential body, credit ID는 문서나 Git에 기록하지 않는다.
+이전 browser-login session은 account root identity였으나 일반 role AssumeRole이 거부되어 폐기했다. 현재는 dedicated IAM login identity + MFA의 temporary session으로 provisioner role을 AssumeRole한다. account ID, credential body, credit ID는 문서나 Git에 기록하지 않는다.
 
 2026-08-29 read-only IAM inventory에서는 재사용 가능한 deployment role이 없었다. service-linked role과 다른 프로젝트 workload role은 trust/permission 경계가 맞지 않아 재사용하지 않는다. 2026-08-30 승인된 IAM bootstrap으로 boundary와 1시간 provisioner role 및 reviewed inline policy만 생성했다. root-only + MFA trust는 account-wide delegation을 막지만 AWS는 root account의 `AssumeRole` 자체를 거부했다. 따라서 root trust는 폐기하고 application 권한이 없는 dedicated IAM login identity의 `aws login` temporary session → exact provisioner `AssumeRole` 구조로 교체한다. static access key와 기존 administrator user 재사용은 금지한다. 상세 evidence와 identity gate는 [`infra/aws/identity/README.md`](../infra/aws/identity/README.md)에 기록한다.
 
@@ -31,12 +31,12 @@
 | security group | 1 | ingress 0, outbound TCP/443만 허용 |
 | EC2 | 1 | `t3.medium` x86_64 collector runtime |
 | root EBS | EC2 내 1 | encrypted 100 GiB gp3 hot buffer |
-| IAM role / inline policy / SSM policy attachment / instance profile | 각 1 | static key 없는 최소 권한 S3·CloudWatch·SSM 접근 |
+| IAM role / inline policies / instance profile | 각 1 이상 | static key 없는 최소 권한 S3·CloudWatch·SSM 접근 |
 | S3 bucket / public-access block / ownership / encryption / versioning / TLS policy | 각 1 | private selective archive와 transport protection |
 | CloudWatch log group | 1 | operational log only |
 | CloudWatch alarms | 5 | writer, queue, disk 70/80/90% 감시 |
 
-Secrets Manager, S3 lifecycle, Budget resource는 현재 입력에서 계획되지 않았다. SSM은 별도 resource가 아니라 instance role의 `AmazonSSMManagedInstanceCore` attachment와 Amazon Linux agent로 활성화한다. root EBS의 `delete_on_termination=false`는 데이터 보호 의도지만 instance 제거 뒤 orphan 비용 위험이 있으므로 apply 승인 때 명시적으로 수용하고 종료 runbook에 volume 정리를 포함해야 한다.
+Secrets Manager, S3 lifecycle, Budget resource는 현재 입력에서 계획되지 않았다. SSM agent는 permissions boundary와 일치하는 inline core policy로 활성화하고 Parameter Store 읽기 권한은 포함하지 않는다. root EBS의 `delete_on_termination=false`는 데이터 보호 의도지만 instance 제거 뒤 orphan 비용 위험이 있으므로 apply 승인 때 명시적으로 수용하고 종료 runbook에 volume 정리를 포함해야 한다.
 
 plan-review용 epoch/run ID, config fingerprint와 bucket name은 launch seal이 아니다. 실제 apply 전 승인된 commit/config/environment로 새로 봉인하고 plan을 다시 검토한다.
 

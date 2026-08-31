@@ -292,9 +292,42 @@ resource "aws_iam_role" "collector" {
   tags = local.provenance_tags
 }
 
-resource "aws_iam_role_policy_attachment" "ssm_core" {
-  role       = aws_iam_role.collector.name
-  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+data "aws_iam_policy_document" "collector_ssm_agent" {
+  statement {
+    sid = "SessionManagerCoreOnly"
+    actions = [
+      "ssm:DescribeAssociation",
+      "ssm:GetDeployablePatchSnapshotForInstance",
+      "ssm:GetDocument",
+      "ssm:DescribeDocument",
+      "ssm:GetManifest",
+      "ssm:ListAssociations",
+      "ssm:ListInstanceAssociations",
+      "ssm:PutInventory",
+      "ssm:PutComplianceItems",
+      "ssm:PutConfigurePackageResult",
+      "ssm:UpdateAssociationStatus",
+      "ssm:UpdateInstanceAssociationStatus",
+      "ssm:UpdateInstanceInformation",
+      "ssmmessages:CreateControlChannel",
+      "ssmmessages:CreateDataChannel",
+      "ssmmessages:OpenControlChannel",
+      "ssmmessages:OpenDataChannel",
+      "ec2messages:AcknowledgeMessage",
+      "ec2messages:DeleteMessage",
+      "ec2messages:FailMessage",
+      "ec2messages:GetEndpoint",
+      "ec2messages:GetMessages",
+      "ec2messages:SendReply",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "collector_ssm_agent" {
+  name   = "session-manager-agent-core"
+  role   = aws_iam_role.collector.id
+  policy = data.aws_iam_policy_document.collector_ssm_agent.json
 }
 
 data "aws_iam_policy_document" "collector" {
@@ -466,6 +499,11 @@ resource "aws_instance" "collector" {
 
   lifecycle {
     precondition {
+      condition     = var.ami_id_override != null && can(regex("^ami-[0-9a-f]+$", var.ami_id_override))
+      error_message = "ami_id_override must be a reviewed, pinned Amazon Linux AMI ID before apply."
+    }
+
+    precondition {
       condition     = var.collector_epoch != null && !contains(["", "NOT-SEALED"], var.collector_epoch)
       error_message = "collector_epoch must be sealed before a provider-backed plan."
     }
@@ -513,7 +551,7 @@ resource "aws_instance" "collector" {
 
   depends_on = [
     aws_iam_role_policy.collector,
-    aws_iam_role_policy_attachment.ssm_core,
+    aws_iam_role_policy.collector_ssm_agent,
     aws_route_table_association.collector,
   ]
 }

@@ -4,7 +4,7 @@
 
 ## read-only account finding — 2026-08-29
 
-- current browser-login session: verified root identity; read-only inspection에만 사용
+- previous browser-login session: root identity였으나 operational AssumeRole이 거부되어 폐기됨
 - account MFA: enabled
 - IAM users: 1
 - IAM roles: 7; AWS service-linked role 4개와 다른 `openloop` workload role 3개뿐
@@ -21,7 +21,7 @@
 1. customer-managed permissions boundary `bitcoin-trader-collector-boundary` 생성.
 2. deployment role `bitcoin-trader-terraform-provisioner` 생성, maximum session 1 hour.
 3. 최초 trust는 actual root + MFA로 제한했지만 AWS root account가 일반 IAM role을 assume할 수 없어 operationally unusable함을 확인.
-4. `terraform-provisioner-permissions-policy.json.example`과 exact-match인 inline policy 1개 적용. managed policy attachment는 0개.
+4. `terraform-provisioner-permissions-policy.json.example`과 exact-match인 inline policy 1개 적용. managed policy attachment는 0개. 이후 정적 검토에서 Access Analyzer/simulation과 SSM 운영 세션 권한을 보완했으므로, 다음 IAM-only bootstrap에서 live inline policy를 다시 exact-match로 갱신해야 한다.
 5. collector role에 위 permissions boundary를 지정하도록 Terraform을 수정함.
 
 Access Analyzer는 boundary, provisioner policy, trust 모두 error/warning 0이었다. 다른 region, 다른 S3 bucket, Secrets Manager, IAM user 생성, arbitrary PassRole, boundary 없는 collector role 생성은 simulation에서 모두 implicit deny였다.
@@ -56,7 +56,8 @@ Secrets Manager, IAM, trading credential, order/account API 권한은 없다.
 
 - EC2 write action은 `ap-northeast-2`와 현재 plan에 필요한 API verb로 제한한다.
 - S3, IAM role/profile, CloudWatch log/alarm은 exact name/ARN으로 제한한다.
-- collector role은 exact permissions boundary와 `AmazonSSMManagedInstanceCore`만 attach할 수 있다.
+- collector role은 exact permissions boundary와 boundary 범위에 맞춘 Session Manager agent inline policy만 사용한다. Parameter Store와 managed-policy 추가 권한은 포함하지 않는다.
+- provisioner의 Session Manager operator 권한은 Project/Environment 태그가 붙은 collector instance에만 허용하며, 1시간 MFA 세션에서만 사용한다.
 - `iam:PassRole`은 exact collector role을 EC2에 전달하는 경우만 허용한다.
 - Budgets가 비활성이므로 Budgets permission은 없다.
 - Secrets Manager, KMS customer key, live trading 관련 permission은 없다.
@@ -75,4 +76,4 @@ VPC/subnet/route association처럼 create 전 ARN이 없거나 tag condition 지
 8. credit/billing을 다시 read-only 확인한다.
 9. 별도 final apply 승인을 받기 전에는 `terraform apply`를 실행하지 않는다.
 
-MFA가 확인된 dedicated login identity로 root trust를 교체하고 provisioner assumed-role session에서 provider-backed plan을 다시 검증하는 것이 현재 blocking gate다. IAM Identity Center/Organizations는 이 single-account 단계의 범위가 아니다.
+MFA가 확인된 dedicated login identity로 root trust를 교체하고 provisioner assumed-role session에서 provider-backed plan을 다시 검증하는 것이 현재 blocking gate다. IAM Identity Center/Organizations는 이 single-account 단계의 범위가 아니다. 현재 Codex Security 앱 스캔은 MCP proxy 오류로 시작되지 않아 `NOT VERIFIED`이며, 로컬 정적 검증 결과와 혼동하지 않는다.
