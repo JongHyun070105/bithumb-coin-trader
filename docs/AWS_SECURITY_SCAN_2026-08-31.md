@@ -133,10 +133,16 @@ The 23-resource plan retains the conservative first-month planning envelope of a
 **US$57.58/30 days** before credits, approximately **US$0.079/hour**, **US$1.92/day**,
 **US$5.76/72 hours**, and **US$9.60/5 days**. Actual S3, log, and metric usage remains variable.
 
-The provisioner role intentionally has no Billing/Cost Explorer permission, so the 2026-09-01
-fresh credit, MTD, and forecast read is **NOT VERIFIED — BILLING ACCESS REQUIRED**. The last
-verified 2026-08-29 snapshot remains US$114.49 actual / US$113.26 estimated, expiring
-2026-12-13; it must not be presented as current and must be refreshed immediately before apply.
+The user re-verified the AWS Billing Credits screen on 2026-09-01: US$120.00 total issued,
+US$5.51 actual used / US$114.49 actual remaining, and US$6.82 estimated used / US$113.18
+estimated remaining, expiring 2026-12-13. Credit identifiers are intentionally omitted. One
+US$20 promotional credit may have eligibility restrictions, so the general-credit-only
+estimated remainder is approximately US$93.18. Cost Explorer MTD and forecast remain
+**NOT VERIFIED — NON-BLOCKING**; Billing permission is not added to the provisioner role.
+
+The exact final deployment commit is the clean `HEAD == origin/main` used by the final plan and
+is reported alongside the plan fingerprint. It is not hard-coded into the commit that contains
+this sentence because a commit cannot include its own final SHA without changing that SHA.
 
 AWS application resources created: **NO**. Terraform apply: **NOT RUN**. Codex Security app:
 **NOT VERIFIED — MCP infrastructure failure -32000**. Local substitute security evidence:

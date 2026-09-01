@@ -7,13 +7,13 @@
 검증 시점의 Billing 상태:
 
 - actual remaining promotional credit: **US$114.49**
-- daily-updated estimated remaining credit: **US$113.26**
+- daily-updated estimated remaining credit: **US$113.18** (user re-verified 2026-09-01)
 - expiration: **2026-12-13** (두 active credit 모두 동일, 검증일로부터 106일)
 - current month-to-date unblended cost: **약 US$0.00, estimated**
 - remaining-month Cost Explorer forecast: **약 US$0.04**
 - 계획 서비스 EC2/EBS, S3, CloudWatch, VPC/Public IPv4, Systems Manager, AWS Budgets: **credit eligibility 확인됨**
 
-recommended first-month 정가 US$57.58은 30일 기준 약 **US$1.92/day**다. actual remaining 기준 financial runway는 약 **1.99개월/59.7일**, estimated remaining 기준 약 **1.97개월/59.0일**이다. 만료까지 106일보다 credit 잔액 기반 runway가 먼저 끝난다. eligible usage가 유지되고 tax·미포함 비용이 없다면 첫 약 59일의 현금 청구는 credit으로 상쇄될 수 있지만, 이는 apply 후 실제 사용량을 보장하지 않는다.
+recommended first-month 정가 US$57.58은 30일 기준 약 **US$1.92/day**다. actual remaining 기준 financial runway는 약 **1.99개월/59.6일**, estimated remaining 기준 약 **1.97개월/59.0일**이다. US$20 promotional credit의 eligibility를 제외한 general-credit-only estimated US$93.18은 약 **48.6일**이다. 만료보다 credit 잔액 기반 runway가 먼저 끝난다. eligible usage가 유지되고 tax·미포함 비용이 없다면 초기 현금 청구는 credit으로 상쇄될 수 있지만, 이는 apply 후 실제 사용량을 보장하지 않는다. Cost Explorer MTD/forecast는 **NOT VERIFIED — NON-BLOCKING**이다.
 
 공식 근거:
 
