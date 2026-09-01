@@ -87,18 +87,18 @@ Trivy classifications remain unchanged for the initial public-data soak:
 
 ## Apply blockers and next gate
 
-The IAM drift is reconciled. A fresh provider-backed plan ran with the temporary provisioner
-session and the following non-secret review provenance:
+The IAM drift is reconciled. A final provider-backed plan runs from the clean
+`HEAD == origin/main` commit containing this evidence, using the temporary provisioner session.
+The exact commit, canonical non-secret config fingerprint, and plan-review ID are emitted in the
+final validation report rather than embedded here, because embedding a commit's own SHA would
+change that SHA. The validated shape is:
 
-- source commit: `abfc8f38a95c5e99e2dabd48853e8336cde85f23`
-- plan-review ID: `plan-review-b9da26ff-5389-4643-93ae-6396de0c7871`
-- plan config fingerprint:
-  `ad7ba4a986b5c3fc89196edb2928bb1dd101530171eff2c0ad4dcaee6d7143ba`
 - pinned AMI: `ami-08d82cf148c92fcc3`, Amazon-owned AL2023 x86_64, HVM/EBS, available
 - result: **23 add / 0 change / 0 destroy**
+- unexpected replacement: **0**
 - temporary plan file: **REMOVED**
 
-The review ID above is not an actual collector process run ID. A new launch identity and config
+The plan-review ID is not an actual collector process run ID. A new launch identity and config
 fingerprint must be sealed immediately before a separately approved apply/launch.
 
 Plan review confirmed zero security-group ingress, no SSH/dashboard/trading port, public IPv4
@@ -121,6 +121,12 @@ resource is present.
 - 100 GiB hot buffer — **PRE-SOAK GAPS**: do not start the 72-hour AWS collector until the
   metric publisher and fail-closed compression/archive/restore pipeline are implemented and
   smoke-tested on Amazon Linux.
+
+For the initial single-project apply, Terraform state is intentionally **secure local state**:
+Git-ignored on the FileVault-encrypted Mac, restricted to the operator account, and copied only
+to an encrypted backup. This avoids provisioning an unapproved remote-state bootstrap stack.
+Local-state loss/corruption and sensitive-metadata exposure remain operator risks; a versioned,
+encrypted, locked remote backend is a later reviewed hardening option.
 
 The official `AmazonSSMManagedInstanceCore` policy contains the same agent actions plus
 `ssm:GetParameter` and `ssm:GetParameters`. The reviewed collector policy intentionally excludes
@@ -148,3 +154,8 @@ AWS application resources created: **NO**. Terraform apply: **NOT RUN**. Codex S
 **NOT VERIFIED — MCP infrastructure failure -32000**. Local substitute security evidence:
 **PASS with the five accepted/optional Trivy findings above**. Alpha: **BLOCKED**. Live:
 **DISABLED**.
+
+Infrastructure pre-apply is **READY FOR FINAL APPLY APPROVAL**. Collector pre-soak remains
+**BLOCKED** by the operational implementation and Amazon Linux smoke gaps above. An approved
+infrastructure apply must not launch the collector; Terraform contains no user-data, cloud-init,
+local-exec, remote-exec, or systemd collector-start hook.
