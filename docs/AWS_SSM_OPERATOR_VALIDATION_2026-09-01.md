@@ -63,6 +63,7 @@ Apple-notarized package and verified at version `1.2.835.0`.
 - new provisioner assumed-role session start — **SUCCESS**
 - guest shell identity — `ssm-user`
 - normal shell exit and AWS history status — **SUCCESS / TERMINATED**
+- separate same-owner lifecycle session and `TerminateSession` API call — **SUCCESS / TERMINATED**
 - active sessions after the test — **0**
 - other-session termination — **DENY by policy simulation**; no second live shell was opened
 
