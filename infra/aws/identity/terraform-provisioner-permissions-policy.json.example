@@ -148,7 +148,13 @@
       "Sid": "AllowSessionManagerShellDocument",
       "Effect": "Allow",
       "Action": "ssm:StartSession",
-      "Resource": "arn:aws:ssm:ap-northeast-2::document/SSM-SessionManagerRunShell"
+      "Resource": "arn:aws:ssm:ap-northeast-2:${ACCOUNT_ID}:document/SSM-SessionManagerRunShell"
+    },
+    {
+      "Sid": "AllowSessionManagerOpenDataChannel",
+      "Effect": "Allow",
+      "Action": "ssmmessages:OpenDataChannel",
+      "Resource": "*"
     },
     {
       "Sid": "ManageOwnSessionManagerSessions",
@@ -157,7 +163,12 @@
         "ssm:ResumeSession",
         "ssm:TerminateSession"
       ],
-      "Resource": "arn:aws:ssm:ap-northeast-2:${ACCOUNT_ID}:session/${aws:userid}-*"
+      "Resource": "*",
+      "Condition": {
+        "StringLike": {
+          "ssm:resourceTag/aws:ssmmessages:session-id": "${aws:userid}*"
+        }
+      }
     },
     {
       "Sid": "DescribeSessionManagerState",
