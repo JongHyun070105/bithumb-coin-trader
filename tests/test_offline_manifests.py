@@ -71,6 +71,39 @@ class OfflineManifestTests(unittest.TestCase):
             finally:
                 MODULE.ROOT = old_root
 
+    def test_custom_data_root_matches_runtime_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            raw_root = root / "short-smoke" / "epoch-a" / "raw"
+            raw = (
+                raw_root
+                / "2026-09-02"
+                / "bithumb"
+                / "trade"
+                / "bithumb_trade_krw-btc_2026-09-02_01.jsonl"
+            )
+            raw.parent.mkdir(parents=True)
+            raw.write_text("{}\n", encoding="utf-8")
+            manifest = root / "manifest.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "partition_path": str(raw.relative_to(raw_root.parent.parent)),
+                        "bytes": raw.stat().st_size,
+                        "sha256": "0" * 64,
+                        "schema_version": 4,
+                        "monotonic_missing_count": 1,
+                        "monotonic_invalid_count": 0,
+                        "monotonic_reversal_count": 0,
+                        "latency_parseable_observation_count": 0,
+                        "latency_out_of_range_count": 0,
+                        "exchange_timestamp_present_count": 0,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            self.assertTrue(MODULE.manifest_matches_raw(raw, manifest, raw_root.parent.parent))
+
 
 if __name__ == "__main__":
     unittest.main()

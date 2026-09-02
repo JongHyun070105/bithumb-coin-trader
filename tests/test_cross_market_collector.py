@@ -174,6 +174,43 @@ class CrossMarketCollectorTests(unittest.TestCase):
             )
             self.assertFalse(collector._metrics_path.with_suffix(".json.tmp").exists())
 
+    def test_explicit_short_smoke_provenance_is_persisted(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            commit = "a" * 40
+            fingerprint = "b" * 64
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"],
+                storage_base_dir=Path(tmp) / "raw",
+                enable_binance=False,
+                enable_upbit=False,
+                environment_id="aws-apne2-research",
+                collector_epoch="aws-short-smoke-test",
+                collector_run_id="aws-short-smoke-run-test",
+                collector_config_fingerprint=fingerprint,
+                collector_git_commit=commit,
+            )
+            collector._persist_metrics()
+            payload = json.loads(collector._metrics_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["environment_id"], "aws-apne2-research")
+            self.assertEqual(payload["collector_epoch"], "aws-short-smoke-test")
+            self.assertEqual(payload["collector_run_id"], "aws-short-smoke-run-test")
+            self.assertEqual(payload["collector_config_fingerprint"], fingerprint)
+            self.assertEqual(payload["collector_git_commit"], commit)
+
+            now = datetime.now(timezone.utc)
+            raw = collector.storage.append_raw_record(
+                "bithumb",
+                "trade",
+                "KRW-BTC",
+                {},
+                now,
+                now,
+                local_receive_monotonic_ns=1,
+                collector_run_id=collector._collector_run_id,
+            )
+            manifest = collector.storage.generate_partition_manifest(raw)
+            self.assertEqual(manifest.git_commit, commit)
+
     def test_throughput_rate_uses_collector_uptime_not_connection_uptime(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             collector = MultiExchangeMicrostructureCollector(

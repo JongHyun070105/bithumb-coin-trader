@@ -32,12 +32,13 @@ def is_closed_partition(path: Path, now: datetime) -> bool:
     return partition_hour(path) < current_hour
 
 
-def manifest_path(raw_path: Path) -> Path:
-    return MANIFESTS_DIR / f"manifest_{raw_path.stem}.json"
+def manifest_path(raw_path: Path, manifest_dir: Path = MANIFESTS_DIR) -> Path:
+    return manifest_dir / f"manifest_{raw_path.stem}.json"
 
 
-def manifest_matches_raw(raw_path: Path, candidate: Path) -> bool:
+def manifest_matches_raw(raw_path: Path, candidate: Path, data_root: Path | None = None) -> bool:
     try:
+        expected_root = data_root or ROOT / "data"
         payload: dict[str, Any] = json.loads(candidate.read_text(encoding="utf-8"))
         required_fields = {
             "monotonic_missing_count",
@@ -48,7 +49,7 @@ def manifest_matches_raw(raw_path: Path, candidate: Path) -> bool:
             "exchange_timestamp_present_count",
         }
         return (
-            payload.get("partition_path") == str(raw_path.relative_to(ROOT / "data"))
+            payload.get("partition_path") == str(raw_path.relative_to(expected_root))
             and payload.get("schema_version") == 4
             and required_fields.issubset(payload)
             and payload.get("bytes") == raw_path.stat().st_size
@@ -83,11 +84,21 @@ def main() -> None:
         action="store_true",
         help="Include current UTC-hour partitions only after the collector has stopped",
     )
+    parser.add_argument("--raw-root", type=Path, default=RAW_DIR)
+    parser.add_argument("--manifest-root", type=Path, default=MANIFESTS_DIR)
+    parser.add_argument("--collector-git-commit", default="HEAD")
     args = parser.parse_args()
 
     now = datetime.now(timezone.utc)
-    storage = RawMicrostructureStorage(RAW_DIR)
-    raw_files = sorted(RAW_DIR.glob("**/*.jsonl"))
+    raw_root = args.raw_root.resolve()
+    manifest_root = args.manifest_root.resolve()
+    data_root = raw_root.parent.parent
+    storage = RawMicrostructureStorage(
+        raw_root,
+        manifest_dir=manifest_root,
+        git_commit=args.collector_git_commit,
+    )
+    raw_files = sorted(raw_root.glob("**/*.jsonl"))
     if args.include_current_hour and collector_running():
         parser.error("--include-current-hour requires the collector process to be stopped")
     finalized = raw_files if args.include_current_hour else [path for path in raw_files if is_closed_partition(path, now)]
@@ -95,10 +106,10 @@ def main() -> None:
     stale: list[Path] = []
     current: list[Path] = []
     for path in finalized:
-        candidate = manifest_path(path)
+        candidate = manifest_path(path, manifest_root)
         if not candidate.exists():
             missing.append(path)
-        elif not manifest_matches_raw(path, candidate):
+        elif not manifest_matches_raw(path, candidate, data_root):
             stale.append(path)
         else:
             current.append(path)
@@ -130,6 +141,8 @@ def main() -> None:
             print(f"FAILED {path}: {error}")
     print(f"Generated/repaired       : {generated}")
     print(f"Failed                   : {failed}")
+    if failed:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

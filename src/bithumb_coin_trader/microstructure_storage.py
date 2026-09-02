@@ -75,10 +75,26 @@ class PartitionManifest:
 class RawMicrostructureStorage:
     """Manages immutable raw partition files, quarantine stores, and verifiable manifests."""
 
-    def __init__(self, base_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        base_dir: Path | None = None,
+        *,
+        quarantine_dir: Path | None = None,
+        manifest_dir: Path | None = None,
+        git_commit: str = "HEAD",
+    ) -> None:
         self.base_dir = base_dir or RAW_BASE_DIR
-        self.quarantine_dir = (base_dir.parent / "quarantine") if base_dir else QUARANTINE_BASE_DIR
-        self.manifest_dir = (base_dir.parent / "manifests") if base_dir else MANIFESTS_BASE_DIR
+        self.quarantine_dir = quarantine_dir or (
+            (base_dir.parent / "quarantine") if base_dir else QUARANTINE_BASE_DIR
+        )
+        self.manifest_dir = manifest_dir or (
+            (base_dir.parent / "manifests") if base_dir else MANIFESTS_BASE_DIR
+        )
+        if git_commit != "HEAD" and (
+            len(git_commit) != 40 or any(character not in "0123456789abcdef" for character in git_commit)
+        ):
+            raise ValueError("git_commit must be HEAD or an exact lowercase 40-character commit")
+        self.git_commit = git_commit
         self.base_dir.mkdir(parents=True, exist_ok=True)
         self.quarantine_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_dir.mkdir(parents=True, exist_ok=True)
@@ -351,6 +367,7 @@ class RawMicrostructureStorage:
             exchange_timestamp_present_count=exchange_timestamp_present_count,
             latency_sample_count=len(latencies_ms),
             latency_metric_semantics="local_receive_minus_exchange_labelled_timestamp_not_network_latency",
+            git_commit=self.git_commit,
         )
 
         manifest_file = self.manifest_dir / f"manifest_{file_path.stem}.json"

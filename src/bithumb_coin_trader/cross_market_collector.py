@@ -18,6 +18,7 @@ import logging
 import os
 from pathlib import Path
 import random
+import re
 import time
 from typing import Any, Mapping, Sequence
 import uuid
@@ -31,6 +32,10 @@ logger = logging.getLogger("bithumb_coin_trader.cross_market_collector")
 BITHUMB_WS_URL = "wss://ws-api.bithumb.com/websocket/v1"
 BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
 UPBIT_WS_URL = "wss://api.upbit.com/websocket/v1"
+
+SEALED_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
+LOWER_HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 
 
 def parse_binance_message(message: bytes | str) -> tuple[str, str, dict[str, Any], datetime | None]:
@@ -113,13 +118,35 @@ class MultiExchangeMicrostructureCollector:
         storage_base_dir: Path | None = None,
         enable_binance: bool = True,
         enable_upbit: bool = True,
+        environment_id: str = "NOT-SEALED",
+        collector_epoch: str = "NOT-SEALED",
+        collector_run_id: str | None = None,
+        collector_config_fingerprint: str = "NOT-SEALED",
+        collector_git_commit: str = "HEAD",
     ) -> None:
+        run_id = collector_run_id or uuid.uuid4().hex
+        if not SEALED_IDENTIFIER.fullmatch(environment_id):
+            raise ValueError("environment_id must be a non-empty safe identifier")
+        if not SEALED_IDENTIFIER.fullmatch(collector_epoch):
+            raise ValueError("collector_epoch must be a non-empty safe identifier")
+        if not SEALED_IDENTIFIER.fullmatch(run_id):
+            raise ValueError("collector_run_id must be a non-empty safe identifier")
+        if collector_config_fingerprint != "NOT-SEALED" and not LOWER_HEX_64.fullmatch(
+            collector_config_fingerprint
+        ):
+            raise ValueError("collector_config_fingerprint must be NOT-SEALED or lowercase SHA-256")
+        if collector_git_commit != "HEAD" and not LOWER_HEX_40.fullmatch(collector_git_commit):
+            raise ValueError("collector_git_commit must be HEAD or an exact lowercase commit")
         self.bithumb_markets = list(bithumb_markets)
         self.binance_symbols = [s.lower() for s in binance_symbols]
         self.upbit_markets = list(upbit_markets)
-        self.storage = RawMicrostructureStorage(storage_base_dir)
+        self.storage = RawMicrostructureStorage(storage_base_dir, git_commit=collector_git_commit)
         self.enable_binance = enable_binance
         self.enable_upbit = enable_upbit
+        self.environment_id = environment_id
+        self.collector_epoch = collector_epoch
+        self.collector_config_fingerprint = collector_config_fingerprint
+        self.collector_git_commit = collector_git_commit
         self.is_running = False
 
         self.metrics: dict[str, CollectorMetrics] = {
@@ -133,7 +160,7 @@ class MultiExchangeMicrostructureCollector:
         ] = asyncio.Queue(maxsize=50_000)
         self._active_partition_files: set[Path] = set()
         self._metrics_path = self.storage.base_dir.parent / "collector_metrics.json"
-        self._collector_run_id = uuid.uuid4().hex
+        self._collector_run_id = run_id
         self._collector_started_at = datetime.now(timezone.utc).isoformat()
         self._fatal_writer_error: Exception | None = None
         self._fatal_writer_event = asyncio.Event()
@@ -171,7 +198,11 @@ class MultiExchangeMicrostructureCollector:
         """Atomically persist operational counters for independent status auditing."""
         payload = {
             "schema_version": 1,
+            "environment_id": self.environment_id,
+            "collector_epoch": self.collector_epoch,
             "collector_run_id": self._collector_run_id,
+            "collector_config_fingerprint": self.collector_config_fingerprint,
+            "collector_git_commit": self.collector_git_commit,
             "collector_started_at": self._collector_started_at,
             "process_id": os.getpid(),
             "written_at": datetime.now(timezone.utc).isoformat(),
