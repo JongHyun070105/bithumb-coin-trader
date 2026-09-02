@@ -16,7 +16,7 @@ from typing import Mapping, Sequence
 from .models import Candle
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class DynamicUniverseConfig:
     top_n: int = 20  # Baseline Top 20
     min_listing_days: int = 30

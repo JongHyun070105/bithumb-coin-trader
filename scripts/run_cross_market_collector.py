@@ -18,12 +18,7 @@ logging.basicConfig(
 )
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Multi-Exchange Microstructure Collector Daemon")
-    parser.add_argument("--bithumb-markets", type=int, default=20, help="Number of Bithumb KRW markets (default: 20)")
-    parser.add_argument("--duration", type=float, default=None, help="Duration in seconds (default: run indefinitely)")
-    args = parser.parse_args()
-
+async def _run(args: argparse.Namespace) -> None:
     bithumb_mkts = list(TOP_UNIVERSE_CANDIDATES[: args.bithumb_markets])
     binance_syms = ["btcusdt", "ethusdt", "solusdt", "xrpusdt"]
     upbit_mkts = ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"]
@@ -43,13 +38,22 @@ def main() -> None:
     )
 
     try:
-        asyncio.run(collector.run_collector(max_duration_seconds=args.duration))
-    except KeyboardInterrupt:
-        print("\nCollector gracefully stopped.")
+        await collector.run_collector(max_duration_seconds=args.duration)
     finally:
         print("Flushing final manifests...")
         mfs = collector.generate_all_manifests()
         print(f"Generated {len(mfs)} partition manifests.")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Multi-Exchange Microstructure Collector Daemon")
+    parser.add_argument("--bithumb-markets", type=int, default=20, help="Number of Bithumb KRW markets (default: 20)")
+    parser.add_argument("--duration", type=float, default=None, help="Duration in seconds (default: run indefinitely)")
+    args = parser.parse_args()
+    try:
+        asyncio.run(_run(args))
+    except KeyboardInterrupt:
+        print("\nCollector gracefully stopped.")
 
 
 if __name__ == "__main__":

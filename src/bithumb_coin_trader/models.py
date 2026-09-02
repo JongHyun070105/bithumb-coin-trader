@@ -16,7 +16,7 @@ class Signal(IntEnum):
     LONG = 1
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class Candle:
     timestamp: datetime
     open: float

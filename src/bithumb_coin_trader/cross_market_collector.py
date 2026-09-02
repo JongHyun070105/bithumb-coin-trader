@@ -51,7 +51,7 @@ def parse_binance_message(message: bytes | str) -> tuple[str, str, dict[str, Any
     return stream_name, market, data, exchange_ts
 
 
-@dataclass(slots=True)
+@dataclass
 class CollectorMetrics:
     exchange: str
     collector_started_at: float = field(default_factory=time.time)
@@ -182,12 +182,27 @@ class MultiExchangeMicrostructureCollector:
                 type(self._fatal_writer_error).__name__ if self._fatal_writer_error else None
             ),
             "unpersisted_event_count": self._unpersisted_event_count,
+            "active_partition_files": sorted(
+                str(path.resolve().relative_to(self.storage.base_dir.resolve()))
+                for path in self._active_partition_files
+                if self.storage.base_dir.resolve() in path.resolve().parents
+            ),
             "exchanges": {name: metric.to_dict() for name, metric in self.metrics.items()},
         }
         self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._metrics_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-        temporary.replace(self._metrics_path)
+        descriptor = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(temporary), str(self._metrics_path))
+        directory_descriptor = os.open(str(self._metrics_path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
 
     async def _metrics_worker(self) -> None:
         while self.is_running or not self._write_queue.empty():

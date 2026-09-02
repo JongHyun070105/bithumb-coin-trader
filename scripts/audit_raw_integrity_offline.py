@@ -1,93 +1,109 @@
-"""Offline validator for microstructure raw files & quarantine events."""
+"""FULL-SCAN microstructure JSONL and JSONL.ZST inputs without temporary expansion."""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
-import time
-from typing import Any
+from typing import Any, Dict, Iterable
+
+from bithumb_coin_trader.microstructure_io import scan_jsonl
+
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data" / "microstructure"
 RAW_DIR = DATA_DIR / "raw"
+COMPRESSED_DIR = DATA_DIR / "compressed"
 QUARANTINE_DIR = DATA_DIR / "quarantine"
 
 
-def main() -> None:
-    print("=" * 80)
-    print("  STRATEGY V9: OFFLINE RAW DATA INTEGRITY & QUARANTINE AUDIT")
-    print("=" * 80)
+def discover_inputs(raw_dir: Path, compressed_dir: Path) -> list[Path]:
+    raw = list(raw_dir.glob("**/*.jsonl")) if raw_dir.exists() else []
+    compressed = list(compressed_dir.glob("**/*.jsonl.zst")) if compressed_dir.exists() else []
+    return sorted(raw + compressed)
 
-    now = time.time()
-    raw_files = list(RAW_DIR.glob("**/*.jsonl"))
-    quarantine_files = list(QUARANTINE_DIR.glob("**/*.jsonl")) if QUARANTINE_DIR.exists() else []
 
-    zero_byte_files = []
-    active_files = []
-    finalized_files = []
-    malformed_lines = 0
-    total_valid_records = 0
-
-    print(f"Total Raw Files Found: {len(raw_files)}")
-    print(f"Total Quarantine Files Found: {len(quarantine_files)}")
-
-    # Check quarantine files
-    total_quarantined_records = 0
-    quarantine_reasons: dict[str, int] = {}
-    for qf in quarantine_files:
-        with qf.open("r", encoding="utf-8") as qh:
-            for line in qh:
-                if line.strip():
-                    total_quarantined_records += 1
-                    try:
-                        rec = json.loads(line)
-                        reason = rec.get("error_reason", "unknown")
-                        quarantine_reasons[reason] = quarantine_reasons.get(reason, 0) + 1
-                    except Exception:
-                        pass
-
-    print(f"\n[Quarantine Storage Check]")
-    print(f"  - Quarantined Records Total : {total_quarantined_records}")
-    print(f"  - Quarantine Error Reasons  : {quarantine_reasons}")
-
-    # Inspect all raw files
-    for f in raw_files:
-        st = f.stat()
-        if st.st_size == 0:
-            zero_byte_files.append(str(f.relative_to(RAW_DIR)))
+def full_scan(paths: Iterable[Path]) -> Dict[str, Any]:
+    totals = {
+        "files": 0,
+        "logical_bytes": 0,
+        "records": 0,
+        "valid_records": 0,
+        "invalid_json": 0,
+        "schema_mismatch": 0,
+        "missing_required_fields": 0,
+        "non_finite_numeric": 0,
+        "malformed_timestamps": 0,
+        "unknown_market": 0,
+        "scan_failures": 0,
+        "compressed_files": 0,
+    }
+    failures = []
+    for path in paths:
+        totals["files"] += 1
+        if path.name.endswith(".zst"):
+            totals["compressed_files"] += 1
+        try:
+            result = scan_jsonl(path)
+        except Exception as exc:
+            totals["scan_failures"] += 1
+            failures.append({"path": str(path), "error": type(exc).__name__})
             continue
+        payload = result.to_dict()
+        for key in (
+            "logical_bytes",
+            "records",
+            "valid_records",
+            "invalid_json",
+            "schema_mismatch",
+            "missing_required_fields",
+            "non_finite_numeric",
+            "malformed_timestamps",
+            "unknown_market",
+        ):
+            totals[key] += int(payload[key])
+    quality_failure_keys = (
+        "invalid_json",
+        "schema_mismatch",
+        "missing_required_fields",
+        "non_finite_numeric",
+        "malformed_timestamps",
+        "unknown_market",
+        "scan_failures",
+    )
+    totals["status"] = "PASS" if not any(totals[key] for key in quality_failure_keys) else "FAIL"
+    return {"totals": totals, "failures": failures}
 
-        # Active if modified within last 10 minutes
-        if (now - st.st_mtime) < 600:
-            active_files.append(f)
-        else:
-            finalized_files.append(f)
 
-    print(f"\n[Partition Classification]")
-    print(f"  - Active Partitions (mod < 10m)    : {len(active_files)}")
-    print(f"  - Finalized Partitions (closed)    : {len(finalized_files)}")
-    print(f"  - Zero-Byte Empty Files            : {len(zero_byte_files)}")
-
-    # Sample check 50 finalized files for malformed lines
-    sample_finalized = finalized_files[:50]
-    for ff in sample_finalized:
-        with ff.open("r", encoding="utf-8") as h:
-            for idx, line in enumerate(h):
-                line_str = line.strip()
-                if not line_str:
+def _quarantine_summary(paths: Iterable[Path]) -> Dict[str, Any]:
+    total = 0
+    reasons: Dict[str, int] = {}
+    malformed = 0
+    for path in paths:
+        with path.open("r", encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
                     continue
+                total += 1
                 try:
-                    json.loads(line_str)
-                    total_valid_records += 1
-                except Exception:
-                    malformed_lines += 1
+                    payload = json.loads(line)
+                    reason = payload.get("error_reason", "unknown") if isinstance(payload, dict) else "invalid-schema"
+                    reasons[str(reason)] = reasons.get(str(reason), 0) + 1
+                except (UnicodeError, json.JSONDecodeError):
+                    malformed += 1
+    return {"records": total, "reasons": reasons, "malformed": malformed}
 
-    print(f"\n[JSONL Line-by-Line Integrity Sampling]")
-    print(f"  - Sampled Finalized Partitions Checked : {len(sample_finalized)}")
-    print(f"  - Valid Parsed Records in Sample       : {total_valid_records:,}")
-    print(f"  - Malformed / Truncated Lines Found    : {malformed_lines}")
 
-    print("\n" + "=" * 80)
+def main() -> None:
+    inputs = discover_inputs(RAW_DIR, COMPRESSED_DIR)
+    quarantine = list(QUARANTINE_DIR.glob("**/*.jsonl")) if QUARANTINE_DIR.exists() else []
+    report = {
+        "scan": "FULL_SCAN_ALL_DISCOVERED_RAW_AND_ZSTD_PARTITIONS",
+        "integrity": full_scan(inputs),
+        "quarantine": _quarantine_summary(quarantine),
+    }
+    print(json.dumps(report, indent=2, sort_keys=True))
+    if report["integrity"]["totals"]["status"] != "PASS":
+        raise SystemExit("FULL-SCAN integrity failed")
 
 
 if __name__ == "__main__":

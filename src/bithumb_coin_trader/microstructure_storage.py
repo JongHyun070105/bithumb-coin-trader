@@ -26,7 +26,7 @@ MANIFESTS_BASE_DIR = ROOT / "data" / "microstructure" / "manifests"
 logger = logging.getLogger("bithumb_coin_trader.microstructure_storage")
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True)
 class PartitionManifest:
     partition_path: str
     exchange: str

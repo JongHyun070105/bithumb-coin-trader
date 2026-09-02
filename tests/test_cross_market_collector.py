@@ -158,6 +158,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 enable_upbit=False,
             )
             collector.metrics["bithumb"].writer_errors = 2
+            active_partition = collector.storage.base_dir / "2026-09-02" / "bithumb" / "trade" / "active.jsonl"
+            collector._active_partition_files.add(active_partition)
             collector._persist_metrics()
             payload = json.loads(collector._metrics_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["exchanges"]["bithumb"]["writer_errors"], 2)
@@ -166,6 +168,10 @@ class CrossMarketCollectorTests(unittest.TestCase):
             self.assertEqual(payload["collector_run_id"], collector._collector_run_id)
             self.assertFalse(payload["writer_fail_closed"])
             self.assertEqual(payload["unpersisted_event_count"], 0)
+            self.assertEqual(
+                payload["active_partition_files"],
+                ["2026-09-02/bithumb/trade/active.jsonl"],
+            )
             self.assertFalse(collector._metrics_path.with_suffix(".json.tmp").exists())
 
     def test_throughput_rate_uses_collector_uptime_not_connection_uptime(self) -> None:
