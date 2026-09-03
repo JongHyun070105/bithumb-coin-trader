@@ -14,7 +14,7 @@ alpha research, paper trading, or live trading was started.
 
 ## Why c965 was blocked and b79 was required
 
-The c965 Amazon Linux preflight completed only 51/52 targeted tests. The
+The c965 Amazon Linux preflight completed only 52/53 targeted tests. The
 writer-failure shutdown regression failed three isolated runs at approximately
 2.01 seconds because teardown waited for the metrics worker's five-second
 sleep. Runtime candidate `b79a093ff49e8cce13c80bf806da0777a79969bb`
@@ -87,7 +87,8 @@ independently above. No application source from the later commit is overlaid.
 
 ## Guest validation
 
-- Mandatory targeted subset: 52/52 pass
+- Mandatory targeted subset: 53/53 pass. The directive's 52/52 shorthand
+  understated the actual discovered count; every required test passed.
   - runtime config: 3/3
   - cross-market collector: 11/11
   - offline manifests: 4/4

@@ -80,14 +80,15 @@ copied or deleted.
 
 ## Targeted test failure
 
-Guest targeted results before stopping:
+Guest targeted results before stopping (the five discovered files contained
+53 tests; the earlier 51/52 shorthand was an arithmetic error):
 
 - `test_short_smoke_runtime_config.py`: 3/3 pass
 - `test_cross_market_collector.py`: 10/11 pass, 1 error
 - `test_offline_manifests.py`: 4/4 pass
 - `test_collector_metrics_publisher.py`: 11/11 pass
 - `test_pre_soak_archive.py`: 24/24 pass
-- Total: 51/52 pass
+- Total: 52/53 pass
 
 Failing test:
 `test_writer_failure_cancels_producer_blocked_on_full_queue`.
