@@ -1,0 +1,134 @@
+from __future__ import annotations
+
+import asyncio
+import unittest
+
+from bithumb_coin_trader.binance_diagnostic import (
+    BINANCE_HOST,
+    BINANCE_PORT,
+    BINANCE_SYMBOLS,
+    collect_proxy_metadata,
+    run_diagnostic,
+    sanitize_detail,
+)
+
+
+class BinanceDiagnosticTests(unittest.TestCase):
+    def test_proxy_metadata_never_exposes_credentials_or_raw_urls(self) -> None:
+        metadata = collect_proxy_metadata(
+            {
+                "HTTPS_PROXY": "http://alice:top-secret@proxy.example:8443",
+                "WSS_PROXY": "socks5h://bob:another-secret@socks.example:1080",
+                "NO_PROXY": "localhost,169.254.169.254",
+                "AWS_SESSION_TOKEN": "must-not-appear",
+            },
+            system_proxies={"https": "http://carol:hidden@system.example:3128"},
+        )
+
+        rendered = repr(metadata)
+        self.assertNotIn("alice", rendered)
+        self.assertNotIn("top-secret", rendered)
+        self.assertNotIn("bob", rendered)
+        self.assertNotIn("another-secret", rendered)
+        self.assertNotIn("carol", rendered)
+        self.assertNotIn("hidden", rendered)
+        self.assertNotIn("must-not-appear", rendered)
+        self.assertEqual(
+            metadata["environment"]["HTTPS_PROXY"],
+            {"present": True, "scheme": "http", "host": "proxy.example", "port": 8443},
+        )
+        self.assertEqual(metadata["environment"]["NO_PROXY"], {"present": True})
+        self.assertEqual(
+            metadata["getproxies"]["https"],
+            {"present": True, "scheme": "http", "host": "system.example", "port": 3128},
+        )
+
+    def test_exception_detail_redacts_url_userinfo(self) -> None:
+        detail = sanitize_detail("proxy refused https://name:password@proxy.example:443/path")
+        self.assertEqual(detail, "proxy refused https://[REDACTED]@proxy.example:443/path")
+
+    def test_staged_report_preserves_address_families_and_exact_failure_stage(self) -> None:
+        async def exercise() -> dict[str, object]:
+            def resolver(host: str, port: int) -> list[dict[str, object]]:
+                self.assertEqual((host, port), (BINANCE_HOST, BINANCE_PORT))
+                return [
+                    {"family": "IPv4", "address": "192.0.2.10", "sockaddr": ("192.0.2.10", port)},
+                    {"family": "IPv6", "address": "2001:db8::10", "sockaddr": ("2001:db8::10", port, 0, 0)},
+                ]
+
+            async def transport(candidate: dict[str, object], timeout: float) -> dict[str, object]:
+                if candidate["family"] == "IPv6":
+                    return {
+                        "family": "IPv6",
+                        "address": "2001:db8::10",
+                        "tcp": {"status": "FAIL", "elapsed_ms": 7.0, "exception_class": "OSError", "exception_message": "no route"},
+                        "tls": {"status": "NOT_RUN"},
+                    }
+                return {
+                    "family": "IPv4",
+                    "address": "192.0.2.10",
+                    "tcp": {"status": "PASS", "elapsed_ms": 4.0},
+                    "tls": {"status": "PASS", "elapsed_ms": 6.0},
+                }
+
+            async def websocket(uri: str, proxy_mode: str, timeout: float) -> dict[str, object]:
+                return {
+                    "status": "PASS",
+                    "elapsed_ms": 8.0,
+                    "selected_address_family": "IPv4",
+                    "peer_address": "192.0.2.10",
+                }
+
+            return await run_diagnostic(
+                timeout=10.0,
+                resolver=resolver,
+                transport_probe=transport,
+                websocket_probe=websocket,
+                environ={},
+                system_proxies={},
+            )
+
+        report = asyncio.run(exercise())
+        self.assertEqual([item["family"] for item in report["dns"]["candidates"]], ["IPv4", "IPv6"])
+        self.assertEqual(report["transport"][1]["tcp"]["status"], "FAIL")
+        self.assertEqual(report["transport"][1]["tls"]["status"], "NOT_RUN")
+
+    def test_four_symbols_run_in_auto_and_direct_modes_plus_combined_endpoint(self) -> None:
+        calls: list[tuple[str, str]] = []
+
+        async def exercise() -> dict[str, object]:
+            async def transport(candidate: dict[str, object], timeout: float) -> dict[str, object]:
+                return {
+                    "family": candidate["family"],
+                    "address": candidate["address"],
+                    "tcp": {"status": "PASS", "elapsed_ms": 1.0},
+                    "tls": {"status": "PASS", "elapsed_ms": 1.0},
+                }
+
+            async def websocket(uri: str, proxy_mode: str, timeout: float) -> dict[str, object]:
+                calls.append((uri, proxy_mode))
+                return {"status": "PASS", "elapsed_ms": 1.0, "selected_address_family": "IPv4"}
+
+            return await run_diagnostic(
+                timeout=10.0,
+                resolver=lambda host, port: [
+                    {"family": "IPv4", "address": "192.0.2.1", "sockaddr": ("192.0.2.1", port)}
+                ],
+                transport_probe=transport,
+                websocket_probe=websocket,
+                environ={},
+                system_proxies={},
+            )
+
+        report = asyncio.run(exercise())
+        self.assertEqual(BINANCE_SYMBOLS, ("btcusdt", "ethusdt", "solusdt", "xrpusdt"))
+        self.assertEqual(len(report["websocket_attempts"]), 10)
+        self.assertEqual({mode for _, mode in calls}, {"auto", "direct"})
+        for symbol in BINANCE_SYMBOLS:
+            self.assertEqual(sum(f"/ws/{symbol}@trade" in uri for uri, _ in calls), 2)
+        self.assertEqual(sum("/stream?streams=" in uri for uri, _ in calls), 2)
+        self.assertTrue(report["all_symbol_handshakes_passed"])
+
+
+if __name__ == "__main__":
+    unittest.main()
