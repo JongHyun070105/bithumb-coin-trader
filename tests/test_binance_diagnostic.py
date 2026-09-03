@@ -160,6 +160,36 @@ class BinanceDiagnosticTests(unittest.TestCase):
         self.assertTrue(all(uri.startswith("wss://stream.binance.com:443/") for uri in websocket_uris))
         self.assertIn("websockets_version", report)
 
+    def test_binance_port_single_source_of_truth_aligns_production_diagnostic_and_cli(self) -> None:
+        from urllib.parse import urlsplit
+        from bithumb_coin_trader.cross_market_collector import BINANCE_WS_URL
+        from scripts import diagnose_binance_websocket as diag_cli
+
+        production_port = urlsplit(BINANCE_WS_URL).port or 443
+        self.assertEqual(production_port, 443)
+        self.assertEqual(BINANCE_PORT, production_port)
+
+        parser = diag_cli.build_parser()
+        args = parser.parse_args([])
+        self.assertEqual(args.port, production_port)
+        self.assertEqual(parser.get_default("port"), production_port)
+
+    def test_diagnose_cli_defaults_to_production_port_without_override(self) -> None:
+        from unittest.mock import AsyncMock, patch
+        from scripts import diagnose_binance_websocket as diag_cli
+
+        dummy_report = {
+            "all_symbol_handshakes_passed": True,
+            "production_combined_passed": True,
+        }
+        with patch("scripts.diagnose_binance_websocket.run_diagnostic", new_callable=AsyncMock) as mock_run:
+            mock_run.return_value = dummy_report
+            with patch("sys.stdout"):
+                exit_code = diag_cli.main([])
+            self.assertEqual(exit_code, 0)
+            mock_run.assert_awaited_once_with(timeout=10.0, port=BINANCE_PORT)
+
 
 if __name__ == "__main__":
     unittest.main()
+

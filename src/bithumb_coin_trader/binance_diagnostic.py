@@ -20,6 +20,7 @@ from .cross_market_collector import BINANCE_WS_URL
 _PRODUCTION_ENDPOINT = urlsplit(BINANCE_WS_URL)
 BINANCE_HOST = _PRODUCTION_ENDPOINT.hostname or ""
 BINANCE_PORT = _PRODUCTION_ENDPOINT.port or 443
+OFFICIAL_BINANCE_PORTS = (443, 9443)
 BINANCE_SYMBOLS = ("btcusdt", "ethusdt", "solusdt", "xrpusdt")
 _PROXY_VARIABLES = (
     "WSS_PROXY",
@@ -218,7 +219,7 @@ async def run_diagnostic(
 ) -> dict[str, object]:
     if timeout <= 0 or timeout > 30:
         raise ValueError("timeout must be greater than zero and at most 30 seconds")
-    if port not in {443, 9443}:
+    if port not in OFFICIAL_BINANCE_PORTS:
         raise ValueError("port must be an official Binance stream port: 443 or 9443")
     started_at = time.time()
     try:

@@ -8,13 +8,22 @@ import asyncio
 import json
 from typing import Sequence
 
-from bithumb_coin_trader.binance_diagnostic import run_diagnostic
+from bithumb_coin_trader.binance_diagnostic import (
+    BINANCE_PORT,
+    OFFICIAL_BINANCE_PORTS,
+    run_diagnostic,
+)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--port", type=int, choices=OFFICIAL_BINANCE_PORTS, default=BINANCE_PORT)
+    return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--port", type=int, choices=(443, 9443), default=9443)
+    parser = build_parser()
     args = parser.parse_args(argv)
     report = asyncio.run(run_diagnostic(timeout=args.timeout, port=args.port))
     print(json.dumps(report, indent=2, sort_keys=True))
