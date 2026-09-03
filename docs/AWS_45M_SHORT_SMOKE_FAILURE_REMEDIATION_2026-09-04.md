@@ -104,9 +104,10 @@ Failed epoch and run ID are preserved for evidence and never reused.
 ### New Candidate Provenance:
 - **Runtime Code Commit:** `5013728aacffcdc1b6faa84c19d8144287e25cde`
 - **Runtime Seal File:** `infra/aws/seals/aws-short-smoke-20260904.runtime.json`
-- **Config Fingerprint:** `c9ed3b2fecce2c4a54497269f9ee7a54ca8f94b81a5ae40ba4592a66abdc4211`
+- **Execution Launch Mode:** `bounded-transient-systemd`
+- **Config Fingerprint:** `48e5996f86567dfa41ed515de0e96fdb3230001fbc0ac2e0eb5453dad81422a0` (recomputed after launch-mode correction; pre-review candidate `c9ed3b2f...` obsolete, never applied)
 - **New Epoch:** `aws-short-smoke-20260904-f5257d24`
-- **New Run ID:** `aws-short-smoke-run-20260904T005600Z-f5257d24`
+- **New Run ID:** `aws-short-smoke-run-20260903T160337Z-f5257d24` (authoritative UTC-validated via `date -u`; pre-review `...005600Z...` obsolete due to KST/Z mismatch)
 
 ---
 

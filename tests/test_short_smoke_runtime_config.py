@@ -56,6 +56,16 @@ class ShortSmokeRuntimeConfigTests(unittest.TestCase):
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
 
+    def test_sealed_20260904_runtime_config_loads_with_canonical_fingerprint_and_transient_mode(self) -> None:
+        seal_path = Path(__file__).resolve().parents[1] / "infra" / "aws" / "seals" / "aws-short-smoke-20260904.runtime.json"
+        payload = json.loads(seal_path.read_text(encoding="utf-8"))
+        fingerprint = MODULE.canonical_config_fingerprint(payload)
+        self.assertEqual(fingerprint, "48e5996f86567dfa41ed515de0e96fdb3230001fbc0ac2e0eb5453dad81422a0")
+        loaded = MODULE._load_runtime_config(seal_path, fingerprint)
+        self.assertEqual(loaded["execution"]["launch_mode"], "bounded-transient-systemd")
+        self.assertFalse(loaded["execution"]["systemd_enable"])
+        self.assertFalse(loaded["execution"]["collector_autostart"])
+
 
 if __name__ == "__main__":
     unittest.main()

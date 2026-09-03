@@ -80,7 +80,7 @@
     "critical": 90
   },
   "execution": {
-    "launch_mode": "bounded-operator-ssm",
+    "launch_mode": "bounded-transient-systemd",
     "collector_autostart": false,
     "systemd_enable": false,
     "cross_utc_hour_required": true
