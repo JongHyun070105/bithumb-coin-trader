@@ -55,6 +55,7 @@ class TransientLaunchConfig:
     supervisor_command: tuple[str, ...]
     supervisor_duration_seconds: int = 2700
     hard_ceiling_seconds: int = 2760
+    pythonpath: str = "src"
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
@@ -74,6 +75,7 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         "--collect",
         "--service-type=exec",
         "--uid=bitcoin-trader",
+        f"--setenv=PYTHONPATH={config.pythonpath}",
         "--property=Restart=no",
         "--property=KillMode=mixed",
         f"--property=RuntimeMaxSec={config.hard_ceiling_seconds}s",

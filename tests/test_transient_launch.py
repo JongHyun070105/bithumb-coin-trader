@@ -22,6 +22,7 @@ class TransientLaunchTests(unittest.TestCase):
         self.assertIn("--no-block", command)
         self.assertIn("--collect", command)
         self.assertIn("--uid=bitcoin-trader", command)
+        self.assertIn("--setenv=PYTHONPATH=src", command)
         self.assertIn("--property=Restart=no", command)
         self.assertIn("--property=KillMode=mixed", command)
         self.assertIn("--property=RuntimeMaxSec=2760s", command)
