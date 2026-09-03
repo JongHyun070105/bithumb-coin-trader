@@ -544,7 +544,12 @@ class MultiExchangeMicrostructureCollector:
                 self._discard_unpersisted_queue()
             writer_task.cancel()
             await asyncio.gather(writer_task, return_exceptions=True)
-            await metrics_task
+            metrics_task.cancel()
+            await asyncio.gather(metrics_task, return_exceptions=True)
+            try:
+                self._persist_metrics()
+            except OSError as error:
+                logger.error("Failed to persist final collector metrics: %s", error)
         if self._fatal_writer_error is not None:
             raise RuntimeError(
                 "Collector stopped after writer failure; "
