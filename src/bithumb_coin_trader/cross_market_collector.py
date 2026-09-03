@@ -30,12 +30,20 @@ from .microstructure_storage import RawMicrostructureStorage
 logger = logging.getLogger("bithumb_coin_trader.cross_market_collector")
 
 BITHUMB_WS_URL = "wss://ws-api.bithumb.com/websocket/v1"
-BINANCE_WS_URL = "wss://stream.binance.com:9443/ws"
+BINANCE_WS_URL = "wss://stream.binance.com:443/ws"
 UPBIT_WS_URL = "wss://api.upbit.com/websocket/v1"
 
 SEALED_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 LOWER_HEX_64 = re.compile(r"^[0-9a-f]{64}$")
 LOWER_HEX_40 = re.compile(r"^[0-9a-f]{40}$")
+
+
+def build_binance_combined_url(symbols: Sequence[str]) -> str:
+    normalized = [symbol.lower() for symbol in symbols]
+    streams = [f"{symbol}@trade" for symbol in normalized] + [
+        f"{symbol}@depth20@100ms" for symbol in normalized
+    ]
+    return f"{BINANCE_WS_URL.rsplit('/ws', 1)[0]}/stream?streams={'/'.join(streams)}"
 
 
 def parse_binance_message(message: bytes | str) -> tuple[str, str, dict[str, Any], datetime | None]:
@@ -400,8 +408,7 @@ class MultiExchangeMicrostructureCollector:
             return
 
         backoff = 1.0
-        streams = [f"{s}@trade" for s in self.binance_symbols] + [f"{s}@depth20@100ms" for s in self.binance_symbols]
-        combined_url = f"{BINANCE_WS_URL.rsplit('/ws', 1)[0]}/stream?streams={'/'.join(streams)}"
+        combined_url = build_binance_combined_url(self.binance_symbols)
 
         while self.is_running:
             try:

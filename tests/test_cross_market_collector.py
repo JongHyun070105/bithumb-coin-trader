@@ -12,12 +12,20 @@ from unittest.mock import patch
 
 from bithumb_coin_trader.cross_market_collector import (
     MultiExchangeMicrostructureCollector,
+    build_binance_combined_url,
     parse_binance_message,
 )
 from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
 
 
 class CrossMarketCollectorTests(unittest.TestCase):
+    def test_binance_combined_stream_uses_official_443_endpoint(self) -> None:
+        self.assertEqual(
+            build_binance_combined_url(["btcusdt", "ethusdt"]),
+            "wss://stream.binance.com:443/stream?streams="
+            "btcusdt@trade/ethusdt@trade/btcusdt@depth20@100ms/ethusdt@depth20@100ms",
+        )
+
     @staticmethod
     def _write_one(
         collector: MultiExchangeMicrostructureCollector,
