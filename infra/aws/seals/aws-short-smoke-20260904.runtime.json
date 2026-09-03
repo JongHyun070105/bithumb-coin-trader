@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "runtime_software_commit": "5013728aacffcdc1b6faa84c19d8144287e25cde",
+  "environment_id": "aws-apne2-research",
+  "region": "ap-northeast-2",
+  "availability_zone": "ap-northeast-2a",
+  "instance_type": "t3.medium",
+  "architecture": "x86_64",
+  "raw_schema_version": 4,
+  "clock_source": "Amazon Time Sync Service 169.254.169.123",
+  "public_data_only": true,
+  "private_api_enabled": false,
+  "duration_seconds": 2700,
+  "feeds": {
+    "bithumb_market_count": 20,
+    "bithumb_markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-XRP",
+      "KRW-SOL",
+      "KRW-DOGE",
+      "KRW-ADA",
+      "KRW-XLM",
+      "KRW-LINK",
+      "KRW-AVAX",
+      "KRW-BCH",
+      "KRW-ETC",
+      "KRW-NEAR",
+      "KRW-SUI",
+      "KRW-APT",
+      "KRW-TRX",
+      "KRW-SHIB",
+      "KRW-SAND",
+      "KRW-MANA",
+      "KRW-AXS",
+      "KRW-DOT"
+    ],
+    "binance_symbols": [
+      "btcusdt",
+      "ethusdt",
+      "solusdt",
+      "xrpusdt"
+    ],
+    "upbit_markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-SOL",
+      "KRW-XRP"
+    ]
+  },
+  "paths": {
+    "raw_root_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/raw",
+    "manifest_root_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/manifests",
+    "compressed_root_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/compressed",
+    "receipt_root_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/archive-receipts",
+    "metrics_path_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/collector_metrics.json",
+    "publisher_state_path_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/metric-publisher-state.json",
+    "log_root_template": "/var/lib/bitcoin-trader/short-smoke/{collector_epoch}/logs"
+  },
+  "archive": {
+    "remote_class": "temporary",
+    "temporary_prefix_template": "market-data/temporary/{collector_epoch}",
+    "compression": {
+      "algorithm": "zstd",
+      "level": 1
+    },
+    "worker_concurrency": 1,
+    "grace_seconds": 600,
+    "cleanup_enabled": false
+  },
+  "metrics": {
+    "namespace": "BitcoinTrader/Collector",
+    "environment_dimension": "aws-apne2-research",
+    "publish_cadence_seconds": 60,
+    "false_green_protection": true
+  },
+  "disk_threshold_percent": {
+    "warning": 70,
+    "high": 80,
+    "critical": 90
+  },
+  "execution": {
+    "launch_mode": "bounded-operator-ssm",
+    "collector_autostart": false,
+    "systemd_enable": false,
+    "cross_utc_hour_required": true
+  }
+}
