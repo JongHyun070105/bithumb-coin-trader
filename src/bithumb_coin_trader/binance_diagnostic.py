@@ -17,8 +17,9 @@ import websockets
 from .cross_market_collector import BINANCE_WS_URL
 
 
-BINANCE_HOST = "stream.binance.com"
-BINANCE_PORT = 9443
+_PRODUCTION_ENDPOINT = urlsplit(BINANCE_WS_URL)
+BINANCE_HOST = _PRODUCTION_ENDPOINT.hostname or ""
+BINANCE_PORT = _PRODUCTION_ENDPOINT.port or 443
 BINANCE_SYMBOLS = ("btcusdt", "ethusdt", "solusdt", "xrpusdt")
 _PROXY_VARIABLES = (
     "WSS_PROXY",
@@ -208,6 +209,7 @@ async def probe_websocket(uri: str, proxy_mode: str, timeout: float) -> dict[str
 async def run_diagnostic(
     *,
     timeout: float = 10.0,
+    port: int = BINANCE_PORT,
     resolver: Callable[[str, int], list[dict[str, object]]] = resolve_addresses,
     transport_probe: Callable[[Mapping[str, object], float], Awaitable[dict[str, object]]] = probe_tcp_tls,
     websocket_probe: Callable[[str, str, float], Awaitable[dict[str, object]]] = probe_websocket,
@@ -216,9 +218,11 @@ async def run_diagnostic(
 ) -> dict[str, object]:
     if timeout <= 0 or timeout > 30:
         raise ValueError("timeout must be greater than zero and at most 30 seconds")
+    if port not in {443, 9443}:
+        raise ValueError("port must be an official Binance stream port: 443 or 9443")
     started_at = time.time()
     try:
-        candidates = resolver(BINANCE_HOST, BINANCE_PORT)
+        candidates = resolver(BINANCE_HOST, port)
         dns: dict[str, object] = {"status": "PASS" if candidates else "FAIL", "candidates": candidates}
     except Exception as error:
         candidates = []
@@ -230,7 +234,7 @@ async def run_diagnostic(
         }
     transport = [await transport_probe(candidate, timeout) for candidate in candidates]
     attempts: list[dict[str, object]] = []
-    base = BINANCE_WS_URL.rsplit("/ws", 1)[0]
+    base = f"wss://{BINANCE_HOST}:{port}"
     symbol_uris = [(symbol, f"{base}/ws/{symbol}@trade") for symbol in BINANCE_SYMBOLS]
     combined_streams = "/".join(
         [f"{symbol}@trade" for symbol in BINANCE_SYMBOLS]
@@ -246,7 +250,8 @@ async def run_diagnostic(
     symbol_attempts = [attempt for attempt in attempts if attempt["kind"] == "symbol"]
     return {
         "schema_version": 1,
-        "target": {"host": BINANCE_HOST, "port": BINANCE_PORT},
+        "target": {"host": BINANCE_HOST, "port": port},
+        "websockets_version": websockets.__version__,
         "started_at_unix": started_at,
         "elapsed_ms": round((time.time() - started_at) * 1000.0, 3),
         "proxy": collect_proxy_metadata(environ, system_proxies=system_proxies),

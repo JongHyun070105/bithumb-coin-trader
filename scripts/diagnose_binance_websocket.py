@@ -14,8 +14,9 @@ from bithumb_coin_trader.binance_diagnostic import run_diagnostic
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--timeout", type=float, default=10.0)
+    parser.add_argument("--port", type=int, choices=(443, 9443), default=9443)
     args = parser.parse_args(argv)
-    report = asyncio.run(run_diagnostic(timeout=args.timeout))
+    report = asyncio.run(run_diagnostic(timeout=args.timeout, port=args.port))
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0 if report["all_symbol_handshakes_passed"] and report["production_combined_passed"] else 1
 

@@ -129,6 +129,37 @@ class BinanceDiagnosticTests(unittest.TestCase):
         self.assertEqual(sum("/stream?streams=" in uri for uri, _ in calls), 2)
         self.assertTrue(report["all_symbol_handshakes_passed"])
 
+    def test_official_port_443_override_applies_to_every_diagnostic_stage(self) -> None:
+        resolved: list[tuple[str, int]] = []
+        websocket_uris: list[str] = []
+
+        async def exercise() -> dict[str, object]:
+            def resolver(host: str, port: int) -> list[dict[str, object]]:
+                resolved.append((host, port))
+                return [{"family": "IPv4", "address": "192.0.2.1", "sockaddr": ("192.0.2.1", port)}]
+
+            async def transport(candidate: dict[str, object], timeout: float) -> dict[str, object]:
+                return {"family": "IPv4", "address": candidate["address"], "tcp": {"status": "PASS"}, "tls": {"status": "PASS"}}
+
+            async def websocket(uri: str, proxy_mode: str, timeout: float) -> dict[str, object]:
+                websocket_uris.append(uri)
+                return {"status": "PASS", "selected_address_family": "IPv4"}
+
+            return await run_diagnostic(
+                port=443,
+                resolver=resolver,
+                transport_probe=transport,
+                websocket_probe=websocket,
+                environ={},
+                system_proxies={},
+            )
+
+        report = asyncio.run(exercise())
+        self.assertEqual(resolved, [(BINANCE_HOST, 443)])
+        self.assertEqual(report["target"]["port"], 443)
+        self.assertTrue(all(uri.startswith("wss://stream.binance.com:443/") for uri in websocket_uris))
+        self.assertIn("websockets_version", report)
+
 
 if __name__ == "__main__":
     unittest.main()
