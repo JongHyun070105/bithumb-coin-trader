@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "runtime_software_commit": "c965fa08608cf33a81ce29994bdc97b7a6f2d66b",
+  "runtime_software_commit": "b79a093ff49e8cce13c80bf806da0777a79969bb",
   "environment_id": "aws-apne2-research",
   "region": "ap-northeast-2",
   "availability_zone": "ap-northeast-2a",
