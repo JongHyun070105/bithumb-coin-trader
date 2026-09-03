@@ -20,7 +20,7 @@ from pathlib import Path
 import random
 import re
 import time
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence
 import uuid
 
 import websockets
@@ -123,6 +123,7 @@ class MultiExchangeMicrostructureCollector:
         collector_run_id: str | None = None,
         collector_config_fingerprint: str = "NOT-SEALED",
         collector_git_commit: str = "HEAD",
+        utc_now: Callable[[], datetime] | None = None,
     ) -> None:
         run_id = collector_run_id or uuid.uuid4().hex
         if not SEALED_IDENTIFIER.fullmatch(environment_id):
@@ -147,6 +148,7 @@ class MultiExchangeMicrostructureCollector:
         self.collector_epoch = collector_epoch
         self.collector_config_fingerprint = collector_config_fingerprint
         self.collector_git_commit = collector_git_commit
+        self._utc_now = utc_now or (lambda: datetime.now(timezone.utc))
         self.is_running = False
 
         self.metrics: dict[str, CollectorMetrics] = {
@@ -158,10 +160,12 @@ class MultiExchangeMicrostructureCollector:
         self._write_queue: asyncio.Queue[
             tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str]
         ] = asyncio.Queue(maxsize=50_000)
-        self._active_partition_files: set[Path] = set()
+        self._latest_partition_by_feed: dict[tuple[str, str, str], tuple[Path, str]] = {}
+        self._all_touched_partition_files: set[Path] = set()
+        self._accepting_partition_writes = False
         self._metrics_path = self.storage.base_dir.parent / "collector_metrics.json"
         self._collector_run_id = run_id
-        self._collector_started_at = datetime.now(timezone.utc).isoformat()
+        self._collector_started_at = self._utc_now().isoformat()
         self._fatal_writer_error: Exception | None = None
         self._fatal_writer_event = asyncio.Event()
         self._unpersisted_event_count = 0
@@ -205,7 +209,7 @@ class MultiExchangeMicrostructureCollector:
             "collector_git_commit": self.collector_git_commit,
             "collector_started_at": self._collector_started_at,
             "process_id": os.getpid(),
-            "written_at": datetime.now(timezone.utc).isoformat(),
+            "written_at": self._utc_now().isoformat(),
             "queue_size": self._write_queue.qsize(),
             "queue_maxsize": self._write_queue.maxsize,
             "writer_fail_closed": self._fatal_writer_error is not None,
@@ -215,7 +219,7 @@ class MultiExchangeMicrostructureCollector:
             "unpersisted_event_count": self._unpersisted_event_count,
             "active_partition_files": sorted(
                 str(path.resolve().relative_to(self.storage.base_dir.resolve()))
-                for path in self._active_partition_files
+                for path in self._current_active_partition_files()
                 if self.storage.base_dir.resolve() in path.resolve().parents
             ),
             "exchanges": {name: metric.to_dict() for name, metric in self.metrics.items()},
@@ -262,6 +266,7 @@ class MultiExchangeMicrostructureCollector:
                     recv_monotonic_ns,
                     collector_run_id,
                 ) = item
+                write_ts = self._utc_now()
                 part_file = self.storage.append_raw_record(
                     exchange,
                     stream,
@@ -271,8 +276,12 @@ class MultiExchangeMicrostructureCollector:
                     exch_ts,
                     recv_monotonic_ns,
                     collector_run_id,
+                    write_ts=write_ts,
                 )
-                self._active_partition_files.add(part_file)
+                feed_key = (exchange.lower(), stream.lower(), market.lower())
+                hour_key = write_ts.astimezone(timezone.utc).strftime("%Y-%m-%d/%H")
+                self._latest_partition_by_feed[feed_key] = (part_file, hour_key)
+                self._all_touched_partition_files.add(part_file)
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
@@ -297,6 +306,17 @@ class MultiExchangeMicrostructureCollector:
                 return
             self._unpersisted_event_count += 1
             self._write_queue.task_done()
+
+    def _current_active_partition_files(self) -> set[Path]:
+        """Return current-hour paths that could receive another queued append."""
+        if not self._accepting_partition_writes:
+            return set()
+        current_hour = self._utc_now().astimezone(timezone.utc).strftime("%Y-%m-%d/%H")
+        return {
+            path
+            for path, hour_key in self._latest_partition_by_feed.values()
+            if hour_key == current_hour
+        }
 
     # -------------------------------------------------------------------------
     # Bithumb WebSocket Loop
@@ -331,7 +351,7 @@ class MultiExchangeMicrostructureCollector:
                             m.reconnect_count += 1
                             break
 
-                        recv_ts = datetime.now(timezone.utc)
+                        recv_ts = self._utc_now()
                         recv_monotonic_ns = time.monotonic_ns()
                         raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
                         m.total_messages_received += 1
@@ -400,7 +420,7 @@ class MultiExchangeMicrostructureCollector:
                             m.reconnect_count += 1
                             break
 
-                        recv_ts = datetime.now(timezone.utc)
+                        recv_ts = self._utc_now()
                         recv_monotonic_ns = time.monotonic_ns()
                         raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
                         m.total_messages_received += 1
@@ -463,7 +483,7 @@ class MultiExchangeMicrostructureCollector:
                             m.reconnect_count += 1
                             break
 
-                        recv_ts = datetime.now(timezone.utc)
+                        recv_ts = self._utc_now()
                         recv_monotonic_ns = time.monotonic_ns()
                         raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
                         m.total_messages_received += 1
@@ -503,6 +523,7 @@ class MultiExchangeMicrostructureCollector:
 
     async def run_collector(self, max_duration_seconds: float | None = None) -> None:
         self.is_running = True
+        self._accepting_partition_writes = True
         writer_task = asyncio.create_task(self._writer_worker())
         metrics_task = asyncio.create_task(self._metrics_worker())
         tasks = [
@@ -542,6 +563,7 @@ class MultiExchangeMicrostructureCollector:
                 await self._write_queue.join()
             else:
                 self._discard_unpersisted_queue()
+            self._accepting_partition_writes = False
             writer_task.cancel()
             await asyncio.gather(writer_task, return_exceptions=True)
             metrics_task.cancel()
@@ -558,7 +580,7 @@ class MultiExchangeMicrostructureCollector:
 
     def generate_all_manifests(self) -> list[dict[str, Any]]:
         manifests = []
-        for p in list(self._active_partition_files):
+        for p in list(self._all_touched_partition_files):
             if p.exists() and p.stat().st_size > 0:
                 try:
                     mf = self.storage.generate_partition_manifest(p)

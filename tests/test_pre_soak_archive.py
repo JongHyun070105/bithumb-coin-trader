@@ -19,6 +19,7 @@ from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
     MemoryArchiveStore,
     RemoteObject,
+    is_closed_stable_partition,
     validate_archive_key,
 )
 
@@ -308,6 +309,32 @@ class ArchivePipelineTests(unittest.TestCase):
                 stability_wait_seconds=0,
             )
         self.assertTrue(self.raw.exists())
+
+    def test_rotated_previous_hour_is_eligible_while_current_active_is_excluded(self) -> None:
+        previous = self.raw_root / "2026-09-02" / "binance" / "trade" / "binance_trade_btcusdt_2026-09-02_09.jsonl"
+        current = previous.with_name("binance_trade_btcusdt_2026-09-02_10.jsonl")
+        previous.parent.mkdir(parents=True, exist_ok=True)
+        previous.write_text("{}\n", encoding="utf-8")
+        current.write_text("{}\n", encoding="utf-8")
+        now = datetime(2026, 9, 4, 11, 0, tzinfo=timezone.utc)
+        self.assertTrue(
+            is_closed_stable_partition(
+                previous,
+                self.raw_root,
+                now=now,
+                grace_period=__import__("datetime").timedelta(0),
+                active_paths=(current,),
+            )
+        )
+        self.assertFalse(
+            is_closed_stable_partition(
+                current,
+                self.raw_root,
+                now=now,
+                grace_period=__import__("datetime").timedelta(0),
+                active_paths=(current,),
+            )
+        )
 
     def test_current_hour_is_never_processed(self) -> None:
         current = self.raw.with_name("binance_trade_btcusdt_2026-09-02_12.jsonl")

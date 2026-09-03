@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -18,6 +18,23 @@ from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
 
 
 class CrossMarketCollectorTests(unittest.TestCase):
+    @staticmethod
+    def _write_one(
+        collector: MultiExchangeMicrostructureCollector,
+        exchange: str,
+        stream: str,
+        market: str,
+        timestamp: datetime,
+    ) -> None:
+        async def exercise() -> None:
+            collector.is_running = True
+            collector._accepting_partition_writes = True
+            await collector._enqueue(exchange, stream, market, {}, timestamp, timestamp, 1)
+            collector.is_running = False
+            await collector._writer_worker()
+
+        asyncio.run(exercise())
+
     def test_storage_persists_monotonic_receive_clock(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             storage = RawMicrostructureStorage(Path(tmp) / "raw")
@@ -151,15 +168,16 @@ class CrossMarketCollectorTests(unittest.TestCase):
 
     def test_metrics_snapshot_persists_operational_counters(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
+            now = datetime(2026, 9, 2, 9, 15, tzinfo=timezone.utc)
             collector = MultiExchangeMicrostructureCollector(
                 ["KRW-BTC"],
                 storage_base_dir=Path(tmp) / "raw",
                 enable_binance=False,
                 enable_upbit=False,
+                utc_now=lambda: now,
             )
             collector.metrics["bithumb"].writer_errors = 2
-            active_partition = collector.storage.base_dir / "2026-09-02" / "bithumb" / "trade" / "active.jsonl"
-            collector._active_partition_files.add(active_partition)
+            self._write_one(collector, "bithumb", "trade", "KRW-BTC", now)
             collector._persist_metrics()
             payload = json.loads(collector._metrics_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["exchanges"]["bithumb"]["writer_errors"], 2)
@@ -170,9 +188,67 @@ class CrossMarketCollectorTests(unittest.TestCase):
             self.assertEqual(payload["unpersisted_event_count"], 0)
             self.assertEqual(
                 payload["active_partition_files"],
-                ["2026-09-02/bithumb/trade/active.jsonl"],
+                ["2026-09-02/bithumb/trade/bithumb_trade_krw-btc_2026-09-02_09.jsonl"],
             )
             self.assertFalse(collector._metrics_path.with_suffix(".json.tmp").exists())
+
+    def test_active_partitions_rotate_for_multiple_feeds_and_idle_feeds(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            current = [datetime(2026, 9, 2, 9, 59, tzinfo=timezone.utc)]
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"],
+                binance_symbols=["btcusdt"],
+                storage_base_dir=Path(tmp) / "raw",
+                utc_now=lambda: current[0],
+            )
+            self._write_one(collector, "bithumb", "trade", "KRW-BTC", current[0])
+            self._write_one(collector, "binance", "trade", "BTCUSDT", current[0])
+            hour_nine = collector._current_active_partition_files()
+            self.assertEqual(len(hour_nine), 2)
+            self.assertTrue(all(path.name.endswith("_09.jsonl") for path in hour_nine))
+
+            current[0] += timedelta(minutes=2)
+            self.assertEqual(collector._current_active_partition_files(), set())
+            self._write_one(collector, "bithumb", "trade", "KRW-BTC", current[0])
+            hour_ten = collector._current_active_partition_files()
+            self.assertEqual(len(hour_ten), 1)
+            self.assertTrue(next(iter(hour_ten)).name.endswith("_10.jsonl"))
+            self.assertNotIn("binance", next(iter(hour_ten)).as_posix())
+            self.assertEqual(len(collector._all_touched_partition_files), 3)
+
+    def test_shutdown_drain_persists_empty_active_set_and_keeps_all_manifests(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            now = datetime(2026, 9, 2, 9, 20, tzinfo=timezone.utc)
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"],
+                storage_base_dir=Path(tmp) / "raw",
+                enable_binance=False,
+                enable_upbit=False,
+                utc_now=lambda: now,
+            )
+
+            async def one_event_then_wait() -> None:
+                await collector._enqueue("bithumb", "trade", "KRW-BTC", {}, now, now, 1)
+                while collector.is_running:
+                    await asyncio.sleep(0)
+
+            async def idle() -> None:
+                while collector.is_running:
+                    await asyncio.sleep(0)
+
+            async def exercise() -> None:
+                with (
+                    patch.object(collector, "_bithumb_loop", side_effect=one_event_then_wait),
+                    patch.object(collector, "_binance_loop", side_effect=idle),
+                    patch.object(collector, "_upbit_loop", side_effect=idle),
+                ):
+                    await collector.run_collector(max_duration_seconds=0.01)
+
+            asyncio.run(exercise())
+            payload = json.loads(collector._metrics_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["active_partition_files"], [])
+            self.assertEqual(collector._current_active_partition_files(), set())
+            self.assertEqual(len(collector.generate_all_manifests()), 1)
 
     def test_explicit_short_smoke_provenance_is_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

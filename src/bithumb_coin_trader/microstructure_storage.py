@@ -117,8 +117,13 @@ class RawMicrostructureStorage:
         exchange_ts: datetime | None = None,
         local_receive_monotonic_ns: int | None = None,
         collector_run_id: str | None = None,
+        *,
+        write_ts: datetime | None = None,
     ) -> Path:
-        now_write = datetime.now(timezone.utc)
+        now_write = write_ts or datetime.now(timezone.utc)
+        if now_write.tzinfo is None or now_write.utcoffset() is None:
+            raise ValueError("write_ts must be timezone-aware")
+        now_write = now_write.astimezone(timezone.utc)
         record = {
             "exchange": exchange,
             "stream": stream,
