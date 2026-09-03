@@ -7,8 +7,10 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from pathlib import Path
 import sys
+from datetime import datetime, timezone
 
 from bithumb_coin_trader.cross_market_collector import MultiExchangeMicrostructureCollector
 from bithumb_coin_trader.dynamic_universe import TOP_UNIVERSE_CANDIDATES
@@ -51,12 +53,77 @@ async def _run(args: argparse.Namespace) -> None:
         collector_git_commit=args.runtime_commit,
     )
 
+    collector_error: BaseException | None = None
     try:
         await collector.run_collector(max_duration_seconds=args.duration)
+    except BaseException as error:
+        collector_error = error
+        raise
     finally:
         print("Flushing final manifests...")
-        mfs = collector.generate_all_manifests()
-        print(f"Generated {len(mfs)} partition manifests.")
+        manifests: list[dict[str, object]] = []
+        flush_observed = False
+        flush_error: BaseException | None = None
+        try:
+            manifests = collector.generate_all_manifests()
+            flush_observed = True
+            print(f"Generated {len(manifests)} partition manifests.")
+        except BaseException as error:
+            flush_error = error
+            raise
+        finally:
+            if args.lifecycle_status_path is not None:
+                _write_lifecycle_status(
+                    args.lifecycle_status_path,
+                    run_id=args.run_id,
+                    final_manifest_flush_observed=flush_observed,
+                    manifest_count=len(manifests),
+                    error_type=(
+                        type(flush_error).__name__
+                        if flush_error is not None
+                        else type(collector_error).__name__ if collector_error is not None else None
+                    ),
+                )
+
+
+def _write_lifecycle_status(
+    path: Path,
+    *,
+    run_id: str,
+    final_manifest_flush_observed: bool,
+    manifest_count: int,
+    error_type: str | None,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 1,
+        "collector_run_id": run_id,
+        "written_at": datetime.now(timezone.utc).isoformat(),
+        "process_id": os.getpid(),
+        "final_manifest_flush_observed": final_manifest_flush_observed,
+        "manifest_count": manifest_count,
+        "error_type": error_type,
+    }
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    descriptor = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        directory = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except Exception:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def canonical_config_fingerprint(payload: object) -> str:
@@ -182,6 +249,7 @@ def main() -> None:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--config-fingerprint", required=True)
     parser.add_argument("--runtime-commit", required=True)
+    parser.add_argument("--lifecycle-status-path", type=Path)
     args = parser.parse_args()
     try:
         asyncio.run(_run(args))

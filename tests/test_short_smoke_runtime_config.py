@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -37,6 +38,23 @@ class ShortSmokeRuntimeConfigTests(unittest.TestCase):
                 "epoch-a",
                 "raw_root_template",
             )
+
+    def test_lifecycle_status_is_atomic_private_and_run_scoped(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run" / "collector-lifecycle.json"
+            MODULE._write_lifecycle_status(
+                path,
+                run_id="aws-short-smoke-run-test",
+                final_manifest_flush_observed=True,
+                manifest_count=4,
+                error_type=None,
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["collector_run_id"], "aws-short-smoke-run-test")
+            self.assertTrue(payload["final_manifest_flush_observed"])
+            self.assertEqual(payload["manifest_count"], 4)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+            self.assertFalse(path.with_suffix(".json.tmp").exists())
 
 
 if __name__ == "__main__":
