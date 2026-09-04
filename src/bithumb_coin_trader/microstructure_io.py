@@ -85,19 +85,23 @@ def iter_jsonl_lines(
     chunk_size: int = 1024 * 1024,
     max_line_bytes: int = 16 * 1024 * 1024,
 ) -> Iterator[bytes]:
-    buffer = b""
+    remainder = b""
     for chunk in iter_logical_chunks(path, chunk_size=chunk_size):
-        buffer += chunk
-        while True:
-            marker = buffer.find(b"\n")
-            if marker < 0:
-                break
-            yield buffer[: marker + 1]
-            buffer = buffer[marker + 1 :]
-        if len(buffer) > max_line_bytes:
+        if remainder:
+            chunk = remainder + chunk
+            remainder = b""
+        lines = chunk.split(b"\n")
+        remainder = lines.pop()
+        if len(remainder) > max_line_bytes:
             raise ValueError("JSONL record exceeds the bounded line limit")
-    if buffer:
-        yield buffer
+        for line in lines:
+            if len(line) + 1 > max_line_bytes:
+                raise ValueError("JSONL record exceeds the bounded line limit")
+            yield line + b"\n"
+    if remainder:
+        if len(remainder) > max_line_bytes:
+            raise ValueError("JSONL record exceeds the bounded line limit")
+        yield remainder
 
 
 def scan_jsonl(

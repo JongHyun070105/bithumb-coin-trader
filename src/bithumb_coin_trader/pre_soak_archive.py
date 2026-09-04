@@ -41,6 +41,77 @@ class ArchiveState(str, Enum):
     FAILED = "FAILED"
 
 
+class OwnershipViolationError(RuntimeError):
+    """Raised when runtime artifact or lock file violates expected process ownership."""
+    pass
+
+
+def verify_runtime_ownership(
+    paths: Iterable[Path],
+    expected_owner: Optional[str] = None,
+) -> None:
+    """Fail-closed check that runtime files/directories match expected user ownership."""
+    try:
+        import pwd
+    except ImportError:
+        return
+
+    if expected_owner:
+        try:
+            expected_uid = pwd.getpwnam(expected_owner).pw_uid
+        except KeyError:
+            raise OwnershipViolationError(
+                f"Fail-closed ownership check: expected owner '{expected_owner}' does not exist on this host"
+            )
+    else:
+        expected_uid = os.getuid()
+
+    for item in paths:
+        path = Path(item)
+        if not path.exists():
+            continue
+        if path.is_symlink():
+            raise ValueError(f"symlink runtime path is not allowed: {path}")
+        try:
+            st = path.stat()
+        except OSError as exc:
+            raise OwnershipViolationError(f"Fail-closed ownership check failed on {path}: {exc}") from exc
+        if st.st_uid != expected_uid:
+            try:
+                owner_name = pwd.getpwuid(st.st_uid).pw_name
+            except KeyError:
+                owner_name = str(st.st_uid)
+            try:
+                expected_name = pwd.getpwuid(expected_uid).pw_name
+            except KeyError:
+                expected_name = str(expected_uid)
+            raise OwnershipViolationError(
+                f"Fail-closed ownership violation: {path} is owned by UID {st.st_uid} ({owner_name}), "
+                f"expected UID {expected_uid} ({expected_name})"
+            )
+        if path.is_dir():
+            for child in path.rglob("*"):
+                if child.is_symlink():
+                    raise ValueError(f"symlink runtime path is not allowed: {child}")
+                try:
+                    cst = child.stat()
+                except OSError as exc:
+                    raise OwnershipViolationError(f"Fail-closed ownership check failed on {child}: {exc}") from exc
+                if cst.st_uid != expected_uid:
+                    try:
+                        owner_name = pwd.getpwuid(cst.st_uid).pw_name
+                    except KeyError:
+                        owner_name = str(cst.st_uid)
+                    try:
+                        expected_name = pwd.getpwuid(expected_uid).pw_name
+                    except KeyError:
+                        expected_name = str(expected_uid)
+                    raise OwnershipViolationError(
+                        f"Fail-closed ownership violation: {child} is owned by UID {cst.st_uid} ({owner_name}), "
+                        f"expected UID {expected_uid} ({expected_name})"
+                    )
+
+
 @dataclass(frozen=True)
 class RemoteObject:
     key: str
@@ -348,6 +419,7 @@ class ArchivePipeline:
         remote_prefix: str,
         compression_level: int = 1,
         disk_critical_percent: float = 90.0,
+        expected_owner: Optional[str] = None,
     ) -> None:
         self.raw_root = raw_root.resolve()
         self.manifest_root = manifest_root.resolve()
@@ -365,6 +437,13 @@ class ArchivePipeline:
         if not 0 < disk_critical_percent < 100:
             raise ValueError("disk_critical_percent must be between 0 and 100")
         self.disk_critical_percent = float(disk_critical_percent)
+        self.expected_owner = expected_owner
+
+    def verify_storage_ownership(self) -> None:
+        verify_runtime_ownership(
+            (self.raw_root, self.manifest_root, self.compressed_root, self.receipt_root),
+            expected_owner=self.expected_owner,
+        )
 
     def receipt_path(self, raw_path: Path) -> Path:
         relative = self._relative_raw(raw_path)
@@ -395,7 +474,7 @@ class ArchivePipeline:
         receipt_path = self.receipt_path(raw_path)
         lock_path = receipt_path.with_suffix(receipt_path.suffix + ".lock")
         receipt_path.parent.mkdir(parents=True, exist_ok=True)
-        with _partition_lock(lock_path):
+        with _partition_lock(lock_path, expected_owner=self.expected_owner):
             existing = self._load_receipt(receipt_path)
             if existing is not None and existing.state == ArchiveState.CLEANED.value:
                 return existing
@@ -467,7 +546,7 @@ class ArchivePipeline:
         if raw_path.is_symlink():
             raise ValueError("raw partition symlinks are not allowed")
         receipt_path = self.receipt_path(raw_path.resolve())
-        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock")):
+        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock"), expected_owner=self.expected_owner):
             receipt = self._load_receipt(receipt_path)
             if receipt is None:
                 raise FileNotFoundError("archive receipt does not exist")
@@ -481,7 +560,7 @@ class ArchivePipeline:
             raise ValueError("raw partition symlinks are not allowed")
         raw_path = raw_path.resolve()
         receipt_path = self.receipt_path(raw_path)
-        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock")):
+        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock"), expected_owner=self.expected_owner):
             receipt = self._load_receipt(receipt_path)
             if receipt is None:
                 raise FileNotFoundError("archive receipt does not exist")
@@ -498,7 +577,7 @@ class ArchivePipeline:
             raise ValueError("raw partition symlinks are not allowed")
         raw_path = raw_path.resolve()
         receipt_path = self.receipt_path(raw_path)
-        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock")):
+        with _partition_lock(receipt_path.with_suffix(receipt_path.suffix + ".lock"), expected_owner=self.expected_owner):
             receipt = self._load_receipt(receipt_path)
             if receipt is None or not receipt.cleanup_eligible:
                 raise ValueError("partition is not cleanup eligible")
@@ -807,8 +886,10 @@ def _fsync_directory(path: Path) -> None:
 
 
 @contextmanager
-def _partition_lock(path: Path) -> Iterator[None]:
+def _partition_lock(path: Path, expected_owner: Optional[str] = None) -> Iterator[None]:
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        verify_runtime_ownership((path,), expected_owner=expected_owner)
     descriptor = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         try:
