@@ -55,7 +55,7 @@ variable "ami_id_override" {
 variable "ebs_size_gib" {
   description = "Encrypted gp3 hot-buffer root volume size for OS, app, active raw, and compression staging."
   type        = number
-  default     = 100
+  default     = 200
 
   validation {
     condition     = var.ebs_size_gib >= 80 && var.ebs_size_gib <= 500
