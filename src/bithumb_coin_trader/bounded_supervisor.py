@@ -28,6 +28,7 @@ class SupervisorConfig:
     result_path: Path
     log_path: Path
     publisher_command: tuple[str, ...] | None = None
+    archive_scheduler_command: tuple[str, ...] | None = None
     poll_interval_seconds: float = 0.2
     publisher_interval_seconds: float = 60.0
     shutdown_grace_seconds: float = 45.0
@@ -42,6 +43,8 @@ class SupervisorConfig:
             raise ValueError("collector_command must be non-empty")
         if self.publisher_command is not None and any(not item for item in self.publisher_command):
             raise ValueError("publisher_command entries must be non-empty")
+        if self.archive_scheduler_command is not None and any(not item for item in self.archive_scheduler_command):
+            raise ValueError("archive_scheduler_command entries must be non-empty")
         if self.poll_interval_seconds <= 0 or self.publisher_interval_seconds <= 0:
             raise ValueError("poll intervals must be positive")
         if self.shutdown_grace_seconds <= 0:
@@ -61,13 +64,19 @@ class TransientLaunchConfig:
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if not SAFE_RUN_ID.fullmatch(config.run_id):
         raise ValueError("run_id must be a safe identifier")
-    if config.supervisor_duration_seconds != 2700:
-        raise ValueError("production supervisor duration must be exactly 2700 seconds")
+    if config.supervisor_duration_seconds not in (2700, 7200, 259200):
+        raise ValueError("production supervisor duration must be exactly 2700, 7200, or 259200 seconds")
     if config.hard_ceiling_seconds <= config.supervisor_duration_seconds:
         raise ValueError("hard ceiling must exceed supervisor duration")
     if not config.workdir.is_absolute() or not config.supervisor_command:
         raise ValueError("workdir must be absolute and supervisor_command must be non-empty")
-    unit_name = f"bitcoin-trader-short-smoke-{config.run_id}.service"
+    if config.supervisor_duration_seconds == 259200:
+        prefix = "bitcoin-trader-72h-soak"
+    elif config.supervisor_duration_seconds == 7200:
+        prefix = "bitcoin-trader-120m"
+    else:
+        prefix = "bitcoin-trader-short-smoke"
+    unit_name = f"{prefix}-{config.run_id}.service"
     return [
         "systemd-run",
         f"--unit={unit_name}",
@@ -127,16 +136,17 @@ class BoundedSupervisor:
         self.config = config
         self._received_signal: int | None = None
         self._collector: subprocess.Popen[bytes] | None = None
+        self._archive_scheduler: subprocess.Popen[bytes] | None = None
 
     def _forward_signal(self, signum: int, _frame: object = None) -> None:
         if self._received_signal is None:
             self._received_signal = signum
-        collector = self._collector
-        if collector is not None and collector.poll() is None:
-            try:
-                os.killpg(collector.pid, signum)
-            except ProcessLookupError:
-                pass
+        for proc in (self._collector, self._archive_scheduler):
+            if proc is not None and proc.poll() is None:
+                try:
+                    os.killpg(proc.pid, signum)
+                except ProcessLookupError:
+                    pass
 
     def _live_metrics_valid(self, collector_pid: int) -> bool:
         payload = _read_json(self.config.metrics_path)
@@ -203,6 +213,14 @@ class BoundedSupervisor:
         publisher_started = False
         publisher_stopped_after_collector = False
         publisher: subprocess.Popen[bytes] | None = None
+
+        archive_scheduler_exit: int | None = None
+        archive_scheduler_failure: int | None = None
+        archive_scheduler_pid: int | None = None
+        archive_scheduler_started = False
+        archive_scheduler_stopped_after_collector = False
+        archive_scheduler: subprocess.Popen[bytes] | None = None
+
         forced_timeout = False
         old_handlers: dict[int, Any] = {}
         can_install_handlers = threading.current_thread() is threading.main_thread()
@@ -221,6 +239,20 @@ class BoundedSupervisor:
                     close_fds=True,
                 )
                 collector_pid = self._collector.pid
+
+                if cfg.archive_scheduler_command is not None:
+                    archive_scheduler = subprocess.Popen(
+                        cfg.archive_scheduler_command,
+                        stdin=subprocess.DEVNULL,
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
+                        start_new_session=True,
+                        close_fds=True,
+                    )
+                    self._archive_scheduler = archive_scheduler
+                    archive_scheduler_pid = archive_scheduler.pid
+                    archive_scheduler_started = True
+
                 deadline = started_monotonic + cfg.duration_seconds
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
@@ -256,6 +288,12 @@ class BoundedSupervisor:
                         )
                         publisher_pid = publisher.pid
                         publisher_started = True
+
+                    if archive_scheduler is not None and archive_scheduler.poll() is not None:
+                        archive_scheduler_exit = archive_scheduler.returncode
+                        if archive_scheduler_exit != 0 and archive_scheduler_failure is None:
+                            archive_scheduler_failure = archive_scheduler_exit
+
                     time.sleep(cfg.poll_interval_seconds)
 
                 if self._collector.poll() is None:
@@ -271,6 +309,11 @@ class BoundedSupervisor:
                     publisher_stopped_after_collector = True
                     if publisher_exit not in {0, -signal.SIGTERM} and publisher_failure is None:
                         publisher_failure = publisher_exit
+                if archive_scheduler is not None:
+                    archive_scheduler_exit = self._stop_process(archive_scheduler, cfg.shutdown_grace_seconds)
+                    archive_scheduler_stopped_after_collector = True
+                    if archive_scheduler_exit not in {0, -signal.SIGTERM} and archive_scheduler_failure is None:
+                        archive_scheduler_failure = archive_scheduler_exit
         finally:
             if can_install_handlers:
                 for signum, handler in old_handlers.items():
@@ -293,6 +336,8 @@ class BoundedSupervisor:
             and final_manifest_observed
             and publisher_failure is None
             and (cfg.publisher_command is None or publisher_started)
+            and archive_scheduler_failure is None
+            and (cfg.archive_scheduler_command is None or archive_scheduler_started)
         )
         overall_status = "PASS" if passed else ("INTERRUPTED" if self._received_signal else "FAIL")
         result: dict[str, object] = {
@@ -305,11 +350,15 @@ class BoundedSupervisor:
             "supervisor_pid": os.getpid(),
             "collector_pid": collector_pid,
             "publisher_pid": publisher_pid,
+            "archive_scheduler_pid": archive_scheduler_pid,
             "received_signal": signal.Signals(self._received_signal).name if self._received_signal else None,
             "collector_exit_code": collector_exit,
             "publisher_exit_code": publisher_failure if publisher_failure is not None else publisher_exit,
             "publisher_started": publisher_started,
             "publisher_stopped_after_collector": publisher_stopped_after_collector,
+            "archive_scheduler_exit_code": archive_scheduler_failure if archive_scheduler_failure is not None else archive_scheduler_exit,
+            "archive_scheduler_started": archive_scheduler_started,
+            "archive_scheduler_stopped_after_collector": archive_scheduler_stopped_after_collector,
             "final_metrics_valid": final_metrics_valid,
             "final_manifest_flush_observed": final_manifest_observed,
             "forced_timeout": forced_timeout,

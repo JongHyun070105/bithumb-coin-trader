@@ -26,7 +26,7 @@ def append(path: Path, event: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("mode", choices=("collector", "publisher"))
+    parser.add_argument("mode", choices=("collector", "publisher", "scheduler"))
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--metrics", type=Path)
     parser.add_argument("--lifecycle", type=Path)
@@ -38,6 +38,19 @@ def main() -> int:
         append(args.events, "publisher-start")
         time.sleep(args.sleep)
         append(args.events, "publisher-stop")
+        return args.exit_code
+
+    if args.mode == "scheduler":
+        append(args.events, "scheduler-start")
+        def stop_sched(signum: int, _frame: object) -> None:
+            append(args.events, f"scheduler-{signal.Signals(signum).name}")
+            raise SystemExit(args.exit_code)
+        signal.signal(signal.SIGINT, stop_sched)
+        signal.signal(signal.SIGTERM, stop_sched)
+        deadline = time.monotonic() + args.sleep
+        while time.monotonic() < deadline:
+            time.sleep(0.01)
+        append(args.events, "scheduler-stop")
         return args.exit_code
 
     assert args.metrics is not None and args.lifecycle is not None

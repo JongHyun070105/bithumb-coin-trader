@@ -24,6 +24,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--duration-seconds", type=float, required=True)
     parser.add_argument("--collector-command-json", type=_command, required=True)
     parser.add_argument("--publisher-command-json", type=_command)
+    parser.add_argument("--archive-scheduler-command-json", type=_command)
     parser.add_argument("--metrics-path", type=Path, required=True)
     parser.add_argument("--collector-lifecycle-path", type=Path, required=True)
     parser.add_argument("--result-path", type=Path, required=True)
@@ -39,6 +40,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             duration_seconds=args.duration_seconds,
             collector_command=args.collector_command_json,
             publisher_command=args.publisher_command_json,
+            archive_scheduler_command=args.archive_scheduler_command_json,
             metrics_path=args.metrics_path,
             collector_lifecycle_path=args.collector_lifecycle_path,
             result_path=args.result_path,

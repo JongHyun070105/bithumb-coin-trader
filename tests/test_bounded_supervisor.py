@@ -60,6 +60,21 @@ class BoundedSupervisorTests(unittest.TestCase):
             str(exit_code),
         )
 
+    def _archive_scheduler(self, paths: dict[str, Path], run_id: str, exit_code: int = 0, sleep: float = 0.5) -> tuple[str, ...]:
+        return (
+            sys.executable,
+            str(FIXTURE),
+            "scheduler",
+            "--run-id",
+            run_id,
+            "--events",
+            str(paths["events"]),
+            "--sleep",
+            str(sleep),
+            "--exit-code",
+            str(exit_code),
+        )
+
     def test_natural_exit_persists_flush_and_publisher_lifecycle(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = self._paths(Path(tmp))
@@ -232,6 +247,54 @@ class BoundedSupervisorTests(unittest.TestCase):
             result = json.loads(paths["result"].read_text(encoding="utf-8"))
             self.assertEqual(result["overall_status"], "PASS")
             self.assertEqual(result["received_signal"], None)
+
+    def test_supervisor_with_archive_scheduler_natural_exit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "aws-72h-soak-test-archive-sched"
+            config = SupervisorConfig(
+                run_id=run_id,
+                duration_seconds=0.4,
+                collector_command=self._collector(paths, run_id),
+                publisher_command=self._publisher(paths, run_id),
+                archive_scheduler_command=self._archive_scheduler(paths, run_id, sleep=0.5),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.01,
+                publisher_interval_seconds=0.04,
+                shutdown_grace_seconds=0.2,
+            )
+            self.assertEqual(BoundedSupervisor(config).run(), 0)
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            events = paths["events"].read_text(encoding="utf-8")
+            self.assertEqual(result["overall_status"], "PASS")
+            self.assertTrue(result["archive_scheduler_started"])
+            self.assertIn(result["archive_scheduler_exit_code"], (0, -signal.SIGTERM))
+            self.assertTrue(result["archive_scheduler_stopped_after_collector"])
+            self.assertIn("scheduler-start", events)
+
+    def test_supervisor_archive_scheduler_failure_fails_result(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "aws-72h-soak-test-sched-fail"
+            config = SupervisorConfig(
+                run_id=run_id,
+                duration_seconds=0.4,
+                collector_command=self._collector(paths, run_id),
+                archive_scheduler_command=self._archive_scheduler(paths, run_id, exit_code=7, sleep=0.05),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.01,
+                shutdown_grace_seconds=0.2,
+            )
+            self.assertEqual(BoundedSupervisor(config).run(), 1)
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            self.assertEqual(result["overall_status"], "FAIL")
+            self.assertEqual(result["archive_scheduler_exit_code"], 7)
 
 
 if __name__ == "__main__":
