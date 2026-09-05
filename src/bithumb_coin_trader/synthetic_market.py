@@ -1,13 +1,25 @@
 """Deterministic Synthetic Microstructure and Chaos Injection Generator (P16 - P16.4).
 
+FORENSIC HARDENING (Phase 2.5):
+- BUG-5 FIXED: SignalMarketGenerator now has a real lag_steps parameter.
+  Prior to this fix, imbalance and price change happened in the SAME loop
+  iteration (contemporaneous), despite the docstring claiming "price moves
+  after lag_steps". This is now corrected using a circular buffer.
+
+  IMPORTANT: The prior behavior (contemporaneous signal) is documented as
+  SignalMarketGenerator(lag_steps=0). lag_steps=0 is NOT lagged — it is
+  the original contemporaneous behavior, retained for comparison tests.
+  lag_steps=1 means the signal at time t affects price at t+1.
+
 Provides:
 - NullMarketGenerator: Gaussian random walk with realistic spread and depth (true zero alpha).
-- SignalMarketGenerator: Known-signal injected market (e.g. OFI predictive pattern with ground truth).
+- SignalMarketGenerator: Known-signal injected market with configurable lag.
 - ChaosInjector: Simulates network jitter, dropouts, burst arrivals, and spread blowouts.
 """
 
 from __future__ import annotations
 
+import collections
 import math
 import random
 from typing import Iterator, Sequence
@@ -68,19 +80,42 @@ class NullMarketGenerator:
 
 class SignalMarketGenerator:
     """Generates a market with an injected causal predictive relationship.
-    
+
     When OFI is positive (bid size increases), price moves UP after lag_steps with correlation r.
+
+    BUG-5 FIX: Prior implementation applied imbalance to price in the SAME loop iteration
+    (contemporaneous), despite the docstring claiming "price moves after lag_steps".
+    This is now corrected.
+
+    lag_steps=0: CONTEMPORANEOUS — signal at time t affects price at t.
+                 This matches the original (buggy) behavior for comparison.
+    lag_steps=1: signal at time t affects price at t+1 (1-step ahead).
+    lag_steps=N: signal at time t affects price at t+N.
+
+    NOTE: With lag_steps=0, any predictive model trained on this data would
+    only work if it has access to the same-timestep signal — which is
+    typically not available in real trading (you receive the signal THEN trade).
+    Use lag_steps >= 1 for realistic predictive relationship testing.
     """
 
     def __init__(
         self,
         initial_price: float = 100_000_000.0,
         signal_strength: float = 0.0005,  # 5 bps predictable drift per unit OFI
+        lag_steps: int = 1,  # BUG-5 FIX: default is 1-step lag (not contemporaneous)
         seed: int = 123,
     ) -> None:
+        if lag_steps < 0:
+            raise ValueError(f"lag_steps must be >= 0, got {lag_steps}")
         self.current_price = initial_price
         self.signal_strength = signal_strength
+        self.lag_steps = lag_steps
         self.rng = random.Random(seed)
+        # BUG-5 FIX: circular buffer to hold pending signals
+        # deque maxlen=lag_steps+1; deque[0] is the oldest signal (to be applied now)
+        self._signal_buffer: collections.deque[float] = collections.deque(
+            [0.0] * lag_steps, maxlen=lag_steps if lag_steps > 0 else 1
+        )
 
     def generate_signal_orderbooks(
         self, count: int, interval_ms: int = 100
@@ -94,8 +129,15 @@ class SignalMarketGenerator:
             imbalance = self.rng.choice([-2.0, -1.0, 0.0, 1.0, 2.0])
             injected_signals.append(imbalance)
 
-            # Price responds to past imbalance with some noise
-            drift = imbalance * self.signal_strength
+            if self.lag_steps == 0:
+                # CONTEMPORANEOUS: original (buggy) behavior — kept for comparison
+                lagged_signal = imbalance
+            else:
+                # BUG-5 FIX: use buffered signal from lag_steps ago
+                lagged_signal = self._signal_buffer[0]  # oldest buffered signal
+                self._signal_buffer.append(imbalance)    # enqueue current signal
+
+            drift = lagged_signal * self.signal_strength
             noise = self.rng.gauss(0.0, 0.0001)
             self.current_price *= (1.0 + drift + noise)
 

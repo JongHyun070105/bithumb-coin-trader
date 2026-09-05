@@ -1,5 +1,5 @@
 import pytest
-from bithumb_coin_trader.research_cli import main
+from bithumb_coin_trader.research_cli import main, build_parser
 from bithumb_coin_trader.experiment_runner import GovernedExperimentRunner, PreregistrationManifest
 
 
@@ -21,9 +21,53 @@ def test_research_cli_verify_ledger(tmp_path, capsys):
     ledger_file = tmp_path / "ledger.json"
     runner = GovernedExperimentRunner(ledger_file)
     m = PreregistrationManifest("t1", "f1", "hypo", ("f1",), 100, 1000)
+    # BUG-4 FIX: must call reserve_trial() before record_trial()
+    runner.reserve_trial(m)
     runner.record_trial(m, {"sharpe": 1.2})
 
     ret = main(["verify-ledger", "--ledger", str(ledger_file)])
     assert ret == 0
     captured = capsys.readouterr()
     assert "SUCCESS: Ledger chain verified" in captured.out
+
+
+def test_research_cli_audit_quality_subcommand_exists(tmp_path, capsys):
+    """BUG-6 FIX: audit-quality subcommand must exist and succeed on empty dir."""
+    input_dir = tmp_path / "raw_soak"
+    input_dir.mkdir()
+    report_out = tmp_path / "report.json"
+    ret = main(["audit-quality", "--input-dir", str(input_dir), "--report-out", str(report_out)])
+    assert ret == 0
+    assert report_out.exists()
+    captured = capsys.readouterr()
+    assert "Audit complete" in captured.out
+
+
+def test_research_cli_transform_canonical_subcommand_exists(tmp_path, capsys):
+    """BUG-6 FIX: transform-canonical subcommand must exist."""
+    input_dir = tmp_path / "raw"
+    input_dir.mkdir()
+    output_dir = tmp_path / "canonical"
+    ret = main(["transform-canonical", "--input-dir", str(input_dir), "--output-dir", str(output_dir)])
+    assert ret == 0
+    captured = capsys.readouterr()
+    assert "transform" in captured.out.lower() or "found" in captured.out.lower()
+
+
+def test_research_cli_all_documented_subcommands_registered():
+    """BUG-6 REGRESSION: All subcommands referenced in the runbook must exist in the parser."""
+    parser = build_parser()
+    # Extract registered subcommand names
+    subparsers_action = None
+    for action in parser._actions:
+        if hasattr(action, '_name_parser_map'):
+            subparsers_action = action
+            break
+    assert subparsers_action is not None
+    registered = set(subparsers_action._name_parser_map.keys())
+
+    # These are the commands referenced in POST_72H_OFFLINE_IMPORT_RUNBOOK.md
+    required_commands = {"verify-ledger", "power-plan", "run-synthetic-sim",
+                         "audit-quality", "transform-canonical", "partition-dataset"}
+    missing = required_commands - registered
+    assert not missing, f"Runbook CLI commands not registered in parser: {missing}"

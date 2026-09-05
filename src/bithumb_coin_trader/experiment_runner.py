@@ -1,28 +1,84 @@
 """Governed Experiment Runner and Cryptographic Hash-Chain Ledger (P8 - P8.6).
 
+FORENSIC HARDENING (Phase 2.5):
+- BUG-1 FIXED: reserve_trial() now writes to a durable .reservations file.
+  Prior to this fix, reservations were memory-only and lost on process crash.
+- BUG-4 FIXED: record_trial() now requires a prior durable reservation.
+  Prior to this fix, record_trial() bypassed reservation entirely.
+- BUG-9 FIXED: count_family_trials() now counts ALL states (RESERVED,
+  RUNNING, FAILED, ABORTED, COMPLETED), not only completed ledger entries.
+- BUG-10 FIXED: _save_ledger() now uses temp-write -> fsync -> atomic rename
+  instead of direct write_text() which risked file corruption on crash.
+- BUG-11 FIXED: access_dataset() now requires explicit ResearchCycleState
+  lifecycle progression instead of a boolean bypass flag.
+
 Features:
 - Mandatory preregistration gating: No experiment runs without a valid manifest.
-- Append-only atomic trial reservation.
+- Durable atomic trial reservation (persisted to .reservations file).
 - Cryptographic hash-chain ledger (tamper-evident SHA-256 links).
-- Family budget enforcement (hard stop at N <= 9 trials per hypothesis family).
-- Dataset role gating (TRAIN, VALIDATION, HOLDOUT) preventing lookahead/holdout leakage.
+- Family budget enforcement counting ALL attempt states (not only COMPLETED).
+- Dataset role gating (TRAIN, VALIDATION, HOLDOUT) via lifecycle state machine.
 """
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+import os
+import tempfile
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Sequence
 
 
 class DatasetRole(str, Enum):
     TRAIN = "TRAIN"
     VALIDATION = "VALIDATION"
     HOLDOUT = "HOLDOUT"
+
+
+class TrialStatus(str, Enum):
+    """Lifecycle states for a trial attempt.
+
+    Transitions:
+        RESERVED -> RUNNING -> COMPLETED
+                            -> FAILED
+                            -> ABORTED
+    A trial in any state counts against the family budget.
+    """
+    RESERVED = "RESERVED"
+    RUNNING = "RUNNING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    ABORTED = "ABORTED"
+
+
+class ResearchCycleState(str, Enum):
+    """Lifecycle states for the research cycle controlling holdout access.
+
+    Only HOLDOUT_AUTHORIZED state allows access to HOLDOUT partition.
+    Transition to HOLDOUT_AUTHORIZED requires explicit advance_research_state().
+    """
+    PREREGISTERED = "PREREGISTERED"
+    DISCOVERY_ACTIVE = "DISCOVERY_ACTIVE"
+    VALIDATION_ACTIVE = "VALIDATION_ACTIVE"
+    MODEL_FROZEN = "MODEL_FROZEN"
+    HOLDOUT_AUTHORIZED = "HOLDOUT_AUTHORIZED"
+    HOLDOUT_CONSUMED = "HOLDOUT_CONSUMED"
+    CLOSED = "CLOSED"
+
+
+_STATE_ORDER = [
+    ResearchCycleState.PREREGISTERED,
+    ResearchCycleState.DISCOVERY_ACTIVE,
+    ResearchCycleState.VALIDATION_ACTIVE,
+    ResearchCycleState.MODEL_FROZEN,
+    ResearchCycleState.HOLDOUT_AUTHORIZED,
+    ResearchCycleState.HOLDOUT_CONSUMED,
+    ResearchCycleState.CLOSED,
+]
 
 
 class ExperimentGatingError(Exception):
@@ -43,6 +99,18 @@ class PreregistrationMissingError(ExperimentGatingError):
 
 class LedgerTamperError(ExperimentGatingError):
     """Raised when hash-chain ledger verification fails."""
+
+
+class ReservationRequiredError(ExperimentGatingError):
+    """Raised when record_trial() is called without a prior reservation.
+
+    BUG-4 FIX: Prior to Phase 2.5, record_trial() did not check for a
+    prior durable reservation, allowing governance bypass.
+    """
+
+
+class InvalidResearchCycleStateError(ExperimentGatingError):
+    """Raised when a lifecycle state transition is invalid."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,16 +191,78 @@ class LedgerEntry:
         }
 
 
+@dataclass
+class ReservationRecord:
+    """Durable record of a trial reservation (BUG-1 fix).
+
+    Persisted to disk so that process crashes do not lose reservation state.
+    """
+    trial_id: str
+    family_id: str
+    status: TrialStatus
+    reserved_at_utc: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "trial_id": self.trial_id,
+            "family_id": self.family_id,
+            "status": self.status.value,
+            "reserved_at_utc": self.reserved_at_utc,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> ReservationRecord:
+        return cls(
+            trial_id=d["trial_id"],
+            family_id=d["family_id"],
+            status=TrialStatus(d["status"]),
+            reserved_at_utc=d["reserved_at_utc"],
+        )
+
+
+def _atomic_write_json(path: Path, data: Any) -> None:
+    """BUG-10 FIX: Writes JSON atomically using temp-write -> fsync -> rename.
+
+    Prior to this fix, write_text() was used directly. A crash mid-write
+    could leave the file in a partially-written state, corrupting the ledger.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_fd, tmp_path = tempfile.mkstemp(dir=path.parent, prefix=".tmp_")
+    try:
+        with os.fdopen(tmp_fd, "w") as f:
+            json.dump(data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 class GovernedExperimentRunner:
-    """Governs experimental execution, trial budgets, and ledger verification."""
+    """Governs experimental execution, trial budgets, and ledger verification.
+
+    LIMITATION (documented): The hash-chain ledger is tamper-EVIDENT,
+    not immutable. SHA-256 chain in a mutable local file cannot prevent
+    deletion of the entire file. Immutability requires external write-once
+    storage (e.g., append-only S3 bucket with versioning).
+    """
 
     GENESIS_HASH = "0" * 64
 
     def __init__(self, ledger_file: Path | str) -> None:
         self.ledger_file = Path(ledger_file)
+        self._reservations_file = (
+            self.ledger_file.parent / (self.ledger_file.stem + ".reservations.json")
+        )
         self._entries: list[LedgerEntry] = []
-        self._reserved_trials: set[str] = set()
+        self._reservations: dict[str, ReservationRecord] = {}
+        self._cycle_state: ResearchCycleState = ResearchCycleState.PREREGISTERED
         self._load_or_init_ledger()
+        self._load_or_init_reservations()
 
     def _load_or_init_ledger(self) -> None:
         if self.ledger_file.exists():
@@ -149,18 +279,38 @@ class GovernedExperimentRunner:
                     entry_hash=item["entry_hash"],
                 )
                 self._entries.append(entry)
-                self._reserved_trials.add(entry.trial_id)
             self.verify_ledger_chain()
         else:
             self.ledger_file.parent.mkdir(parents=True, exist_ok=True)
             self._save_ledger()
 
+    def _load_or_init_reservations(self) -> None:
+        """BUG-1 FIX: Load durable reservations from disk on startup."""
+        if self._reservations_file.exists():
+            data = json.loads(self._reservations_file.read_text())
+            for item in data:
+                rec = ReservationRecord.from_dict(item)
+                self._reservations[rec.trial_id] = rec
+        else:
+            _atomic_write_json(self._reservations_file, [])
+
     def _save_ledger(self) -> None:
-        serialized = [e.to_dict() for e in self._entries]
-        self.ledger_file.write_text(json.dumps(serialized, indent=2))
+        """BUG-10 FIX: Atomic write via temp -> fsync -> rename."""
+        _atomic_write_json(self.ledger_file, [e.to_dict() for e in self._entries])
+
+    def _save_reservations(self) -> None:
+        """BUG-1 FIX: Persist reservation state atomically."""
+        _atomic_write_json(
+            self._reservations_file,
+            [r.to_dict() for r in self._reservations.values()],
+        )
 
     def verify_ledger_chain(self) -> bool:
-        """Cryptographically verifies that no entry in the ledger has been tampered with."""
+        """Cryptographically verifies that no entry in the ledger has been tampered with.
+
+        LIMITATION: Tamper-evident, not immutable. Verifies SHA-256 chain
+        integrity only. Cannot detect deletion of the entire file.
+        """
         prev_hash = self.GENESIS_HASH
         for idx, e in enumerate(self._entries):
             if e.entry_index != idx:
@@ -187,10 +337,24 @@ class GovernedExperimentRunner:
         return True
 
     def count_family_trials(self, family_id: str) -> int:
-        return sum(1 for e in self._entries if e.family_id == family_id)
+        """BUG-9 FIX: Counts ALL trial attempts for a family, regardless of state.
+
+        Prior to this fix, only COMPLETED ledger entries were counted.
+        Budget bypass was possible: crash 9 trials before record_trial(),
+        restart, and reserve 9 more since the ledger was empty.
+        """
+        return sum(1 for r in self._reservations.values() if r.family_id == family_id)
 
     def reserve_trial(self, manifest: PreregistrationManifest) -> str:
-        """Reserves a trial slot, enforcing family budget and preregistration existence."""
+        """BUG-1 FIX: Reserves a trial slot and persists the reservation durably.
+
+        Prior to this fix: reservation was in-memory only (_reserved_trials set).
+        A process crash between reserve_trial() and record_trial() would lose
+        the reservation, allowing budget bypass on restart.
+
+        Now: reservation is written to .reservations.json before returning.
+        On restart, _load_or_init_reservations() restores all reservations.
+        """
         if not manifest.trial_id or not manifest.family_id:
             raise PreregistrationMissingError("trial_id and family_id must be provided")
 
@@ -201,20 +365,60 @@ class GovernedExperimentRunner:
                 f"exhausted (current count: {family_count})"
             )
 
-        if manifest.trial_id in self._reserved_trials:
+        if manifest.trial_id in self._reservations:
             raise ExperimentGatingError(f"trial_id {manifest.trial_id} is already registered/reserved")
 
-        self._reserved_trials.add(manifest.trial_id)
+        rec = ReservationRecord(
+            trial_id=manifest.trial_id,
+            family_id=manifest.family_id,
+            status=TrialStatus.RESERVED,
+            reserved_at_utc=datetime.now(timezone.utc).isoformat(),
+        )
+        self._reservations[manifest.trial_id] = rec
+        self._save_reservations()  # BUG-1 FIX: persist before returning
         return manifest.trial_id
+
+    def update_trial_status(self, trial_id: str, status: TrialStatus) -> None:
+        """Updates the durable status of a reserved trial (RESERVED->RUNNING->COMPLETED/FAILED/ABORTED)."""
+        if trial_id not in self._reservations:
+            raise ReservationRequiredError(
+                f"Cannot update status for unreserved trial_id '{trial_id}'"
+            )
+        rec = self._reservations[trial_id]
+        updated = ReservationRecord(
+            trial_id=rec.trial_id,
+            family_id=rec.family_id,
+            status=status,
+            reserved_at_utc=rec.reserved_at_utc,
+        )
+        self._reservations[trial_id] = updated
+        self._save_reservations()
 
     def record_trial(
         self,
         manifest: PreregistrationManifest,
         results: dict[str, Any],
     ) -> LedgerEntry:
-        """Appends a completed trial to the immutable ledger."""
-        family_count = self.count_family_trials(manifest.family_id)
-        if family_count >= manifest.max_trials_in_family:
+        """BUG-4 FIX: Appends a completed trial. Requires prior durable reservation.
+
+        Prior to this fix: record_trial() did not verify a prior reservation,
+        allowing anyone to record a trial result without governance gating.
+
+        Now: raises ReservationRequiredError if reserve_trial() was not called first.
+        """
+        # BUG-4 FIX: require prior reservation
+        if manifest.trial_id not in self._reservations:
+            raise ReservationRequiredError(
+                f"record_trial() called for trial_id '{manifest.trial_id}' without "
+                f"a prior reserve_trial() call. Governance bypass is not permitted."
+            )
+
+        # Budget check: count other trials in family (this trial is already in reservations)
+        other_family_count = sum(
+            1 for r in self._reservations.values()
+            if r.family_id == manifest.family_id and r.trial_id != manifest.trial_id
+        )
+        if other_family_count >= manifest.max_trials_in_family:
             raise TrialBudgetExceededError(
                 f"Family {manifest.family_id} trial budget exhausted"
             )
@@ -229,20 +433,69 @@ class GovernedExperimentRunner:
             previous_hash=prev_hash,
         )
         self._entries.append(entry)
-        self._reserved_trials.add(manifest.trial_id)
-        self._save_ledger()
+        self.update_trial_status(manifest.trial_id, TrialStatus.COMPLETED)
+        self._save_ledger()  # BUG-10 FIX: atomic write
         return entry
+
+    def advance_research_state(
+        self,
+        target_state: ResearchCycleState,
+        justification: str,
+    ) -> ResearchCycleState:
+        """BUG-11 FIX: Advances the research lifecycle state machine (strictly forward).
+
+        Replaces the is_final_verification=True boolean bypass in access_dataset().
+        Requires explicit justification for each transition.
+
+        LIMITATION: State is in-memory only. For multi-process durability,
+        persist _cycle_state to a separate state file.
+        """
+        current_idx = _STATE_ORDER.index(self._cycle_state)
+        target_idx = _STATE_ORDER.index(target_state)
+
+        if target_idx <= current_idx:
+            raise InvalidResearchCycleStateError(
+                f"Cannot regress from {self._cycle_state.value} to {target_state.value}. "
+                f"Research cycle states are strictly forward-progressing."
+            )
+        if target_idx != current_idx + 1:
+            raise InvalidResearchCycleStateError(
+                f"Cannot skip states: {self._cycle_state.value} -> {target_state.value}. "
+                f"Must advance one state at a time."
+            )
+        if not justification or not justification.strip():
+            raise InvalidResearchCycleStateError(
+                "Justification is required for state advancement."
+            )
+
+        self._cycle_state = target_state
+        return self._cycle_state
+
+    @property
+    def research_cycle_state(self) -> ResearchCycleState:
+        return self._cycle_state
 
     def access_dataset(
         self,
         dataset_name: str,
         role: DatasetRole,
-        is_final_verification: bool = False,
+        is_final_verification: bool = False,  # DEPRECATED: ignored, kept for compat
     ) -> str:
-        """Guards dataset access to prevent holdout contamination."""
-        if role == DatasetRole.HOLDOUT and not is_final_verification:
-            raise HoldoutContaminationError(
-                f"Forbidden access to HOLDOUT dataset '{dataset_name}' during exploratory research. "
-                "Holdout partition is strictly isolated until final verification."
-            )
+        """BUG-11 FIX: Guards dataset access via lifecycle state machine.
+
+        HOLDOUT access is only permitted when research_cycle_state is
+        HOLDOUT_AUTHORIZED. Use advance_research_state() to progress.
+
+        DEPRECATION: is_final_verification boolean is IGNORED.
+        It was a bypass mechanism. Use advance_research_state() instead.
+        """
+        if role == DatasetRole.HOLDOUT:
+            if self._cycle_state != ResearchCycleState.HOLDOUT_AUTHORIZED:
+                raise HoldoutContaminationError(
+                    f"Forbidden access to HOLDOUT dataset '{dataset_name}'. "
+                    f"Current research cycle state: {self._cycle_state.value}. "
+                    f"Required state: {ResearchCycleState.HOLDOUT_AUTHORIZED.value}. "
+                    f"Use advance_research_state(HOLDOUT_AUTHORIZED, justification=...) "
+                    f"to authorize holdout access."
+                )
         return f"ACCESS_GRANTED:{dataset_name}:{role.value}"

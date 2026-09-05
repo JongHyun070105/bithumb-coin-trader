@@ -9,8 +9,16 @@
 
 ## 3. 단계별 실행 절차 (Step-by-Step Procedure)
 
+
+> **FORENSIC HARDENING NOTICE (Phase 2.5 — BUG-5/BUG-6 FIX)**:
+> - `archive_hour_001.tar.zst` ~ `archive_hour_072.tar.zst` 는 **실제 존재하지 않는 파일명**입니다.
+>   실제 아카이브 파일명은 수집 에포크와 타임스탬프에 따라 결정됩니다. 아래에서 `<EXPORTED_EPOCH_ROOT>`로 표기합니다.
+> - 단계 3, 4, 5의 CLI 명령어(`audit-quality`, `transform-canonical`, `partition-dataset`)는
+>   Phase 2.5에서 추가되었습니다. Phase 2 기준 코드에서는 이 명령어가 존재하지 않습니다.
+
 ### 단계 1: 수집 완료 상태 및 아카이브 무결성 확인 (Verification)
-1. S3 버킷 내 72개 시간별 아카이브 파일(`archive_hour_001.tar.zst` ~ `archive_hour_072.tar.zst`) 존재 여부 확인.
+1. S3 버킷 내 72개 시간별 아카이브 파일(`<EXPORTED_EPOCH_ROOT>/archive_hour_NNN.tar.zst`, N=001~072) 존재 여부 확인.
+   - 실제 파일명은 수집 에포크 및 시스템 설정에 따라 다릅니다. S3 버킷 내용을 직접 확인하여 실제 파일명을 사용하세요.
 2. 각 시간대 매니페스트(`manifest.json`)의 SHA-256 해시 대조.
 
 ### 단계 2: 로컬 데이터 다운로드 (Read-Only Download)
