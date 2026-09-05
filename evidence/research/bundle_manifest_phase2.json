@@ -1,0 +1,128 @@
+{
+  "manifest_version": "2.0.0",
+  "generated_at_utc": "2026-09-05T07:33:44.286675+00:00",
+  "git_commit": "a75116366c135af9b07924847efb1bf04e04c254",
+  "python_version": "3.14.6",
+  "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+  "bundled_artifacts_count": 22,
+  "artifacts": [
+    {
+      "path": "docs/PHASE1_SECOND_PASS_AUDIT_2026-09-05.md",
+      "sha256": "e20860725a25a1b2132852fa882e77aaedd91898ed3668ade5576d21d0ec74c2",
+      "size_bytes": 8557
+    },
+    {
+      "path": "docs/DSR_RECONCILIATION_2026-09-05.md",
+      "sha256": "a503ffdc52d5e9728993ec36c36b77497361f06b4eae693db436e41f295b6b44",
+      "size_bytes": 7020
+    },
+    {
+      "path": "docs/MICROSTRUCTURE_PREREGISTRATION_V1_AUDIT.md",
+      "sha256": "8cb34e6cfc33f3f705310c28e978c684b6580902721e26862e7b13682bd6247c",
+      "size_bytes": 4792
+    },
+    {
+      "path": "docs/MICROSTRUCTURE_PREREGISTRATION_AMENDMENT_001.md",
+      "sha256": "90b297f35e6fb4c421f9057eee417532e143ba1529bdf2df17b1486e2672ce39",
+      "size_bytes": 3862
+    },
+    {
+      "path": "docs/exchange_semantics/bithumb_krw_btc_semantics.md",
+      "sha256": "2fa2a945784b3411bf02ef3b9541aabe70f9d734423041f8bbd50380c6ff666d",
+      "size_bytes": 1677
+    },
+    {
+      "path": "docs/exchange_semantics/binance_btcusdt_semantics.md",
+      "sha256": "f42b9bc32ebac42b64e6ed38117c2342f414616f9c24e2a83258b0d00ad31aaa",
+      "size_bytes": 1309
+    },
+    {
+      "path": "docs/exchange_semantics/upbit_krw_btc_semantics.md",
+      "sha256": "0df9d0eb07fa49dffe7903fa38ac52c6c073c127ea87b2703ce35a33c7907fa5",
+      "size_bytes": 983
+    },
+    {
+      "path": "docs/exchange_semantics/cross_exchange_microstructure_comparison.md",
+      "sha256": "c9b4157d0904bbf0467a1e875c7b0caade9faf9de9e86380f8147e33e54bf658",
+      "size_bytes": 1169
+    },
+    {
+      "path": "docs/PROJECT_VERIFICATION_MATRIX.md",
+      "sha256": "ef0062ff1573548a7456eb0cf04945a0f2b2090cda7d82de703ba066c3a89597",
+      "size_bytes": 5682
+    },
+    {
+      "path": "docs/ARCHITECTURE_RESEARCH_TO_EXECUTION.md",
+      "sha256": "61b485f93ffc69e45062fc88ebf8ad8a8d860177f598d576daa34d16717e4516",
+      "size_bytes": 4901
+    },
+    {
+      "path": "docs/SECURITY_THREAT_MODEL.md",
+      "sha256": "868cacd3247bb4236f414140e38111f4cc13e4a63182653e6572c5f9297a4086",
+      "size_bytes": 2849
+    },
+    {
+      "path": "docs/POST_72H_OFFLINE_IMPORT_RUNBOOK.md",
+      "sha256": "fd6c0ffc3db364ba005d3b8719995be8ed1ae9938d5036defa6ce1cb3cff63bc",
+      "size_bytes": 3337
+    },
+    {
+      "path": "docs/RESEARCH_DECISION_LOG.md",
+      "sha256": "22a47d2b997a694949341698abca4dcc09d4715819b734af1ab675c1cac62d9b",
+      "size_bytes": 5769
+    },
+    {
+      "path": "docs/TECHNICAL_DEBT_LOG.md",
+      "sha256": "400cb2947168514180dc7dc6e7d2cc3a4884f95657e47d2b4698c8ee65bd08d8",
+      "size_bytes": 3161
+    },
+    {
+      "path": "docs/ADVERSARIAL_REVIEW_PHASE2.md",
+      "sha256": "e1b3185944953c36d5e0a3f612b04b5d58fa56d71771edb1104b1e5b1455129d",
+      "size_bytes": 5419
+    },
+    {
+      "path": "evidence/research/historical_trial_traceability_v2.json",
+      "sha256": "999b9d0511fa80d329d599ddf0c948739759feb2922b0f7848df54f572f4456c",
+      "size_bytes": 26453
+    },
+    {
+      "path": "tests/reference_dsr.py",
+      "sha256": "b6c53ea0b552535aceba159e958723be285b91b86bdac836d2a39630a29dabbb",
+      "size_bytes": 5264
+    },
+    {
+      "path": "tests/reference_wrc.py",
+      "sha256": "9d53793fb4325643b33d4b493fd4bd0a9c81a662d07954533d62051f402fda45",
+      "size_bytes": 3343
+    },
+    {
+      "path": "tests/reference_pbo.py",
+      "sha256": "8c030334c08652b1877a8c2518eb4fe05914796cd0dd11f6a1a118b591cf5ab2",
+      "size_bytes": 3412
+    },
+    {
+      "path": "tests/fixtures/canonical_market_data/bithumb_krw_btc_orderbook_golden.json",
+      "sha256": "3ba97294cb239fbaec84befc0026696dada0e7d2416d6d6e82dbcbf504bb8410",
+      "size_bytes": 490
+    },
+    {
+      "path": "tests/fixtures/canonical_market_data/binance_btcusdt_trade_golden.json",
+      "sha256": "2fe920f23625b569e4f46e0707d2f1cfa3b8d974399a9619f9ea85e3f18d8ea9",
+      "size_bytes": 350
+    },
+    {
+      "path": "tests/fixtures/canonical_market_data/upbit_krw_btc_ticker_golden.json",
+      "sha256": "9a90fc29d69b3954301c4b6664dc23437235c03688f6eb2dbf95547ed67a1f98",
+      "size_bytes": 303
+    }
+  ],
+  "integrity_claims": {
+    "offline_only": true,
+    "network_isolated": true,
+    "live_soak_isolated": true,
+    "dsr_unit_reconciled": true,
+    "fail_closed_risk": true,
+    "cash_conservation_oracle": true
+  }
+}
