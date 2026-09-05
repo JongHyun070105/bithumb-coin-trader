@@ -53,12 +53,25 @@ class CanonicalOrderBook:
         return self.asks[0][0] if self.asks else 0.0
 
     @property
+    def best_bid_size(self) -> float:
+        return self.bids[0][1] if self.bids else 0.0
+
+    @property
+    def best_ask_size(self) -> float:
+        return self.asks[0][1] if self.asks else 0.0
+
+    @property
     def mid_price(self) -> float:
         return (self.best_bid + self.best_ask) / 2.0 if (self.best_bid > 0 and self.best_ask > 0) else 0.0
 
     @property
     def spread(self) -> float:
         return self.best_ask - self.best_bid if (self.best_bid > 0 and self.best_ask > 0) else 0.0
+
+    @property
+    def spread_bps(self) -> float:
+        mid = self.mid_price
+        return (self.spread / mid * 10_000.0) if mid > 0 else 0.0
 
     def compute_sha256(self) -> str:
         d = {

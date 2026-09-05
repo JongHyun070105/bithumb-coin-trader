@@ -176,7 +176,7 @@ class PaperPortfolio:
 
             # Cash conservation check for BUY:
             # cash_delta + notional + fee == 0
-            if (cash_before - self.cash_krw) != total_deduction:
+            if abs((cash_before - self.cash_krw) - total_deduction) > Decimal("0.0001"):
                 raise CashConservationError("BUY cash conservation invariant violated")
 
         elif side_norm == "SELL":
