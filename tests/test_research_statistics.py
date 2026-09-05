@@ -45,6 +45,32 @@ class ResearchStatisticsTests(unittest.TestCase):
         self.assertGreater(few.probability, many.probability)
         self.assertLess(few.expected_maximum_sharpe, many.expected_maximum_sharpe)
 
+    def test_deflated_sharpe_monotonicity_across_n_spectrum(self) -> None:
+        """Verify mathematical monotonicity of DSR terms: E[max(SR)] increases, DSR prob decreases."""
+        returns = [0.005, 0.01, -0.003, 0.008, -0.002] * 40
+        trial_sharpes = [0.1 * i for i in range(1, 20)]
+        n_spectrum = [1, 2, 3, 5, 10, 20, 40, 77, 100, 250, 500]
+
+        prev_benchmark = -float("inf")
+        prev_prob = float("inf")
+
+        for n in n_spectrum:
+            res = deflated_sharpe_ratio(returns, trial_sharpes=trial_sharpes, trial_count=n)
+            # 1. Expected maximum Sharpe must be non-decreasing with N
+            self.assertGreaterEqual(
+                res.expected_maximum_sharpe,
+                prev_benchmark - 1e-12,
+                f"Benchmark decreased at N={n}",
+            )
+            # 2. DSR probability must be non-increasing with N
+            self.assertLessEqual(
+                res.probability,
+                prev_prob + 1e-12,
+                f"DSR probability increased at N={n}",
+            )
+            prev_benchmark = res.expected_maximum_sharpe
+            prev_prob = res.probability
+
     def test_cscv_reports_exact_split_count(self) -> None:
         result = cscv_probability_backtest_overfitting(
             {
@@ -64,3 +90,4 @@ class ResearchStatisticsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
