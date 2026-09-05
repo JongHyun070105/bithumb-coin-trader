@@ -23,15 +23,21 @@ def calculate_deflated_sharpe_analytical(
     trial_sharpes: list[float],
     sample_length: int = 1200,
     trial_count: int | None = None,
+    periods_per_year: float = 365.25,
 ) -> tuple[float, float, float]:
-    """Analytical Deflated Sharpe Ratio calculation."""
+    """Analytical Deflated Sharpe Ratio calculation with consistent annualization scaling.
+    
+    Resolves the unit mismatch discrepancy:
+    If observed_sharpe and trial_sharpes are annualized, the asymptotic variance scales with periods_per_year.
+    The effective sample length in years is (sample_length - 1) / periods_per_year.
+    """
     N = trial_count if trial_count is not None else len(trial_sharpes)
     if N < 1 or len(trial_sharpes) < 1:
         return (0.0, 0.0, 0.0)
 
     sharpe_dispersion = pstdev(trial_sharpes)
     if sharpe_dispersion == 0:
-        sharpe_dispersion = 1.0 / sqrt(max(sample_length - 1, 1))
+        sharpe_dispersion = sqrt(periods_per_year / max(sample_length - 1, 1))
 
     normal = NormalDist()
     if N == 1:
@@ -43,8 +49,8 @@ def calculate_deflated_sharpe_analytical(
             + euler_gamma * normal.inv_cdf(1.0 - 1.0 / (N * e))
         )
 
-    # Simplified DSR Z-score assuming standard normality of returns
-    z = (observed_sharpe - expected_max) * sqrt(max(sample_length - 1, 1))
+    effective_years = max((sample_length - 1) / periods_per_year, 1e-6)
+    z = (observed_sharpe - expected_max) * sqrt(effective_years)
     prob = normal.cdf(z)
     return (observed_sharpe, expected_max, prob)
 

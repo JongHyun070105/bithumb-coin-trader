@@ -1,0 +1,675 @@
+{
+  "audit_findings": [
+    "Historical 77-record ledger captures lanes V1 through V6.",
+    "External research reports (Wave 3, Wave 4, WinRate70, Tauric, Strategy V7/V8) contain exploratory candidates that were analyzed or discarded without being assigned official trial IDs in the frozen ledger.",
+    "Ledger completeness cannot be formally proven due to unindexed exploratory experiments in historical research reports."
+  ],
+  "entries": [
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-001",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_1"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-002",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_2"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-003",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_3"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-004",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_4"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-005",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_5"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-006",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_6"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-007",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_7"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-008",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_8"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-009",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_9"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-010",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_10"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-011",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_11"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-012",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_12"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-013",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_13"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-014",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_14"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-015",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_15"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-016",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_16"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-017",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_17"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-018",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_18"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-019",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_19"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-020",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_20"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-021",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_21"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-022",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_22"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-023",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_23"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-024",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_24"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-025",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_25"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-026",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_26"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-027",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_27"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-028",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_28"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-029",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_29"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-030",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_30"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-031",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_31"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-032",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_32"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-033",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_33"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-034",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_34"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-035",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_35"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-036",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_36"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-037",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_37"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-038",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_38"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-039",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_39"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-040",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_40"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-041",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_41"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-042",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_42"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-043",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_43"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-044",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_44"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-045",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_45"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-046",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_46"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-047",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_47"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-048",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_48"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-049",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_49"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V1-050",
+      "lane": "V1_30m_Intraday",
+      "notes": "Officially registered trial in lane V1_30m_Intraday",
+      "strategy_name": "v1_intraday_wave_candidate_50"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V2-001",
+      "lane": "V2_Daily_Trend",
+      "notes": "Officially registered trial in lane V2_Daily_Trend",
+      "strategy_name": "daily_weekly_absolute_momentum_126_63"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V2-002",
+      "lane": "V2_Daily_Trend",
+      "notes": "Officially registered trial in lane V2_Daily_Trend",
+      "strategy_name": "daily_weekly_sma_trend_50_200"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V2-003",
+      "lane": "V2_Daily_Trend",
+      "notes": "Officially registered trial in lane V2_Daily_Trend",
+      "strategy_name": "daily_weekly_donchian_breakout_90_30"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V2-004",
+      "lane": "V2_Daily_Trend",
+      "notes": "Officially registered trial in lane V2_Daily_Trend",
+      "strategy_name": "daily_weekly_dual_momentum"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V3-001",
+      "lane": "V3_Target_Weight",
+      "notes": "Officially registered trial in lane V3_Target_Weight",
+      "strategy_name": "v3_e9_donchian_volatility"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V3-002",
+      "lane": "V3_Target_Weight",
+      "notes": "Officially registered trial in lane V3_Target_Weight",
+      "strategy_name": "v3_entry_volatility_absolute_momentum"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V3-003",
+      "lane": "V3_Target_Weight",
+      "notes": "Officially registered trial in lane V3_Target_Weight",
+      "strategy_name": "v3_majority_trend"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-001",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_adaptive_donchian_atr"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-002",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_triple_momentum_filter"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-003",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_trend_volatility_regime"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-004",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_trend_quality_filter"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-005",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_volatility_adjusted_momentum"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-006",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_kama_trend"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-007",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_52week_high_breakout"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V4-008",
+      "lane": "V4_Regime_Candidates",
+      "notes": "Officially registered trial in lane V4_Regime_Candidates",
+      "strategy_name": "v4_adx_kama_confluence"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v4_adaptive_donchian_atr",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v4_adaptive_donchian_atr"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v5_cross_asset_dual_momentum",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v5_cross_asset_dual_momentum"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v5_regime_adaptive_donchian",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v5_regime_adaptive_donchian"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v5_trend_pullback_fixed30",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v5_trend_pullback_fixed30"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v5_trend_pullback_kelly025",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v5_trend_pullback_kelly025"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V5-v5_trend_pullback_voltarget25",
+      "lane": "V5_PreRegistered",
+      "notes": "Officially registered trial in lane V5_PreRegistered",
+      "strategy_name": "v5_trend_pullback_voltarget25"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-SAT-v6_fast_donchian_swing",
+      "lane": "V6_Satellite_Standalone",
+      "notes": "Officially registered trial in lane V6_Satellite_Standalone",
+      "strategy_name": "v6_fast_donchian_swing"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-SAT-v6_daily_ema_pullback",
+      "lane": "V6_Satellite_Standalone",
+      "notes": "Officially registered trial in lane V6_Satellite_Standalone",
+      "strategy_name": "v6_daily_ema_pullback"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-SAT-v6_cross_asset_fast_rotation",
+      "lane": "V6_Satellite_Standalone",
+      "notes": "Officially registered trial in lane V6_Satellite_Standalone",
+      "strategy_name": "v6_cross_asset_fast_rotation"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-PORT-Core80_Sat20",
+      "lane": "V6_Composite_Exploration",
+      "notes": "Officially registered trial in lane V6_Composite_Exploration",
+      "strategy_name": "portfolio_v4_ema_pullback_Core80_Sat20"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-PORT-Core70_Sat30",
+      "lane": "V6_Composite_Exploration",
+      "notes": "Officially registered trial in lane V6_Composite_Exploration",
+      "strategy_name": "portfolio_v4_ema_pullback_Core70_Sat30"
+    },
+    {
+      "classification": "MATCHED",
+      "evidence_source": "trial_ledger_frozen_20260905.jsonl",
+      "identifier": "TRIAL-V6-PORT-Core60_Sat40",
+      "lane": "V6_Composite_Exploration",
+      "notes": "Officially registered trial in lane V6_Composite_Exploration",
+      "strategy_name": "portfolio_v4_ema_pullback_Core60_Sat40"
+    },
+    {
+      "classification": "NON-TRIAL_ANALYSIS",
+      "evidence_source": "krw-btc-candidate-study-2026-08-11.json",
+      "identifier": "REPORT-KRW-BTC-CANDIDATE-STUDY-2026-08-11",
+      "lane": "HISTORICAL_CANDIDATE_STUDY",
+      "notes": "Daily candidate exploratory screening.",
+      "strategy_name": "krw-btc-candidate-study-2026-08-11"
+    },
+    {
+      "classification": "NON-TRIAL_ANALYSIS",
+      "evidence_source": "krw-btc-candidate-study-2026-08-12.json",
+      "identifier": "REPORT-KRW-BTC-CANDIDATE-STUDY-2026-08-12",
+      "lane": "HISTORICAL_CANDIDATE_STUDY",
+      "notes": "Daily candidate exploratory screening.",
+      "strategy_name": "krw-btc-candidate-study-2026-08-12"
+    },
+    {
+      "classification": "NON-TRIAL_ANALYSIS",
+      "evidence_source": "krw-btc-wave3-study-2026-08-13.json",
+      "identifier": "REPORT-WAVE3-STUDY",
+      "lane": "HISTORICAL_EXPLORATORY_WAVE3",
+      "notes": "Exploratory parameter search reported prior to formal trial ledger initialization.",
+      "strategy_name": "Wave 3 Multi-Regime Study"
+    },
+    {
+      "classification": "NON-TRIAL_ANALYSIS",
+      "evidence_source": "krw-btc-wave4-study-2026-08-14.json",
+      "identifier": "REPORT-WAVE4-STUDY",
+      "lane": "HISTORICAL_EXPLORATORY_WAVE4",
+      "notes": "Adversarial historical study; rejected policy action.",
+      "strategy_name": "Wave 4 Adversarial Study"
+    },
+    {
+      "classification": "POSSIBLE_MISSING",
+      "evidence_source": "krw-btc-winrate70-research-2026-08-24.json",
+      "identifier": "REPORT-WINRATE70-STUDY",
+      "lane": "HISTORICAL_EXPLORATORY_WINRATE70",
+      "notes": "Contains multiple parameter combinations tested for high win-rate; not assigned official ledger IDs.",
+      "strategy_name": "WinRate 70 Parameter Sweep"
+    }
+  ],
+  "generated_at": "2026-09-05T07:18:30.050264+00:00",
+  "ledger_completeness_status": "NOT PROVEN",
+  "ledger_file": "evidence/research/trial_ledger_frozen_20260905.jsonl",
+  "ledger_record_count": 77,
+  "schema_version": "2.0.0",
+  "summary": {
+    "MATCHED": 77,
+    "NON-TRIAL_ANALYSIS": 4,
+    "POSSIBLE_MISSING": 1
+  }
+}
