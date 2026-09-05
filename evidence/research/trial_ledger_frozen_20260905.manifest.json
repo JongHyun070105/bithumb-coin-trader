@@ -1,0 +1,28 @@
+{
+  "schema_version": 1,
+  "manifest_id": "manifest-trial-ledger-frozen-20260905",
+  "created_at_utc": "2026-09-05T03:40:00Z",
+  "source_file": "reports/research_trial_ledger.jsonl",
+  "target_file": "evidence/research/trial_ledger_frozen_20260905.jsonl",
+  "sha256": "4b019ef6112b229c150fc25b23f5e264ff1171116fd39baaa4662c8deed5f90e",
+  "record_count": 77,
+  "trial_id_range": {
+    "first": "TRIAL-V1-001",
+    "last": "TRIAL-V6-C03"
+  },
+  "lane_breakdown": {
+    "V1_30m_Intraday": 50,
+    "V2_Daily_Trend": 4,
+    "V3_Target_Weight": 3,
+    "V4_Regime_Candidates": 8,
+    "V5_PreRegistered": 6,
+    "V6_Satellite_Standalone": 3,
+    "V6_Composite_Exploration": 3
+  },
+  "temporal_coverage": {
+    "first_created_at": "2026-08-11T00:00:00+00:00",
+    "last_created_at": "2026-08-25T18:00:00+00:00"
+  },
+  "sanitization_status": "CLEAN_NO_SECRETS_OR_LOCAL_PATHS",
+  "official_status": "FROZEN_HISTORICAL_EVIDENCE"
+}
