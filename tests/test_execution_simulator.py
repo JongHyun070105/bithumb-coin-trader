@@ -254,3 +254,124 @@ class TestLatencySimulation:
         assert res.is_filled
         assert res.adverse_selection_bps == 0.0
         assert res.vwap_price == clean_orderbook.best_ask
+
+    def test_ambiguous_order_mode_error(self):
+        from bithumb_coin_trader.execution_simulator import AmbiguousOrderModeError
+        with pytest.raises(AmbiguousOrderModeError):
+            MarketOrderRequest(
+                timestamp=1000,
+                side="BUY",
+                requested_amount_krw=10_000_000.0,
+                requested_quantity_btc=0.1,
+            )
+        with pytest.raises(AmbiguousOrderModeError):
+            MarketOrderRequest(
+                timestamp=1000,
+                side="BUY",
+                requested_amount_krw=None,
+                requested_quantity_btc=None,
+            )
+
+    def test_latency_fail_closed_insufficient_future_data(self):
+        book_t0 = OrderBookSnapshot(
+            timestamp=1000.0,
+            bids=((100_000_000.0, 1.0),),
+            asks=((100_100_000.0, 1.0),),
+        )
+        req = MarketOrderRequest(
+            timestamp=1000.0,
+            side="BUY",
+            requested_quantity_btc=0.5,
+            latency_delay_ms=200.0,  # Needs snapshot at >= 1000.2
+        )
+        res = DeterministicTakerSimulator.execute_with_latency(req, [book_t0], fail_closed=True)
+        assert res.is_rejected
+        assert res.rejection_reason == "INSUFFICIENT_FUTURE_DATA"
+
+    def test_latency_fail_closed_stale_book(self):
+        book_t0 = OrderBookSnapshot(
+            timestamp=1000.0,
+            bids=((100_000_000.0, 1.0),),
+            asks=((100_100_000.0, 1.0),),
+        )
+        # Snapshot is 10 seconds later, exceeding max_book_age_ms (5000ms)
+        book_t_stale = OrderBookSnapshot(
+            timestamp=1010.0,
+            bids=((100_000_000.0, 1.0),),
+            asks=((100_100_000.0, 1.0),),
+        )
+        req = MarketOrderRequest(
+            timestamp=1000.0,
+            side="BUY",
+            requested_quantity_btc=0.5,
+            latency_delay_ms=100.0,
+        )
+        res = DeterministicTakerSimulator.execute_with_latency(
+            req, [book_t0, book_t_stale], max_book_age_ms=5000.0, fail_closed=True
+        )
+        assert res.is_rejected
+        assert res.rejection_reason == "STALE_BOOK"
+
+    def test_cost_breakdown_decomposition(self, clean_orderbook: OrderBookSnapshot):
+        req = MarketOrderRequest(
+            timestamp=1000,
+            side="BUY",
+            requested_quantity_btc=2.5,  # Consumes level 1 (1.0 @ 100.1M) and level 2 (1.5 @ 100.2M)
+            fee_rate=0.0004,
+        )
+        res = DeterministicTakerSimulator.execute_order(req, clean_orderbook)
+        assert res.is_filled
+        assert res.half_spread_cost_krw > 0
+        assert res.depth_slippage_cost_krw > 0
+        assert res.fee_paid_krw > 0
+        # Verify sum matches total_cost_krw
+        computed_total = (
+            res.half_spread_cost_krw
+            + res.latency_slippage_cost_krw
+            + res.depth_slippage_cost_krw
+            + res.fee_paid_krw
+        )
+        assert pytest.approx(res.total_cost_krw) == computed_total
+
+    def test_canonical_orderbook_adapter(self):
+        from bithumb_coin_trader.canonical_market_data import CanonicalOrderBook
+        can_ob = CanonicalOrderBook(
+            exchange="bithumb",
+            market="KRW-BTC",
+            exchange_timestamp_ms=1725500000000,
+            receive_timestamp_ms=1725500000050,
+            bids=((100_000_000.0, 1.0),),
+            asks=((100_100_000.0, 1.0),),
+        )
+        req = MarketOrderRequest(
+            timestamp=1725500000.050,
+            side="BUY",
+            requested_quantity_btc=0.5,
+        )
+        res = DeterministicTakerSimulator.execute_order(req, can_ob)
+        assert res.is_filled
+        assert res.vwap_price == 100_100_000.0
+
+    def test_decimal_equivalence(self, clean_orderbook: OrderBookSnapshot):
+        # Quantity mode
+        req_qty = MarketOrderRequest(
+            timestamp=1000,
+            side="BUY",
+            requested_quantity_btc=2.34567891,
+        )
+        eq_qty = DeterministicTakerSimulator.verify_decimal_equivalence(req_qty, clean_orderbook)
+        assert eq_qty["equivalent"] is True
+        assert eq_qty["diff_qty"] < 1e-8
+        assert eq_qty["diff_krw"] < 1.0
+
+        # Amount mode
+        req_amt = MarketOrderRequest(
+            timestamp=1000,
+            side="BUY",
+            requested_amount_krw=150_000_000.0,
+        )
+        eq_amt = DeterministicTakerSimulator.verify_decimal_equivalence(req_amt, clean_orderbook)
+        assert eq_amt["equivalent"] is True
+        assert eq_amt["diff_qty"] < 1e-8
+        assert eq_amt["diff_krw"] < 1.0
+
