@@ -166,8 +166,7 @@ class TestTerminology:
         "100% verified",
         "fully verified",
     ]
-
-    WORKTREE = Path("/Users/macintosh/Documents/ChatGPT/bitcoin-trader-worktrees/72h-phase3")
+    WORKTREE = Path(__file__).resolve().parent.parent
 
     def _check_file(self, rel: str) -> list[str]:
         path = self.WORKTREE / rel
