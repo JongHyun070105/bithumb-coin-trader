@@ -48,7 +48,8 @@ def test_audit_empty_epoch_handles_cleanly(tmp_path: Path):
     auditor = SoakAuditor72H(epoch_dir)
     res = auditor.audit()
 
-    assert res["status"] == "PASS"
+    assert res["status"] == "FAIL"
+    assert "NO_RAW_EVIDENCE" in " ".join(res.get("blockers", []))
     assert res["summary"]["raw_files_count"] == 0
     assert res["summary"]["manifests_count"] == 0
 

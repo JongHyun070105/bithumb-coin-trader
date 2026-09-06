@@ -120,7 +120,7 @@ def parse_partition_path(rel_path: str | Path, manifest_meta: dict[str, Any] | N
     if len(parts) >= 4:
         exch = parts[-4].lower()
         strm = parts[-3].lower()
-        mkt = parts[-2].upper()
+        mkt = parts[-2]
         return exch, strm, mkt, hour
 
     return None
@@ -191,10 +191,12 @@ class SoakAuditor72H:
             manifest_files = list(self.epoch_dir.glob("manifests/**/manifest_*.json"))
 
         receipt_files = []
-        if self.receipts_dir.exists():
-            receipt_files.extend(list(self.receipts_dir.glob("**/*.archive-receipt.json")))
-            receipt_files.extend(list(self.receipts_dir.glob("**/receipt_*.json")))
-        full_scan_reports = list(self.receipts_dir.glob("**/full_scan_*_report.json")) if self.receipts_dir.exists() else []
+        full_scan_reports = []
+        for r_dir in [self.epoch_dir / "archive-receipts", self.epoch_dir / "receipts"]:
+            if r_dir.exists():
+                receipt_files.extend(list(r_dir.glob("**/*.archive-receipt.json")))
+                receipt_files.extend(list(r_dir.glob("**/receipt_*.json")))
+                full_scan_reports.extend(list(r_dir.glob("**/full_scan_*_report.json")))
 
         report["summary"]["raw_files_count"] = len(raw_files)
         report["summary"]["manifests_count"] = len(manifest_files)
@@ -205,10 +207,12 @@ class SoakAuditor72H:
         for r_file in receipt_files:
             try:
                 r_data = json.loads(r_file.read_text(encoding="utf-8"))
-                if r_data.get("state") == "FAILED":
+                if r_data.get("state") in ("FAILED", "FAIL") or r_data.get("status") in ("FAILED", "FAIL"):
                     report["blockers"].append(f"RECEIPT_FAILED: {r_file.name} recorded failure: {r_data.get('failure_reason')}")
+                if r_data.get("restore_verified") is False or r_data.get("restore_status") in ("FAILED", "FAIL"):
+                    report["blockers"].append(f"RESTORE_MISMATCH: {r_file.name} recorded restore verification failure")
             except Exception as e:
-                report["warnings"].append(f"Corrupt receipt {r_file.name}: {e}")
+                report["blockers"].append(f"RECEIPT_CORRUPT: Corrupt receipt {r_file.name}: {e}")
 
         for fs_file in full_scan_reports:
             try:
