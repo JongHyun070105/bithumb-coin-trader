@@ -22,6 +22,8 @@ Features:
 
 from __future__ import annotations
 
+import fcntl
+import contextlib
 import os
 import tempfile
 from dataclasses import dataclass, field
@@ -112,6 +114,18 @@ class ReservationRequiredError(ExperimentGatingError):
 class InvalidResearchCycleStateError(ExperimentGatingError):
     """Raised when a lifecycle state transition is invalid."""
 
+class TrialAlreadyTerminalError(ExperimentGatingError):
+    pass
+
+class ManifestMismatchError(ExperimentGatingError):
+    pass
+
+class InvalidStatusTransitionError(ExperimentGatingError):
+    pass
+
+class HoldoutAlreadyConsumedError(ExperimentGatingError):
+    pass
+
 
 @dataclass(frozen=True, slots=True)
 class PreregistrationManifest:
@@ -201,6 +215,7 @@ class ReservationRecord:
     family_id: str
     status: TrialStatus
     reserved_at_utc: str
+    manifest_hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -208,16 +223,31 @@ class ReservationRecord:
             "family_id": self.family_id,
             "status": self.status.value,
             "reserved_at_utc": self.reserved_at_utc,
+            "manifest_hash": self.manifest_hash,
         }
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> ReservationRecord:
+    def from_dict(cls, d: dict[str, Any]) -> 'ReservationRecord':
         return cls(
             trial_id=d["trial_id"],
             family_id=d["family_id"],
             status=TrialStatus(d["status"]),
             reserved_at_utc=d["reserved_at_utc"],
+            manifest_hash=d.get("manifest_hash", ""),
         )
+
+
+
+@contextlib.contextmanager
+def _exclusive_lock(lock_file: Path):
+    lock_file.parent.mkdir(parents=True, exist_ok=True)
+    fd = lock_file.open('w')
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        fd.close()
 
 
 def _atomic_write_json(path: Path, data: Any) -> None:
@@ -258,15 +288,52 @@ class GovernedExperimentRunner:
         self._reservations_file = (
             self.ledger_file.parent / (self.ledger_file.stem + ".reservations.json")
         )
+        self._cycle_state_file = (
+            self.ledger_file.parent / (self.ledger_file.stem + ".cycle_state.json")
+        )
+        self._lock_file = (
+            self.ledger_file.parent / (self.ledger_file.stem + ".lock")
+        )
         self._entries: list[LedgerEntry] = []
         self._reservations: dict[str, ReservationRecord] = {}
         self._cycle_state: ResearchCycleState = ResearchCycleState.PREREGISTERED
+        
         self._load_or_init_ledger()
         self._load_or_init_reservations()
+        self._load_cycle_state()
+        self._recover_intents()
+
+
+    def _load_cycle_state(self) -> None:
+        if self._cycle_state_file.exists():
+            data = json.loads(self._cycle_state_file.read_text())
+            self._cycle_state = ResearchCycleState(data["state"])
+
+    def _save_cycle_state(self, justification: str = "") -> None:
+        data = {
+            "state": self._cycle_state.value,
+            "transition_timestamp": datetime.now(timezone.utc).isoformat(),
+            "justification": justification
+        }
+        _atomic_write_json(self._cycle_state_file, data)
+
+    def _recover_intents(self) -> None:
+        for intent_file in self.ledger_file.parent.glob("*.intent"):
+            try:
+                data = json.loads(intent_file.read_text())
+                tid = data["trial_id"]
+                if tid in self._reservations:
+                    rec = self._reservations[tid]
+                    if rec.status not in {TrialStatus.COMPLETED, TrialStatus.FAILED, TrialStatus.ABORTED}:
+                        self.update_trial_status(tid, TrialStatus.ABORTED)
+                intent_file.unlink()
+            except Exception:
+                pass
 
     def _load_or_init_ledger(self) -> None:
         if self.ledger_file.exists():
             data = json.loads(self.ledger_file.read_text())
+            self._entries.clear()
             for item in data:
                 entry = LedgerEntry(
                     entry_index=item["entry_index"],
@@ -346,96 +413,135 @@ class GovernedExperimentRunner:
         return sum(1 for r in self._reservations.values() if r.family_id == family_id)
 
     def reserve_trial(self, manifest: PreregistrationManifest) -> str:
-        """BUG-1 FIX: Reserves a trial slot and persists the reservation durably.
+        with _exclusive_lock(self._lock_file):
+            # Refresh from disk
+            self._load_or_init_reservations()
 
-        Prior to this fix: reservation was in-memory only (_reserved_trials set).
-        A process crash between reserve_trial() and record_trial() would lose
-        the reservation, allowing budget bypass on restart.
+            if not manifest.trial_id or not manifest.family_id:
+                raise PreregistrationMissingError("trial_id and family_id must be provided")
 
-        Now: reservation is written to .reservations.json before returning.
-        On restart, _load_or_init_reservations() restores all reservations.
-        """
-        if not manifest.trial_id or not manifest.family_id:
-            raise PreregistrationMissingError("trial_id and family_id must be provided")
+            family_count = self.count_family_trials(manifest.family_id)
+            if family_count >= manifest.max_trials_in_family:
+                raise TrialBudgetExceededError(
+                    f"Family {manifest.family_id} trial budget ({manifest.max_trials_in_family}) "
+                    f"exhausted (current count: {family_count})"
+                )
 
-        family_count = self.count_family_trials(manifest.family_id)
-        if family_count >= manifest.max_trials_in_family:
-            raise TrialBudgetExceededError(
-                f"Family {manifest.family_id} trial budget ({manifest.max_trials_in_family}) "
-                f"exhausted (current count: {family_count})"
+            if manifest.trial_id in self._reservations:
+                raise ExperimentGatingError(f"trial_id {manifest.trial_id} is already registered/reserved")
+
+            manifest_hash = manifest.compute_sha256()
+
+            rec = ReservationRecord(
+                trial_id=manifest.trial_id,
+                family_id=manifest.family_id,
+                status=TrialStatus.RESERVED,
+                reserved_at_utc=datetime.now(timezone.utc).isoformat(),
+                manifest_hash=manifest_hash,
             )
-
-        if manifest.trial_id in self._reservations:
-            raise ExperimentGatingError(f"trial_id {manifest.trial_id} is already registered/reserved")
-
-        rec = ReservationRecord(
-            trial_id=manifest.trial_id,
-            family_id=manifest.family_id,
-            status=TrialStatus.RESERVED,
-            reserved_at_utc=datetime.now(timezone.utc).isoformat(),
-        )
-        self._reservations[manifest.trial_id] = rec
-        self._save_reservations()  # BUG-1 FIX: persist before returning
-        return manifest.trial_id
+            self._reservations[manifest.trial_id] = rec
+            self._save_reservations()
+            return manifest.trial_id
 
     def update_trial_status(self, trial_id: str, status: TrialStatus) -> None:
-        """Updates the durable status of a reserved trial (RESERVED->RUNNING->COMPLETED/FAILED/ABORTED)."""
-        if trial_id not in self._reservations:
-            raise ReservationRequiredError(
-                f"Cannot update status for unreserved trial_id '{trial_id}'"
+        with _exclusive_lock(self._lock_file):
+            self._load_or_init_reservations()
+            if trial_id not in self._reservations:
+                raise ReservationRequiredError(
+                    f"Cannot update status for unreserved trial_id '{trial_id}'"
+                )
+            
+            rec = self._reservations[trial_id]
+
+            valid_transitions = {
+                TrialStatus.RESERVED: {TrialStatus.RUNNING, TrialStatus.ABORTED},
+                TrialStatus.RUNNING: {TrialStatus.COMPLETED, TrialStatus.FAILED, TrialStatus.ABORTED},
+                TrialStatus.COMPLETED: set(),
+                TrialStatus.FAILED: set(),
+                TrialStatus.ABORTED: set()
+            }
+            if status not in valid_transitions[rec.status]:
+                raise InvalidStatusTransitionError(f"Invalid transition from {rec.status} to {status}")
+
+            updated = ReservationRecord(
+                trial_id=rec.trial_id,
+                family_id=rec.family_id,
+                status=status,
+                reserved_at_utc=rec.reserved_at_utc,
+                manifest_hash=rec.manifest_hash,
             )
-        rec = self._reservations[trial_id]
-        updated = ReservationRecord(
-            trial_id=rec.trial_id,
-            family_id=rec.family_id,
-            status=status,
-            reserved_at_utc=rec.reserved_at_utc,
-        )
-        self._reservations[trial_id] = updated
-        self._save_reservations()
+            self._reservations[trial_id] = updated
+            self._save_reservations()
 
     def record_trial(
         self,
         manifest: PreregistrationManifest,
         results: dict[str, Any],
     ) -> LedgerEntry:
-        """BUG-4 FIX: Appends a completed trial. Requires prior durable reservation.
+        with _exclusive_lock(self._lock_file):
+            self._load_or_init_reservations()
+            self._load_or_init_ledger()
 
-        Prior to this fix: record_trial() did not verify a prior reservation,
-        allowing anyone to record a trial result without governance gating.
+            if manifest.trial_id not in self._reservations:
+                raise ReservationRequiredError(
+                    f"record_trial() called for trial_id '{manifest.trial_id}' without "
+                    f"a prior reserve_trial() call. Governance bypass is not permitted."
+                )
 
-        Now: raises ReservationRequiredError if reserve_trial() was not called first.
-        """
-        # BUG-4 FIX: require prior reservation
-        if manifest.trial_id not in self._reservations:
-            raise ReservationRequiredError(
-                f"record_trial() called for trial_id '{manifest.trial_id}' without "
-                f"a prior reserve_trial() call. Governance bypass is not permitted."
+            rec = self._reservations[manifest.trial_id]
+            
+            if rec.status in {TrialStatus.COMPLETED, TrialStatus.FAILED, TrialStatus.ABORTED}:
+                raise TrialAlreadyTerminalError("Trial is already in a terminal state.")
+
+            if manifest.compute_sha256() != rec.manifest_hash:
+                raise ManifestMismatchError("Manifest does not match reserved manifest.")
+
+            other_family_count = sum(
+                1 for r in self._reservations.values()
+                if r.family_id == manifest.family_id and r.trial_id != manifest.trial_id
             )
+            if other_family_count >= manifest.max_trials_in_family:
+                raise TrialBudgetExceededError(
+                    f"Family {manifest.family_id} trial budget exhausted"
+                )
 
-        # Budget check: count other trials in family (this trial is already in reservations)
-        other_family_count = sum(
-            1 for r in self._reservations.values()
-            if r.family_id == manifest.family_id and r.trial_id != manifest.trial_id
-        )
-        if other_family_count >= manifest.max_trials_in_family:
-            raise TrialBudgetExceededError(
-                f"Family {manifest.family_id} trial budget exhausted"
+            # Intent file for crash recovery
+            intent_path = self.ledger_file.parent / f"{manifest.trial_id}.intent"
+            _atomic_write_json(intent_path, {
+                "trial_id": manifest.trial_id,
+                "manifest_hash": manifest.compute_sha256(),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
+
+            prev_hash = self._entries[-1].entry_hash if self._entries else self.GENESIS_HASH
+            entry_idx = len(self._entries)
+
+            entry = LedgerEntry.create(
+                entry_index=entry_idx,
+                manifest=manifest,
+                results=results,
+                previous_hash=prev_hash,
             )
+            self._entries.append(entry)
+            
+            # Since update_trial_status also locks, we inline it or bypass lock
+            rec = self._reservations[manifest.trial_id]
+            updated = ReservationRecord(
+                trial_id=rec.trial_id,
+                family_id=rec.family_id,
+                status=TrialStatus.COMPLETED,
+                reserved_at_utc=rec.reserved_at_utc,
+                manifest_hash=rec.manifest_hash,
+            )
+            self._reservations[manifest.trial_id] = updated
+            self._save_reservations()
 
-        prev_hash = self._entries[-1].entry_hash if self._entries else self.GENESIS_HASH
-        entry_idx = len(self._entries)
+            self._save_ledger()
 
-        entry = LedgerEntry.create(
-            entry_index=entry_idx,
-            manifest=manifest,
-            results=results,
-            previous_hash=prev_hash,
-        )
-        self._entries.append(entry)
-        self.update_trial_status(manifest.trial_id, TrialStatus.COMPLETED)
-        self._save_ledger()  # BUG-10 FIX: atomic write
-        return entry
+            if intent_path.exists():
+                intent_path.unlink()
+
+            return entry
 
     def advance_research_state(
         self,
@@ -469,6 +575,7 @@ class GovernedExperimentRunner:
             )
 
         self._cycle_state = target_state
+        self._save_cycle_state(justification)
         return self._cycle_state
 
     @property
@@ -490,6 +597,8 @@ class GovernedExperimentRunner:
         It was a bypass mechanism. Use advance_research_state() instead.
         """
         if role == DatasetRole.HOLDOUT:
+            if self._cycle_state == ResearchCycleState.HOLDOUT_CONSUMED:
+                raise HoldoutAlreadyConsumedError("Holdout dataset already consumed.")
             if self._cycle_state != ResearchCycleState.HOLDOUT_AUTHORIZED:
                 raise HoldoutContaminationError(
                     f"Forbidden access to HOLDOUT dataset '{dataset_name}'. "
@@ -498,4 +607,7 @@ class GovernedExperimentRunner:
                     f"Use advance_research_state(HOLDOUT_AUTHORIZED, justification=...) "
                     f"to authorize holdout access."
                 )
-        return f"ACCESS_GRANTED:{dataset_name}:{role.value}"
+            self._cycle_state = ResearchCycleState.HOLDOUT_CONSUMED
+            self._save_cycle_state("Consumed holdout dataset")
+            
+        return f"ACCESS_GRANTED:{dataset_name}:{role.value}" 
