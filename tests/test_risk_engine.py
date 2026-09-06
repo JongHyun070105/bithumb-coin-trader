@@ -1,3 +1,4 @@
+import dataclasses
 import pytest
 import math
 from bithumb_coin_trader.canonical_market_data import CanonicalOrderBook
@@ -330,3 +331,90 @@ def test_audit_context_hash_includes_side_and_params(clean_book):
     )
     assert audit_buy.context_hash != audit_sell.context_hash, \
         "BUY and SELL orders with same order_id must have different context hashes"
+import pytest
+from bithumb_coin_trader.risk_engine import RiskEngine, RiskEngineConfig, RiskVerdict, simulate_taker_execution
+
+def test_oversell_rejected(clean_book):
+    engine = RiskEngine()
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "sell_1", "SELL", 1_000_000.0, 20_000_000.0, 500_000.0, 0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.REJECT
+    assert any("INSUFFICIENT_POSITION" in r for r in reasons)
+
+def test_valid_sell_allowed(clean_book):
+    engine = RiskEngine()
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "sell_2", "SELL", 1_000_000.0, 20_000_000.0, 2_000_000.0, 0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.ALLOW
+
+def test_negative_position_halts(clean_book):
+    engine = RiskEngine()
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "neg_pos", "SELL", 100_000.0, 20_000_000.0, -100_000.0, 0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.HALT
+
+def test_future_dated_book_rejected(clean_book):
+    engine = RiskEngine()
+    # current_time_ms = 500, book = 1000
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "fut_book", "BUY", 100_000.0, 20_000_000.0, 0.0, 0.01, clean_book, 500
+    )
+    assert verdict == RiskVerdict.HALT
+    assert any("CLOCK_INVERSION" in r for r in reasons)
+
+def test_negative_daily_loss_fraction_halts(clean_book):
+    engine = RiskEngine()
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "neg_dlf", "BUY", 100_000.0, 20_000_000.0, 0.0, -0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.HALT
+
+def test_absurd_daily_loss_fraction_halts(clean_book):
+    engine = RiskEngine()
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "abs_dlf", "BUY", 100_000.0, 20_000_000.0, 0.0, 1.5, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.HALT
+
+def test_audit_sink_persists_decisions(tmp_path, clean_book):
+    sink_path = tmp_path / "audit.jsonl"
+    engine = RiskEngine(audit_sink_path=sink_path)
+    engine.evaluate_preflight("t1", "BUY", 100_000.0, 20_000_000.0, 0.0, 0.01, clean_book, 1050)
+    engine.evaluate_preflight("t2", "BUY", 100_000.0, 20_000_000.0, 0.0, 0.01, clean_book, 1050)
+    lines = sink_path.read_text().strip().split('\n')
+    assert len(lines) == 2
+
+def test_deep_book_allows_order(clean_book):
+    # Make a deep book
+    clean_book = dataclasses.replace(clean_book, asks=((100_050_000.0, 10.0),)) # 1B KRW depth
+    engine = RiskEngine(RiskEngineConfig(max_total_execution_cost_bps=80.0, taker_fee_bps=40.0))
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "dp", "BUY", 1_000_000.0, 20_000_000.0, 0.0, 0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.ALLOW
+
+def test_thin_book_triggers_slippage_reject(clean_book):
+    # Make a very thin book
+    clean_book = dataclasses.replace(clean_book, asks=((100_050_000.0, 0.001), (101_000_000.0, 1.0))) # 100k at best, then worse
+    engine = RiskEngine(RiskEngineConfig(max_total_execution_cost_bps=80.0, taker_fee_bps=40.0))
+    verdict, reasons, _ = engine.evaluate_preflight(
+        "thin", "BUY", 1_000_000.0, 20_000_000.0, 0.0, 0.01, clean_book, 1050
+    )
+    assert verdict == RiskVerdict.REJECT
+
+def test_spread_and_depth_not_double_counted():
+    # Write a test to simulate_taker_execution
+    levels = ((100, 1.0), (102, 1.0))
+    mid = 98.0
+    # mid=98, best_ask=100. spread_crossing = (100-98)/98 = ~204 bps
+    # order 150 -> fills 100 at 100, 50 at 102.
+    # size: 1.0 at 100, 50/102 at 102.
+    # vwap = 150 / (1.0 + 50/102)
+    # total cost, depth slippage, etc.
+    res = simulate_taker_execution("BUY", 150, levels, mid, 40.0)
+    assert res.spread_crossing_bps > 0
+    assert res.depth_slippage_bps > 0
+    assert res.total_execution_cost_bps == res.spread_crossing_bps + res.depth_slippage_bps + res.fee_bps

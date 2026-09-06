@@ -1,18 +1,4 @@
-"""Command Line Interface for Microstructure Research and Paper Simulation (P24).
-
-FORENSIC HARDENING (Phase 2.5):
-- BUG-6 FIXED: Added audit-quality, transform-canonical, partition-dataset subcommands.
-  Prior to this fix, POST_72H_OFFLINE_IMPORT_RUNBOOK.md referenced these commands
-  but they did not exist in research_cli.py. Running the runbook would fail immediately.
-
-Provides commands:
-- verify-ledger: cryptographically verifies the research experiment hash-chain ledger.
-- run-synthetic-sim: runs an end-to-end replay simulation on synthetic microstructure data.
-- power-plan: computes required sample size and detectable effect size for given horizon.
-- audit-quality: runs data quality checks on a directory of raw soak archives.
-- transform-canonical: converts raw exchange data to canonical format.
-- partition-dataset: applies temporal embargo partitioning to a canonical dataset.
-"""
+"""Command Line Interface for Microstructure Research and Paper Simulation (P24)."""
 
 from __future__ import annotations
 
@@ -66,12 +52,6 @@ def cmd_run_synthetic_sim(args: argparse.Namespace) -> int:
 
 
 def cmd_audit_quality(args: argparse.Namespace) -> int:
-    """BUG-6 FIX: audit-quality subcommand — runs data quality checks on raw soak archives.
-
-    SCOPE: This is a structural audit only. It checks for file existence, manifest JSON
-    validity, and basic schema compliance. It does NOT perform full DQ analysis.
-    For production use, implement per-record validation using data_quality_flags.py.
-    """
     import os
     input_dir = Path(args.input_dir)
     if not input_dir.exists():
@@ -85,11 +65,17 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
         "errors": [],
         "status": "UNKNOWN",
     }
+    
+    ndjson_count = 0
+    manifest_count = 0
 
     for fpath in sorted(input_dir.rglob("*")):
         if fpath.is_file():
             report["files_found"].append(str(fpath.relative_to(input_dir)))
+            if fpath.name.endswith(".ndjson.zst"):
+                ndjson_count += 1
             if fpath.name == "manifest.json":
+                manifest_count += 1
                 try:
                     data = json.loads(fpath.read_text())
                     report["manifest_files"].append({
@@ -97,65 +83,131 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
                         "valid_json": True,
                         "keys": list(data.keys()),
                     })
+                    if not data:
+                        report["errors"].append(f"Manifest missing required fields at {fpath}")
                 except json.JSONDecodeError as e:
                     report["errors"].append(f"Invalid manifest JSON at {fpath}: {e}")
 
-    report["status"] = "PASS" if not report["errors"] else "FAIL"
+    if not report["files_found"]:
+        report["status"] = "INCOMPLETE"
+    elif manifest_count == 0:
+        report["status"] = "STRUCTURAL_ONLY"
+    elif ndjson_count == 0:
+        report["status"] = "INCOMPLETE"
+    elif report["errors"]:
+        report["status"] = "FAIL"
+    else:
+        report["status"] = "STRUCTURAL_AUDIT_PASS"
+
     report_path = Path(args.report_out)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2))
     print(f"Audit complete: status={report['status']} files={len(report['files_found'])} errors={len(report['errors'])}")
     print(f"Report written to: {report_path}")
-    return 0 if report["status"] == "PASS" else 2
+    return 0 if report["status"] == "STRUCTURAL_AUDIT_PASS" else 2
 
 
 def cmd_transform_canonical(args: argparse.Namespace) -> int:
-    """BUG-6 FIX: transform-canonical subcommand — converts raw exchange data to canonical format.
+    import zstandard
+    from .canonical_market_data import CanonicalOrderBook, TimestampSemantics, write_canonical_ndjson_zstd
 
-    SCOPE: This is a structural stub implementation. Full conversion requires
-    exchange-specific adapters (Bithumb, Binance, Upbit) that read raw ndjson
-    and produce CanonicalOrderBook records.
-    For production use, implement per-exchange adapters in canonical_market_data.py.
-    """
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
+    exchange = args.exchange
 
     if not input_dir.exists():
         print(f"ERROR: Input directory not found: {input_dir}")
         return 1
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if exchange not in ("bithumb", "binance", "upbit"):
+        print(f"ERROR: Unsupported exchange {exchange}")
+        return 3
 
-    # Find raw ndjson.zst files
+    output_dir.mkdir(parents=True, exist_ok=True)
     raw_files = list(input_dir.rglob("*.ndjson.zst"))
-    print(f"Found {len(raw_files)} raw files in {input_dir}")
-    print(f"NOTICE: Full canonical transformation requires exchange-specific adapters.")
-    print(f"NOTICE: Implement per-exchange adapters before production use.")
-    print(f"Output directory: {output_dir}")
+    
+    total_canonicalized = 0
+    total_rejected = 0
+    reject_reasons = {}
+    
+    dctx = zstandard.ZstdDecompressor()
+    
+    for fpath in raw_files:
+        canonical_records = []
+        with open(fpath, "rb") as f:
+            with dctx.stream_reader(f) as reader:
+                import io
+                text = io.TextIOWrapper(reader, encoding="utf-8")
+                for line in text:
+                    line = line.strip()
+                    if not line: continue
+                    try:
+                        d = json.loads(line)
+                        if exchange == "bithumb":
+                            ob = CanonicalOrderBook(
+                                exchange="bithumb",
+                                market=d["market"].replace("_", "-"),
+                                exchange_timestamp_ms=d["timestamp"],
+                                receive_timestamp_ms=d["timestamp"],
+                                bids=tuple((float(b["price"]), float(b["quantity"])) for b in d["bids"]),
+                                asks=tuple((float(a["price"]), float(a["quantity"])) for a in d["asks"]),
+                                timestamp_semantics=TimestampSemantics.EXCHANGE_EVENT
+                            )
+                        elif exchange == "binance":
+                            data = d["data"]
+                            ob = CanonicalOrderBook(
+                                exchange="binance",
+                                market=d["stream"].split("@")[0].upper(),
+                                exchange_timestamp_ms=data["E"],
+                                receive_timestamp_ms=data["E"],
+                                bids=tuple((float(b[0]), float(b[1])) for b in data["b"]),
+                                asks=tuple((float(a[0]), float(a[1])) for a in data["a"]),
+                                timestamp_semantics=TimestampSemantics.EXCHANGE_EVENT
+                            )
+                        elif exchange == "upbit":
+                            units = d["orderbook_units"]
+                            bids = tuple((float(u["bid_price"]), float(u["bid_size"])) for u in units)
+                            asks = tuple((float(u["ask_price"]), float(u["ask_size"])) for u in units)
+                            ob = CanonicalOrderBook(
+                                exchange="upbit",
+                                market=d["code"],
+                                exchange_timestamp_ms=d["timestamp"],
+                                receive_timestamp_ms=d["timestamp"],
+                                bids=bids,
+                                asks=asks,
+                                timestamp_semantics=TimestampSemantics.EXCHANGE_EVENT
+                            )
+                        canonical_records.append(ob)
+                        total_canonicalized += 1
+                    except Exception as e:
+                        total_rejected += 1
+                        reason = type(e).__name__
+                        reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
+        
+        if canonical_records:
+            out_file = output_dir / f"canonical_{fpath.name}"
+            write_canonical_ndjson_zstd(out_file, canonical_records)
 
     transform_report = {
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
         "schema_version": args.schema_version,
         "files_found": [str(f.relative_to(input_dir)) for f in raw_files],
-        "status": "STUB_NOT_IMPLEMENTED",
-        "notice": "Full transformation requires exchange-specific adapters. See canonical_market_data.py.",
+        "status": "PASS",
+        "canonicalized_count": total_canonicalized,
+        "rejected_count": total_rejected,
+        "reject_reasons": reject_reasons,
     }
     (output_dir / "transform_report.json").write_text(json.dumps(transform_report, indent=2))
-    print("Transform stub complete. See transform_report.json for details.")
     return 0
 
 
-def cmd_partition_dataset(args: argparse.Namespace) -> int:
-    """BUG-6 FIX: partition-dataset subcommand — temporal embargo partitioning.
 
-    Reads a canonical ndjson.zst file and produces TRAIN/VALIDATION/HOLDOUT splits
-    with purge embargo windows.
-    """
+def cmd_partition_dataset(args: argparse.Namespace) -> int:
     from .canonical_market_data import CanonicalOrderBook
     from .prospective_dataset import (
-        partition_records_temporally,
         DqQualificationStatus,
+        DqQualificationEvidence,
         build_and_export_dataset,
     )
     import zstandard
@@ -166,9 +218,51 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
     if not input_file.exists():
         print(f"ERROR: Input file not found: {input_file}")
         return 1
+        
+    if not args.dq_report:
+        print("ERROR: --dq-report is required (DQ_EVIDENCE_REQUIRED)")
+        return 2
+        
+    dq_report_path = Path(args.dq_report)
+    if not dq_report_path.exists():
+        print(f"ERROR: DQ report not found at {dq_report_path}")
+        return 2
+        
+    try:
+        dq_data = json.loads(dq_report_path.read_text())
+        status_str = dq_data.get("status")
+        hard_fail_count = dq_data.get("hard_fail_count", 0)
+        justification = dq_data.get("justification", "")
+        
+        status = DqQualificationStatus(status_str)
+        if status not in (DqQualificationStatus.DQ_PASS, DqQualificationStatus.DQ_DEGRADED):
+            print(f"ERROR: DQ status {status} is not acceptable")
+            return 2
+            
+        dq_evidence = DqQualificationEvidence(
+            status=status,
+            auditor_version=dq_data.get("auditor_version", "1.0.0"),
+            audit_code_commit=dq_data.get("audit_code_commit", "unknown"),
+            source_manifest_hash=dq_data.get("source_manifest_hash", "unknown"),
+            report_hash=dq_data.get("report_hash", "unknown"),
+            created_at=dq_data.get("created_at", "unknown"),
+            criteria_version=dq_data.get("criteria_version", "unknown"),
+            hard_fail_count=hard_fail_count,
+            unknown_count=dq_data.get("unknown_count", 0),
+            degraded_count=dq_data.get("degraded_count", 0),
+            justification=justification,
+            approved_policy=dq_data.get("approved_policy", "default")
+        )
+    except Exception as e:
+        print(f"ERROR reading DQ report: {e}")
+        return 2
 
     # Read records from ndjson.zst
     records = []
+    source_line_count = 0
+    parsed_count = 0
+    malformed_count = 0
+    
     try:
         dctx = zstandard.ZstdDecompressor()
         with open(input_file, "rb") as f:
@@ -176,21 +270,30 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
                 import io
                 text = io.TextIOWrapper(reader, encoding="utf-8")
                 for line in text:
+                    source_line_count += 1
                     line = line.strip()
                     if not line:
                         continue
-                    d = json.loads(line)
                     try:
+                        d = json.loads(line)
+                        if "timestamp_semantics" in d:
+                            from .canonical_market_data import TimestampSemantics
+                            d["timestamp_semantics"] = TimestampSemantics(d["timestamp_semantics"])
                         ob = CanonicalOrderBook(**{
                             k: v for k, v in d.items()
                             if k in CanonicalOrderBook.__dataclass_fields__
                         })
                         records.append(ob)
+                        parsed_count += 1
                     except Exception:
-                        pass  # Skip malformed records
+                        malformed_count += 1
     except Exception as e:
         print(f"ERROR reading input file: {e}")
         return 1
+
+    if malformed_count > 0:
+        print(f"ERROR: Found {malformed_count} malformed records out of {source_line_count} total lines")
+        return 2
 
     print(f"Loaded {len(records)} records from {input_file}")
 
@@ -198,17 +301,22 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         print("ERROR: No records loaded. Cannot partition empty dataset.")
         return 1
 
-    # Sort records (required by partition_records_temporally)
-    records.sort(key=lambda r: r.receive_timestamp_ms)
-
     dataset_id = input_file.stem.replace(".ndjson", "")
-    manifest = build_and_export_dataset(
-        dataset_id=dataset_id,
-        output_dir=output_dir,
-        records=records,
-        dq_status=DqQualificationStatus.DQ_PASS,
-        purge_window_ms=args.purge_window_ms,
-    )
+    try:
+        manifest = build_and_export_dataset(
+            dataset_id=dataset_id,
+            output_dir=output_dir,
+            records=records,
+            dq_evidence=dq_evidence,
+            purge_window_ms=args.purge_window_ms,
+            train_frac=args.train_frac,
+            val_frac=args.val_frac,
+            allow_overwrite=True
+        )
+    except ValueError as e:
+        print(f"ERROR: {e}")
+        return 2
+        
     print(f"Partitioned: train={manifest.train_records} val={manifest.validation_records} holdout={manifest.holdout_records}")
     print(f"Manifest: {output_dir / 'manifest.json'}")
     return 0
@@ -233,21 +341,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_sim = sub.add_parser("run-synthetic-sim", help="Run deterministic synthetic market simulation")
     p_sim.add_argument("--count", type=int, default=100, help="Number of orderbook events")
 
-    # BUG-6 FIX: audit-quality
+    # audit-quality
     p_aq = sub.add_parser("audit-quality", help="Run data quality audit on raw soak archive directory")
     p_aq.add_argument("--input-dir", required=True, help="Directory containing raw soak archives")
     p_aq.add_argument("--report-out", default="reports/data_quality_report.json", help="Output report path")
 
-    # BUG-6 FIX: transform-canonical
+    # transform-canonical
     p_tc = sub.add_parser("transform-canonical", help="Transform raw exchange data to canonical format")
     p_tc.add_argument("--input-dir", required=True, help="Input directory with raw data")
     p_tc.add_argument("--output-dir", required=True, help="Output directory for canonical data")
     p_tc.add_argument("--schema-version", default="2.0.0", help="Schema version")
+    p_tc.add_argument("--exchange", required=False, default="bithumb", help="Exchange type")
 
-    # BUG-6 FIX: partition-dataset
+    # partition-dataset
     p_pd = sub.add_parser("partition-dataset", help="Temporally partition a canonical dataset with embargo windows")
     p_pd.add_argument("--input-file", required=True, help="Input canonical ndjson.zst file")
     p_pd.add_argument("--output-dir", required=True, help="Output directory for partitioned dataset")
+    p_pd.add_argument("--dq-report", required=False, help="DQ report evidence file")
     p_pd.add_argument("--train-frac", type=float, default=0.60, help="Train fraction")
     p_pd.add_argument("--val-frac", type=float, default=0.20, help="Validation fraction")
     p_pd.add_argument("--purge-window-ms", type=int, default=900_000, help="Embargo purge window in ms")

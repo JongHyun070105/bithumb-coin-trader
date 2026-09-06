@@ -55,6 +55,21 @@ class DqQualificationStatus(str, Enum):
     DQ_FAIL = "DQ_FAIL"         # DQ checks failed — dataset not usable
     DQ_UNKNOWN = "DQ_UNKNOWN"   # DQ not yet run
 
+@dataclass
+class DqQualificationEvidence:
+    status: DqQualificationStatus
+    auditor_version: str
+    audit_code_commit: str
+    source_manifest_hash: str
+    report_hash: str
+    created_at: str
+    criteria_version: str
+    hard_fail_count: int
+    unknown_count: int
+    degraded_count: int
+    justification: str
+    approved_policy: str
+
 
 class DqRejectedError(ValueError):
     """Raised when dataset build is attempted with DQ_FAIL or DQ_UNKNOWN status."""
@@ -226,32 +241,62 @@ def partition_records_temporally(
     )
     return splits, counts
 
+def _streaming_sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, 'rb') as f:
+        for chunk in iter(lambda: f.read(65536), b''):
+            h.update(chunk)
+    return h.hexdigest()
 
 def build_and_export_dataset(
-    dataset_id: str,
+    dataset_id: str | None,
     output_dir: Path | str,
     records: Sequence[CanonicalOrderBook],
-    dq_status: DqQualificationStatus,
+    dq_evidence: DqQualificationEvidence,
     purge_window_ms: int = 900_000,
+    train_frac: float = 0.60,
+    val_frac: float = 0.20,
+    allow_overwrite: bool = False,
 ) -> ProspectiveDatasetManifest:
-    """BUG-ADD: Partitions, compresses, and writes manifest for prospective dataset.
-
-    Now requires explicit DQ qualification status. Raises DqRejectedError if
-    DQ_FAIL or DQ_UNKNOWN to prevent building research datasets from unqualified data.
-
-    LIMITATION: dataset_id is caller-supplied. created_at_utc uses wall-clock time.
-    For deterministic IDs, derive dataset_id from SHA-256 of content.
-    """
-    if dq_status in (DqQualificationStatus.DQ_FAIL, DqQualificationStatus.DQ_UNKNOWN):
+    """BUG-ADD: Partitions, compresses, and writes manifest for prospective dataset."""
+    
+    if dq_evidence.status in (DqQualificationStatus.DQ_FAIL, DqQualificationStatus.DQ_UNKNOWN):
         raise DqRejectedError(
-            f"Cannot build research dataset with DQ status '{dq_status.value}'. "
-            f"Run data quality checks and pass DQ_PASS or DQ_DEGRADED (with documented justification)."
+            f"Cannot build research dataset with DQ status '{dq_evidence.status.value}'. "
         )
+    if dq_evidence.status == DqQualificationStatus.DQ_PASS and dq_evidence.hard_fail_count > 0:
+        raise DqRejectedError("DQ_PASS requires hard_fail_count == 0")
+    if dq_evidence.status == DqQualificationStatus.DQ_DEGRADED:
+        if dq_evidence.hard_fail_count > 0:
+            raise DqRejectedError("DQ_DEGRADED requires hard_fail_count == 0")
+        if not dq_evidence.justification:
+            raise DqRejectedError("DQ_DEGRADED requires non-empty justification")
+            
+    if records:
+        exchange = records[0].exchange
+        market = records[0].market
+        for r in records:
+            if r.exchange != exchange or r.market != market:
+                raise ValueError("MIXED_DATASET: All records must share the same exchange and market")
 
     out = Path(output_dir)
+    if out.exists() and any(out.iterdir()) and not allow_overwrite:
+        raise FileExistsError(f"Output directory {out} already exists and is non-empty")
     out.mkdir(parents=True, exist_ok=True)
+    
+    if not dataset_id:
+        id_source = json.dumps({
+            "source_manifest_hash": dq_evidence.source_manifest_hash,
+            "partition_config": {
+                "train_frac": train_frac,
+                "val_frac": val_frac,
+                "purge_window_ms": purge_window_ms
+            },
+            "schema_version": "2.0.0"
+        }, sort_keys=True)
+        dataset_id = hashlib.sha256(id_source.encode()).hexdigest()[:16]
 
-    splits, counts = partition_records_temporally(records, purge_window_ms=purge_window_ms)
+    splits, counts = partition_records_temporally(records, train_frac=train_frac, val_frac=val_frac, purge_window_ms=purge_window_ms)
 
     partition_meta: dict[str, PartitionMetadata] = {}
 
@@ -260,10 +305,7 @@ def build_and_export_dataset(
         fpath = out / fname
         write_canonical_ndjson_zstd(fpath, recs)
 
-        # BUG-ADD: streaming hash is preferable for large files; here we use read_bytes()
-        # which is NOT safe for very large datasets. Marked as TEST_ONLY for large data.
-        content_bytes = fpath.read_bytes()  # NOTE: unsafe for large files, use streaming hash in production
-        file_sha = hashlib.sha256(content_bytes).hexdigest()
+        file_sha = _streaming_sha256(fpath)
 
         start_ts = recs[0].receive_timestamp_ms if recs else 0
         end_ts = recs[-1].receive_timestamp_ms if recs else 0
@@ -288,11 +330,14 @@ def build_and_export_dataset(
         embargo1_dropped=counts.embargo1_dropped_count,
         embargo2_dropped=counts.embargo2_dropped_count,
         purge_window_ms=purge_window_ms,
-        dq_status=dq_status.value,
+        dq_status=dq_evidence.status.value,
         partitions=partition_meta,
         created_at_utc=datetime.now(timezone.utc).isoformat(),
     )
 
     manifest_path = out / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest.to_dict(), indent=2))
+    tmp = manifest_path.with_suffix('.tmp')
+    tmp.write_text(json.dumps(manifest.to_dict(), indent=2))
+    tmp.replace(manifest_path)
+    
     return manifest
