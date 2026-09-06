@@ -131,6 +131,34 @@ class LedgerRecoveryError(ExperimentGatingError):
     pass
 
 
+import re
+
+SAFE_IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9_\-]+$")
+
+
+def validate_safe_identifier(identifier: str) -> str:
+    """Validate that identifier contains only alphanumeric, _, - and no path traversal or null bytes."""
+    if not isinstance(identifier, str) or not identifier.strip():
+        raise ValueError("UNSAFE_IDENTIFIER: Identifier must be a non-empty string")
+    if "\0" in identifier or "/" in identifier or "\\" in identifier or ".." in identifier:
+        raise ValueError(f"UNSAFE_IDENTIFIER: Path traversal or invalid characters in {identifier!r}")
+    if not SAFE_IDENTIFIER_PATTERN.match(identifier):
+        raise ValueError(f"UNSAFE_IDENTIFIER: Identifier contains illegal characters: {identifier!r}")
+    return identifier
+
+
+@dataclass(frozen=True)
+class ResearchCyclePolicy:
+    cycle_id: str
+    allowed_feature_families: dict[str, int]
+    max_total_trials: int = 10
+
+    def __post_init__(self) -> None:
+        validate_safe_identifier(self.cycle_id)
+        for fam in self.allowed_feature_families:
+            validate_safe_identifier(fam)
+
+
 @dataclass(frozen=True, slots=True)
 class PreregistrationManifest:
     trial_id: str
@@ -140,6 +168,10 @@ class PreregistrationManifest:
     target_horizon_ms: int
     sample_budget: int
     max_trials_in_family: int = 9
+
+    def __post_init__(self) -> None:
+        validate_safe_identifier(self.trial_id)
+        validate_safe_identifier(self.family_id)
 
     def compute_sha256(self) -> str:
         d = {
@@ -287,8 +319,13 @@ class GovernedExperimentRunner:
 
     GENESIS_HASH = "0" * 64
 
-    def __init__(self, ledger_file: Path | str) -> None:
+    def __init__(
+        self,
+        ledger_file: Path | str,
+        policy: ResearchCyclePolicy | None = None,
+    ) -> None:
         self.ledger_file = Path(ledger_file)
+        self.policy = policy
         self._reservations_file = (
             self.ledger_file.parent / (self.ledger_file.stem + ".reservations.json")
         )
@@ -463,10 +500,29 @@ class GovernedExperimentRunner:
             if not manifest.trial_id or not manifest.family_id:
                 raise PreregistrationMissingError("trial_id and family_id must be provided")
 
+            validate_safe_identifier(manifest.trial_id)
+            validate_safe_identifier(manifest.family_id)
+
+            if self.policy is not None:
+                if manifest.family_id not in self.policy.allowed_feature_families:
+                    raise ExperimentGatingError(
+                        f"DISALLOWED_FAMILY: family_id '{manifest.family_id}' is not in allowed_feature_families: "
+                        f"{list(self.policy.allowed_feature_families.keys())}"
+                    )
+                allowed_family_limit = self.policy.allowed_feature_families[manifest.family_id]
+                effective_family_limit = min(manifest.max_trials_in_family, allowed_family_limit)
+
+                if len(self._reservations) >= self.policy.max_total_trials:
+                    raise TrialBudgetExceededError(
+                        f"Cycle total trial budget ({self.policy.max_total_trials}) exhausted"
+                    )
+            else:
+                effective_family_limit = manifest.max_trials_in_family
+
             family_count = self.count_family_trials(manifest.family_id)
-            if family_count >= manifest.max_trials_in_family:
+            if family_count >= effective_family_limit:
                 raise TrialBudgetExceededError(
-                    f"Family {manifest.family_id} trial budget ({manifest.max_trials_in_family}) "
+                    f"Family {manifest.family_id} trial budget ({effective_family_limit}) "
                     f"exhausted (current count: {family_count})"
                 )
 
@@ -652,3 +708,7 @@ class GovernedExperimentRunner:
                 self._save_cycle_state("Consumed holdout dataset")
 
         return f"ACCESS_GRANTED:{dataset_name}:{role.value}"
+
+
+# Phase 5 Alias for GovernedExperimentRunner
+ExperimentLedger = GovernedExperimentRunner
