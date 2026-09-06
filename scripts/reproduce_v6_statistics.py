@@ -58,6 +58,7 @@ def calculate_deflated_sharpe_analytical(
 def reproduce_v6(
     ledger_path: Path,
     report_path: Path | None = None,
+    target_trial_id: str = "TRIAL-V6-PORT-Core60_Sat40",
     expected_dsr: float = 0.6147,
     tolerance: float = 0.005,
     periods_per_year: float = 365.25,
@@ -117,13 +118,18 @@ def reproduce_v6(
         })
         print(f"{t_id:<38} | {sr:>7.4f} | {ret:>8.2%} | {mdd:>6.2%} | {dsr_prob:>9.4f}")
 
-    # Benchmark candidate: closest to 0.6147 (e.g. TRIAL-V6-PORT-Core60_Sat40)
-    best_match = min(evaluated_candidates, key=lambda c: abs(c["dsr"] - expected_dsr))
+    # Benchmark candidate: predeclared target trial (P10.1 - avoid circular best-match search)
+    target_match = next((c for c in evaluated_candidates if c["trial_id"] == target_trial_id), None)
+    if target_match is None:
+        print(f"ERROR: Predeclared target trial '{target_trial_id}' not found in candidates", file=sys.stderr)
+        return 1
+
+    best_match = target_match
     abs_error = abs(best_match["dsr"] - expected_dsr)
     tolerance_satisfied = abs_error <= tolerance
 
     print("-" * 80)
-    print(f"Benchmark Match: {best_match['trial_id']}")
+    print(f"Predeclared Benchmark Match: {best_match['trial_id']}")
     print(f"Observed Sharpe: {best_match['observed_sharpe']:.4f}")
     print(f"Expected Max Sharpe: {best_match['expected_max_sharpe']:.4f}")
     print(f"Sample T: 1200, Periods/Year: {periods_per_year}")
@@ -134,6 +140,8 @@ def reproduce_v6(
 
     summary_json_data = {
         "status": "RESOLVED_ANALYTICAL_SUMMARY" if tolerance_satisfied else "FAILED",
+        "dsr_helper_unit_bug": "RESOLVED",
+        "historical_61_47_raw_reproduction": "INCONCLUSIVE_INPUT_EVIDENCE",
         "raw_input_evidence_status": "INCONCLUSIVE_INPUT_EVIDENCE",
         "raw_input_evidence_note": "Frozen ledger contains summary trial statistics (observed_sharpe), not per-bar daily return series.",
         "target_trial_id": best_match["trial_id"],
@@ -208,6 +216,12 @@ def main() -> int:
         help="Path to V6 research report JSON",
     )
     parser.add_argument(
+        "--trial-id",
+        type=str,
+        default="TRIAL-V6-PORT-Core60_Sat40",
+        help="Predeclared target trial ID (default: TRIAL-V6-PORT-Core60_Sat40)",
+    )
+    parser.add_argument(
         "--expected-dsr",
         type=float,
         default=0.6147,
@@ -235,6 +249,7 @@ def main() -> int:
     return reproduce_v6(
         args.ledger,
         args.report,
+        target_trial_id=args.trial_id,
         expected_dsr=args.expected_dsr,
         tolerance=args.tolerance,
         periods_per_year=args.periods_per_year,
