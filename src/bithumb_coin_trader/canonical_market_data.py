@@ -206,12 +206,15 @@ class CanonicalTicker:
     last_price: float
     volume_24h: float | None = None
     schema_version: str = "2.0.0"
+    exchange_timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_PUBLICATION
     timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_PUBLICATION
     receive_monotonic_ns: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         sem = self.timestamp_semantics
         sem_val = sem.value if hasattr(sem, "value") else str(sem)
+        exch_sem = self.exchange_timestamp_semantics
+        exch_sem_val = exch_sem.value if hasattr(exch_sem, "value") else str(exch_sem)
         return {
             "exchange": self.exchange,
             "market": self.market,
@@ -220,12 +223,14 @@ class CanonicalTicker:
             "last_price": self.last_price,
             "volume_24h": self.volume_24h,
             "schema_version": self.schema_version,
+            "exchange_timestamp_semantics": exch_sem_val,
             "timestamp_semantics": sem_val,
             "receive_monotonic_ns": self.receive_monotonic_ns,
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> CanonicalTicker:
+        exch_sem_val = d.get("exchange_timestamp_semantics") or d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_PUBLICATION.value)
         ticker = cls(
             exchange=str(d["exchange"]),
             market=str(d["market"]),
@@ -234,6 +239,7 @@ class CanonicalTicker:
             last_price=float(d["last_price"]),
             volume_24h=float(d["volume_24h"]) if d.get("volume_24h") is not None else None,
             schema_version=str(d.get("schema_version", "2.0.0")),
+            exchange_timestamp_semantics=TimestampSemantics(exch_sem_val),
             timestamp_semantics=TimestampSemantics(d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_PUBLICATION.value)),
             receive_monotonic_ns=int(d["receive_monotonic_ns"]) if d.get("receive_monotonic_ns") is not None else None,
         )
@@ -422,19 +428,28 @@ def raw_record_to_canonical(
     if not market or market in ("UNKNOWN", ""):
         market = str(payload.get("code", payload.get("market", payload.get("s", "")))).replace("_", "-").upper()
 
-    # 1. Parse local_recv_ts (strict validation: if present, cannot be malformed)
+    # 1. Parse local_recv_ts (strict validation: required in raw envelope contract)
     local_recv_ms = None
     if "local_recv_ts" in record and record["local_recv_ts"] is not None:
         raw_val = record["local_recv_ts"]
         try:
-            dt = datetime.fromisoformat(str(raw_val))
-            local_recv_ms = int(dt.timestamp() * 1000)
+            if isinstance(raw_val, (int, float)):
+                local_recv_ms = int(raw_val)
+            else:
+                try:
+                    local_recv_ms = int(raw_val)
+                except ValueError:
+                    dt = datetime.fromisoformat(str(raw_val))
+                    local_recv_ms = int(dt.timestamp() * 1000)
         except Exception as err:
             raise CanonicalDataValidationError(f"MALFORMED_LOCAL_RECV_TS: {raw_val}") from err
     elif "receive_timestamp_ms" in record and record["receive_timestamp_ms"] is not None:
         local_recv_ms = int(record["receive_timestamp_ms"])
     elif "local_receive_ms" in record and record["local_receive_ms"] is not None:
         local_recv_ms = int(record["local_receive_ms"])
+
+    if local_recv_ms is None:
+        raise CanonicalDataValidationError("MISSING_LOCAL_RECEIVE_TIMESTAMP: local_recv_ts is required")
 
     monotonic_ns = record.get("local_recv_monotonic_ns") or record.get("receive_monotonic_ns")
     if monotonic_ns is not None:
@@ -443,13 +458,19 @@ def raw_record_to_canonical(
         except (ValueError, TypeError):
             monotonic_ns = None
 
-    # 2. Parse exchange_ts (prefer top-level normalized ISO string)
+    # 2. Parse exchange_ts (prefer top-level normalized ISO string or numeric ms)
     exch_ts_ms = None
     if "exchange_ts" in record and record["exchange_ts"] is not None:
         raw_val = record["exchange_ts"]
         try:
-            dt = datetime.fromisoformat(str(raw_val))
-            exch_ts_ms = int(dt.timestamp() * 1000)
+            if isinstance(raw_val, (int, float)):
+                exch_ts_ms = int(raw_val)
+            else:
+                try:
+                    exch_ts_ms = int(raw_val)
+                except ValueError:
+                    dt = datetime.fromisoformat(str(raw_val))
+                    exch_ts_ms = int(dt.timestamp() * 1000)
         except Exception as err:
             raise CanonicalDataValidationError(f"MALFORMED_EXCHANGE_TS: {raw_val}") from err
 
@@ -504,9 +525,13 @@ def raw_record_to_canonical(
                     raw_asks.append((float(u["ask_price"]), float(u["ask_size"])))
             elif "bids" in payload and "asks" in payload:
                 for b in payload["bids"]:
-                    raw_bids.append((float(b["price"]), float(b["quantity"])))
+                    p_val = b[0] if isinstance(b, (list, tuple)) else b["price"]
+                    q_val = b[1] if isinstance(b, (list, tuple)) else b["quantity"]
+                    raw_bids.append((float(p_val), float(q_val)))
                 for a in payload["asks"]:
-                    raw_asks.append((float(a["price"]), float(a["quantity"])))
+                    p_val = a[0] if isinstance(a, (list, tuple)) else a["price"]
+                    q_val = a[1] if isinstance(a, (list, tuple)) else a["quantity"]
+                    raw_asks.append((float(p_val), float(q_val)))
         elif exch == "binance":
             data = payload.get("data", payload)
             for b in data.get("b", []):
@@ -522,18 +547,28 @@ def raw_record_to_canonical(
         if not raw_bids or not raw_asks:
             raise CanonicalDataValidationError(f"Empty bids or asks for orderbook: bids={len(raw_bids)}, asks={len(raw_asks)}")
 
-        # Sort and deduplicate bids (descending) and asks (ascending)
-        bids_dict: dict[float, float] = {}
-        for p, s in sorted(raw_bids, key=lambda x: x[0], reverse=True):
-            if p not in bids_dict:
-                bids_dict[p] = s
-        asks_dict: dict[float, float] = {}
-        for p, s in sorted(raw_asks, key=lambda x: x[0], reverse=False):
-            if p not in asks_dict:
-                asks_dict[p] = s
+        # P12: Raw data invariant validation (no silent repair)
+        seen_bids: set[float] = set()
+        for i, (p, s) in enumerate(raw_bids):
+            if p in seen_bids:
+                raise CanonicalDataValidationError(f"ORDERBOOK_INVARIANT_VIOLATION: duplicate bid price level {p}")
+            seen_bids.add(p)
+            if i > 0 and p >= raw_bids[i - 1][0]:
+                raise CanonicalDataValidationError(f"UNSORTED_BIDS: bids must be sorted descending, got {p} >= {raw_bids[i-1][0]}")
 
-        sorted_bids = tuple((p, s) for p, s in bids_dict.items())
-        sorted_asks = tuple((p, s) for p, s in asks_dict.items())
+        seen_asks: set[float] = set()
+        for i, (p, s) in enumerate(raw_asks):
+            if p in seen_asks:
+                raise CanonicalDataValidationError(f"ORDERBOOK_INVARIANT_VIOLATION: duplicate ask price level {p}")
+            seen_asks.add(p)
+            if i > 0 and p <= raw_asks[i - 1][0]:
+                raise CanonicalDataValidationError(f"UNSORTED_ASKS: asks must be sorted ascending, got {p} <= {raw_asks[i-1][0]}")
+
+        if raw_bids[0][0] >= raw_asks[0][0]:
+            raise CanonicalDataValidationError(f"ORDERBOOK_INVARIANT_VIOLATION: crossed book best_bid {raw_bids[0][0]} >= best_ask {raw_asks[0][0]}")
+
+        sorted_bids = tuple(raw_bids)
+        sorted_asks = tuple(raw_asks)
 
         rec_schema_ver = str(record.get("schema_version", "2.0.0"))
         ob = CanonicalOrderBook(
@@ -559,32 +594,36 @@ def raw_record_to_canonical(
         side = "BUY"
 
         if exch == "bithumb":
-            trade_id = str(payload.get("trade_id") or payload.get("sequential_id") or payload.get("cont_no") or f"bithumb_{exch_ts_ms}")
+            t_val = payload.get("trade_id") or payload.get("sequential_id") or payload.get("cont_no")
+            trade_id = str(t_val) if t_val is not None and str(t_val).strip() else None
             price = float(payload.get("trade_price") or payload.get("price", 0.0))
             quantity = float(payload.get("trade_volume") or payload.get("volume") or payload.get("units_traded", 0.0))
             ask_bid = str(payload.get("ask_bid", "")).upper()
             side = "SELL" if ask_bid in ("ASK", "SELL") else "BUY"
         elif exch == "binance":
             data = payload.get("data", payload)
-            trade_id = str(data.get("t") or data.get("trade_id", f"binance_{exch_ts_ms}"))
+            t_val = data.get("t") or data.get("trade_id")
+            trade_id = str(t_val) if t_val is not None and str(t_val).strip() else None
             price = float(data.get("p") or data.get("price", 0.0))
             quantity = float(data.get("q") or data.get("quantity", 0.0))
             is_buyer_maker = bool(data.get("m", False))
             side = "SELL" if is_buyer_maker else "BUY"
         elif exch == "upbit":
-            trade_id = str(payload.get("sequential_id") or payload.get("trade_id", f"upbit_{exch_ts_ms}"))
+            t_val = payload.get("sequential_id") or payload.get("trade_id")
+            trade_id = str(t_val) if t_val is not None and str(t_val).strip() else None
             price = float(payload.get("trade_price") or payload.get("price", 0.0))
             quantity = float(payload.get("trade_volume") or payload.get("volume", 0.0))
             ask_bid = str(payload.get("ask_bid", "")).upper()
             side = "SELL" if ask_bid in ("ASK", "SELL") else "BUY"
         else:
-            trade_id = str(payload.get("trade_id", f"trade_{exch_ts_ms}"))
+            t_val = payload.get("trade_id")
+            trade_id = str(t_val) if t_val is not None and str(t_val).strip() else None
             price = float(payload.get("price", 0.0))
             quantity = float(payload.get("quantity", 0.0))
             side = str(payload.get("aggressor_side", "BUY")).upper()
 
-        if local_recv_ms is None:
-            local_recv_ms = exch_ts_ms
+        if not trade_id:
+            raise CanonicalDataValidationError("MISSING_TRADE_ID: trade payload lacks valid exchange trade identifier")
 
         rec_schema_ver = str(record.get("schema_version", "2.0.0"))
         trade = CanonicalTrade(
@@ -605,9 +644,7 @@ def raw_record_to_canonical(
         return trade
 
     elif stream == "ticker":
-        last_price = float(payload.get("trade_price", payload.get("last_price", payload.get("c", 0.0))))
-        if local_recv_ms is None:
-            local_recv_ms = exch_ts_ms
+        last_price = float(payload.get("trade_price", payload.get("last_price", payload.get("c", payload.get("closing_price", 0.0)))))
         rec_schema_ver = str(record.get("schema_version", "2.0.0"))
         ticker = CanonicalTicker(
             exchange=exch,

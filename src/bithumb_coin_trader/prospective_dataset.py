@@ -417,8 +417,8 @@ def build_and_export_dataset(
         partition_config_hash = hashlib.sha256(partition_config_str.encode("utf-8")).hexdigest()
         canonical_content_hash = hashlib.sha256(";".join(sorted(content_hash_parts)).encode("utf-8")).hexdigest()
 
-        canon_commit = canonicalizer_commit or dq_evidence.audit_code_commit
-        builder_commit = dataset_builder_commit or dq_evidence.audit_code_commit
+        canon_commit = canonicalizer_commit or "standalone-canonicalizer"
+        builder_commit = dataset_builder_commit or "standalone-builder"
 
         canon_schema_ver = getattr(records[0], "schema_version", "2.0.0") if records else "2.0.0"
 

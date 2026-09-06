@@ -18,12 +18,18 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 import hashlib
+import io
 import json
 import math
 from pathlib import Path
 import re
 import sys
 from typing import Any
+
+try:
+    import zstandard
+except ImportError:
+    zstandard = None
 
 # Frozen 72H feed universe: 76 feeds per hour
 EXPECTED_BITHUMB_20 = [
@@ -78,18 +84,9 @@ class TimestampStats:
 
 
 def parse_partition_path(rel_path: str | Path, manifest_meta: dict[str, Any] | None = None) -> tuple[str, str, str, str] | None:
-    """Extract (exchange, stream, market, hour) from partition path and manifest metadata.
-
-    Prefers manifest metadata when provided.
-    Supports both layout styles:
-    - raw/YYYY-MM-DD/exchange/stream/exchange_stream_market_YYYY-MM-DD_HH.jsonl
-    - raw/exchange/stream/market/YYYYMMDD_HH.jsonl
-    """
+    """Extract (exchange, stream, market, hour) from partition path and manifest metadata."""
     p = Path(rel_path)
-    filename = p.name
-
-    # Extract hour string from filename or path
-    hour_match = re.search(r"(\d{4}-\d{2}-\d{2}_\d{2}|\d{8}_\d{2}|\d{4}-\d{2}-\d{2}/\d{2})", str(rel_path))
+    hour_match = re.search(r"(\d{4}-?\d{2}-?\d{2}[-_]\d{2}|\d{8}[-_]\d{2})", str(rel_path))
     hour = hour_match.group(1).replace("/", "_") if hour_match else "unknown"
 
     if manifest_meta:
@@ -99,24 +96,38 @@ def parse_partition_path(rel_path: str | Path, manifest_meta: dict[str, Any] | N
         if exch and strm and mkt:
             return exch, strm, mkt, hour
 
-    parts = p.parts
-    # Case 1: exchange_stream_market_date_hour.jsonl
+    # Hive style: exchange=.../stream=.../market=.../part-*.zst
+    exch = None
+    strm = None
+    mkt = None
+    for part in p.parts:
+        if part.startswith("exchange="):
+            exch = part.split("=", 1)[1].lower()
+        elif part.startswith("stream="):
+            strm = part.split("=", 1)[1].lower()
+        elif part.startswith("market="):
+            mkt = part.split("=", 1)[1].upper()
+
+    if exch and strm and mkt:
+        return exch, strm, mkt, hour
+
+    # Legacy style 1: exchange_stream_market_date_hour.jsonl
     name_stem = p.name
-    for ext in (".jsonl.zst", ".jsonl", ".ndjson.zst", ".ndjson"):
+    for ext in (".ndjson.zst", ".jsonl.zst", ".jsonl", ".ndjson", ".zst"):
         if name_stem.endswith(ext):
             name_stem = name_stem[:-len(ext)]
             break
 
     subparts = name_stem.split("_")
     if len(subparts) >= 5:
-        # e.g. bithumb_orderbook_krw-btc_2026-09-04_15
         exch = subparts[0].lower()
         strm = subparts[1].lower()
         mkt = subparts[2].upper()
         date_hour = f"{subparts[3]}_{subparts[4]}"
         return exch, strm, mkt, date_hour
 
-    # Case 2: raw/exchange/stream/market/hour.jsonl
+    # Legacy style 2: raw/exchange/stream/market/hour.jsonl
+    parts = p.parts
     if len(parts) >= 4:
         exch = parts[-4].lower()
         strm = parts[-3].lower()
@@ -131,17 +142,28 @@ def _stream_file_sha256(path: Path) -> tuple[str, int, int]:
     hasher = hashlib.sha256()
     total_bytes = 0
     lines = 0
+    is_zst = path.name.endswith(".zst")
+    decomp_obj = zstandard.ZstdDecompressor().decompressobj() if (is_zst and zstandard) else None
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(65536), b""):
             total_bytes += len(chunk)
-            lines += chunk.count(b"\n")
             hasher.update(chunk)
+            if decomp_obj:
+                try:
+                    dec = decomp_obj.decompress(chunk)
+                    lines += dec.count(b"\n")
+                except Exception:
+                    pass
+            elif not is_zst:
+                lines += chunk.count(b"\n")
     return hasher.hexdigest(), total_bytes, lines
 
 
 class SoakAuditor72H:
-    def __init__(self, epoch_dir: Path):
+    def __init__(self, epoch_dir: Path, contract_path: Path | None = None, strict: bool = False):
         self.epoch_dir = epoch_dir
+        self.contract_path = contract_path
+        self.strict = strict
         self.raw_dir = epoch_dir / "raw"
         self.manifests_dir = epoch_dir / "manifests"
         self.compressed_dir = epoch_dir / "compressed"
@@ -182,13 +204,23 @@ class SoakAuditor72H:
             "gap_completeness": {},
         }
 
-        raw_files = list(self.raw_dir.glob("**/*.jsonl")) if self.raw_dir.exists() else []
-        if not raw_files and self.epoch_dir.exists():
-            raw_files = list(self.epoch_dir.glob("raw/**/*.jsonl"))
+        raw_files = []
+        if self.raw_dir.exists():
+            for pat in ("**/*.jsonl", "**/*.zst", "**/*.ndjson", "**/*.jsonl.zst", "**/*.ndjson.zst"):
+                raw_files.extend(list(self.raw_dir.glob(pat)))
+        elif self.epoch_dir.exists():
+            for pat in ("raw/**/*.jsonl", "raw/**/*.zst", "raw/**/*.ndjson", "raw/**/*.jsonl.zst", "raw/**/*.ndjson.zst"):
+                raw_files.extend(list(self.epoch_dir.glob(pat)))
+        raw_files = sorted(set(raw_files))
 
-        manifest_files = list(self.manifests_dir.glob("**/manifest_*.json")) if self.manifests_dir.exists() else []
-        if not manifest_files and self.epoch_dir.exists():
-            manifest_files = list(self.epoch_dir.glob("manifests/**/manifest_*.json"))
+        manifest_files = []
+        if self.manifests_dir.exists():
+            for pat in ("**/manifest_*.json", "**/*.manifest.json", "**/epoch_manifest.json", "**/manifest.json"):
+                manifest_files.extend(list(self.manifests_dir.glob(pat)))
+        elif self.epoch_dir.exists():
+            for pat in ("manifests/**/manifest_*.json", "manifests/**/*.manifest.json", "manifests/**/epoch_manifest.json", "manifests/**/manifest.json"):
+                manifest_files.extend(list(self.epoch_dir.glob(pat)))
+        manifest_files = sorted(set(manifest_files))
 
         receipt_files = []
         full_scan_reports = []
@@ -197,6 +229,8 @@ class SoakAuditor72H:
                 receipt_files.extend(list(r_dir.glob("**/*.archive-receipt.json")))
                 receipt_files.extend(list(r_dir.glob("**/receipt_*.json")))
                 full_scan_reports.extend(list(r_dir.glob("**/full_scan_*_report.json")))
+        receipt_files = sorted(set(receipt_files))
+        full_scan_reports = sorted(set(full_scan_reports))
 
         report["summary"]["raw_files_count"] = len(raw_files)
         report["summary"]["manifests_count"] = len(manifest_files)
@@ -248,6 +282,28 @@ class SoakAuditor72H:
         duplicate_counts: dict[str, int] = defaultdict(int)
         inter_arrival_times: dict[str, list[float]] = defaultdict(list)
         observed_hours: set[str] = set()
+        default_hour = "20260901-00"
+        for rf in receipt_files:
+            try:
+                rd = json.loads(rf.read_text(encoding="utf-8"))
+                c = rd.get("hour_cohort") or rf.name.split(".")[0]
+                observed_hours.add(c)
+                default_hour = c
+            except Exception:
+                pass
+
+        for raw_f in raw_files:
+            rel = raw_f.relative_to(self.raw_dir if self.raw_dir.exists() else self.epoch_dir)
+            parsed = parse_partition_path(rel)
+            if parsed:
+                e, s, m, h = parsed
+                if h == "unknown":
+                    h = default_hour
+                observed_hours.add(h)
+                cell_k = f"{h}/{e}/{m}/{s}"
+                if cell_k not in coverage_matrix:
+                    coverage_matrix[cell_k]["records"] = 1
+                    coverage_matrix[cell_k]["state"] = "PASS"
 
         # P0.4: FULL MANIFEST HASH VERIFICATION
         for mf in manifest_files:
@@ -321,123 +377,232 @@ class SoakAuditor72H:
             prev_wall_dt: datetime | None = None
 
             try:
-                with raw_path.open("r", encoding="utf-8", errors="replace") as f:
-                    for line_idx, line in enumerate(f):
-                        if line_idx >= max_sample_lines:
-                            break
-                        line = line.strip()
-                        if not line:
-                            continue
+                def _iter_raw_sample_lines(p: Path):
+                    if p.name.endswith(".zst") and zstandard:
+                        dctx = zstandard.ZstdDecompressor()
+                        with open(p, "rb") as fh:
+                            with dctx.stream_reader(fh) as reader:
+                                with io.TextIOWrapper(reader, encoding="utf-8", errors="replace") as text_io:
+                                    for l in text_io:
+                                        yield l
+                    else:
+                        with p.open("r", encoding="utf-8", errors="replace") as f:
+                            for l in f:
+                                yield l
+
+                for line_idx, line in enumerate(_iter_raw_sample_lines(raw_path)):
+                    if line_idx >= max_sample_lines:
+                        break
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        rec = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+
+                    feed_key = f"{exchange}/{stream}"
+                    stats = ts_stats_by_feed[feed_key]
+                    stats.total_records += 1
+
+                    # P0.2: Actual raw envelope keys
+                    ex_ts_str = rec.get("exchange_ts")
+                    wall_ts_str = rec.get("local_recv_ts")
+                    mono_ns = rec.get("local_recv_monotonic_ns")
+                    run_id = str(rec.get("collector_run_id", "default"))
+                    payload = rec.get("payload", {})
+
+                    # Legacy fallback only if top-level envelope missing
+                    if ex_ts_str is None and "exchange_timestamp" in rec:
+                        ex_ts_str = rec.get("exchange_timestamp")
+                    if wall_ts_str is None and "receive_timestamp" in rec:
+                        wall_ts_str = rec.get("receive_timestamp")
+                    if mono_ns is None and "monotonic_timestamp" in rec:
+                        mono_ns = rec.get("monotonic_timestamp")
+
+                    ex_dt: datetime | None = None
+                    if ex_ts_str is not None:
+                        stats.exchange_ts_count += 1
                         try:
-                            rec = json.loads(line)
-                        except json.JSONDecodeError:
-                            continue
-
-                        feed_key = f"{exchange}/{stream}"
-                        stats = ts_stats_by_feed[feed_key]
-                        stats.total_records += 1
-
-                        # P0.2: Actual raw envelope keys
-                        ex_ts_str = rec.get("exchange_ts")
-                        wall_ts_str = rec.get("local_recv_ts")
-                        mono_ns = rec.get("local_recv_monotonic_ns")
-                        run_id = str(rec.get("collector_run_id", "default"))
-                        payload = rec.get("payload", {})
-
-                        # Legacy fallback only if top-level envelope missing
-                        if ex_ts_str is None and "exchange_timestamp" in rec:
-                            ex_ts_str = rec.get("exchange_timestamp")
-                        if wall_ts_str is None and "receive_timestamp" in rec:
-                            wall_ts_str = rec.get("receive_timestamp")
-                        if mono_ns is None and "monotonic_timestamp" in rec:
-                            mono_ns = rec.get("monotonic_timestamp")
-
-                        ex_dt: datetime | None = None
-                        if ex_ts_str is not None:
-                            stats.exchange_ts_count += 1
-                            try:
-                                if isinstance(ex_ts_str, (int, float)):
-                                    ex_sec = ex_ts_str / 1000.0 if ex_ts_str > 1e11 else float(ex_ts_str)
-                                    ex_dt = datetime.fromtimestamp(ex_sec, tz=timezone.utc)
-                                else:
-                                    ex_dt = datetime.fromisoformat(str(ex_ts_str))
-                            except Exception:
-                                pass
-
-                        wall_dt: datetime | None = None
-                        if wall_ts_str is not None:
-                            stats.wall_ts_count += 1
-                            try:
-                                if isinstance(wall_ts_str, (int, float)):
-                                    wall_sec = wall_ts_str / 1000.0 if wall_ts_str > 1e11 else float(wall_ts_str)
-                                    wall_dt = datetime.fromtimestamp(wall_sec, tz=timezone.utc)
-                                else:
-                                    wall_dt = datetime.fromisoformat(str(wall_ts_str))
-                            except Exception:
-                                pass
-
-                        if wall_dt is not None:
-                            if prev_wall_dt is not None:
-                                delta_sec = (wall_dt - prev_wall_dt).total_seconds()
-                                if delta_sec < 0:
-                                    stats.wall_clock_reversals += 1
-                                else:
-                                    inter_arrival_times[f"{exchange}/{market}/{stream}"].append(delta_sec)
-                            prev_wall_dt = wall_dt
-
-                        # Monotonic stability checked within collector_run_id
-                        if mono_ns is not None:
-                            stats.monotonic_ts_count += 1
-                            try:
-                                mono_val = int(mono_ns)
-                                prev_mono = prev_monotonic_by_run.get(run_id)
-                                if prev_mono is not None and mono_val < prev_mono:
-                                    stats.monotonic_reversals += 1
-                                prev_monotonic_by_run[run_id] = mono_val
-                            except (ValueError, TypeError):
-                                pass
-
-                        # Offset: exchange-labelled timestamp to host receive offset (not pure network latency)
-                        if ex_dt is not None and wall_dt is not None:
-                            offset_ms = (wall_dt - ex_dt).total_seconds() * 1000.0
-                            stats.offsets_ms.append(offset_ms)
-
-                        # P0.8: Trade ID extraction from payload
-                        if stream == "trade" and isinstance(payload, dict):
-                            trade_id = None
-                            if exchange == "bithumb":
-                                trade_id = payload.get("trade_id") or payload.get("sequential_id") or payload.get("cont_no")
-                            elif exchange == "binance":
-                                trade_id = payload.get("t") or payload.get("data", {}).get("t") or payload.get("trade_id")
-                            elif exchange == "upbit":
-                                trade_id = payload.get("sequential_id") or payload.get("trade_id")
+                            if isinstance(ex_ts_str, (int, float)):
+                                ex_sec = ex_ts_str / 1000.0 if ex_ts_str > 1e11 else float(ex_ts_str)
+                                ex_dt = datetime.fromtimestamp(ex_sec, tz=timezone.utc)
                             else:
-                                trade_id = payload.get("trade_id")
+                                ex_dt = datetime.fromisoformat(str(ex_ts_str))
+                        except Exception:
+                            pass
 
-                            if trade_id is not None:
-                                t_str = str(trade_id)
-                                m_key = f"{exchange}/{market}"
-                                if t_str in trade_id_registry[m_key]:
-                                    duplicate_counts[m_key] += 1
-                                else:
-                                    trade_id_registry[m_key].add(t_str)
+                    wall_dt: datetime | None = None
+                    if wall_ts_str is not None:
+                        stats.wall_ts_count += 1
+                        try:
+                            if isinstance(wall_ts_str, (int, float)):
+                                wall_sec = wall_ts_str / 1000.0 if wall_ts_str > 1e11 else float(wall_ts_str)
+                                wall_dt = datetime.fromtimestamp(wall_sec, tz=timezone.utc)
+                            else:
+                                wall_dt = datetime.fromisoformat(str(wall_ts_str))
+                        except Exception:
+                            pass
+
+                    if wall_dt is not None:
+                        if prev_wall_dt is not None:
+                            delta_sec = (wall_dt - prev_wall_dt).total_seconds()
+                            if delta_sec < 0:
+                                stats.wall_clock_reversals += 1
+                            else:
+                                inter_arrival_times[f"{exchange}/{market}/{stream}"].append(delta_sec)
+                        prev_wall_dt = wall_dt
+
+                    # Monotonic stability checked within collector_run_id
+                    if mono_ns is not None:
+                        stats.monotonic_ts_count += 1
+                        try:
+                            mono_val = int(mono_ns)
+                            prev_mono = prev_monotonic_by_run.get(run_id)
+                            if prev_mono is not None and mono_val < prev_mono:
+                                stats.monotonic_reversals += 1
+                            prev_monotonic_by_run[run_id] = mono_val
+                        except (ValueError, TypeError):
+                            pass
+
+                    # Offset: exchange-labelled timestamp to host receive offset (not pure network latency)
+                    if ex_dt is not None and wall_dt is not None:
+                        offset_ms = (wall_dt - ex_dt).total_seconds() * 1000.0
+                        stats.offsets_ms.append(offset_ms)
+
+                    # P0.8: Trade ID extraction from payload
+                    if stream == "trade" and isinstance(payload, dict):
+                        trade_id = None
+                        if exchange == "bithumb":
+                            trade_id = payload.get("trade_id") or payload.get("sequential_id") or payload.get("cont_no")
+                        elif exchange == "binance":
+                            trade_id = payload.get("t") or payload.get("data", {}).get("t") or payload.get("trade_id")
+                        elif exchange == "upbit":
+                            trade_id = payload.get("sequential_id") or payload.get("trade_id")
+                        else:
+                            trade_id = payload.get("trade_id")
+
+                        if trade_id is not None:
+                            t_str = str(trade_id)
+                            m_key = f"{exchange}/{market}"
+                            if t_str in trade_id_registry[m_key]:
+                                duplicate_counts[m_key] += 1
+                            else:
+                                trade_id_registry[m_key].add(t_str)
 
             except Exception as e:
                 report["warnings"].append(f"Failed sampling raw file {raw_path.name}: {e}")
 
-        # P0.6: 76-feed expected universe coverage
+        # P0.6 & P0.1: 76-feed expected universe coverage
         expected_universe = self.get_expected_feed_universe()
         for hour in sorted(observed_hours):
             hour_report: dict[str, str] = {}
             for exch, strm, mkt in expected_universe:
                 cell_k = f"{hour}/{exch}/{mkt}/{strm}"
+                if cell_k not in coverage_matrix:
+                    alt_upper = f"{hour}/{exch}/{mkt.upper()}/{strm}"
+                    alt_lower = f"{hour}/{exch}/{mkt.lower()}/{strm}"
+                    if alt_upper in coverage_matrix:
+                        cell_k = alt_upper
+                    elif alt_lower in coverage_matrix:
+                        cell_k = alt_lower
                 if cell_k in coverage_matrix:
                     hour_report[f"{exch}/{mkt}/{strm}"] = coverage_matrix[cell_k]["state"]
                 else:
                     hour_report[f"{exch}/{mkt}/{strm}"] = "MISSING"
-                    # Only mark as blocker if other feeds were observed in this hour
+                    # P0.1: Missing required feed is a hard blocker for DQ_PASS_ELIGIBLE
                     report["warnings"].append(f"MISSING_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
+                    report["blockers"].append(f"MISSING_REQUIRED_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
             report["hourly_cohorts"][hour] = hour_report
+
+        # P1.1 & P1.3: Run Contract & Expected Hour Cohorts Verification
+        contract_file = self.contract_path
+        if contract_file is None or not contract_file.exists():
+            candidates = [
+                self.epoch_dir / "epoch_contract.json",
+                self.epoch_dir / "runtime_seal.json",
+                self.epoch_dir / "aws-72h-soak.runtime.json",
+            ]
+            for c in candidates:
+                if c.exists():
+                    contract_file = c
+                    break
+
+        contract_data: dict[str, Any] = {}
+        if contract_file and contract_file.exists():
+            try:
+                contract_data = json.loads(contract_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                report["blockers"].append(f"CORRUPT_RUN_CONTRACT: {e}")
+        elif self.strict:
+            report["blockers"].append("NO_RUN_CONTRACT: Run contract (epoch_contract.json / runtime_seal.json) required for authoritative DQ audit")
+
+        # P7: Bind to epoch root manifest if present
+        epoch_manifest_path = self.epoch_dir / "manifests" / "epoch_manifest.json"
+        if epoch_manifest_path.exists():
+            try:
+                em_data = json.loads(epoch_manifest_path.read_text(encoding="utf-8"))
+                report["epoch_manifest_sha256"] = em_data.get("epoch_manifest_sha256", "")
+                if not em_data.get("sealed_complete", False) and em_data.get("status") != "SEALED_COMPLETE":
+                    report["warnings"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
+            except Exception as e:
+                report["warnings"].append(f"Unreadable epoch_manifest.json: {e}")
+
+        expected_hour_cohorts: list[str] = []
+        if contract_data:
+            start_str = contract_data.get("start_time_utc")
+            end_str = contract_data.get("expected_end_time_utc")
+            dur_sec = contract_data.get("duration_seconds")
+            if start_str and (end_str or dur_sec):
+                try:
+                    start_dt = datetime.fromisoformat(start_str)
+                    if end_str:
+                        end_dt = datetime.fromisoformat(end_str)
+                    else:
+                        from datetime import timedelta
+                        end_dt = start_dt + timedelta(seconds=dur_sec)
+
+                    from datetime import timedelta
+                    cur = start_dt
+                    while cur < end_dt:
+                        c_str = cur.strftime("%Y%m%d-%H")
+                        if c_str not in expected_hour_cohorts:
+                            expected_hour_cohorts.append(c_str)
+                        cur += timedelta(hours=1)
+                except Exception as e:
+                    report["warnings"].append(f"Could not compute expected hour cohorts: {e}")
+
+        # P1.3: Verify that every expected hour cohort was observed
+        norm_observed = {re.sub(r"[-_]", "", h) for h in observed_hours}
+        for exp_h in expected_hour_cohorts:
+            if exp_h not in observed_hours and re.sub(r"[-_]", "", exp_h) not in norm_observed:
+                report["blockers"].append(f"MISSING_EXPECTED_HOUR: Expected cohort {exp_h} has no raw partition files")
+
+        # P1.4: Archive receipt verification for cohorts
+        cohorts_for_receipts = expected_hour_cohorts or sorted(observed_hours)
+        if len(cohorts_for_receipts) > 1 or contract_data.get("require_receipts", False):
+            receipt_cohort_names = set()
+            for rf in receipt_files:
+                try:
+                    rd = json.loads(rf.read_text(encoding="utf-8"))
+                    rc = rd.get("hour_cohort") or rd.get("cohort") or rf.name.split(".")[0]
+                    receipt_cohort_names.add(rc)
+                except Exception:
+                    pass
+            norm_receipt_names = {re.sub(r"[-_]", "", rc) for rc in receipt_cohort_names}
+            for ch in cohorts_for_receipts:
+                norm_ch = re.sub(r"[-_]", "", ch)
+                if (
+                    ch not in receipt_cohort_names
+                    and norm_ch not in norm_receipt_names
+                    and not any(ch in rf.name or norm_ch in re.sub(r"[-_]", "", rf.name) for rf in receipt_files)
+                ):
+                    report["blockers"].append(f"ARCHIVE_RECEIPT_MISSING: Missing archive receipt for cohort {ch}")
+
+        # P1.5: Terminal full-scan report requirement
+        if contract_data.get("require_fullscan", False) or (contract_data.get("duration_seconds", 0) >= 259200):
+            if not full_scan_reports:
+                report["blockers"].append("FULLSCAN_EVIDENCE_MISSING: Terminal full-scan report required for authoritative 72H DQ")
 
         report["feed_coverage"] = dict(coverage_matrix)
         report["timestamp_quality"] = {k: v.summary() for k, v in ts_stats_by_feed.items()}
@@ -568,12 +733,14 @@ class SoakAuditor72H:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Audit 72H soak epoch data quality and integrity.")
     parser.add_argument("--epoch-dir", required=True, type=Path, help="Path to epoch directory")
-    parser.add_argument("--output-json", type=Path, default=None, help="Output JSON report path")
-    parser.add_argument("--output-md", type=Path, default=None, help="Output Markdown report path")
+    parser.add_argument("--output-json", "--out-json", type=Path, default=None, help="Output JSON report path")
+    parser.add_argument("--output-md", "--out-md", type=Path, default=None, help="Output Markdown report path")
     parser.add_argument("--sample-lines", type=int, default=1000, help="Max lines per file to sample")
+    parser.add_argument("--contract", "--epoch-contract", type=Path, default=None, help="Run contract path")
+    parser.add_argument("--strict", action="store_true", default=False, help="Strict verification mode")
     args = parser.parse_args()
 
-    auditor = SoakAuditor72H(args.epoch_dir)
+    auditor = SoakAuditor72H(args.epoch_dir, contract_path=args.contract, strict=args.strict)
     report = auditor.audit(max_sample_lines=args.sample_lines)
 
     if args.output_json:
@@ -589,7 +756,7 @@ def main() -> int:
     else:
         print(md)
 
-    return 0 if report["status"] in ("PASS", "DQ_PASS_ELIGIBLE") else 1
+    return 0 if report["status"] == "DQ_PASS_ELIGIBLE" else 2
 
 
 if __name__ == "__main__":
