@@ -228,16 +228,19 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
     # P6: Remove all fake source hash fallbacks
     source_manifest_hash = getattr(args, "source_manifest_hash", None) or ""
     epoch_manifest_sha = ""
-    if not source_manifest_hash and getattr(args, "source_manifest", None):
+    sm_file_sha = ""
+    if getattr(args, "source_manifest", None):
         sm_path = Path(args.source_manifest)
         if sm_path.exists():
             sm_bytes = sm_path.read_bytes()
+            sm_file_sha = hashlib.sha256(sm_bytes).hexdigest()
             try:
                 sm_json = json.loads(sm_bytes)
                 epoch_manifest_sha = sm_json.get("epoch_manifest_sha256", "")
-                source_manifest_hash = epoch_manifest_sha or sm_json.get("source_hash") or sm_json.get("sha256") or hashlib.sha256(sm_bytes).hexdigest()
             except Exception:
-                source_manifest_hash = hashlib.sha256(sm_bytes).hexdigest()
+                pass
+            if not source_manifest_hash:
+                source_manifest_hash = sm_file_sha
 
     if not source_manifest_hash:
         print("ERROR: Source manifest (--source-manifest) or source manifest hash is required for qualification")
@@ -259,6 +262,7 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
         "auditor_commit": commit_sha,
         "audit_code_commit": commit_sha,
         "source_manifest_hash": source_manifest_hash,
+        "source_manifest_file_sha256": sm_file_sha or source_manifest_hash,
         "epoch_manifest_sha256": epoch_manifest_sha or source_manifest_hash,
         "criteria_version": getattr(args, "criteria_version", None) or "v1-strict",
         "hard_fail_count": hard_fail_count,
@@ -311,6 +315,36 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
             and not f.name.endswith(".manifest.json")
         ]
     )
+
+    em_arg = getattr(args, "epoch_manifest", None) or getattr(args, "source_manifest", None)
+    em_sha = None
+    expected_raw_hashes: dict[str, str] = {}
+    if em_arg:
+        em_p = Path(em_arg)
+        if not em_p.exists():
+            print(f"ERROR: Epoch manifest not found: {em_p}")
+            return 2
+        try:
+            em_data = json.loads(em_p.read_text(encoding="utf-8"))
+            em_sha = _file_sha256(em_p)
+            for part in em_data.get("partitions", []):
+                raw_h = part.get("raw_sha256")
+                if raw_h:
+                    p_path = part.get("partition_path", "")
+                    expected_raw_hashes[Path(p_path).name] = raw_h
+                    expected_raw_hashes[p_path] = raw_h
+                    expected_raw_hashes[p_path.removeprefix("raw/").removeprefix("/")] = raw_h
+        except Exception as e:
+            print(f"ERROR reading epoch manifest: {e}")
+            return 2
+
+        for fpath in raw_files:
+            actual_sha, _, _ = _stream_file_sha256(fpath)
+            rel_f = str(fpath.relative_to(input_dir))
+            expected_sha = expected_raw_hashes.get(rel_f) or expected_raw_hashes.get(fpath.name)
+            if expected_sha and actual_sha != expected_sha:
+                print(f"ERROR: SOURCE_RAW_HASH_MISMATCH: {fpath.name} actual '{actual_sha}' != expected '{expected_sha}'")
+                return 2
 
     total_canonicalized = 0
     total_rejected = 0
@@ -498,6 +532,11 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
         "partitions_count": len(merged_parts),
         "partitions": merged_parts,
     }
+    if em_sha:
+        cm_dict["source_epoch_manifest_sha256"] = em_sha
+    elif "old_manifest" in locals() and old_manifest.get("source_epoch_manifest_sha256"):
+        cm_dict["source_epoch_manifest_sha256"] = old_manifest.get("source_epoch_manifest_sha256")
+
     canonical_json = json.dumps(cm_dict, sort_keys=True, separators=(",", ":"))
     cm_dict["canonical_manifest_sha256"] = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
     canonical_manifest_path.write_text(json.dumps(cm_dict, indent=2), encoding="utf-8")
@@ -546,7 +585,7 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             dq_raw = json.loads(dq_report_path.read_text(encoding="utf-8"))
             expected_deep_sha = dq_raw.get("audit_report_sha256") or dq_raw.get("report_hash")
             if expected_deep_sha and actual_deep_sha != expected_deep_sha:
-                print(f"ERROR: DEEP_AUDIT_REPORT_MISMATCH: actual '{actual_deep_sha}' != qualification '{expected_deep_sha}'")
+                print(f"ERROR: AUDIT_REPORT_HASH_MISMATCH / DEEP_AUDIT_REPORT_MISMATCH: actual '{actual_deep_sha}' != qualification '{expected_deep_sha}'")
                 return 2
         except Exception as e:
             print(f"ERROR validating deep audit report: {e}")
@@ -577,6 +616,18 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         try:
             sm_json = json.loads(sm_path.read_text(encoding="utf-8"))
             inner_hash = sm_json.get("epoch_manifest_sha256") or sm_json.get("source_hash") or sm_json.get("sha256") or sm_json.get("manifest_hash")
+            if getattr(args, "source_epoch_id", None):
+                sm_epoch = sm_json.get("collector_epoch")
+                if sm_epoch and args.source_epoch_id != sm_epoch:
+                    print(f"ERROR: COLLECTOR_EPOCH_MISMATCH: claimed '{args.source_epoch_id}' != manifest '{sm_epoch}'")
+                    return 2
+            if getattr(args, "source_run_id", None):
+                sm_run = sm_json.get("collector_run_id")
+                if sm_run and args.source_run_id != sm_run:
+                    print(f"ERROR: COLLECTOR_RUN_ID_MISMATCH: claimed '{args.source_run_id}' != manifest '{sm_run}'")
+                    return 2
+        except ValueError:
+            raise
         except Exception:
             inner_hash = None
 
@@ -589,9 +640,14 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             return 2
 
         claimed_src_hash = dq_data.get("source_manifest_hash", "")
-        if sm_arg and claimed_src_hash not in (sm_sha, inner_hash):
-            print(f"ERROR: DQ_SOURCE_MISMATCH: claimed '{claimed_src_hash}' does not match source manifest '{sm_path}'")
-            return 2
+        claimed_file_sha = dq_data.get("source_manifest_file_sha256")
+        if sm_arg:
+            if claimed_file_sha and sm_sha != claimed_file_sha:
+                print(f"ERROR: DQ_SOURCE_MISMATCH: claimed source file sha '{claimed_file_sha}' != actual '{sm_sha}'")
+                return 2
+            if claimed_src_hash and claimed_src_hash not in (sm_sha, inner_hash):
+                print(f"ERROR: DQ_SOURCE_MISMATCH: claimed '{claimed_src_hash}' does not match source manifest '{sm_path}'")
+                return 2
 
         status_str = dq_data.get("status")
         status = DqQualificationStatus(status_str)
@@ -612,12 +668,41 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         cm_path = Path(args.canonical_manifest)
         if not cm_path.exists():
             print(f"ERROR: Canonical manifest not found: {cm_path}")
-            return 1
-        cm_data = json.loads(cm_path.read_text(encoding="utf-8"))
+            return 2
+        try:
+            cm_data = json.loads(cm_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            print(f"ERROR: Corrupt canonical manifest: {e}")
+            return 2
+
+        # P17 / Table 5.2 #12: Verify internal canonical_manifest_sha256
+        claimed_cm_sha = cm_data.get("canonical_manifest_sha256")
+        if claimed_cm_sha:
+            cm_copy = {k: v for k, v in cm_data.items() if k != "canonical_manifest_sha256"}
+            calc_sha1 = hashlib.sha256(json.dumps(cm_copy, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+            calc_sha2 = hashlib.sha256(json.dumps(cm_copy, sort_keys=True).encode("utf-8")).hexdigest()
+            if claimed_cm_sha not in (calc_sha1, calc_sha2):
+                print(f"ERROR: CANONICAL_MANIFEST_HASH_MISMATCH: actual '{calc_sha1}' != claimed '{claimed_cm_sha}'")
+                return 2
+
         if not canonicalizer_commit:
             canonicalizer_commit = cm_data.get("canonicalizer_commit")
 
         parts = cm_data.get("partitions", [])
+
+        # Table 5.2 #11: Verify canonical partition file hashes
+        for p in parts:
+            p_file = cm_path.parent / p["canonical_file"]
+            if not p_file.exists():
+                print(f"ERROR: Canonical partition file missing: {p_file}")
+                return 2
+            expected_cf_sha = p.get("canonical_file_sha256")
+            if expected_cf_sha:
+                actual_cf_sha = _file_sha256(p_file)
+                if actual_cf_sha != expected_cf_sha:
+                    print(f"ERROR: CANONICAL_PARTITION_HASH_MISMATCH: {p_file.name} actual '{actual_cf_sha}' != manifest '{expected_cf_sha}'")
+                    return 2
+
         if getattr(args, "exchange", None):
             parts = [p for p in parts if p.get("exchange", "").lower() == args.exchange.lower()]
         if getattr(args, "market", None):
@@ -627,24 +712,26 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
 
         if not parts:
             print("ERROR: No matching partitions found in canonical manifest for given filters")
-            return 1
+            return 2
+
+        # P15: Single series enforcement
+        distinct_series = {(p.get("exchange", "").lower(), p.get("market", "").upper(), p.get("stream", "").lower()) for p in parts}
+        if len(distinct_series) > 1:
+            print(f"ERROR: AMBIGUOUS_RESEARCH_SERIES: Partitions span multiple series ({distinct_series}). Explicit --exchange, --market, --stream filters required.")
+            return 2
 
         parts.sort(key=lambda x: (x.get("min_timestamp_ms", 0), x.get("canonical_file", "")))
         for p in parts:
-            p_file = cm_path.parent / p["canonical_file"]
-            if not p_file.exists():
-                print(f"ERROR: Canonical partition file missing: {p_file}")
-                return 1
-            input_files.append(p_file)
+            input_files.append(cm_path.parent / p["canonical_file"])
     elif getattr(args, "input_file", None):
         in_p = Path(args.input_file)
         if not in_p.exists():
             print(f"ERROR: Input file not found: {in_p}")
-            return 1
+            return 2
         input_files.append(in_p)
     else:
         print("ERROR: Either --canonical-manifest or --input-file must be provided")
-        return 1
+        return 2
 
     if not canonicalizer_commit:
         canonicalizer_commit = "standalone-canonicalizer"
@@ -962,6 +1049,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tc.add_argument("--exchange", required=False, default="bithumb", help="Exchange type")
     p_tc.add_argument("--stream", required=False, help="Filter by stream (orderbook, trade, ticker)")
     p_tc.add_argument("--market", required=False, help="Filter by market (e.g. KRW-BTC)")
+    p_tc.add_argument("--epoch-manifest", "--source-manifest", help="Path to epoch root manifest JSON for TOCTOU verification")
 
     # partition-dataset
     p_pd = sub.add_parser("partition-dataset", help="Temporally partition a canonical dataset with embargo windows")

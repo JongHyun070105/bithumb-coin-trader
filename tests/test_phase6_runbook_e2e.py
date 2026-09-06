@@ -179,7 +179,25 @@ def _populate_official_shaped_epoch(
         "duration_seconds": 3600,
         "require_receipts": True,
         "require_fullscan": True,
-    }))
+    }, indent=2))
+
+    # Runtime seal
+    (epoch_dir / "runtime_seal.json").write_text(json.dumps({
+        "collector_epoch": collector_epoch,
+        "collector_run_id": collector_run_id,
+        "runtime_software_commit": software_commit,
+        "runtime_config_fingerprint": fingerprint,
+        "raw_schema_version": "2.0.0",
+    }, indent=2))
+
+    # Launch provenance
+    (epoch_dir / "launch-provenance.json").write_text(json.dumps({
+        "collector_epoch": collector_epoch,
+        "collector_run_id": collector_run_id,
+        "software_commit": software_commit,
+        "fingerprint": fingerprint,
+        "launch_time_utc": "2026-09-01T00:00:00+00:00",
+    }, indent=2))
 
 
 def test_p4_2_p19_full_runbook_subprocess_execution(tmp_path: Path) -> None:
@@ -334,29 +352,29 @@ def test_p4_2_p19_full_runbook_subprocess_execution(tmp_path: Path) -> None:
     "deep_report_changed",
     "canonical_file_changed",
     "canonical_manifest_changed",
+    "source_raw_changed",
 ])
 def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str) -> None:
-    """P19: Each of the 12 negative mutations must be detected and fail at the correct stage."""
+    """P19: Each negative mutation must be detected and fail at the correct stage with exact exit code 2."""
     repo_root = Path(__file__).resolve().parent.parent
     env = {**os.environ, "PYTHONPATH": f"{repo_root}/src:{repo_root}"}
 
     epoch_dir = tmp_path / f"epoch_{mutation_type}"
     _populate_official_shaped_epoch(epoch_dir)
 
-    # 1. Mutate epoch before audit
+    # Stage 1 mutations: audit_72h_soak.py
     if mutation_type == "missing_feed":
-        # Remove 1 feed
         victim = list((epoch_dir / "raw").rglob("part-*.zst"))[0]
         victim.unlink()
         p = subprocess.run([
             sys.executable, str(repo_root / "scripts" / "audit_72h_soak.py"),
             "--epoch-dir", str(epoch_dir),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Missing feed must fail audit"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Missing feed must fail audit: {p.stderr}"
+        assert "MISSING_REQUIRED_FEED" in p.stderr or "MISSING_REQUIRED_FEED" in p.stdout
         return
 
     elif mutation_type == "missing_full_hour":
-        # Contract expects hour 00 and 01, but only 00 exists
         contract = json.loads((epoch_dir / "epoch_contract.json").read_text())
         contract["duration_seconds"] = 7200
         contract["expected_end_time_utc"] = "2026-09-01T02:00:00+00:00"
@@ -364,8 +382,9 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         p = subprocess.run([
             sys.executable, str(repo_root / "scripts" / "audit_72h_soak.py"),
             "--epoch-dir", str(epoch_dir),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Missing hour must fail audit"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Missing hour must fail audit: {p.stderr}"
+        assert "MISSING_EXPECTED_HOUR" in p.stderr or "MISSING_EXPECTED_HOUR" in p.stdout
         return
 
     elif mutation_type == "missing_receipt":
@@ -373,8 +392,9 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         p = subprocess.run([
             sys.executable, str(repo_root / "scripts" / "audit_72h_soak.py"),
             "--epoch-dir", str(epoch_dir),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Missing receipt must fail audit"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Missing receipt must fail audit: {p.stderr}"
+        assert "ARCHIVE_RECEIPT_MISSING" in p.stderr or "ARCHIVE_RECEIPT_MISSING" in p.stdout or "MISSING_RECEIPT" in p.stderr or "MISSING_RECEIPT" in p.stdout
         return
 
     elif mutation_type == "missing_fullscan":
@@ -386,11 +406,12 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         p = subprocess.run([
             sys.executable, str(repo_root / "scripts" / "audit_72h_soak.py"),
             "--epoch-dir", str(epoch_dir),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Missing fullscan on 72h contract must fail audit"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Missing fullscan must fail audit: {p.stderr}"
+        assert "FULLSCAN_EVIDENCE_MISSING" in p.stderr or "FULLSCAN_EVIDENCE_MISSING" in p.stdout or "MISSING_FULLSCAN" in p.stderr or "MISSING_FULLSCAN" in p.stdout
         return
 
-    # Run audit and epoch manifest builder successfully for downstream mutations
+    # Run audit successfully for downstream mutations
     rep_file = tmp_path / "audit.json"
     subprocess.run([
         sys.executable, str(repo_root / "scripts" / "audit_72h_soak.py"),
@@ -398,13 +419,7 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         "--out-json", str(rep_file),
     ], check=True, env=env)
 
-    em_file = epoch_dir / "manifests" / "epoch_manifest.json"
-    subprocess.run([
-        sys.executable, str(repo_root / "scripts" / "build_epoch_manifest.py"),
-        "--epoch-dir", str(epoch_dir),
-        "--output", str(em_file),
-    ], check=True, env=env)
-
+    # Stage 2 mutations: build_epoch_manifest.py
     if mutation_type == "wrong_runtime_commit":
         contract = json.loads((epoch_dir / "epoch_contract.json").read_text())
         contract["runtime_software_commit"] = "0" * 40
@@ -413,11 +428,52 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
             sys.executable, str(repo_root / "scripts" / "build_epoch_manifest.py"),
             "--epoch-dir", str(epoch_dir),
             "--strict",
-        ], capture_output=True, env=env)
-        # Verify strict check
-        assert p.returncode in (0, 2)
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Wrong runtime commit must fail build_epoch_manifest: {p.stderr}"
+        assert "RUNTIME_COMMIT_MISMATCH" in p.stderr or "RUNTIME_COMMIT_MISMATCH" in p.stdout
         return
 
+    elif mutation_type == "wrong_fingerprint":
+        contract = json.loads((epoch_dir / "epoch_contract.json").read_text())
+        contract["runtime_fingerprint"] = "fp-tampered"
+        (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract))
+        p = subprocess.run([
+            sys.executable, str(repo_root / "scripts" / "build_epoch_manifest.py"),
+            "--epoch-dir", str(epoch_dir),
+            "--strict",
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Wrong fingerprint must fail build_epoch_manifest: {p.stderr}"
+        assert "RUNTIME_FINGERPRINT_MISMATCH" in p.stderr or "RUNTIME_FINGERPRINT_MISMATCH" in p.stdout
+        return
+
+    # Build epoch manifest successfully
+    em_file = epoch_dir / "manifests" / "epoch_manifest.json"
+    subprocess.run([
+        sys.executable, str(repo_root / "scripts" / "build_epoch_manifest.py"),
+        "--epoch-dir", str(epoch_dir),
+        "--output", str(em_file),
+        "--strict",
+    ], check=True, env=env)
+
+    # Stage 4 mutation: transform-canonical TOCTOU check
+    if mutation_type == "source_raw_changed":
+        victim = list((epoch_dir / "raw").rglob("part-*.zst"))[0]
+        victim.write_bytes(victim.read_bytes() + b"extra")
+        canon_dir = tmp_path / "canon"
+        p = subprocess.run([
+            sys.executable, "-m", "bithumb_coin_trader.research_cli",
+            "transform-canonical",
+            "--input-dir", str(epoch_dir / "raw"),
+            "--output-dir", str(canon_dir),
+            "--exchange", "bithumb",
+            "--stream", "orderbook",
+            "--epoch-manifest", str(em_file),
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Modified raw file must fail transform-canonical with exit 2: {p.stderr}"
+        assert "SOURCE_RAW_HASH_MISMATCH" in p.stdout or "SOURCE_RAW_HASH_MISMATCH" in p.stderr
+        return
+
+    # Stage 3: dq-qualify
     qual_file = tmp_path / "qual.json"
     subprocess.run([
         sys.executable, "-m", "bithumb_coin_trader.research_cli",
@@ -428,53 +484,7 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         "--strict",
     ], check=True, env=env)
 
-    if mutation_type == "source_manifest_changed":
-        # Tamper with source manifest after qualification
-        em_file.write_text(em_file.read_text() + "\n ")
-        canon_dir = tmp_path / "canon"
-        subprocess.run([
-            sys.executable, "-m", "bithumb_coin_trader.research_cli",
-            "transform-canonical",
-            "--input-dir", str(epoch_dir / "raw"),
-            "--output-dir", str(canon_dir),
-            "--exchange", "bithumb",
-            "--stream", "orderbook",
-        ], check=True, env=env)
-        p = subprocess.run([
-            sys.executable, "-m", "bithumb_coin_trader.research_cli",
-            "partition-dataset",
-            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
-            "--output-dir", str(tmp_path / "ds"),
-            "--dq-report", str(qual_file),
-            "--source-manifest", str(em_file),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Modified source manifest must fail partition-dataset"
-        return
-
-    if mutation_type == "deep_report_changed":
-        rep_file.write_text(rep_file.read_text() + "\n ")
-        canon_dir = tmp_path / "canon"
-        subprocess.run([
-            sys.executable, "-m", "bithumb_coin_trader.research_cli",
-            "transform-canonical",
-            "--input-dir", str(epoch_dir / "raw"),
-            "--output-dir", str(canon_dir),
-            "--exchange", "bithumb",
-            "--stream", "orderbook",
-        ], check=True, env=env)
-        p = subprocess.run([
-            sys.executable, "-m", "bithumb_coin_trader.research_cli",
-            "partition-dataset",
-            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
-            "--output-dir", str(tmp_path / "ds"),
-            "--dq-report", str(qual_file),
-            "--source-manifest", str(em_file),
-            "--deep-audit-report", str(rep_file),
-        ], capture_output=True, env=env)
-        assert p.returncode == 2, "Modified deep report must fail partition-dataset"
-        return
-
-    # Transform canonical
+    # Stage 4 & 5: transform-canonical
     canon_dir = tmp_path / "canon"
     subprocess.run([
         sys.executable, "-m", "bithumb_coin_trader.research_cli",
@@ -483,34 +493,166 @@ def test_p19_negative_mutation_failure_modes(tmp_path: Path, mutation_type: str)
         "--output-dir", str(canon_dir),
         "--exchange", "bithumb",
         "--stream", "orderbook",
+        "--epoch-manifest", str(em_file),
     ], check=True, env=env)
 
-    if mutation_type == "canonical_file_changed":
-        cf = list(canon_dir.glob("*.ndjson.zst"))[0]
-        cf.write_bytes(cf.read_bytes() + b"extra")
+    subprocess.run([
+        sys.executable, "-m", "bithumb_coin_trader.research_cli",
+        "transform-canonical",
+        "--input-dir", str(epoch_dir / "raw"),
+        "--output-dir", str(canon_dir),
+        "--exchange", "bithumb",
+        "--stream", "trade",
+        "--epoch-manifest", str(em_file),
+    ], check=True, env=env)
+
+    # Stage 6 mutations: partition-dataset
+    if mutation_type == "source_manifest_changed":
+        em_file.write_text(em_file.read_text() + "\n ")
         p = subprocess.run([
             sys.executable, "-m", "bithumb_coin_trader.research_cli",
             "partition-dataset",
             "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
             "--output-dir", str(tmp_path / "ds"),
             "--dq-report", str(qual_file),
             "--source-manifest", str(em_file),
-        ], capture_output=True, env=env)
-        assert p.returncode != 0, "Modified canonical file must fail partition-dataset"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Modified source manifest must fail partition-dataset with exit 2: {p.stderr}"
+        assert "DQ_SOURCE_MISMATCH" in p.stdout or "DQ_SOURCE_MISMATCH" in p.stderr
         return
 
-    if mutation_type == "canonical_manifest_changed":
+    elif mutation_type == "deep_report_changed":
+        rep_file.write_text(rep_file.read_text() + "\n ")
+        p = subprocess.run([
+            sys.executable, "-m", "bithumb_coin_trader.research_cli",
+            "partition-dataset",
+            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
+            "--output-dir", str(tmp_path / "ds"),
+            "--dq-report", str(qual_file),
+            "--source-manifest", str(em_file),
+            "--deep-audit-report", str(rep_file),
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Modified deep report must fail partition-dataset with exit 2: {p.stderr}"
+        assert "AUDIT_REPORT_HASH_MISMATCH" in p.stdout or "DEEP_AUDIT_REPORT_MISMATCH" in p.stdout or "AUDIT_REPORT_HASH_MISMATCH" in p.stderr or "DEEP_AUDIT_REPORT_MISMATCH" in p.stderr
+        return
+
+    elif mutation_type == "wrong_run_id":
+        p = subprocess.run([
+            sys.executable, "-m", "bithumb_coin_trader.research_cli",
+            "partition-dataset",
+            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
+            "--output-dir", str(tmp_path / "ds"),
+            "--dq-report", str(qual_file),
+            "--source-manifest", str(em_file),
+            "--source-run-id", "run_WRONG_ID",
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Wrong run ID must fail partition-dataset with exit 2: {p.stderr}"
+        assert "COLLECTOR_RUN_ID_MISMATCH" in p.stdout or "COLLECTOR_RUN_ID_MISMATCH" in p.stderr
+        return
+
+    elif mutation_type == "wrong_epoch_id":
+        p = subprocess.run([
+            sys.executable, "-m", "bithumb_coin_trader.research_cli",
+            "partition-dataset",
+            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
+            "--output-dir", str(tmp_path / "ds"),
+            "--dq-report", str(qual_file),
+            "--source-manifest", str(em_file),
+            "--source-epoch-id", "epoch_WRONG_ID",
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Wrong epoch ID must fail partition-dataset with exit 2: {p.stderr}"
+        assert "COLLECTOR_EPOCH_MISMATCH" in p.stdout or "COLLECTOR_EPOCH_MISMATCH" in p.stderr
+        return
+
+    elif mutation_type == "canonical_file_changed":
+        cf = list(canon_dir.glob("canonical_*.ndjson.zst"))[0]
+        dctx = zstandard.ZstdDecompressor()
+        cctx = zstandard.ZstdCompressor(level=3)
+        with open(cf, "rb") as fh:
+            with dctx.stream_reader(fh) as reader:
+                raw_decomp = reader.read()
+        lines = [line for line in raw_decomp.decode("utf-8").splitlines() if line.strip()]
+        if lines:
+            rec = json.loads(lines[0])
+            rec["receive_timestamp_ms"] = rec.get("receive_timestamp_ms", 0) + 1
+            lines[0] = json.dumps(rec)
+            modified_bytes = ("\n".join(lines) + "\n").encode("utf-8")
+        else:
+            modified_bytes = b'{"modified": true}\n'
+        cf.write_bytes(cctx.compress(modified_bytes))
+
+        p = subprocess.run([
+            sys.executable, "-m", "bithumb_coin_trader.research_cli",
+            "partition-dataset",
+            "--canonical-manifest", str(canon_dir / "canonical_manifest.json"),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
+            "--output-dir", str(tmp_path / "ds"),
+            "--dq-report", str(qual_file),
+            "--source-manifest", str(em_file),
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Modified canonical file must fail partition-dataset with exit 2: {p.stderr}"
+        assert "CANONICAL_PARTITION_HASH_MISMATCH" in p.stdout or "CANONICAL_PARTITION_HASH_MISMATCH" in p.stderr
+        return
+
+    elif mutation_type == "canonical_manifest_changed":
         cm = canon_dir / "canonical_manifest.json"
         cm_data = json.loads(cm.read_text())
-        cm_data["partitions"][0]["canonical_file_sha256"] = "0" * 64
+        cm_data["canonical_manifest_sha256"] = "0" * 64
         cm.write_text(json.dumps(cm_data))
         p = subprocess.run([
             sys.executable, "-m", "bithumb_coin_trader.research_cli",
             "partition-dataset",
             "--canonical-manifest", str(cm),
+            "--exchange", "bithumb",
+            "--market", "KRW-BTC",
+            "--stream", "orderbook",
             "--output-dir", str(tmp_path / "ds"),
             "--dq-report", str(qual_file),
             "--source-manifest", str(em_file),
-        ], capture_output=True, env=env)
-        assert p.returncode != 0, "Modified canonical manifest must fail partition-dataset"
+        ], capture_output=True, text=True, env=env)
+        assert p.returncode == 2, f"Modified canonical manifest must fail partition-dataset with exit 2: {p.stderr}"
+        assert "CANONICAL_MANIFEST_HASH_MISMATCH" in p.stdout or "CANONICAL_MANIFEST_HASH_MISMATCH" in p.stderr
         return
+
+
+def test_post_72h_offline_import_script_execution(tmp_path: Path) -> None:
+    """P16: Verifies scripts/post_72h_offline_import.sh executes end-to-end successfully."""
+    repo_root = Path(__file__).resolve().parent.parent
+    epoch_dir = tmp_path / "exported_soak"
+    _populate_official_shaped_epoch(epoch_dir)
+
+    script_path = repo_root / "scripts" / "post_72h_offline_import.sh"
+    assert script_path.exists()
+
+    proc = subprocess.run(
+        [
+            str(script_path),
+            "--epoch-dir", str(epoch_dir),
+            "--reports-dir", str(tmp_path / "reports"),
+            "--evidence-dir", str(tmp_path / "evidence"),
+            "--canonical-dir", str(tmp_path / "canonical"),
+            "--dataset-dir", str(tmp_path / "dataset"),
+            "--python", sys.executable,
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, f"post_72h_offline_import.sh failed: {proc.stderr}\nStdout: {proc.stdout}"
+    assert (tmp_path / "dataset" / "manifest.json").exists()
+    assert (tmp_path / "dataset" / "train.ndjson.zst").exists()
+    assert (tmp_path / "dataset" / "validation.ndjson.zst").exists()
+    assert (tmp_path / "dataset" / "holdout.ndjson.zst").exists()
