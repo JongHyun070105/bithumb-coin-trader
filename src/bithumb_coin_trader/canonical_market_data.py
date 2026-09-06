@@ -9,6 +9,7 @@ Provides an exchange-agnostic, versioned, strictly-validated representation of:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
@@ -39,10 +40,11 @@ class CanonicalOrderBook:
     bids: tuple[tuple[float, float], ...]  # ((price, size), ...) sorted high to low
     asks: tuple[tuple[float, float], ...]  # ((price, size), ...) sorted low to high
     schema_version: str = "2.0.0"
-    timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_EVENT
+    exchange_timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_EVENT
     receive_monotonic_ns: int | None = None
     sequence_id: int | None = None
     is_snapshot: bool = True
+    timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_EVENT
 
     @property
     def best_bid(self) -> float:
@@ -86,6 +88,8 @@ class CanonicalOrderBook:
         return hashlib.sha256(json.dumps(d, sort_keys=True).encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
+        sem = self.exchange_timestamp_semantics or self.timestamp_semantics
+        sem_val = sem.value if hasattr(sem, "value") else str(sem)
         return {
             "exchange": self.exchange,
             "market": self.market,
@@ -94,17 +98,19 @@ class CanonicalOrderBook:
             "bids": [list(item) for item in self.bids],
             "asks": [list(item) for item in self.asks],
             "schema_version": self.schema_version,
-            "timestamp_semantics": self.timestamp_semantics.value,
+            "exchange_timestamp_semantics": sem_val,
+            "timestamp_semantics": sem_val,
             "receive_monotonic_ns": self.receive_monotonic_ns,
             "sequence_id": self.sequence_id,
             "is_snapshot": self.is_snapshot,
         }
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, Any]) -> CanonicalOrderBook:
+    def from_dict(cls, d: Mapping[str, Any], validate: bool = True) -> CanonicalOrderBook:
         bids = tuple((float(p), float(s)) for p, s in d["bids"])
         asks = tuple((float(p), float(s)) for p, s in d["asks"])
-        semantics = TimestampSemantics(d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_EVENT.value))
+        sem_val = d.get("exchange_timestamp_semantics", d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_EVENT.value))
+        semantics = TimestampSemantics(sem_val)
         ob = cls(
             exchange=str(d["exchange"]),
             market=str(d["market"]),
@@ -113,12 +119,14 @@ class CanonicalOrderBook:
             bids=bids,
             asks=asks,
             schema_version=str(d.get("schema_version", "2.0.0")),
+            exchange_timestamp_semantics=semantics,
             timestamp_semantics=semantics,
             receive_monotonic_ns=int(d["receive_monotonic_ns"]) if d.get("receive_monotonic_ns") is not None else None,
             sequence_id=int(d["sequence_id"]) if d.get("sequence_id") is not None else None,
             is_snapshot=bool(d.get("is_snapshot", True)),
         )
-        validate_canonical_orderbook(ob)
+        if validate:
+            validate_canonical_orderbook(ob)
         return ob
 
 
@@ -133,8 +141,9 @@ class CanonicalTrade:
     quantity: float
     aggressor_side: str  # "BUY" or "SELL"
     schema_version: str = "2.0.0"
-    timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_TRADE_EXECUTION
+    exchange_timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_TRADE_EXECUTION
     receive_monotonic_ns: int | None = None
+    timestamp_semantics: TimestampSemantics = TimestampSemantics.EXCHANGE_TRADE_EXECUTION
 
     def compute_sha256(self) -> str:
         d = {
@@ -149,6 +158,8 @@ class CanonicalTrade:
         return hashlib.sha256(json.dumps(d, sort_keys=True).encode("utf-8")).hexdigest()
 
     def to_dict(self) -> dict[str, Any]:
+        sem = self.exchange_timestamp_semantics or self.timestamp_semantics
+        sem_val = sem.value if hasattr(sem, "value") else str(sem)
         return {
             "exchange": self.exchange,
             "market": self.market,
@@ -159,12 +170,15 @@ class CanonicalTrade:
             "quantity": self.quantity,
             "aggressor_side": self.aggressor_side,
             "schema_version": self.schema_version,
-            "timestamp_semantics": self.timestamp_semantics.value,
+            "exchange_timestamp_semantics": sem_val,
+            "timestamp_semantics": sem_val,
             "receive_monotonic_ns": self.receive_monotonic_ns,
         }
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> CanonicalTrade:
+        sem_val = d.get("exchange_timestamp_semantics", d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_TRADE_EXECUTION.value))
+        semantics = TimestampSemantics(sem_val)
         trade = cls(
             exchange=str(d["exchange"]),
             market=str(d["market"]),
@@ -175,7 +189,8 @@ class CanonicalTrade:
             quantity=float(d["quantity"]),
             aggressor_side=str(d["aggressor_side"]).upper(),
             schema_version=str(d.get("schema_version", "2.0.0")),
-            timestamp_semantics=TimestampSemantics(d.get("timestamp_semantics", TimestampSemantics.EXCHANGE_TRADE_EXECUTION.value)),
+            exchange_timestamp_semantics=semantics,
+            timestamp_semantics=semantics,
             receive_monotonic_ns=int(d["receive_monotonic_ns"]) if d.get("receive_monotonic_ns") is not None else None,
         )
         validate_canonical_trade(trade)
@@ -195,6 +210,8 @@ class CanonicalTicker:
     receive_monotonic_ns: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
+        sem = self.timestamp_semantics
+        sem_val = sem.value if hasattr(sem, "value") else str(sem)
         return {
             "exchange": self.exchange,
             "market": self.market,
@@ -203,7 +220,7 @@ class CanonicalTicker:
             "last_price": self.last_price,
             "volume_24h": self.volume_24h,
             "schema_version": self.schema_version,
-            "timestamp_semantics": self.timestamp_semantics.value,
+            "timestamp_semantics": sem_val,
             "receive_monotonic_ns": self.receive_monotonic_ns,
         }
 
@@ -373,3 +390,239 @@ def read_canonical_ndjson_zstd(
                     continue
                 d = json.loads(line)
                 yield record_type.from_dict(d)
+
+
+def raw_record_to_canonical(
+    record: Mapping[str, Any],
+    exchange_override: str | None = None,
+) -> Union[CanonicalOrderBook, CanonicalTrade, CanonicalTicker]:
+    """Converts a serialized raw microstructure record into canonical model.
+
+    Enforces:
+    - Real raw envelope keys: exchange, stream, market, exchange_ts, local_recv_ts, local_recv_monotonic_ns, payload
+    - Normalized exchange_ts ISO 8601 parsing (no erroneous payload timestamp reinterpretation)
+    - Strict local_recv_ts validation (malformed string -> rejects record)
+    - Automatic stream dispatch: orderbook, trade, ticker
+    """
+    stream = str(record.get("stream", "")).lower()
+    payload = record.get("payload", record)
+    exch = str(exchange_override or record.get("exchange", "")).lower()
+    market = str(record.get("market", "")).replace("_", "-").upper()
+
+    if not stream or stream in ("unknown", ""):
+        if "bids" in payload or "asks" in payload or "orderbook_units" in payload or "bids" in record or "asks" in record:
+            stream = "orderbook"
+        elif "trade_id" in payload or "trade_price" in payload or "trade_volume" in payload or "units_traded" in payload or "trade_id" in record:
+            stream = "trade"
+        elif "last_price" in payload or "last_price" in record:
+            stream = "ticker"
+        else:
+            stream = str(payload.get("type", "")).lower()
+
+    if not market or market in ("UNKNOWN", ""):
+        market = str(payload.get("code", payload.get("market", payload.get("s", "")))).replace("_", "-").upper()
+
+    # 1. Parse local_recv_ts (strict validation: if present, cannot be malformed)
+    local_recv_ms = None
+    if "local_recv_ts" in record and record["local_recv_ts"] is not None:
+        raw_val = record["local_recv_ts"]
+        try:
+            dt = datetime.fromisoformat(str(raw_val))
+            local_recv_ms = int(dt.timestamp() * 1000)
+        except Exception as err:
+            raise CanonicalDataValidationError(f"MALFORMED_LOCAL_RECV_TS: {raw_val}") from err
+    elif "receive_timestamp_ms" in record and record["receive_timestamp_ms"] is not None:
+        local_recv_ms = int(record["receive_timestamp_ms"])
+    elif "local_receive_ms" in record and record["local_receive_ms"] is not None:
+        local_recv_ms = int(record["local_receive_ms"])
+
+    monotonic_ns = record.get("local_recv_monotonic_ns") or record.get("receive_monotonic_ns")
+    if monotonic_ns is not None:
+        try:
+            monotonic_ns = int(monotonic_ns)
+        except (ValueError, TypeError):
+            monotonic_ns = None
+
+    # 2. Parse exchange_ts (prefer top-level normalized ISO string)
+    exch_ts_ms = None
+    if "exchange_ts" in record and record["exchange_ts"] is not None:
+        raw_val = record["exchange_ts"]
+        try:
+            dt = datetime.fromisoformat(str(raw_val))
+            exch_ts_ms = int(dt.timestamp() * 1000)
+        except Exception as err:
+            raise CanonicalDataValidationError(f"MALFORMED_EXCHANGE_TS: {raw_val}") from err
+
+    # Fallback to payload timestamps only if exchange_ts was not provided
+    if exch_ts_ms is None:
+        if exch == "bithumb":
+            raw_ts = payload.get("trade_timestamp") or payload.get("timestamp", 0)
+            if raw_ts:
+                raw_f = float(raw_ts)
+                if raw_f > 1e14:  # microseconds
+                    exch_ts_ms = int(raw_f / 1000.0)
+                elif raw_f > 1e11:  # milliseconds
+                    exch_ts_ms = int(raw_f)
+                elif raw_f > 1e9:  # seconds
+                    exch_ts_ms = int(raw_f * 1000.0)
+                else:  # small integer synthetic ms
+                    exch_ts_ms = int(raw_f)
+        elif exch == "binance":
+            data = payload.get("data", payload)
+            raw_ts = data.get("E", payload.get("E", 0))
+            if raw_ts:
+                exch_ts_ms = int(raw_ts)
+        elif exch == "upbit":
+            raw_ts = payload.get("trade_timestamp") or payload.get("timestamp", 0)
+            if raw_ts:
+                raw_f = float(raw_ts)
+                if raw_f > 1e14:
+                    exch_ts_ms = int(raw_f / 1000.0)
+                elif raw_f > 1e11:
+                    exch_ts_ms = int(raw_f)
+                elif raw_f > 1e9:
+                    exch_ts_ms = int(raw_f * 1000.0)
+                else:
+                    exch_ts_ms = int(raw_f)
+
+    if exch_ts_ms is None or exch_ts_ms <= 0:
+        exch_ts_ms = local_recv_ms or 0
+
+    if exch_ts_ms <= 0:
+        raise CanonicalDataValidationError("Missing or non-positive exchange timestamp")
+
+    # 3. Stream Dispatch
+    if stream == "orderbook":
+        raw_bids: list[tuple[float, float]] = []
+        raw_asks: list[tuple[float, float]] = []
+
+        if exch == "bithumb":
+            units = payload.get("orderbook_units", [])
+            if units:
+                for u in units:
+                    raw_bids.append((float(u["bid_price"]), float(u["bid_size"])))
+                    raw_asks.append((float(u["ask_price"]), float(u["ask_size"])))
+            elif "bids" in payload and "asks" in payload:
+                for b in payload["bids"]:
+                    raw_bids.append((float(b["price"]), float(b["quantity"])))
+                for a in payload["asks"]:
+                    raw_asks.append((float(a["price"]), float(a["quantity"])))
+        elif exch == "binance":
+            data = payload.get("data", payload)
+            for b in data.get("b", []):
+                raw_bids.append((float(b[0]), float(b[1])))
+            for a in data.get("a", []):
+                raw_asks.append((float(a[0]), float(a[1])))
+        elif exch == "upbit":
+            units = payload.get("orderbook_units", [])
+            for u in units:
+                raw_bids.append((float(u["bid_price"]), float(u["bid_size"])))
+                raw_asks.append((float(u["ask_price"]), float(u["ask_size"])))
+
+        if not raw_bids or not raw_asks:
+            raise CanonicalDataValidationError(f"Empty bids or asks for orderbook: bids={len(raw_bids)}, asks={len(raw_asks)}")
+
+        # Sort and deduplicate bids (descending) and asks (ascending)
+        bids_dict: dict[float, float] = {}
+        for p, s in sorted(raw_bids, key=lambda x: x[0], reverse=True):
+            if p not in bids_dict:
+                bids_dict[p] = s
+        asks_dict: dict[float, float] = {}
+        for p, s in sorted(raw_asks, key=lambda x: x[0], reverse=False):
+            if p not in asks_dict:
+                asks_dict[p] = s
+
+        sorted_bids = tuple((p, s) for p, s in bids_dict.items())
+        sorted_asks = tuple((p, s) for p, s in asks_dict.items())
+
+        rec_schema_ver = str(record.get("schema_version", "2.0.0"))
+        ob = CanonicalOrderBook(
+            exchange=exch,
+            market=market,
+            exchange_timestamp_ms=exch_ts_ms,
+            receive_timestamp_ms=local_recv_ms,
+            bids=sorted_bids,
+            asks=sorted_asks,
+            schema_version=rec_schema_ver,
+            exchange_timestamp_semantics=TimestampSemantics.EXCHANGE_EVENT,
+            timestamp_semantics=TimestampSemantics.EXCHANGE_EVENT,
+            receive_monotonic_ns=monotonic_ns,
+            is_snapshot=True,
+        )
+        validate_canonical_orderbook(ob)
+        return ob
+
+    elif stream == "trade":
+        trade_id = None
+        price = 0.0
+        quantity = 0.0
+        side = "BUY"
+
+        if exch == "bithumb":
+            trade_id = str(payload.get("trade_id") or payload.get("sequential_id") or payload.get("cont_no") or f"bithumb_{exch_ts_ms}")
+            price = float(payload.get("trade_price") or payload.get("price", 0.0))
+            quantity = float(payload.get("trade_volume") or payload.get("volume") or payload.get("units_traded", 0.0))
+            ask_bid = str(payload.get("ask_bid", "")).upper()
+            side = "SELL" if ask_bid in ("ASK", "SELL") else "BUY"
+        elif exch == "binance":
+            data = payload.get("data", payload)
+            trade_id = str(data.get("t") or data.get("trade_id", f"binance_{exch_ts_ms}"))
+            price = float(data.get("p") or data.get("price", 0.0))
+            quantity = float(data.get("q") or data.get("quantity", 0.0))
+            is_buyer_maker = bool(data.get("m", False))
+            side = "SELL" if is_buyer_maker else "BUY"
+        elif exch == "upbit":
+            trade_id = str(payload.get("sequential_id") or payload.get("trade_id", f"upbit_{exch_ts_ms}"))
+            price = float(payload.get("trade_price") or payload.get("price", 0.0))
+            quantity = float(payload.get("trade_volume") or payload.get("volume", 0.0))
+            ask_bid = str(payload.get("ask_bid", "")).upper()
+            side = "SELL" if ask_bid in ("ASK", "SELL") else "BUY"
+        else:
+            trade_id = str(payload.get("trade_id", f"trade_{exch_ts_ms}"))
+            price = float(payload.get("price", 0.0))
+            quantity = float(payload.get("quantity", 0.0))
+            side = str(payload.get("aggressor_side", "BUY")).upper()
+
+        if local_recv_ms is None:
+            local_recv_ms = exch_ts_ms
+
+        rec_schema_ver = str(record.get("schema_version", "2.0.0"))
+        trade = CanonicalTrade(
+            exchange=exch,
+            market=market,
+            trade_id=trade_id,
+            exchange_timestamp_ms=exch_ts_ms,
+            receive_timestamp_ms=local_recv_ms,
+            price=price,
+            quantity=quantity,
+            aggressor_side=side,
+            schema_version=rec_schema_ver,
+            exchange_timestamp_semantics=TimestampSemantics.EXCHANGE_TRADE_EXECUTION,
+            timestamp_semantics=TimestampSemantics.EXCHANGE_TRADE_EXECUTION,
+            receive_monotonic_ns=monotonic_ns,
+        )
+        validate_canonical_trade(trade)
+        return trade
+
+    elif stream == "ticker":
+        last_price = float(payload.get("trade_price", payload.get("last_price", payload.get("c", 0.0))))
+        if local_recv_ms is None:
+            local_recv_ms = exch_ts_ms
+        rec_schema_ver = str(record.get("schema_version", "2.0.0"))
+        ticker = CanonicalTicker(
+            exchange=exch,
+            market=market,
+            exchange_timestamp_ms=exch_ts_ms,
+            receive_timestamp_ms=local_recv_ms,
+            last_price=last_price,
+            volume_24h=float(payload.get("acc_trade_volume_24h", 0.0)) if "acc_trade_volume_24h" in payload else None,
+            schema_version=rec_schema_ver,
+            exchange_timestamp_semantics=TimestampSemantics.EXCHANGE_PUBLICATION,
+            timestamp_semantics=TimestampSemantics.EXCHANGE_PUBLICATION,
+            receive_monotonic_ns=monotonic_ns,
+        )
+        validate_canonical_ticker(ticker)
+        return ticker
+
+    else:
+        raise CanonicalDataValidationError(f"UNSUPPORTED_STREAM: {stream}")
