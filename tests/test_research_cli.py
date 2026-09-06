@@ -1,6 +1,6 @@
 import pytest
 from bithumb_coin_trader.research_cli import main, build_parser
-from bithumb_coin_trader.experiment_runner import GovernedExperimentRunner, PreregistrationManifest
+from bithumb_coin_trader.experiment_runner import GovernedExperimentRunner, TrialStatus, PreregistrationManifest
 
 
 def test_research_cli_power_plan(capsys):
@@ -23,6 +23,7 @@ def test_research_cli_verify_ledger(tmp_path, capsys):
     m = PreregistrationManifest("t1", "f1", "hypo", ("f1",), 100, 1000)
     # BUG-4 FIX: must call reserve_trial() before record_trial()
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     runner.record_trial(m, {"sharpe": 1.2})
 
     ret = main(["verify-ledger", "--ledger", str(ledger_file)])

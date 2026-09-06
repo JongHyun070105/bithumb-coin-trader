@@ -35,7 +35,7 @@ class CanonicalOrderBook:
     exchange: str
     market: str
     exchange_timestamp_ms: int
-    receive_timestamp_ms: int
+    receive_timestamp_ms: int | None
     bids: tuple[tuple[float, float], ...]  # ((price, size), ...) sorted high to low
     asks: tuple[tuple[float, float], ...]  # ((price, size), ...) sorted low to high
     schema_version: str = "2.0.0"
@@ -109,7 +109,7 @@ class CanonicalOrderBook:
             exchange=str(d["exchange"]),
             market=str(d["market"]),
             exchange_timestamp_ms=int(d["exchange_timestamp_ms"]),
-            receive_timestamp_ms=int(d["receive_timestamp_ms"]),
+            receive_timestamp_ms=int(d["receive_timestamp_ms"]) if d.get("receive_timestamp_ms") is not None else None,
             bids=bids,
             asks=asks,
             schema_version=str(d.get("schema_version", "2.0.0")),
@@ -228,11 +228,13 @@ def validate_canonical_orderbook(ob: CanonicalOrderBook) -> None:
     """Strict validation for CanonicalOrderBook."""
     if not ob.exchange or not ob.market:
         raise CanonicalDataValidationError("exchange and market must be non-empty strings")
-    if ob.exchange_timestamp_ms <= 0 or ob.receive_timestamp_ms <= 0:
-        raise CanonicalDataValidationError("timestamps must be strictly positive")
+    if ob.exchange_timestamp_ms <= 0:
+        raise CanonicalDataValidationError("exchange timestamp must be strictly positive")
+    if ob.receive_timestamp_ms is not None and ob.receive_timestamp_ms <= 0:
+        raise CanonicalDataValidationError("receive timestamp must be strictly positive if provided")
 
     # Future receive check: exchange event should not be ridiculously far in the future
-    if ob.exchange_timestamp_ms > ob.receive_timestamp_ms + 10_000:
+    if ob.receive_timestamp_ms is not None and ob.exchange_timestamp_ms > ob.receive_timestamp_ms + 10_000:
         raise CanonicalDataValidationError(
             f"Future exchange timestamp detected: {ob.exchange_timestamp_ms} > {ob.receive_timestamp_ms} + 10s"
         )

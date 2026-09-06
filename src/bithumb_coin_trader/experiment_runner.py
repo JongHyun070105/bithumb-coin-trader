@@ -126,6 +126,10 @@ class InvalidStatusTransitionError(ExperimentGatingError):
 class HoldoutAlreadyConsumedError(ExperimentGatingError):
     pass
 
+class LedgerRecoveryError(ExperimentGatingError):
+    """Raised when crash recovery detects an irreconcilable WAL / ledger inconsistency."""
+    pass
+
 
 @dataclass(frozen=True, slots=True)
 class PreregistrationManifest:
@@ -318,17 +322,56 @@ class GovernedExperimentRunner:
         _atomic_write_json(self._cycle_state_file, data)
 
     def _recover_intents(self) -> None:
-        for intent_file in self.ledger_file.parent.glob("*.intent"):
+        for intent_file in sorted(self.ledger_file.parent.glob("*.intent")):
             try:
-                data = json.loads(intent_file.read_text())
-                tid = data["trial_id"]
-                if tid in self._reservations:
-                    rec = self._reservations[tid]
-                    if rec.status not in {TrialStatus.COMPLETED, TrialStatus.FAILED, TrialStatus.ABORTED}:
+                data = json.loads(intent_file.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise LedgerRecoveryError(
+                    f"Corrupt or unreadable intent file detected: {intent_file}: {exc}"
+                ) from exc
+
+            if not isinstance(data, dict) or "trial_id" not in data:
+                raise LedgerRecoveryError(
+                    f"Malformed intent file contents in {intent_file}: missing 'trial_id'"
+                )
+
+            tid = data["trial_id"]
+            ledger_has_trial = any(e.trial_id == tid for e in self._entries)
+
+            if tid in self._reservations:
+                rec = self._reservations[tid]
+                if rec.status == TrialStatus.COMPLETED:
+                    if not ledger_has_trial:
+                        raise LedgerRecoveryError(
+                            f"CRASH INCONSISTENCY: Trial '{tid}' reservation is COMPLETED but ledger entry is missing! "
+                            f"Transaction was lost across crash boundary."
+                        )
+                    # Ledger has entry and reservation is COMPLETED -> clean up intent
+                    intent_file.unlink()
+                elif rec.status in {TrialStatus.RUNNING, TrialStatus.RESERVED}:
+                    if ledger_has_trial:
+                        # Ledger committed before crash -> reconcile reservation to COMPLETED
+                        updated = ReservationRecord(
+                            trial_id=rec.trial_id,
+                            family_id=rec.family_id,
+                            status=TrialStatus.COMPLETED,
+                            reserved_at_utc=rec.reserved_at_utc,
+                            manifest_hash=rec.manifest_hash,
+                        )
+                        self._reservations[tid] = updated
+                        self._save_reservations()
+                        intent_file.unlink()
+                    else:
+                        # Crash before ledger commit -> abort trial so budget is preserved/tracked
                         self.update_trial_status(tid, TrialStatus.ABORTED)
-                intent_file.unlink()
-            except Exception:
-                pass
+                        intent_file.unlink()
+                else:
+                    # Terminal state (FAILED or ABORTED)
+                    intent_file.unlink()
+            else:
+                raise LedgerRecoveryError(
+                    f"Orphan intent file {intent_file} found for unknown/unreserved trial '{tid}'"
+                )
 
     def _load_or_init_ledger(self) -> None:
         if self.ledger_file.exists():
@@ -493,6 +536,12 @@ class GovernedExperimentRunner:
             if rec.status in {TrialStatus.COMPLETED, TrialStatus.FAILED, TrialStatus.ABORTED}:
                 raise TrialAlreadyTerminalError("Trial is already in a terminal state.")
 
+            if rec.status != TrialStatus.RUNNING:
+                raise InvalidStatusTransitionError(
+                    f"Cannot record trial '{manifest.trial_id}' in state '{rec.status}'. "
+                    f"Trial must be in RUNNING state (transition RESERVED -> RUNNING first)."
+                )
+
             if manifest.compute_sha256() != rec.manifest_hash:
                 raise ManifestMismatchError("Manifest does not match reserved manifest.")
 
@@ -505,12 +554,13 @@ class GovernedExperimentRunner:
                     f"Family {manifest.family_id} trial budget exhausted"
                 )
 
-            # Intent file for crash recovery
+            # Intent file for crash recovery (INTENT_PREPARED)
             intent_path = self.ledger_file.parent / f"{manifest.trial_id}.intent"
             _atomic_write_json(intent_path, {
                 "trial_id": manifest.trial_id,
                 "manifest_hash": manifest.compute_sha256(),
-                "timestamp": datetime.now(timezone.utc).isoformat()
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "state": "INTENT_PREPARED",
             })
 
             prev_hash = self._entries[-1].entry_hash if self._entries else self.GENESIS_HASH
@@ -524,7 +574,9 @@ class GovernedExperimentRunner:
             )
             self._entries.append(entry)
             
-            # Since update_trial_status also locks, we inline it or bypass lock
+            # Commit order: LEDGER_COMMITTED -> RESERVATION_TERMINAL -> INTENT_CLEARED
+            self._save_ledger()
+
             rec = self._reservations[manifest.trial_id]
             updated = ReservationRecord(
                 trial_id=rec.trial_id,
@@ -536,8 +588,6 @@ class GovernedExperimentRunner:
             self._reservations[manifest.trial_id] = updated
             self._save_reservations()
 
-            self._save_ledger()
-
             if intent_path.exists():
                 intent_path.unlink()
 
@@ -548,38 +598,34 @@ class GovernedExperimentRunner:
         target_state: ResearchCycleState,
         justification: str,
     ) -> ResearchCycleState:
-        """BUG-11 FIX: Advances the research lifecycle state machine (strictly forward).
+        """BUG-11 FIX: Advances the research lifecycle state machine (strictly forward)."""
+        with _exclusive_lock(self._lock_file):
+            self._load_cycle_state()
+            current_idx = _STATE_ORDER.index(self._cycle_state)
+            target_idx = _STATE_ORDER.index(target_state)
 
-        Replaces the is_final_verification=True boolean bypass in access_dataset().
-        Requires explicit justification for each transition.
+            if target_idx <= current_idx:
+                raise InvalidResearchCycleStateError(
+                    f"Cannot regress from {self._cycle_state.value} to {target_state.value}. "
+                    f"Research cycle states are strictly forward-progressing."
+                )
+            if target_idx != current_idx + 1:
+                raise InvalidResearchCycleStateError(
+                    f"Cannot skip states: {self._cycle_state.value} -> {target_state.value}. "
+                    f"Must advance one state at a time."
+                )
+            if not justification or not justification.strip():
+                raise InvalidResearchCycleStateError(
+                    "Justification is required for state advancement."
+                )
 
-        LIMITATION: State is in-memory only. For multi-process durability,
-        persist _cycle_state to a separate state file.
-        """
-        current_idx = _STATE_ORDER.index(self._cycle_state)
-        target_idx = _STATE_ORDER.index(target_state)
-
-        if target_idx <= current_idx:
-            raise InvalidResearchCycleStateError(
-                f"Cannot regress from {self._cycle_state.value} to {target_state.value}. "
-                f"Research cycle states are strictly forward-progressing."
-            )
-        if target_idx != current_idx + 1:
-            raise InvalidResearchCycleStateError(
-                f"Cannot skip states: {self._cycle_state.value} -> {target_state.value}. "
-                f"Must advance one state at a time."
-            )
-        if not justification or not justification.strip():
-            raise InvalidResearchCycleStateError(
-                "Justification is required for state advancement."
-            )
-
-        self._cycle_state = target_state
-        self._save_cycle_state(justification)
-        return self._cycle_state
+            self._cycle_state = target_state
+            self._save_cycle_state(justification)
+            return self._cycle_state
 
     @property
     def research_cycle_state(self) -> ResearchCycleState:
+        self._load_cycle_state()
         return self._cycle_state
 
     def access_dataset(
@@ -588,26 +634,21 @@ class GovernedExperimentRunner:
         role: DatasetRole,
         is_final_verification: bool = False,  # DEPRECATED: ignored, kept for compat
     ) -> str:
-        """BUG-11 FIX: Guards dataset access via lifecycle state machine.
-
-        HOLDOUT access is only permitted when research_cycle_state is
-        HOLDOUT_AUTHORIZED. Use advance_research_state() to progress.
-
-        DEPRECATION: is_final_verification boolean is IGNORED.
-        It was a bypass mechanism. Use advance_research_state() instead.
-        """
+        """P7 FIX: Guards dataset access via lifecycle state machine with cross-process locking."""
         if role == DatasetRole.HOLDOUT:
-            if self._cycle_state == ResearchCycleState.HOLDOUT_CONSUMED:
-                raise HoldoutAlreadyConsumedError("Holdout dataset already consumed.")
-            if self._cycle_state != ResearchCycleState.HOLDOUT_AUTHORIZED:
-                raise HoldoutContaminationError(
-                    f"Forbidden access to HOLDOUT dataset '{dataset_name}'. "
-                    f"Current research cycle state: {self._cycle_state.value}. "
-                    f"Required state: {ResearchCycleState.HOLDOUT_AUTHORIZED.value}. "
-                    f"Use advance_research_state(HOLDOUT_AUTHORIZED, justification=...) "
-                    f"to authorize holdout access."
-                )
-            self._cycle_state = ResearchCycleState.HOLDOUT_CONSUMED
-            self._save_cycle_state("Consumed holdout dataset")
-            
-        return f"ACCESS_GRANTED:{dataset_name}:{role.value}" 
+            with _exclusive_lock(self._lock_file):
+                self._load_cycle_state()
+                if self._cycle_state == ResearchCycleState.HOLDOUT_CONSUMED:
+                    raise HoldoutAlreadyConsumedError("Holdout dataset already consumed.")
+                if self._cycle_state != ResearchCycleState.HOLDOUT_AUTHORIZED:
+                    raise HoldoutContaminationError(
+                        f"Forbidden access to HOLDOUT dataset '{dataset_name}'. "
+                        f"Current research cycle state: {self._cycle_state.value}. "
+                        f"Required state: {ResearchCycleState.HOLDOUT_AUTHORIZED.value}. "
+                        f"Use advance_research_state(HOLDOUT_AUTHORIZED, justification=...) "
+                        f"to authorize holdout access."
+                    )
+                self._cycle_state = ResearchCycleState.HOLDOUT_CONSUMED
+                self._save_cycle_state("Consumed holdout dataset")
+
+        return f"ACCESS_GRANTED:{dataset_name}:{role.value}"

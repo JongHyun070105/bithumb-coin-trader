@@ -34,6 +34,7 @@ from datetime import datetime, timezone
 from enum import Enum
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -70,9 +71,46 @@ class DqQualificationEvidence:
     justification: str
     approved_policy: str
 
+    def __post_init__(self) -> None:
+        if isinstance(self.status, str):
+            self.status = DqQualificationStatus(self.status)
+        self.validate()
+
+    def validate(self) -> None:
+        if self.status in (DqQualificationStatus.DQ_FAIL, DqQualificationStatus.DQ_UNKNOWN):
+            raise DqRejectedError(f"DQ status '{self.status.value}' cannot be qualified.")
+
+        # P1.3: Reject unknown/default provenance
+        critical_fields = {
+            "auditor_version": self.auditor_version,
+            "audit_code_commit": self.audit_code_commit,
+            "source_manifest_hash": self.source_manifest_hash,
+            "report_hash": self.report_hash,
+            "criteria_version": self.criteria_version,
+        }
+        for field_name, val in critical_fields.items():
+            if not val or not str(val).strip() or str(val).strip().lower() in {"unknown", "default"}:
+                raise DqRejectedError(
+                    f"P1.3 VIOLATION: DqQualificationEvidence field '{field_name}' "
+                    f"has invalid or placeholder provenance value: {val!r}"
+                )
+
+        if self.approved_policy and self.approved_policy.strip().lower() in {"unknown", "default"}:
+            raise DqRejectedError(
+                f"P1.3 VIOLATION: DqQualificationEvidence field 'approved_policy' "
+                f"has invalid or placeholder provenance value: {self.approved_policy!r}"
+            )
+
+        if self.hard_fail_count > 0:
+            raise DqRejectedError(f"hard_fail_count must be 0, got {self.hard_fail_count}")
+
+        if self.status == DqQualificationStatus.DQ_DEGRADED:
+            if not self.justification or not self.justification.strip():
+                raise DqRejectedError("DQ_DEGRADED requires non-empty justification")
+
 
 class DqRejectedError(ValueError):
-    """Raised when dataset build is attempted with DQ_FAIL or DQ_UNKNOWN status."""
+    """Raised when dataset build is attempted with invalid or disqualified DQ status."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,12 +135,7 @@ class PartitionMetadata:
 
 @dataclass
 class PartitionCounts:
-    """Explicit breakdown of record counts across all partition stages.
-
-    BUG-ADD: Prior implementation only reported total_records and per-partition counts.
-    This dataclass exposes embargo-dropped counts separately so callers can verify
-    the partitioner behaved correctly.
-    """
+    """Explicit breakdown of record counts across all partition stages."""
     source_record_count: int
     train_record_count: int
     embargo1_dropped_count: int  # records dropped in embargo between train and validation
@@ -136,6 +169,14 @@ class ProspectiveDatasetManifest:
     dq_status: str
     partitions: dict[str, PartitionMetadata]
     created_at_utc: str
+    source_epoch_id: str = "synthetic"
+    source_run_id: str = "offline"
+    source_manifest_hash: str = ""
+    dq_report_hash: str = ""
+    dq_criteria_version: str = ""
+    canonicalizer_commit: str = "HEAD"
+    canonical_schema_version: str = "2.0.0"
+    partition_config_hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -143,6 +184,7 @@ class ProspectiveDatasetManifest:
             "exchange": self.exchange,
             "market": self.market,
             "total_records": self.total_records,
+            "source_record_count": self.total_records,
             "train_records": self.train_records,
             "validation_records": self.validation_records,
             "holdout_records": self.holdout_records,
@@ -152,6 +194,14 @@ class ProspectiveDatasetManifest:
             "dq_status": self.dq_status,
             "partitions": {k: v.to_dict() for k, v in self.partitions.items()},
             "created_at_utc": self.created_at_utc,
+            "source_epoch_id": self.source_epoch_id,
+            "source_run_id": self.source_run_id,
+            "source_manifest_hash": self.source_manifest_hash,
+            "dq_report_hash": self.dq_report_hash,
+            "dq_criteria_version": self.dq_criteria_version,
+            "canonicalizer_commit": self.canonicalizer_commit,
+            "canonical_schema_version": self.canonical_schema_version,
+            "partition_config_hash": self.partition_config_hash,
         }
 
 
@@ -257,21 +307,19 @@ def build_and_export_dataset(
     train_frac: float = 0.60,
     val_frac: float = 0.20,
     allow_overwrite: bool = False,
+    source_epoch_id: str = "synthetic",
+    source_run_id: str = "offline",
 ) -> ProspectiveDatasetManifest:
-    """BUG-ADD: Partitions, compresses, and writes manifest for prospective dataset."""
-    
-    if dq_evidence.status in (DqQualificationStatus.DQ_FAIL, DqQualificationStatus.DQ_UNKNOWN):
-        raise DqRejectedError(
-            f"Cannot build research dataset with DQ status '{dq_evidence.status.value}'. "
-        )
-    if dq_evidence.status == DqQualificationStatus.DQ_PASS and dq_evidence.hard_fail_count > 0:
-        raise DqRejectedError("DQ_PASS requires hard_fail_count == 0")
-    if dq_evidence.status == DqQualificationStatus.DQ_DEGRADED:
-        if dq_evidence.hard_fail_count > 0:
-            raise DqRejectedError("DQ_DEGRADED requires hard_fail_count == 0")
-        if not dq_evidence.justification:
-            raise DqRejectedError("DQ_DEGRADED requires non-empty justification")
-            
+    """Partitions, compresses, and writes manifest for prospective research dataset.
+
+    Enforces:
+    - Sealing / overwrite protection (P0)
+    - Full cryptographic provenance (P1, P3)
+    - Content-addressed dataset identity (P2, P2.1)
+    - Crash-resistant atomic local write (P4)
+    """
+    dq_evidence.validate()
+
     if records:
         exchange = records[0].exchange
         market = records[0].market
@@ -283,22 +331,13 @@ def build_and_export_dataset(
     if out.exists() and any(out.iterdir()) and not allow_overwrite:
         raise FileExistsError(f"Output directory {out} already exists and is non-empty")
     out.mkdir(parents=True, exist_ok=True)
-    
-    if not dataset_id:
-        id_source = json.dumps({
-            "source_manifest_hash": dq_evidence.source_manifest_hash,
-            "partition_config": {
-                "train_frac": train_frac,
-                "val_frac": val_frac,
-                "purge_window_ms": purge_window_ms
-            },
-            "schema_version": "2.0.0"
-        }, sort_keys=True)
-        dataset_id = hashlib.sha256(id_source.encode()).hexdigest()[:16]
 
-    splits, counts = partition_records_temporally(records, train_frac=train_frac, val_frac=val_frac, purge_window_ms=purge_window_ms)
+    splits, counts = partition_records_temporally(
+        records, train_frac=train_frac, val_frac=val_frac, purge_window_ms=purge_window_ms
+    )
 
     partition_meta: dict[str, PartitionMetadata] = {}
+    content_hash_parts: list[str] = []
 
     for role, recs in splits.items():
         fname = f"{role.value.lower()}.ndjson.zst"
@@ -306,9 +345,10 @@ def build_and_export_dataset(
         write_canonical_ndjson_zstd(fpath, recs)
 
         file_sha = _streaming_sha256(fpath)
+        content_hash_parts.append(f"{role.value}:{file_sha}")
 
-        start_ts = recs[0].receive_timestamp_ms if recs else 0
-        end_ts = recs[-1].receive_timestamp_ms if recs else 0
+        start_ts = recs[0].receive_timestamp_ms if (recs and recs[0].receive_timestamp_ms is not None) else 0
+        end_ts = recs[-1].receive_timestamp_ms if (recs and recs[-1].receive_timestamp_ms is not None) else 0
 
         partition_meta[role.value] = PartitionMetadata(
             role=role,
@@ -318,6 +358,26 @@ def build_and_export_dataset(
             sha256=file_sha,
             file_name=fname,
         )
+
+    partition_config_str = json.dumps({
+        "purge_window_ms": purge_window_ms,
+        "train_frac": train_frac,
+        "val_frac": val_frac,
+    }, sort_keys=True)
+    partition_config_hash = hashlib.sha256(partition_config_str.encode("utf-8")).hexdigest()
+    canonical_content_hash = hashlib.sha256(";".join(sorted(content_hash_parts)).encode("utf-8")).hexdigest()
+
+    if not dataset_id:
+        id_source = json.dumps({
+            "canonical_content_hash": canonical_content_hash,
+            "canonical_schema_version": "2.0.0",
+            "canonicalizer_commit": dq_evidence.audit_code_commit,
+            "dq_criteria_version": dq_evidence.criteria_version,
+            "dq_report_hash": dq_evidence.report_hash,
+            "partition_config_hash": partition_config_hash,
+            "source_manifest_hash": dq_evidence.source_manifest_hash,
+        }, sort_keys=True)
+        dataset_id = hashlib.sha256(id_source.encode("utf-8")).hexdigest()[:16]
 
     manifest = ProspectiveDatasetManifest(
         dataset_id=dataset_id,
@@ -333,11 +393,32 @@ def build_and_export_dataset(
         dq_status=dq_evidence.status.value,
         partitions=partition_meta,
         created_at_utc=datetime.now(timezone.utc).isoformat(),
+        source_epoch_id=source_epoch_id,
+        source_run_id=source_run_id,
+        source_manifest_hash=dq_evidence.source_manifest_hash,
+        dq_report_hash=dq_evidence.report_hash,
+        dq_criteria_version=dq_evidence.criteria_version,
+        canonicalizer_commit=dq_evidence.audit_code_commit,
+        canonical_schema_version="2.0.0",
+        partition_config_hash=partition_config_hash,
     )
 
+    # CRASH-RESISTANT ATOMIC LOCAL WRITE: write -> flush -> fsync -> rename -> dir fsync
     manifest_path = out / "manifest.json"
-    tmp = manifest_path.with_suffix('.tmp')
-    tmp.write_text(json.dumps(manifest.to_dict(), indent=2))
-    tmp.replace(manifest_path)
-    
+    tmp = manifest_path.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(json.dumps(manifest.to_dict(), indent=2))
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(tmp, manifest_path)
+
+    try:
+        dir_fd = os.open(str(out), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except (OSError, AttributeError):
+        pass
+
     return manifest

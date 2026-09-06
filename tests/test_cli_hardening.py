@@ -60,8 +60,19 @@ def test_partition_cli_respects_train_frac(tmp_path):
     input_file = tmp_path / "input.ndjson.zst"
     write_canonical_ndjson_zstd(input_file, records)
     out_dir = tmp_path / "out"
+    from bithumb_coin_trader.research_cli import compute_canonical_report_hash
+    dq_data = {
+        "status": "DQ_PASS",
+        "hard_fail_count": 0,
+        "auditor_version": "1.0.0",
+        "audit_code_commit": "a" * 40,
+        "source_manifest_hash": "b" * 64,
+        "criteria_version": "v1",
+        "created_at": "2026-09-06T00:00:00Z",
+    }
+    dq_data["report_hash"] = compute_canonical_report_hash(dq_data)
     dq_file = tmp_path / "dq.json"
-    dq_file.write_text(json.dumps({"status": "DQ_PASS", "hard_fail_count": 0}))
+    dq_file.write_text(json.dumps(dq_data))
     
     res = main(["partition-dataset", "--input-file", str(input_file), "--output-dir", str(out_dir), "--dq-report", str(dq_file), "--train-frac", "0.50", "--val-frac", "0.20", "--purge-window-ms", "0"])
     assert res == 0

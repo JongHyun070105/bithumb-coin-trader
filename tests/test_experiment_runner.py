@@ -54,6 +54,7 @@ def test_preregistration_and_ledger_chain(tmp_path):
 
     m1 = _make_manifest("exp_001", max_trials=3)
     runner.reserve_trial(m1)
+    runner.update_trial_status(m1.trial_id, TrialStatus.RUNNING)
     entry_1 = runner.record_trial(m1, {"sharpe": 1.25, "p_value": 0.02})
 
     assert entry_1.entry_index == 0
@@ -62,6 +63,7 @@ def test_preregistration_and_ledger_chain(tmp_path):
 
     m2 = _make_manifest("exp_002", max_trials=3)
     runner.reserve_trial(m2)
+    runner.update_trial_status(m2.trial_id, TrialStatus.RUNNING)
     entry_2 = runner.record_trial(m2, {"sharpe": 1.45, "p_value": 0.005})
 
     assert entry_2.entry_index == 1
@@ -76,6 +78,7 @@ def test_budget_exceeded(tmp_path):
     for i in range(3):
         m = _make_manifest(f"exp_{i}", max_trials=3)
         runner.reserve_trial(m)
+        runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
         runner.record_trial(m, {"sharpe": 0.5})
 
     m_excess = _make_manifest("exp_excess", max_trials=3)
@@ -94,6 +97,7 @@ def test_tamper_detection(tmp_path):
 
     m = _make_manifest("t1")
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     runner.record_trial(m, {"sharpe": 1.0})
 
     raw = json.loads(ledger_file.read_text())
@@ -228,6 +232,7 @@ def test_record_after_reservation_succeeds(tmp_path):
     runner = GovernedExperimentRunner(tmp_path / "ledger.json")
     m = _make_manifest("reserved_then_recorded")
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     entry = runner.record_trial(m, {"sharpe": 1.2})
     assert entry.trial_id == "reserved_then_recorded"
 
@@ -272,6 +277,7 @@ def test_ledger_write_produces_valid_json(tmp_path):
     runner = GovernedExperimentRunner(tmp_path / "ledger.json")
     m = _make_manifest("atomic_write_test")
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     runner.record_trial(m, {"sharpe": 1.0})
 
     # Must parse without error
@@ -347,6 +353,7 @@ def test_duplicate_record_trial_rejected(tmp_path):
     runner = GovernedExperimentRunner(tmp_path / "ledger.json")
     m = _make_manifest("duplicate_trial")
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     runner.record_trial(m, {"sharpe": 1.0})
     
     with pytest.raises(Exception):
@@ -367,6 +374,7 @@ def test_completed_trial_cannot_transition(tmp_path):
     runner = GovernedExperimentRunner(tmp_path / "ledger.json")
     m = _make_manifest("trans_trial")
     runner.reserve_trial(m)
+    runner.update_trial_status(m.trial_id, TrialStatus.RUNNING)
     runner.record_trial(m, {"sharpe": 1.0})
     with pytest.raises(Exception): # InvalidStatusTransitionError
         runner.update_trial_status("trans_trial", TrialStatus.RUNNING)
