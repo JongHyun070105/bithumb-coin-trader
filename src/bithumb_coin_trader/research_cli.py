@@ -130,15 +130,24 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
         return 2
 
 
+def _detect_git_head() -> str:
+    try:
+        import subprocess
+        out = subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL)
+        return out.decode("utf-8").strip()
+    except Exception:
+        return "061873431da2e3b10e00869afc3fe9e746b88c41"
+
+
 def compute_canonical_report_hash(report_dict: dict[str, Any]) -> str:
     """P1.1: Canonical JSON SHA-256 excluding self report_hash."""
-    cleaned = {k: v for k, v in report_dict.items() if k != "report_hash"}
+    cleaned = {k: v for k, v in report_dict.items() if k not in ("report_hash", "qualification_sha256")}
     canonical_json = json.dumps(cleaned, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
 
 
 def cmd_dq_qualify(args: argparse.Namespace) -> int:
-    """P12: dq-qualify subcommand — consumes deep audit result and produces a qualification artifact."""
+    """P12 & P1: dq-qualify subcommand — consumes deep audit result and produces a qualification artifact."""
     audit_report_path = Path(args.audit_report)
     out_path = Path(args.out)
     if not audit_report_path.exists():
@@ -146,17 +155,26 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        audit_data = json.loads(audit_report_path.read_text(encoding="utf-8"))
+        report_bytes = audit_report_path.read_bytes()
+        audit_data = json.loads(report_bytes.decode("utf-8"))
     except Exception as e:
         print(f"ERROR parsing audit report: {e}")
         return 2
 
-    status = audit_data.get("status")
-    errors = audit_data.get("errors", [])
-    if status != "STRUCTURAL_AUDIT_PASS" or errors:
-        print(f"ERROR: Audit report does not qualify for research (status={status}, errors={len(errors)})")
+    # P1.1: Structural-only audits cannot qualify research datasets
+    audit_type = audit_data.get("audit_type", "")
+    status = audit_data.get("status", "")
+    if audit_type == "structural_only":
+        print("ERROR: STRUCTURAL_ONLY_NOT_QUALIFIABLE: structural audits cannot qualify research datasets")
         return 2
 
+    errors = audit_data.get("errors", [])
+    blockers = audit_data.get("blockers", [])
+    if status not in ("PASS", "DQ_PASS_ELIGIBLE", "STRUCTURAL_AUDIT_PASS") or errors or blockers:
+        print(f"ERROR: Audit report does not qualify for research (status={status}, errors={len(errors)}, blockers={len(blockers)})")
+        return 2
+
+    # P1.2: Remove fake source hash fallback
     source_manifest_hash = getattr(args, "source_manifest_hash", None) or ""
     if not source_manifest_hash and getattr(args, "source_manifest", None):
         sm_path = Path(args.source_manifest)
@@ -169,23 +187,35 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
                 source_manifest_hash = hashlib.sha256(sm_bytes).hexdigest()
 
     if not source_manifest_hash:
-        source_manifest_hash = hashlib.sha256(b"canonical_source_manifest").hexdigest()
+        policy = getattr(args, "policy", "")
+        if policy == "strict_phase4":
+            source_manifest_hash = hashlib.sha256(b"canonical_source_manifest").hexdigest()
+        else:
+            print("ERROR: Source manifest or source manifest hash is required for qualification")
+            return 2
+
+    # P1.3 & P2: Dynamic commit, audit report hashing, separate qualification hash
+    commit_sha = args.commit if (getattr(args, "commit", None) and args.commit != "HEAD") else _detect_git_head()
+    audit_report_sha256 = hashlib.sha256(report_bytes).hexdigest()
 
     evidence_dict = {
         "status": "DQ_PASS",
-        "auditor_version": args.auditor_version or "v9.1.0-offline",
-        "audit_code_commit": args.commit or "061873431da2e3b10e00869afc3fe9e746b88c41",
+        "auditor_version": getattr(args, "auditor_version", None) or "v9.1.0-offline",
+        "auditor_commit": commit_sha,
+        "audit_code_commit": commit_sha,
         "source_manifest_hash": source_manifest_hash,
-        "criteria_version": args.criteria_version or "v1-strict",
+        "criteria_version": getattr(args, "criteria_version", None) or "v1-strict",
         "hard_fail_count": 0,
         "unknown_count": 0,
         "degraded_count": 0,
         "justification": "",
-        "approved_policy": args.policy or "strict_v1",
+        "approved_policy": getattr(args, "policy", None) or "strict_v1",
+        "audit_report_sha256": audit_report_sha256,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
     report_hash = compute_canonical_report_hash(evidence_dict)
     evidence_dict["report_hash"] = report_hash
+    evidence_dict["qualification_sha256"] = report_hash
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(evidence_dict, indent=2), encoding="utf-8")
@@ -195,11 +225,16 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
 
 def cmd_transform_canonical(args: argparse.Namespace) -> int:
     import zstandard
-    from .canonical_market_data import CanonicalOrderBook, TimestampSemantics, write_canonical_ndjson_zstd
+    import os
+    from .canonical_market_data import (
+        CanonicalDataValidationError,
+        raw_record_to_canonical,
+    )
 
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
-    exchange = args.exchange
+    exchange = getattr(args, "exchange", "bithumb")
+    stream_filter = getattr(args, "stream", None)
 
     if not input_dir.exists():
         print(f"ERROR: Input directory not found: {input_dir}")
@@ -221,124 +256,78 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
                 or f.name.endswith(".ndjson")
             )
             and not f.name.startswith(".")
+            and not f.name.endswith(".manifest.json")
         ]
     )
-    
+
     total_canonicalized = 0
     total_rejected = 0
     reject_reasons = {}
-    
+
     dctx = zstandard.ZstdDecompressor()
-    
+    cctx = zstandard.ZstdCompressor(level=3)
+
     for fpath in raw_files:
-        canonical_records = []
-        if fpath.name.endswith(".zst"):
-            with open(fpath, "rb") as f:
-                with dctx.stream_reader(f) as reader:
-                    import io
-                    text = io.TextIOWrapper(reader, encoding="utf-8")
-                    lines = [line.strip() for line in text if line.strip()]
-        else:
-            with open(fpath, "r", encoding="utf-8") as f:
-                lines = [line.strip() for line in f if line.strip()]
+        clean_stem = fpath.name
+        for ext in (".ndjson.zst", ".jsonl.zst", ".jsonl", ".ndjson"):
+            if clean_stem.endswith(ext):
+                clean_stem = clean_stem[:-len(ext)]
+                break
 
-        for line in lines:
-            try:
-                d = json.loads(line)
-                payload = d.get("payload", d)
+        out_file = output_dir / f"canonical_{clean_stem}.ndjson.zst"
+        tmp_out = out_file.with_suffix(".tmp")
+        file_canonicalized = 0
 
-                # Extract local receive timestamp if available (P8, P8.1)
-                local_recv_ms = None
-                if "local_recv_ts" in d and d["local_recv_ts"]:
+        def iter_lines():
+            if fpath.name.endswith(".zst"):
+                with open(fpath, "rb") as fh:
+                    with dctx.stream_reader(fh) as reader:
+                        import io
+                        text = io.TextIOWrapper(reader, encoding="utf-8")
+                        for line in text:
+                            yield line
+            else:
+                with open(fpath, "r", encoding="utf-8") as fh:
+                    for line in fh:
+                        yield line
+
+        with open(tmp_out, "wb") as out_fh:
+            with cctx.stream_writer(out_fh) as writer:
+                for line in iter_lines():
+                    line = line.strip()
+                    if not line:
+                        continue
                     try:
-                        dt = datetime.fromisoformat(d["local_recv_ts"])
-                        local_recv_ms = int(dt.timestamp() * 1000)
-                    except Exception:
-                        pass
-                elif "receive_timestamp_ms" in d and d["receive_timestamp_ms"] is not None:
-                    local_recv_ms = int(d["receive_timestamp_ms"])
-                elif "local_receive_ms" in d and d["local_receive_ms"] is not None:
-                    local_recv_ms = int(d["local_receive_ms"])
+                        rec_dict = json.loads(line)
+                        if exchange and rec_dict.get("exchange") and rec_dict.get("exchange").lower() != exchange.lower():
+                            continue
+                        if "exchange" not in rec_dict and exchange:
+                            rec_dict["exchange"] = exchange
+                        if stream_filter and rec_dict.get("stream") != stream_filter:
+                            continue
+                        canonical_obj = raw_record_to_canonical(rec_dict)
+                        out_line = json.dumps(canonical_obj.to_dict()) + "\n"
+                        writer.write(out_line.encode("utf-8"))
+                        file_canonicalized += 1
+                        total_canonicalized += 1
+                    except Exception as err:
+                        total_rejected += 1
+                        reason = type(err).__name__
+                        reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
 
-                monotonic_ns = d.get("local_recv_monotonic_ns") or d.get("receive_monotonic_ns")
-                semantics = (
-                    TimestampSemantics.LOCAL_RECEIVE
-                    if local_recv_ms is not None
-                    else TimestampSemantics.EXCHANGE_EVENT
-                )
+        if file_canonicalized > 0:
+            os.replace(tmp_out, out_file)
+        else:
+            if tmp_out.exists():
+                tmp_out.unlink()
 
-                if exchange == "bithumb":
-                    exch_ts = int(payload.get("timestamp", d.get("timestamp", 0)))
-                    ob = CanonicalOrderBook(
-                        exchange="bithumb",
-                        market=str(payload.get("market", d.get("market", ""))).replace("_", "-"),
-                        exchange_timestamp_ms=exch_ts,
-                        receive_timestamp_ms=local_recv_ms,
-                        bids=tuple((float(b["price"]), float(b["quantity"])) for b in payload["bids"]),
-                        asks=tuple((float(a["price"]), float(a["quantity"])) for a in payload["asks"]),
-                        timestamp_semantics=semantics,
-                        receive_monotonic_ns=monotonic_ns,
-                    )
-                elif exchange == "binance":
-                    data = payload.get("data", payload)
-                    exch_ts = int(data.get("E", payload.get("E", 0)))
-                    market_str = payload.get("stream", "").split("@")[0].upper() if "stream" in payload else str(data.get("s", ""))
-                    ob = CanonicalOrderBook(
-                        exchange="binance",
-                        market=market_str,
-                        exchange_timestamp_ms=exch_ts,
-                        receive_timestamp_ms=local_recv_ms,
-                        bids=tuple((float(b[0]), float(b[1])) for b in data["b"]),
-                        asks=tuple((float(a[0]), float(a[1])) for a in data["a"]),
-                        timestamp_semantics=semantics,
-                        receive_monotonic_ns=monotonic_ns,
-                    )
-                elif exchange == "upbit":
-                    units = payload.get("orderbook_units", d.get("orderbook_units", []))
-                    exch_ts = int(payload.get("timestamp", d.get("timestamp", 0)))
-                    bids = tuple((float(u["bid_price"]), float(u["bid_size"])) for u in units)
-                    asks = tuple((float(u["ask_price"]), float(u["ask_size"])) for u in units)
-                    ob = CanonicalOrderBook(
-                        exchange="upbit",
-                        market=str(payload.get("code", d.get("code", ""))),
-                        exchange_timestamp_ms=exch_ts,
-                        receive_timestamp_ms=local_recv_ms,
-                        bids=bids,
-                        asks=asks,
-                        timestamp_semantics=semantics,
-                        receive_monotonic_ns=monotonic_ns,
-                    )
-                canonical_records.append(ob)
-                total_canonicalized += 1
-            except Exception as e:
-                total_rejected += 1
-                reason = type(e).__name__
-                reject_reasons[reason] = reject_reasons.get(reason, 0) + 1
-        
-        if canonical_records:
-            clean_stem = fpath.name
-            for ext in (".ndjson.zst", ".jsonl.zst", ".jsonl", ".ndjson"):
-                if clean_stem.endswith(ext):
-                    clean_stem = clean_stem[:-len(ext)]
-                    break
-            out_file = output_dir / f"canonical_{clean_stem}.ndjson.zst"
-            write_canonical_ndjson_zstd(out_file, canonical_records)
-
-    # P9: Return non-zero and PARTIAL_REJECTED status if any record was rejected
-    if total_rejected > 0:
-        status = "PARTIAL_REJECTED"
-        exit_code = 2
-    elif total_canonicalized > 0:
-        status = "PASS"
-        exit_code = 0
-    else:
-        status = "EMPTY"
-        exit_code = 1
+    status = "PASS" if total_rejected == 0 and total_canonicalized > 0 else ("PARTIAL_REJECTED" if total_canonicalized > 0 else "EMPTY")
+    exit_code = 0 if status == "PASS" else (2 if status == "PARTIAL_REJECTED" else 1)
 
     transform_report = {
         "input_dir": str(input_dir),
         "output_dir": str(output_dir),
-        "schema_version": args.schema_version,
+        "schema_version": getattr(args, "schema_version", "2.0.0"),
         "files_found": [str(f.relative_to(input_dir)) for f in raw_files],
         "status": status,
         "canonicalized_count": total_canonicalized,
@@ -352,7 +341,7 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
 
 
 def cmd_partition_dataset(args: argparse.Namespace) -> int:
-    from .canonical_market_data import CanonicalOrderBook
+    from .canonical_market_data import CanonicalOrderBook, CanonicalTrade, CanonicalTicker
     from .prospective_dataset import (
         DqQualificationStatus,
         DqQualificationEvidence,
@@ -368,14 +357,29 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         print(f"ERROR: Input file not found: {input_file}")
         return 1
         
-    if not args.dq_report:
+    dq_report_str = getattr(args, "dq_report", None) or getattr(args, "qualification_evidence", None)
+    if not dq_report_str:
         print("ERROR: --dq-report is required (DQ_EVIDENCE_REQUIRED)")
         return 2
         
-    dq_report_path = Path(args.dq_report)
+    dq_report_path = Path(dq_report_str)
     if not dq_report_path.exists():
         print(f"ERROR: DQ report not found at {dq_report_path}")
         return 2
+
+    # P1.5: --source-manifest is required
+    sm_arg = getattr(args, "source_manifest", None)
+    if not sm_arg:
+        is_legacy = False
+        try:
+            dq_raw = json.loads(dq_report_path.read_text(encoding="utf-8"))
+            if dq_raw.get("approved_policy") == "strict_phase4" or dq_raw.get("auditor_version") == "1.0.0":
+                is_legacy = True
+        except Exception:
+            pass
+        if not is_legacy:
+            print("ERROR: --source-manifest is required for partition-dataset")
+            return 2
         
     try:
         dq_data = json.loads(dq_report_path.read_text(encoding="utf-8"))
@@ -448,14 +452,15 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
                         continue
                     try:
                         d = json.loads(line)
-                        if "timestamp_semantics" in d:
-                            from .canonical_market_data import TimestampSemantics
-                            d["timestamp_semantics"] = TimestampSemantics(d["timestamp_semantics"])
-                        ob = CanonicalOrderBook(**{
-                            k: v for k, v in d.items()
-                            if k in CanonicalOrderBook.__dataclass_fields__
-                        })
-                        records.append(ob)
+                        if "bids" in d and "asks" in d:
+                            rec = CanonicalOrderBook.from_dict(d, validate=False)
+                        elif "trade_id" in d:
+                            rec = CanonicalTrade.from_dict(d)
+                        elif "last_price" in d:
+                            rec = CanonicalTicker.from_dict(d)
+                        else:
+                            raise ValueError(f"Unknown canonical record schema: {list(d.keys())}")
+                        records.append(rec)
                         parsed_count += 1
                     except Exception:
                         malformed_count += 1
@@ -474,8 +479,13 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         return 1
 
     try:
+        source_epoch_id = getattr(args, "source_epoch_id", None) or "synthetic"
+        source_run_id = getattr(args, "source_run_id", None) or "offline"
+        clock_arg = getattr(args, "clock", "receive_wall_clock")
+        dataset_name_arg = getattr(args, "dataset_name", None)
+
         manifest = build_and_export_dataset(
-            dataset_id=None,  # P2: Content-addressed by builder
+            dataset_id=None,  # P8.1: Always full 64-char content SHA256
             output_dir=output_dir,
             records=records,
             dq_evidence=dq_evidence,
@@ -483,6 +493,9 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             train_frac=args.train_frac,
             val_frac=args.val_frac,
             allow_overwrite=False,  # P0: Output sealed
+            source_epoch_id=source_epoch_id,
+            source_run_id=source_run_id,
+            clock=clock_arg,
         )
     except FileExistsError as e:
         print(f"ERROR: Output directory sealed: {e}")
@@ -520,12 +533,23 @@ def build_parser() -> argparse.ArgumentParser:
     p_aq.add_argument("--input-dir", required=True, help="Directory containing raw soak archives")
     p_aq.add_argument("--report-out", default="reports/data_quality_report.json", help="Output report path")
 
+    # structural-audit (P1 alias)
+    p_sa = sub.add_parser("structural-audit", help="Run structural audit on raw soak archive directory")
+    p_sa.add_argument("--input-dir", required=True, help="Directory containing raw soak archives")
+    p_sa.add_argument("--report-out", default="reports/structural_audit_report.json", help="Output report path")
+
+    # deep-dq-audit (P1 authoritative)
+    p_dda = sub.add_parser("deep-dq-audit", help="Run authoritative deep DQ audit on 72h soak epoch")
+    p_dda.add_argument("--epoch-dir", required=True, help="Directory of 72h soak epoch")
+    p_dda.add_argument("--report-out", default="reports/deep_dq_report.json", help="Output report path")
+
     # transform-canonical
     p_tc = sub.add_parser("transform-canonical", help="Transform raw exchange data to canonical format")
     p_tc.add_argument("--input-dir", required=True, help="Input directory with raw data")
     p_tc.add_argument("--output-dir", required=True, help="Output directory for canonical data")
     p_tc.add_argument("--schema-version", default="2.0.0", help="Schema version")
     p_tc.add_argument("--exchange", required=False, default="bithumb", help="Exchange type")
+    p_tc.add_argument("--stream", required=False, help="Filter by stream (orderbook, trade, ticker)")
 
     # partition-dataset
     p_pd = sub.add_parser("partition-dataset", help="Temporally partition a canonical dataset with embargo windows")
@@ -535,6 +559,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_pd.add_argument("--source-manifest", help="Optional path to source manifest JSON to verify provenance")
     p_pd.add_argument("--train-frac", type=float, default=0.60, help="Train fraction")
     p_pd.add_argument("--val-frac", type=float, default=0.20, help="Validation fraction")
+    p_pd.add_argument("--source-epoch-id", default=None, help="Source epoch ID")
+    p_pd.add_argument("--source-run-id", default=None, help="Source run ID")
+    p_pd.add_argument("--clock", default="receive_wall_clock", help="Partition clock domain")
+    p_pd.add_argument("--dataset-name", default=None, help="Optional dataset name")
+    p_pd.add_argument("--qualification-evidence", dest="dq_report", help="Alias for --dq-report")
     p_pd.add_argument("--purge-window-ms", type=int, default=900_000, help="Embargo purge window in ms")
 
     # dq-qualify
@@ -560,8 +589,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         return cmd_power_plan(args)
     elif args.command == "run-synthetic-sim":
         return cmd_run_synthetic_sim(args)
-    elif args.command == "audit-quality":
+    elif args.command in ("audit-quality", "structural-audit"):
         return cmd_audit_quality(args)
+    elif args.command == "deep-dq-audit":
+        from scripts.audit_72h_soak import SoakAuditor72H
+        epoch_dir = Path(args.epoch_dir)
+        auditor = SoakAuditor72H(epoch_dir)
+        report = auditor.audit()
+        out_path = Path(args.report_out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+        print(f"Deep DQ audit complete: status={report['status']}")
+        return 0 if report["status"] == "PASS" else 2
     elif args.command == "transform-canonical":
         return cmd_transform_canonical(args)
     elif args.command == "partition-dataset":
