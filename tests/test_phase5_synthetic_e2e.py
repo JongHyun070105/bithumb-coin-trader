@@ -1078,4 +1078,3 @@ class TestMutationSensitivity:
         """Mutate: path traversal in identifier must be blocked."""
         with pytest.raises(ValueError, match="UNSAFE_IDENTIFIER"):
             validate_safe_identifier("../traversal")
-

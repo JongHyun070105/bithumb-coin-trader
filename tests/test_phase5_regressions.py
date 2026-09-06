@@ -74,7 +74,7 @@ def test_p0_1_empty_epoch_must_fail(tmp_path: Path) -> None:
     """P0.1: Empty epoch must return status FAIL with NO_RAW_EVIDENCE / NO_MANIFEST_EVIDENCE."""
     empty_epoch = tmp_path / "empty_epoch"
     empty_epoch.mkdir()
-    
+
     auditor = SoakAuditor72H(empty_epoch)
     report = auditor.audit()
 
@@ -358,7 +358,7 @@ def test_p4_1_malformed_local_recv_ts_must_reject_record(tmp_path: Path) -> None
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
     raw_file = raw_dir / "raw_bithumb_orderbook.jsonl"
-    
+
     # Write a record with malformed local_recv_ts
     record = {
         "exchange": "bithumb",
@@ -399,7 +399,7 @@ def test_p5_4_mixed_streams_auto_dispatch(tmp_path: Path) -> None:
     """P5.4: Input directory containing both orderbook and trade streams must auto-dispatch without failing."""
     raw_dir = tmp_path / "raw"
     raw_dir.mkdir()
-    
+
     ob_record = {
         "exchange": "bithumb",
         "stream": "orderbook",
@@ -439,7 +439,7 @@ def test_p5_4_mixed_streams_auto_dispatch(tmp_path: Path) -> None:
     )
     rc = cmd_transform_canonical(args)
     assert rc == 0, "Transform must handle orderbook and trade streams without rejecting valid trade rows"
-    
+
     report = json.loads((out_dir / "transform_report.json").read_text())
     assert report["canonicalized_count"] == 2
     assert report["rejected_count"] == 0
