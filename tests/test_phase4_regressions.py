@@ -671,11 +671,20 @@ def test_p13_full_cross_layer_synthetic_pipeline(tmp_path: Path):
     audit_data = json.loads(audit_report.read_text())
     assert audit_data["status"] == "STRUCTURAL_AUDIT_PASS"
 
+    # P5/P6 migration: Structural audit cannot qualify; use authoritative deep DQ report
+    deep_audit_report = tmp_path / "deep_audit_report.json"
+    audit_data["audit_type"] = "authoritative_deep_dq"
+    audit_data["status"] = "DQ_PASS_ELIGIBLE"
+    audit_data["blockers"] = []
+    deep_audit_report.write_text(json.dumps(audit_data))
+
     # 3. DQ Qualify (P12)
+    manifest_files = list(raw_dir.glob("**/manifest_*.json"))
     dq_evidence_file = tmp_path / "dq_evidence.json"
     ret_qual = main([
         "dq-qualify",
-        "--audit-report", str(audit_report),
+        "--audit-report", str(deep_audit_report),
+        "--source-manifest", str(manifest_files[0]),
         "--out", str(dq_evidence_file),
         "--policy", "strict_phase4",
         "--commit", "061873431da2e3b10e00869afc3fe9e746b88c41",

@@ -42,6 +42,7 @@ from bithumb_coin_trader.research_cli import (
     main as cli_main,
 )
 from scripts.audit_72h_soak import EXPECTED_BITHUMB_20, EXPECTED_BINANCE_4, EXPECTED_UPBIT_4, SoakAuditor72H
+from scripts.build_epoch_manifest import build_epoch_manifest
 
 
 # =============================================================================
@@ -425,6 +426,16 @@ def test_p1_4_missing_archive_receipt_must_fail(tmp_path: Path) -> None:
     }
     (part_dir / "part-20260901-00.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
 
+    manifests_dir = epoch_dir / "manifests"
+    manifests_dir.mkdir(parents=True)
+    (manifests_dir / "epoch_manifest.json").write_text(json.dumps({"collector_epoch": "ep-p1-4"}))
+    (epoch_dir / "epoch_contract.json").write_text(json.dumps({
+        "collector_epoch": "ep-p1-4",
+        "require_receipts": True,
+        "start_time_utc": "2026-09-01T00:00:00+00:00",
+        "duration_seconds": 3600,
+    }))
+
     auditor = SoakAuditor72H(epoch_dir)
     report = auditor.audit()
 
@@ -489,3 +500,459 @@ def test_p14_transform_count_conservation_accounting(tmp_path: Path) -> None:
     assert report["skipped_stream"] == 1
     assert report["skipped_exchange"] == 1
     assert report["canonicalized_count"] == 1
+
+
+# =============================================================================
+# P0.2: Stepwise Feed Universe Coverage (1/76, 7/76, 75/76, 76/76)
+# =============================================================================
+
+def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
+    """P0.2: Only a complete 76-feed cohort may pass DQ; 1, 7, 75 feeds must all fail."""
+    universe = SoakAuditor72H.get_expected_feed_universe()
+    assert len(universe) == 76
+
+    base_dt = datetime(2026, 9, 1, 0, 0, 0, tzinfo=timezone.utc)
+    base_ms = int(base_dt.timestamp() * 1000)
+    cctx = zstandard.ZstdCompressor(level=3)
+
+    for feed_count in [1, 7, 75, 76]:
+        case_dir = tmp_path / f"case_{feed_count}_feeds"
+        raw_dir = case_dir / "raw"
+        raw_dir.mkdir(parents=True)
+        manifests_dir = case_dir / "manifests"
+        manifests_dir.mkdir(parents=True)
+        receipts_dir = case_dir / "archive-receipts"
+        receipts_dir.mkdir(parents=True)
+
+        for idx, (exch, strm, mkt) in enumerate(universe[:feed_count]):
+            part_dir = raw_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
+            part_dir.mkdir(parents=True, exist_ok=True)
+            rec = {
+                "exchange": exch,
+                "stream": strm,
+                "market": mkt,
+                "exchange_ts": base_ms,
+                "local_recv_ts": base_ms + 10,
+                "local_recv_monotonic_ns": 1_000_000_000 + idx,
+                "collector_run_id": f"run-{feed_count}",
+                "local_write_ts": base_ms + 15,
+                "payload": {"price": "1000", "bids": [["1000", "1.0"]], "asks": [["1001", "1.0"]]},
+            }
+            (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+
+        (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
+            "hour_cohort": "20260901-00",
+            "file_count": feed_count,
+            "restore_verified": True,
+        }))
+        (case_dir / "epoch_contract.json").write_text(json.dumps({
+            "collector_epoch": f"ep-{feed_count}",
+            "collector_run_id": f"run-{feed_count}",
+            "start_time_utc": "2026-09-01T00:00:00+00:00",
+            "duration_seconds": 3600,
+        }))
+        (manifests_dir / "epoch_manifest.json").write_text(json.dumps({
+            "collector_epoch": f"ep-{feed_count}",
+            "collector_run_id": f"run-{feed_count}",
+        }))
+
+        auditor = SoakAuditor72H(case_dir)
+        report = auditor.audit()
+
+        if feed_count < 76:
+            assert report["status"] == "FAIL", f"Expected FAIL for {feed_count}/76 feeds"
+            assert any("MISSING_REQUIRED_FEED" in b for b in report["blockers"])
+        else:
+            assert report["status"] == "DQ_PASS_ELIGIBLE", f"Expected PASS for 76/76 feeds, blockers: {report['blockers']}"
+
+
+# =============================================================================
+# P1.5: Missing Fullscan Report Must Fail When Required
+# =============================================================================
+
+def test_p1_5_missing_fullscan_report_must_fail(tmp_path: Path) -> None:
+    """P1.5: 72H run (259200s) requires terminal full-scan report; missing it must fail with FULLSCAN_EVIDENCE_MISSING."""
+    epoch_dir = tmp_path / "epoch_72h_no_fullscan"
+    raw_dir = epoch_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    manifests_dir = epoch_dir / "manifests"
+    manifests_dir.mkdir(parents=True)
+    receipts_dir = epoch_dir / "archive-receipts"
+    receipts_dir.mkdir(parents=True)
+
+    cctx = zstandard.ZstdCompressor(level=3)
+    base_ts = datetime(2026, 9, 1, 0, 0, 0, tzinfo=timezone.utc)
+    base_ms = int(base_ts.timestamp() * 1000)
+
+    for exch, strm, mkt in SoakAuditor72H.get_expected_feed_universe():
+        part_dir = raw_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
+        part_dir.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "exchange_ts": base_ms,
+            "local_recv_ts": base_ms + 10,
+            "local_recv_monotonic_ns": 1_000_000_000,
+            "collector_run_id": "run-72h",
+            "local_write_ts": base_ms + 15,
+            "payload": {"price": "1000", "bids": [["1000", "1.0"]], "asks": [["1001", "1.0"]]},
+        }
+        (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+
+    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
+        "hour_cohort": "20260901-00",
+        "file_count": 76,
+        "restore_verified": True,
+    }))
+
+    # 72-hour contract (259200 seconds)
+    (epoch_dir / "epoch_contract.json").write_text(json.dumps({
+        "collector_epoch": "ep-72h",
+        "collector_run_id": "run-72h",
+        "start_time_utc": "2026-09-01T00:00:00+00:00",
+        "duration_seconds": 259200,
+        "require_fullscan": True,
+    }))
+
+    auditor = SoakAuditor72H(epoch_dir)
+    report = auditor.audit()
+
+    assert report["status"] == "FAIL"
+    blockers = " ".join(report.get("blockers", []))
+    assert "FULLSCAN_EVIDENCE_MISSING" in blockers
+
+
+# =============================================================================
+# P1.6: Restore Verification Failure Must Fail
+# =============================================================================
+
+def test_p1_6_restore_verification_failure_must_fail(tmp_path: Path) -> None:
+    """P1.6: Archive receipt with restore_verified=False must fail with RESTORE_MISMATCH."""
+    epoch_dir = tmp_path / "epoch_restore_failed"
+    raw_dir = epoch_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    manifests_dir = epoch_dir / "manifests"
+    manifests_dir.mkdir(parents=True)
+    receipts_dir = epoch_dir / "archive-receipts"
+    receipts_dir.mkdir(parents=True)
+
+    cctx = zstandard.ZstdCompressor(level=3)
+    base_ts = datetime(2026, 9, 1, 0, 0, 0, tzinfo=timezone.utc)
+    base_ms = int(base_ts.timestamp() * 1000)
+
+    for exch, strm, mkt in SoakAuditor72H.get_expected_feed_universe():
+        part_dir = raw_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
+        part_dir.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "exchange_ts": base_ms,
+            "local_recv_ts": base_ms + 10,
+            "local_recv_monotonic_ns": 1_000_000_000,
+            "collector_run_id": "run-restore",
+            "local_write_ts": base_ms + 15,
+            "payload": {"price": "1000", "bids": [["1000", "1.0"]], "asks": [["1001", "1.0"]]},
+        }
+        (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+
+    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
+        "hour_cohort": "20260901-00",
+        "file_count": 76,
+        "restore_verified": False,
+        "restore_status": "FAILED",
+    }))
+
+    auditor = SoakAuditor72H(epoch_dir)
+    report = auditor.audit()
+
+    assert report["status"] == "FAIL"
+    blockers = " ".join(report.get("blockers", []))
+    assert "RESTORE_MISMATCH" in blockers
+
+
+# =============================================================================
+# P7 & P7.1: Build Epoch Root Manifest & Completeness
+# =============================================================================
+
+def test_p7_epoch_manifest_builder_and_completeness(tmp_path: Path) -> None:
+    """P7 & P7.1: build_epoch_manifest produces sealed_complete=True only when all expected artifacts exist."""
+    epoch_dir = tmp_path / "epoch_manifest_test"
+    raw_dir = epoch_dir / "raw"
+    raw_dir.mkdir(parents=True)
+    manifests_dir = epoch_dir / "manifests"
+    manifests_dir.mkdir(parents=True)
+    receipts_dir = epoch_dir / "archive-receipts"
+    receipts_dir.mkdir(parents=True)
+
+    contract = {
+        "collector_epoch": "ep-test-p7",
+        "collector_run_id": "run-test-p7",
+        "runtime_software_commit": "abcdef0123456789abcdef0123456789abcdef01",
+        "runtime_fingerprint": "fp-p7",
+        "start_time_utc": "2026-09-01T00:00:00+00:00",
+        "duration_seconds": 3600,
+        "require_receipts": True,
+    }
+    (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract))
+
+    # Case A: Empty epoch -> incomplete
+    incomplete_manifest = build_epoch_manifest(epoch_dir, strict=False)
+    assert incomplete_manifest["sealed_complete"] is False
+    assert incomplete_manifest["status"] == "INCOMPLETE"
+    assert len(incomplete_manifest["missing_items"]) > 0
+
+    # Case B: Populate 76 feeds + receipt -> complete
+    cctx = zstandard.ZstdCompressor(level=3)
+    base_ts = datetime(2026, 9, 1, 0, 0, 0, tzinfo=timezone.utc)
+    base_ms = int(base_ts.timestamp() * 1000)
+
+    for exch, strm, mkt in SoakAuditor72H.get_expected_feed_universe():
+        part_dir = raw_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
+        part_dir.mkdir(parents=True, exist_ok=True)
+        rec = {
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "exchange_ts": base_ms,
+            "local_recv_ts": base_ms + 10,
+            "local_recv_monotonic_ns": 1_000_000_000,
+            "collector_run_id": "run-test-p7",
+            "local_write_ts": base_ms + 15,
+            "payload": {"price": "1000"},
+        }
+        (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+
+    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
+        "hour_cohort": "20260901-00",
+        "file_count": 76,
+        "restore_verified": True,
+    }))
+
+    out_manifest_path = manifests_dir / "epoch_manifest.json"
+    complete_manifest = build_epoch_manifest(epoch_dir, output_path=out_manifest_path, strict=True)
+    assert complete_manifest["sealed_complete"] is True
+    assert complete_manifest["status"] == "SEALED_COMPLETE"
+    assert len(complete_manifest["epoch_manifest_sha256"]) == 64
+    assert out_manifest_path.exists()
+
+
+# =============================================================================
+# P8.1: Partition-Dataset Verifies Deep Audit Report Content Hash
+# =============================================================================
+
+def test_p8_1_partition_dataset_verifies_deep_report_content_hash(tmp_path: Path) -> None:
+    """P8.1: If --deep-audit-report is modified, cmd_partition_dataset must detect hash mismatch and exit 2."""
+    deep_report_path = tmp_path / "deep_report.json"
+    deep_report_path.write_text(json.dumps({
+        "status": "DQ_PASS_ELIGIBLE",
+        "audit_type": "authoritative_deep_dq",
+        "errors": [],
+        "blockers": [],
+    }))
+
+    manifest_file = tmp_path / "manifest.json"
+    manifest_file.write_text(json.dumps({"files": ["test.ndjson"]}))
+
+    qual_file = tmp_path / "qualification.json"
+    rc_qual = cli_main([
+        "dq-qualify",
+        "--audit-report", str(deep_report_path),
+        "--source-manifest", str(manifest_file),
+        "--out", str(qual_file),
+    ])
+    assert rc_qual == 0
+
+    # Tamper with deep audit report content
+    deep_report_path.write_text(json.dumps({
+        "status": "DQ_PASS_ELIGIBLE",
+        "audit_type": "authoritative_deep_dq",
+        "tampered": True,
+        "errors": [],
+        "blockers": [],
+    }))
+
+    cctx = zstandard.ZstdCompressor(level=3)
+    canon_file = tmp_path / "canonical_test.ndjson.zst"
+    rec = {
+        "exchange": "bithumb",
+        "market": "KRW-BTC",
+        "stream": "orderbook",
+        "receive_timestamp_ms": 1725148800000,
+        "exchange_timestamp_ms": 1725148800000,
+        "bids": [[1000.0, 1.0]],
+        "asks": [[1001.0, 1.0]],
+    }
+    canon_file.write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+
+    out_dataset = tmp_path / "tampered_dataset"
+    rc_part = cli_main([
+        "partition-dataset",
+        "--input-file", str(canon_file),
+        "--output-dir", str(out_dataset),
+        "--dq-report", str(qual_file),
+        "--source-manifest", str(manifest_file),
+        "--deep-audit-report", str(deep_report_path),
+    ])
+    assert rc_part == 2
+
+
+# =============================================================================
+# P9.1 & P9.2: Distinct Stage Commits and Mutation Sensitivity
+# =============================================================================
+
+def test_p9_distinct_stage_commits_and_mutations(tmp_path: Path) -> None:
+    """P9.1 & P9.2: Auditor, canonicalizer, and builder commits must be distinctly recorded and tracked."""
+    deep_report = tmp_path / "deep_report.json"
+    deep_report.write_text(json.dumps({
+        "status": "DQ_PASS_ELIGIBLE",
+        "audit_type": "authoritative_deep_dq",
+        "errors": [],
+        "blockers": [],
+    }))
+    src_manifest = tmp_path / "source_manifest.json"
+    src_manifest.write_text(json.dumps({"files": ["test.ndjson"]}))
+
+    auditor_c = "a" * 40
+    canonicalizer_c = "c" * 40
+    builder_c = "b" * 40
+
+    qual_file = tmp_path / "qual.json"
+    rc_qual = cli_main([
+        "dq-qualify",
+        "--audit-report", str(deep_report),
+        "--source-manifest", str(src_manifest),
+        "--out", str(qual_file),
+        "--commit", auditor_c,
+    ])
+    assert rc_qual == 0
+    qual_data = json.loads(qual_file.read_text())
+    assert qual_data["auditor_commit"] == auditor_c
+
+    cctx = zstandard.ZstdCompressor(level=3)
+    canon_file = tmp_path / "test.ndjson.zst"
+    canon_file.write_bytes(cctx.compress(json.dumps({
+        "exchange": "bithumb",
+        "market": "KRW-BTC",
+        "stream": "orderbook",
+        "receive_timestamp_ms": 1725148800000,
+        "exchange_timestamp_ms": 1725148800000,
+        "bids": [[1000.0, 1.0]],
+        "asks": [[1001.0, 1.0]],
+    }).encode("utf-8") + b"\n"))
+
+    out_dataset = tmp_path / "dataset"
+    rc_part = cli_main([
+        "partition-dataset",
+        "--input-file", str(canon_file),
+        "--output-dir", str(out_dataset),
+        "--dq-report", str(qual_file),
+        "--source-manifest", str(src_manifest),
+        "--canonicalizer-commit", canonicalizer_c,
+        "--builder-commit", builder_c,
+    ])
+    assert rc_part == 0
+
+    ds_manifest = json.loads((out_dataset / "manifest.json").read_text())
+    assert ds_manifest["deep_dq_auditor_commit"] == auditor_c
+    assert ds_manifest["canonicalizer_commit"] == canonicalizer_c
+    assert ds_manifest["dataset_builder_commit"] == builder_c
+
+
+# =============================================================================
+# P15 & P17: Canonical Manifest Root and Multi-File Partitioning
+# =============================================================================
+
+def test_p15_p17_multi_file_canonical_manifest_partitioning(tmp_path: Path) -> None:
+    """P15 & P17: Dataset partitioner consumes canonical_manifest.json across multi-hour partitions."""
+    cctx = zstandard.ZstdCompressor(level=3)
+    canon_dir = tmp_path / "canonical_files"
+    canon_dir.mkdir()
+
+    partitions_meta = []
+    for h in range(3):
+        fname = f"canonical_bithumb_orderbook_krw-btc_hour_{h:02d}.ndjson.zst"
+        fpath = canon_dir / fname
+        records = []
+        base_t = 1725148800000 + h * 3600000
+        for i in range(10):
+            t = base_t + i * 1000
+            records.append(json.dumps({
+                "exchange": "bithumb",
+                "market": "KRW-BTC",
+                "stream": "orderbook",
+                "receive_timestamp_ms": t,
+                "exchange_timestamp_ms": t,
+                "bids": [[1000.0 - i, 1.0]],
+                "asks": [[1001.0 + i, 1.0]],
+            }))
+        content = "\n".join(records).encode("utf-8") + b"\n"
+        fpath.write_bytes(cctx.compress(content))
+        sha = hashlib.sha256(fpath.read_bytes()).hexdigest()
+
+        partitions_meta.append({
+            "canonical_file": fname,
+            "canonical_file_sha256": sha,
+            "source_file": f"raw_hour_{h}.jsonl",
+            "source_file_sha256": "s" * 64,
+            "exchange": "bithumb",
+            "market": "KRW-BTC",
+            "stream": "orderbook",
+            "canonical_count": 10,
+            "rejected_count": 0,
+            "min_timestamp_ms": base_t,
+            "max_timestamp_ms": base_t + 9000,
+        })
+
+    canon_manifest_file = canon_dir / "canonical_manifest.json"
+    canon_manifest_data = {
+        "schema_version": "2.1.0",
+        "canonicalizer_commit": "c" * 40,
+        "partitions_count": len(partitions_meta),
+        "partitions": partitions_meta,
+    }
+    canon_manifest_sha = hashlib.sha256(json.dumps(canon_manifest_data, sort_keys=True).encode("utf-8")).hexdigest()
+    canon_manifest_data["canonical_manifest_sha256"] = canon_manifest_sha
+    canon_manifest_file.write_text(json.dumps(canon_manifest_data, indent=2))
+
+    deep_report = tmp_path / "deep_report.json"
+    deep_report.write_text(json.dumps({
+        "status": "DQ_PASS_ELIGIBLE",
+        "audit_type": "authoritative_deep_dq",
+        "errors": [],
+        "blockers": [],
+    }))
+    src_manifest = tmp_path / "source_manifest.json"
+    src_manifest.write_text(json.dumps({"files": ["test.ndjson"]}))
+
+    qual_file = tmp_path / "qual.json"
+    cli_main([
+        "dq-qualify",
+        "--audit-report", str(deep_report),
+        "--source-manifest", str(src_manifest),
+        "--out", str(qual_file),
+    ])
+
+    out_dataset = tmp_path / "multi_hour_dataset"
+    rc_part = cli_main([
+        "partition-dataset",
+        "--canonical-manifest", str(canon_manifest_file),
+        "--exchange", "bithumb",
+        "--market", "KRW-BTC",
+        "--stream", "orderbook",
+        "--output-dir", str(out_dataset),
+        "--dq-report", str(qual_file),
+        "--source-manifest", str(src_manifest),
+        "--train-frac", "0.60",
+        "--val-frac", "0.20",
+    ])
+    assert rc_part == 0
+    assert out_dataset.exists()
+
+    ds_manifest = json.loads((out_dataset / "manifest.json").read_text())
+    assert ds_manifest["total_records"] == 30
+    assert ds_manifest["source_record_count"] == 30
+    assert (out_dataset / "train.ndjson.zst").exists()
+    assert (out_dataset / "validation.ndjson.zst").exists()
+    assert (out_dataset / "holdout.ndjson.zst").exists()

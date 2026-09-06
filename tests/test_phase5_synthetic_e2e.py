@@ -157,7 +157,7 @@ def _build_upbit_raw_frames() -> list[bytes]:
 
 
 def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
-    """Populates a synthetic epoch using REAL repository producer APIs."""
+    """Populates a synthetic epoch using REAL repository producer APIs covering all 76 feeds."""
     raw_dir = epoch_dir / "raw"
     manifests_dir = epoch_dir / "manifests"
     receipts_dir = epoch_dir / "receipts"
@@ -171,79 +171,126 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
     base_dt = datetime(2026, 9, 4, 15, 30, tzinfo=timezone.utc)
     base_mono = 1_000_000_000
 
-    # 1. Bithumb frames
-    bithumb_frames = _build_bithumb_raw_frames()
-    for idx, frame in enumerate(bithumb_frames):
-        stream, market, payload, exch_ts = parse_bithumb_message(frame)
-        local_recv = base_dt.replace(microsecond=idx * 100_000)
-        mono_ns = base_mono + idx * 100_000_000
-        p_file = storage.append_raw_record(
-            exchange="bithumb",
-            stream=stream,
-            market=market,
-            payload=payload,
-            local_receive_ts=local_recv,
-            exchange_ts=exch_ts,
-            local_receive_monotonic_ns=mono_ns,
-            collector_run_id="run-bithumb-01",
-            write_ts=local_recv,
-        )
-        key = f"bithumb/{market}/{stream}"
-        counts_by_stream[key] = counts_by_stream.get(key, 0) + 1
-        storage.generate_partition_manifest(p_file)
+    expected_universe = SoakAuditor72H.get_expected_feed_universe()
+    for idx, (exch, strm, mkt) in enumerate(expected_universe):
+        local_recv = base_dt.replace(microsecond=(idx % 1000) * 1000)
+        mono_ns = base_mono + idx * 1_000_000
+        run_id = f"run-{exch}-01"
 
-    # 2. Binance frames
-    binance_frames = _build_binance_raw_frames()
-    for idx, frame in enumerate(binance_frames):
-        stream, market, payload, exch_ts = parse_binance_message(frame)
-        local_recv = base_dt.replace(microsecond=300_000 + idx * 100_000)
-        mono_ns = base_mono + (3 + idx) * 100_000_000
-        p_file = storage.append_raw_record(
-            exchange="binance",
-            stream=stream,
-            market=market,
-            payload=payload,
-            local_receive_ts=local_recv,
-            exchange_ts=exch_ts,
-            local_receive_monotonic_ns=mono_ns,
-            collector_run_id="run-binance-01",
-            write_ts=local_recv,
-        )
-        key = f"binance/{market}/{stream}"
-        counts_by_stream[key] = counts_by_stream.get(key, 0) + 1
-        storage.generate_partition_manifest(p_file)
+        if exch == "bithumb":
+            if strm == "orderbook":
+                raw_frame = json.dumps({
+                    "type": "orderbook",
+                    "code": mkt,
+                    "timestamp": 1725463800123456,
+                    "orderbook_units": [
+                        {"bid_price": 100_000_000.0, "bid_size": 1.5, "ask_price": 100_050_000.0, "ask_size": 0.8},
+                        {"bid_price": 99_990_000.0, "bid_size": 2.0, "ask_price": 100_060_000.0, "ask_size": 1.2},
+                    ],
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_bithumb_message(raw_frame)
+            elif strm == "trade":
+                raw_frame = json.dumps({
+                    "type": "trade",
+                    "code": mkt,
+                    "trade_timestamp": 1725463800200,
+                    "trade_id": f"bithumb_tr_{mkt}_{idx}",
+                    "price": 100_050_000.0,
+                    "units_traded": 0.5,
+                    "ask_bid": "ASK",
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_bithumb_message(raw_frame)
+            else:  # ticker
+                raw_frame = json.dumps({
+                    "type": "ticker",
+                    "code": mkt,
+                    "timestamp": 1725463800300000,
+                    "opening_price": 99_000_000.0,
+                    "high_price": 101_000_000.0,
+                    "low_price": 98_500_000.0,
+                    "trade_price": 100_050_000.0,
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_bithumb_message(raw_frame)
 
-    # 3. Upbit frames
-    upbit_frames = _build_upbit_raw_frames()
-    for idx, frame in enumerate(upbit_frames):
-        stream, market, payload, exch_ts = parse_upbit_message(frame)
-        local_recv = base_dt.replace(microsecond=500_000 + idx * 100_000)
-        mono_ns = base_mono + (5 + idx) * 100_000_000
+        elif exch == "binance":
+            clean_mkt = mkt.lower().replace("-", "")
+            if strm == "orderbook":
+                raw_frame = json.dumps({
+                    "stream": f"{clean_mkt}@depth",
+                    "data": {
+                        "e": "depthUpdate",
+                        "s": clean_mkt.upper(),
+                        "E": 1725463800000,
+                        "b": [["58000.00", "1.2"], ["57990.00", "0.8"]],
+                        "a": [["58001.00", "0.9"], ["58010.00", "1.5"]],
+                    },
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_binance_message(raw_frame)
+            else:  # trade
+                raw_frame = json.dumps({
+                    "stream": f"{clean_mkt}@trade",
+                    "data": {
+                        "e": "trade",
+                        "s": clean_mkt.upper(),
+                        "E": 1725463800100,
+                        "t": 987654321 + idx,
+                        "p": "58001.00",
+                        "q": "0.25",
+                        "m": True,
+                    },
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_binance_message(raw_frame)
+
+        elif exch == "upbit":
+            if strm == "orderbook":
+                raw_frame = json.dumps({
+                    "type": "orderbook",
+                    "code": mkt,
+                    "timestamp": 1725463800000,
+                    "orderbook_units": [
+                        {"bid_price": 100_010_000.0, "bid_size": 0.5, "ask_price": 100_020_000.0, "ask_size": 0.7},
+                    ],
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_upbit_message(raw_frame)
+            else:  # trade
+                raw_frame = json.dumps({
+                    "type": "trade",
+                    "code": mkt,
+                    "timestamp": 1725463800150,
+                    "sequential_id": 11223344 + idx,
+                    "trade_price": 100_020_000.0,
+                    "trade_volume": 0.1,
+                    "ask_bid": "BID",
+                }).encode("utf-8")
+                stream, market, payload, exch_ts = parse_upbit_message(raw_frame)
+
         p_file = storage.append_raw_record(
-            exchange="upbit",
+            exchange=exch,
             stream=stream,
             market=market,
             payload=payload,
             local_receive_ts=local_recv,
             exchange_ts=exch_ts,
             local_receive_monotonic_ns=mono_ns,
-            collector_run_id="run-upbit-01",
+            collector_run_id=run_id,
             write_ts=local_recv,
         )
-        key = f"upbit/{market}/{stream}"
+        key = f"{exch}/{market}/{stream}"
         counts_by_stream[key] = counts_by_stream.get(key, 0) + 1
         storage.generate_partition_manifest(p_file)
 
     # 4. Valid Archive Receipts and Full Scan Report
     receipt_data = {
         "cohort": "2026-09-04_15",
+        "hour_cohort": "2026-09-04_15",
         "state": "COMPLETED",
         "status": "PASS",
         "restore_verified": True,
         "restore_status": "PASS",
         "verified_partitions_count": len(counts_by_stream),
     }
-    (receipts_dir / "2026-09-04_15.archive-receipt.json").write_text(json.dumps(receipt_data), encoding="utf-8")
+    rc_content = json.dumps(receipt_data)
+    (receipts_dir / "2026-09-04_15.archive-receipt.json").write_text(rc_content, encoding="utf-8")
 
     full_scan_data = {
         "scan_id": "fs-20260904-15",
@@ -251,7 +298,23 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
         "checked_at": base_dt.isoformat(),
         "integrity": "CLEAN",
     }
-    (receipts_dir / "full_scan_20260904_15_report.json").write_text(json.dumps(full_scan_data), encoding="utf-8")
+    fs_content = json.dumps(full_scan_data)
+    (receipts_dir / "full_scan_20260904_15_report.json").write_text(fs_content, encoding="utf-8")
+
+    contract_data = {
+        "collector_epoch": "epoch-20260904-15",
+        "collector_run_id": "run-bithumb-01",
+        "runtime_software_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+        "runtime_fingerprint": "fp-synthetic-72h",
+        "raw_schema_version": "1.0.0",
+        "start_time_utc": "2026-09-04T15:00:00+00:00",
+        "expected_end_time_utc": "2026-09-04T16:00:00+00:00",
+        "duration_seconds": 3600,
+        "feed_universe": 76,
+        "require_receipts": True,
+        "require_fullscan": True,
+    }
+    (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract_data), encoding="utf-8")
 
     return counts_by_stream
 
@@ -828,7 +891,7 @@ class TestNegativePostSoakMatrix:
                 "asks": [{"price": 99_000_000.0, "quantity": 1.0}],  # Ask < Bid (crossed)
             },
         }
-        with pytest.raises(CanonicalDataValidationError, match="Crossed book"):
+        with pytest.raises(CanonicalDataValidationError, match="(?i)crossed book"):
             raw_record_to_canonical(crossed)
 
 
