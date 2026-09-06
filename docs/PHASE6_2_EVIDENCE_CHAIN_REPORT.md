@@ -22,8 +22,11 @@ PHASE 6.2 ACTUAL-START / EVIDENCE-CHAIN RESULT
 BASE:
 190654efcd815f884cb1c2bd06bf597eafeed05f
 
-HEAD:
-13efc5e731a275cbe24255ad92b92c8ed8fe8909
+BRANCH:
+codex/72h-offline-phase6-2-evidence-chain-20260906
+
+CURRENT BRANCH HEAD:
+VERIFY WITH GIT
 
 AWS:
 NONE
@@ -191,8 +194,8 @@ Memory slope per 100k records: 0.000 MB
 Bounded Memory O(1) Streaming Verified! (Slope < 5.0 MB)
 ```
 
-- **메모리 복잡도**: $O(1)$ 스트리밍 검증 완료 (100,000건 레코드 검증 시 메모리 증가량 0.000 MB).
-- **처리율**: ~195,000 ~ 201,000 records/sec 초고속 스트리밍 달성.
+- **메모리 복잡도**: 테스트된 합성 스케일 범위(100,000건 레코드)에서 유계 메모리(Bounded Memory) 동작 관측 (RSS 증가량 0.000 MB 유지).
+- **처리율**: ~195,000 ~ 201,000 records/sec 스트리밍 관측.
 
 ---
 
@@ -206,8 +209,9 @@ Bounded Memory O(1) Streaming Verified! (Slope < 5.0 MB)
 
 ## 6. 결론 및 향후 절차 (Conclusion & Hand-off)
 
-- **도구 및 증거 사슬 검증 완료 (Tooling & Evidence Chain Ready)**:
-  - Phase 6.2의 모든 감사·변환·파티셔닝 도구와 포렌식 검증 체계는 암호학적 완전성을 갖추어 준비 완료됨.
+- **도구 및 증거 사슬 검증 상태 (Tooling & Synthetic Evidence Chain Ready)**:
+  - Phase 6.2의 오프라인 감사·변환·파티셔닝 도구와 합성 증거 사슬 검증 완료.
+  - 실제 72H 데이터에 대한 최종 실행은 수집 자연 완료 및 실제 시작 시각 증거 인계 시까지 대기.
 - **실제 수집 데이터 처리 상태**:
   - 실제 72H 소크는 여전히 AWS 프로덕션에서 무인 자율 구동 중이며, 임의로 열람하거나 데이터를 가공하지 않음.
   - 권위적 실제 시작 시각 증거 파일(`actual_start_evidence.json`)이 확보되기 전까지 공식 계약서 합성을 Fail-Closed 차단 상태로 유지함.
