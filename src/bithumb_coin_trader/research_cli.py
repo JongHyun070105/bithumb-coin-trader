@@ -104,12 +104,17 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
     report_path.write_text(json.dumps(report, indent=2))
     print(f"Audit complete: status={report['status']} files={len(report['files_found'])} errors={len(report['errors'])}")
     print(f"Report written to: {report_path}")
-    if report["status"] == "INCOMPLETE":
-        return 1
-    elif report["status"] == "FAIL":
-        return 2
-    elif report["status"] == "STRUCTURAL_AUDIT_PASS":
+    # Exit code taxonomy:
+    # 0 = STRUCTURAL_AUDIT_PASS (structural check passed)
+    # 1 = STRUCTURAL_ONLY (manifests found but no market data)
+    # 2 = INCOMPLETE (no manifests, empty dir, missing provenance) = data gate failure
+    # 2 = FAIL (JSON errors, explicit failures) = data gate failure
+    if report["status"] == "STRUCTURAL_AUDIT_PASS":
         return 0
+    elif report["status"] == "STRUCTURAL_ONLY":
+        return 1
+    elif report["status"] in ("INCOMPLETE", "FAIL", "UNKNOWN"):
+        return 2
     else:
         return 2
 
