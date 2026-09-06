@@ -1,0 +1,81 @@
+{
+  "schema_version": 1,
+  "preregistration_id": "prereg-microstructure-20260905-v1",
+  "created_at_utc": "2026-09-05T03:35:00Z",
+  "authoritative_software_commit": "9532cebc902856d954bf80b51dbe567b543dc8e2",
+  "status": "FROZEN_BEFORE_DATA_INSPECTION",
+  "primary_research_question": "Can predeclared public-market microstructure variables provide economically executable predictive information for short-horizon Bithumb returns after fees, spread, depth, slippage, and latency assumptions?",
+  "discovery_universe": {
+    "exchange": "BITHUMB",
+    "primary_market": "KRW-BTC",
+    "multiplicity_restriction": "BTC only for primary discovery; remaining 19 Bithumb markets reserved strictly for out-of-sample replication",
+    "external_reference_stream": "BINANCE:BTCUSDT"
+  },
+  "trial_budget": {
+    "cycle_id": "CYCLE-01",
+    "max_feature_families": 3,
+    "max_parameterizations_per_family": 3,
+    "max_primary_discovery_trials": 9,
+    "current_used_trials": 0,
+    "stop_rule_threshold": 9
+  },
+  "feature_families": [
+    {
+      "family_id": "OFI",
+      "name": "Order Flow Imbalance",
+      "formula": "delta_bid_size * I(bid >= prev_bid) - delta_ask_size * I(ask <= prev_ask)",
+      "depth_levels": 5,
+      "parameterizations": [
+        {"param_id": "OFI_W10S", "window_seconds": 10, "sampling_interval_ms": 500, "horizon_seconds": 10},
+        {"param_id": "OFI_W30S", "window_seconds": 30, "sampling_interval_ms": 1000, "horizon_seconds": 30},
+        {"param_id": "OFI_W60S", "window_seconds": 60, "sampling_interval_ms": 1000, "horizon_seconds": 60}
+      ]
+    },
+    {
+      "family_id": "ATI",
+      "name": "Aggressive Trade Imbalance",
+      "formula": "(buy_volume - sell_volume) / (buy_volume + sell_volume + eps)",
+      "depth_levels": 1,
+      "parameterizations": [
+        {"param_id": "ATI_W15S", "window_seconds": 15, "sampling_interval_ms": 500, "horizon_seconds": 15},
+        {"param_id": "ATI_W45S", "window_seconds": 45, "sampling_interval_ms": 1000, "horizon_seconds": 45},
+        {"param_id": "ATI_W90S", "window_seconds": 90, "sampling_interval_ms": 1000, "horizon_seconds": 90}
+      ]
+    },
+    {
+      "family_id": "MPQI",
+      "name": "Microprice & Queue Imbalance",
+      "formula": "(bid_size * ask_price + ask_size * bid_price) / (bid_size + ask_size) - mid_price",
+      "depth_levels": 5,
+      "parameterizations": [
+        {"param_id": "MPQI_L1", "depth_levels": 1, "sampling_interval_ms": 500, "horizon_seconds": 10},
+        {"param_id": "MPQI_L3", "depth_levels": 3, "sampling_interval_ms": 500, "horizon_seconds": 20},
+        {"param_id": "MPQI_L5", "depth_levels": 5, "sampling_interval_ms": 1000, "horizon_seconds": 30}
+      ]
+    }
+  ],
+  "temporal_partitioning": {
+    "soak_total_hours": 72,
+    "discovery_window_hours": 24,
+    "discovery_offset_hours": 0,
+    "validation_window_hours": 24,
+    "validation_offset_hours": 24,
+    "embargo_hours": 2,
+    "sealed_prospective_holdout_hours": 22,
+    "sealed_prospective_holdout_offset_hours": 50,
+    "holdout_unlock_gate": "Requires formal strategy freeze commit and passing validation net-cost screen"
+  },
+  "economic_execution_hurdles": {
+    "fee_rate": 0.0004,
+    "taker_spread_crossing_required": true,
+    "multi_level_orderbook_walk_required": true,
+    "latency_haircut_scenarios_ms": [50, 100, 250, 500],
+    "net_sharpe_hurdle": 1.5,
+    "net_pnl_positive_after_all_costs": true
+  },
+  "governance_stop_rule": {
+    "max_cycles": 2,
+    "cycle_1_action_on_fail": "Close Cycle 1 as FAIL; require written hypothesis and new commit before Cycle 2",
+    "cycle_2_action_on_fail": "MANDATORY NO-GO. Freeze research. Await future independent prospective data."
+  }
+}

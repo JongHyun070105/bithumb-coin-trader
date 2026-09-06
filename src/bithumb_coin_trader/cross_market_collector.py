@@ -64,6 +64,48 @@ def parse_binance_message(message: bytes | str) -> tuple[str, str, dict[str, Any
     return stream_name, market, data, exchange_ts
 
 
+def parse_bithumb_message(message: bytes | str) -> tuple[str, str, dict[str, Any], datetime | None]:
+    """Pure deterministic parser for Bithumb WebSocket messages."""
+    raw_bytes = message if isinstance(message, bytes) else message.encode("utf-8")
+    data = json.loads(raw_bytes.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Bithumb message must be a JSON object")
+    stream = data.get("type", "unknown").lower()
+    market = data.get("code", "unknown")
+
+    exch_ts: datetime | None = None
+    if "trade_timestamp" in data:
+        exch_ts = datetime.fromtimestamp(data["trade_timestamp"] / 1000.0, tz=timezone.utc)
+    elif "timestamp" in data:
+        raw_val = data["timestamp"]
+        if raw_val > 1e14:  # microseconds
+            exch_ts = datetime.fromtimestamp(raw_val / 1_000_000.0, tz=timezone.utc)
+        elif raw_val > 1e11:  # milliseconds
+            exch_ts = datetime.fromtimestamp(raw_val / 1000.0, tz=timezone.utc)
+        else:
+            exch_ts = datetime.fromtimestamp(float(raw_val), tz=timezone.utc)
+
+    return stream, market, data, exch_ts
+
+
+def parse_upbit_message(message: bytes | str) -> tuple[str, str, dict[str, Any], datetime | None]:
+    """Pure deterministic parser for Upbit WebSocket messages."""
+    raw_bytes = message if isinstance(message, bytes) else message.encode("utf-8")
+    data = json.loads(raw_bytes.decode("utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("Upbit message must be a JSON object")
+    stream = data.get("type", "unknown").lower()
+    market = data.get("code", "unknown")
+
+    exch_ts: datetime | None = None
+    if "trade_timestamp" in data:
+        exch_ts = datetime.fromtimestamp(data["trade_timestamp"] / 1000.0, tz=timezone.utc)
+    elif "timestamp" in data:
+        exch_ts = datetime.fromtimestamp(data["timestamp"] / 1000.0, tz=timezone.utc)
+
+    return stream, market, data, exch_ts
+
+
 @dataclass
 class CollectorMetrics:
     exchange: str
@@ -367,22 +409,13 @@ class MultiExchangeMicrostructureCollector:
                         m.last_connection_event_time = time.time()
 
                         try:
-                            data = json.loads(raw_bytes.decode("utf-8"))
-                            stream = data.get("type", "unknown").lower()
-                            market = data.get("code", "unknown")
-
+                            stream, market, data, exch_ts = parse_bithumb_message(raw_bytes)
                             if stream == "trade":
                                 m.trade_messages += 1
                             elif stream == "orderbook":
                                 m.orderbook_messages += 1
                             elif stream == "ticker":
                                 m.ticker_messages += 1
-
-                            exch_ts: datetime | None = None
-                            if "trade_timestamp" in data:
-                                exch_ts = datetime.fromtimestamp(data["trade_timestamp"] / 1000.0, tz=timezone.utc)
-                            elif "timestamp" in data:
-                                exch_ts = datetime.fromtimestamp(data["timestamp"] / 1_000_000.0, tz=timezone.utc)
 
                             await self._enqueue(
                                 "bithumb", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
@@ -498,20 +531,11 @@ class MultiExchangeMicrostructureCollector:
                         m.last_connection_event_time = time.time()
 
                         try:
-                            data = json.loads(raw_bytes.decode("utf-8"))
-                            stream = data.get("type", "unknown").lower()
-                            market = data.get("code", "unknown")
-
+                            stream, market, data, exch_ts = parse_upbit_message(raw_bytes)
                             if stream == "trade":
                                 m.trade_messages += 1
                             else:
                                 m.orderbook_messages += 1
-
-                            exch_ts: datetime | None = None
-                            if "trade_timestamp" in data:
-                                exch_ts = datetime.fromtimestamp(data["trade_timestamp"] / 1000.0, tz=timezone.utc)
-                            elif "timestamp" in data:
-                                exch_ts = datetime.fromtimestamp(data["timestamp"] / 1000.0, tz=timezone.utc)
 
                             await self._enqueue(
                                 "upbit", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns

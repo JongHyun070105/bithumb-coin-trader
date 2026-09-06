@@ -1,0 +1,11 @@
+{
+  "exchange": "upbit",
+  "market": "KRW-BTC",
+  "exchange_timestamp_ms": 1725500000020,
+  "receive_timestamp_ms": 1725500000045,
+  "last_price": 100005000.0,
+  "volume_24h": 1500.75,
+  "schema_version": "2.0.0",
+  "timestamp_semantics": "EXCHANGE_PUBLICATION",
+  "receive_monotonic_ns": 123456791000
+}

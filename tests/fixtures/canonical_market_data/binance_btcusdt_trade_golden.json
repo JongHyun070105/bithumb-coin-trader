@@ -1,0 +1,13 @@
+{
+  "exchange": "binance",
+  "market": "BTCUSDT",
+  "trade_id": "987654321",
+  "exchange_timestamp_ms": 1725500000010,
+  "receive_timestamp_ms": 1725500000035,
+  "price": 60500.25,
+  "quantity": 0.45,
+  "aggressor_side": "BUY",
+  "schema_version": "2.0.0",
+  "timestamp_semantics": "EXCHANGE_TRADE_EXECUTION",
+  "receive_monotonic_ns": 123456790000
+}

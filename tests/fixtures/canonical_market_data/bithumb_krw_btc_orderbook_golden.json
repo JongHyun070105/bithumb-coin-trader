@@ -1,0 +1,31 @@
+{
+  "exchange": "bithumb",
+  "market": "KRW-BTC",
+  "exchange_timestamp_ms": 1725500000000,
+  "receive_timestamp_ms": 1725500000042,
+  "bids": [
+    [
+      100000000.0,
+      1.5
+    ],
+    [
+      99990000.0,
+      2.0
+    ]
+  ],
+  "asks": [
+    [
+      100010000.0,
+      1.2
+    ],
+    [
+      100020000.0,
+      3.0
+    ]
+  ],
+  "schema_version": "2.0.0",
+  "timestamp_semantics": "EXCHANGE_EVENT",
+  "receive_monotonic_ns": 123456789000,
+  "sequence_id": 1001,
+  "is_snapshot": true
+}
