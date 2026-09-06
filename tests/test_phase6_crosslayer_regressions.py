@@ -45,6 +45,25 @@ from scripts.audit_72h_soak import EXPECTED_BITHUMB_20, EXPECTED_BINANCE_4, EXPE
 from scripts.build_epoch_manifest import build_epoch_manifest
 
 
+def _write_valid_epoch_manifest(path: Path, meta: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Helper to write a cryptographically self-consistent epoch manifest."""
+    m = dict(meta or {})
+    m.setdefault("status", "SEALED_COMPLETE")
+    m.setdefault("sealed_complete", True)
+    m.setdefault("collector_epoch", "epoch_72h_soak_official")
+    m.setdefault("collector_run_id", "run_72h_aws_production")
+    m.setdefault("runtime_commit", "753d7848759d3fdd5e20af7c3f2d08b14fca7cda")
+    m.setdefault("runtime_fingerprint", "fp-official-72h")
+    m.setdefault("partitions", [])
+    m_copy = {k: v for k, v in m.items() if k != "epoch_manifest_sha256"}
+    canon = json.dumps(m_copy, sort_keys=True, separators=(",", ":"))
+    sha = hashlib.sha256(canon.encode("utf-8")).hexdigest()
+    m["epoch_manifest_sha256"] = sha
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(m, indent=2))
+    return m
+
+
 # =============================================================================
 # P0.1: Missing required feeds currently do NOT fail DQ
 # =============================================================================
@@ -538,7 +557,21 @@ def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
                 "local_write_ts": base_ms + 15,
                 "payload": {"price": "1000", "bids": [["1000", "1.0"]], "asks": [["1001", "1.0"]]},
             }
-            (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+            comp_bytes = cctx.compress(json.dumps(rec).encode("utf-8") + b"\n")
+            (part_dir / "part-20260901-00.zst").write_bytes(comp_bytes)
+            m_dir = manifests_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
+            m_dir.mkdir(parents=True, exist_ok=True)
+            (m_dir / "manifest_part-20260901-00.json").write_text(json.dumps({
+                "partition_path": f"raw/exchange={exch}/stream={strm}/market={mkt}/part-20260901-00.zst",
+                "file_name": "part-20260901-00.zst",
+                "sha256": hashlib.sha256(comp_bytes).hexdigest(),
+                "exchange": exch,
+                "stream": strm,
+                "market": mkt,
+                "hour_cohort": "20260901-00",
+                "record_count": 1,
+                "bytes": len(comp_bytes),
+            }))
 
         (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
             "hour_cohort": "20260901-00",
@@ -551,10 +584,10 @@ def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
             "start_time_utc": "2026-09-01T00:00:00+00:00",
             "duration_seconds": 3600,
         }))
-        (manifests_dir / "epoch_manifest.json").write_text(json.dumps({
+        _write_valid_epoch_manifest(manifests_dir / "epoch_manifest.json", {
             "collector_epoch": f"ep-{feed_count}",
             "collector_run_id": f"run-{feed_count}",
-        }))
+        })
 
         auditor = SoakAuditor72H(case_dir)
         report = auditor.audit()
@@ -753,7 +786,7 @@ def test_p8_1_partition_dataset_verifies_deep_report_content_hash(tmp_path: Path
     }))
 
     manifest_file = tmp_path / "manifest.json"
-    manifest_file.write_text(json.dumps({"files": ["test.ndjson"]}))
+    _write_valid_epoch_manifest(manifest_file)
 
     qual_file = tmp_path / "qualification.json"
     rc_qual = cli_main([
@@ -812,7 +845,7 @@ def test_p9_distinct_stage_commits_and_mutations(tmp_path: Path) -> None:
         "blockers": [],
     }))
     src_manifest = tmp_path / "source_manifest.json"
-    src_manifest.write_text(json.dumps({"files": ["test.ndjson"]}))
+    _write_valid_epoch_manifest(src_manifest)
 
     auditor_c = "a" * 40
     canonicalizer_c = "c" * 40
@@ -849,6 +882,7 @@ def test_p9_distinct_stage_commits_and_mutations(tmp_path: Path) -> None:
         "--output-dir", str(out_dataset),
         "--dq-report", str(qual_file),
         "--source-manifest", str(src_manifest),
+        "--deep-audit-report", str(deep_report),
         "--canonicalizer-commit", canonicalizer_c,
         "--builder-commit", builder_c,
     ])
@@ -905,17 +939,6 @@ def test_p15_p17_multi_file_canonical_manifest_partitioning(tmp_path: Path) -> N
             "max_timestamp_ms": base_t + 9000,
         })
 
-    canon_manifest_file = canon_dir / "canonical_manifest.json"
-    canon_manifest_data = {
-        "schema_version": "2.1.0",
-        "canonicalizer_commit": "c" * 40,
-        "partitions_count": len(partitions_meta),
-        "partitions": partitions_meta,
-    }
-    canon_manifest_sha = hashlib.sha256(json.dumps(canon_manifest_data, sort_keys=True).encode("utf-8")).hexdigest()
-    canon_manifest_data["canonical_manifest_sha256"] = canon_manifest_sha
-    canon_manifest_file.write_text(json.dumps(canon_manifest_data, indent=2))
-
     deep_report = tmp_path / "deep_report.json"
     deep_report.write_text(json.dumps({
         "status": "DQ_PASS_ELIGIBLE",
@@ -924,7 +947,19 @@ def test_p15_p17_multi_file_canonical_manifest_partitioning(tmp_path: Path) -> N
         "blockers": [],
     }))
     src_manifest = tmp_path / "source_manifest.json"
-    src_manifest.write_text(json.dumps({"files": ["test.ndjson"]}))
+    em_meta = _write_valid_epoch_manifest(src_manifest)
+
+    canon_manifest_file = canon_dir / "canonical_manifest.json"
+    canon_manifest_data = {
+        "schema_version": "2.1.0",
+        "canonicalizer_commit": "c" * 40,
+        "source_epoch_manifest_sha256": em_meta["epoch_manifest_sha256"],
+        "partitions_count": len(partitions_meta),
+        "partitions": partitions_meta,
+    }
+    canon_manifest_sha = hashlib.sha256(json.dumps(canon_manifest_data, sort_keys=True).encode("utf-8")).hexdigest()
+    canon_manifest_data["canonical_manifest_sha256"] = canon_manifest_sha
+    canon_manifest_file.write_text(json.dumps(canon_manifest_data, indent=2))
 
     qual_file = tmp_path / "qual.json"
     cli_main([
@@ -944,6 +979,7 @@ def test_p15_p17_multi_file_canonical_manifest_partitioning(tmp_path: Path) -> N
         "--output-dir", str(out_dataset),
         "--dq-report", str(qual_file),
         "--source-manifest", str(src_manifest),
+        "--deep-audit-report", str(deep_report),
         "--train-frac", "0.60",
         "--val-frac", "0.20",
     ])
@@ -956,3 +992,93 @@ def test_p15_p17_multi_file_canonical_manifest_partitioning(tmp_path: Path) -> N
     assert (out_dataset / "train.ndjson.zst").exists()
     assert (out_dataset / "validation.ndjson.zst").exists()
     assert (out_dataset / "holdout.ndjson.zst").exists()
+
+
+# =============================================================================
+# Phase 6.2 Regressions: P0, P0.1, P20, P2
+# =============================================================================
+
+def test_p0_actual_start_time_cannot_be_inferred_from_created_at(tmp_path: Path) -> None:
+    """P0: Given provenance_created_at != actual_collector_start, contract composer must NEVER use created_at_utc as start."""
+    from scripts.compose_epoch_contract import compose_epoch_contract
+
+    seal_file = tmp_path / "runtime_seal.json"
+    seal_file.write_text(json.dumps({
+        "runtime_software_commit": "c" * 40,
+        "runtime_config_fingerprint": "f" * 64,
+        "duration_seconds": 3600,
+        "feeds": {"bithumb_markets": ["KRW-BTC"] * 20, "binance_symbols": ["btcusdt"] * 4, "upbit_markets": ["KRW-BTC"] * 4},
+    }))
+    prov_file = tmp_path / "launch-provenance.json"
+    prov_file.write_text(json.dumps({
+        "runtime_code_commit": "c" * 40,
+        "runtime_config_fingerprint": "f" * 64,
+        "collector_epoch": "epoch-1",
+        "collector_run_id": "run-1",
+        "duration_seconds": 3600,
+        "created_at_utc": "2026-09-05T02:40:39Z",
+    }))
+
+    # If synthetic actual start is provided, it must be used instead of created_at_utc
+    contract = compose_epoch_contract(
+        runtime_seal_path=seal_file,
+        launch_provenance_path=prov_file,
+        synthetic_actual_start_time_utc="2026-09-05T03:40:00+00:00",
+        strict=False,
+    )
+    assert contract["actual_start_time_utc"] == "2026-09-05T03:40:00+00:00"
+    assert contract["start_time_utc"] == "2026-09-05T03:40:00+00:00"
+    assert contract["start_time_utc"] != "2026-09-05T02:40:39Z"
+    assert contract["created_at_utc"] != "2026-09-05T02:40:39Z"
+
+
+def test_p0_1_missing_actual_start_evidence_fails(tmp_path: Path) -> None:
+    """P0.1: Contract composition must fail with ACTUAL_START_EVIDENCE_MISSING when no actual start evidence is provided."""
+    from scripts.compose_epoch_contract import compose_epoch_contract
+
+    seal_file = tmp_path / "runtime_seal.json"
+    seal_file.write_text(json.dumps({
+        "runtime_software_commit": "c" * 40,
+        "runtime_config_fingerprint": "f" * 64,
+        "duration_seconds": 3600,
+        "feeds": {"bithumb_markets": ["KRW-BTC"] * 20, "binance_symbols": ["btcusdt"] * 4, "upbit_markets": ["KRW-BTC"] * 4},
+    }))
+    prov_file = tmp_path / "launch-provenance.json"
+    prov_file.write_text(json.dumps({
+        "runtime_code_commit": "c" * 40,
+        "runtime_config_fingerprint": "f" * 64,
+        "collector_epoch": "epoch-1",
+        "collector_run_id": "run-1",
+        "duration_seconds": 3600,
+        "created_at_utc": "2026-09-05T02:40:39Z",
+    }))
+
+    with pytest.raises(ValueError, match="ACTUAL_START_EVIDENCE_MISSING"):
+        compose_epoch_contract(
+            runtime_seal_path=seal_file,
+            launch_provenance_path=prov_file,
+            strict=False,
+        )
+
+
+def test_p20_tracked_files_fail_closed_without_start_evidence() -> None:
+    """P20: Running compose_epoch_contract against real tracked files must FAIL-CLOSED with ACTUAL_START_EVIDENCE_MISSING."""
+    repo_root = Path(__file__).resolve().parent.parent
+    seal_file = repo_root / "infra" / "aws" / "seals" / "aws-72h-soak-20260905.runtime.json"
+    prov_file = repo_root / "infra" / "aws" / "seals" / "aws-72h-soak-20260905.launch-provenance.json"
+
+    assert seal_file.exists()
+    assert prov_file.exists()
+
+    proc = subprocess.run(
+        [
+            sys.executable,
+            str(repo_root / "scripts" / "compose_epoch_contract.py"),
+            "--runtime-seal", str(seal_file),
+            "--launch-provenance", str(prov_file),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 2
+    assert "ACTUAL_START_EVIDENCE_MISSING" in proc.stderr

@@ -59,6 +59,27 @@ def _file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
+def verify_epoch_manifest(manifest_path: Path) -> dict[str, Any]:
+    """P3: Recomputes and verifies the canonical root SHA256 of epoch_manifest.json."""
+    if not manifest_path.exists():
+        raise FileNotFoundError(f"Epoch manifest not found: {manifest_path}")
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    claimed_sha = data.get("epoch_manifest_sha256", "")
+    if not claimed_sha:
+        raise ValueError("EPOCH_MANIFEST_HASH_MISMATCH: Missing epoch_manifest_sha256 in manifest")
+    data_copy = {k: v for k, v in data.items() if k != "epoch_manifest_sha256"}
+    canonical_json = json.dumps(data_copy, sort_keys=True, separators=(",", ":"))
+    actual_sha = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    if actual_sha != claimed_sha:
+        raise ValueError(f"EPOCH_MANIFEST_HASH_MISMATCH: actual '{actual_sha}' != claimed '{claimed_sha}'")
+    if data.get("status") != "SEALED_COMPLETE" or not data.get("sealed_complete"):
+        raise ValueError(
+            f"EPOCH_MANIFEST_INCOMPLETE: status={data.get('status')}, "
+            f"sealed_complete={data.get('sealed_complete')}, missing_items={data.get('missing_items')}"
+        )
+    return data
+
+
 def build_epoch_manifest(
     epoch_dir: Path,
     contract_path: Path | None = None,
@@ -109,7 +130,7 @@ def build_epoch_manifest(
         or "unknown"
     )
     raw_schema_version = contract_data.get("raw_schema_version") or "2.0.0"
-    start_time_utc = contract_data.get("start_time_utc")
+    start_time_utc = contract_data.get("start_time_utc") or contract_data.get("actual_start_time_utc")
     expected_end_time_utc = contract_data.get("expected_end_time_utc")
     duration_seconds = contract_data.get("duration_seconds", 0)
 
@@ -147,7 +168,12 @@ def build_epoch_manifest(
                 prov_fp = prov_data.get("fingerprint") or prov_data.get("runtime_config_fingerprint")
                 prov_run = prov_data.get("collector_run_id")
                 prov_epoch = prov_data.get("collector_epoch")
-                prov_commit = prov_data.get("software_commit") or prov_data.get("runtime_software_commit")
+                # P11: Also check runtime_code_commit
+                prov_commit = (
+                    prov_data.get("runtime_code_commit")
+                    or prov_data.get("software_commit")
+                    or prov_data.get("runtime_software_commit")
+                )
                 if prov_commit and runtime_commit != "unknown" and runtime_commit != prov_commit:
                     raise ValueError(f"RUNTIME_COMMIT_MISMATCH: contract commit '{runtime_commit}' != launch provenance '{prov_commit}'")
                 if prov_fp and runtime_fingerprint != "unknown" and runtime_fingerprint != prov_fp:
@@ -197,6 +223,7 @@ def build_epoch_manifest(
     raw_files = sorted(set(raw_files))
 
     raw_file_map: dict[str, Path] = {f.name: f for f in raw_files}
+    seen_partitions: set[tuple[str, str, str, str]] = set()
 
     for mf in manifest_files:
         try:
@@ -210,6 +237,12 @@ def build_epoch_manifest(
         if not parsed:
             continue
         exch, strm, mkt, hour = parsed
+        part_key = (exch, strm, mkt, hour)
+        if part_key in seen_partitions:
+            if strict:
+                raise ValueError(f"DUPLICATE_PARTITION_IDENTITY: Duplicate partition identity found: {part_key}")
+        seen_partitions.add(part_key)
+
         if hour not in found_feeds_by_cohort:
             found_feeds_by_cohort[hour] = set()
         found_feeds_by_cohort[hour].add(f"{exch}/{mkt}/{strm}")
@@ -268,6 +301,12 @@ def build_epoch_manifest(
             if not parsed:
                 continue
             exch, strm, mkt, hour = parsed
+            part_key = (exch, strm, mkt, hour)
+            if part_key in seen_partitions:
+                if strict:
+                    raise ValueError(f"DUPLICATE_PARTITION_IDENTITY: Duplicate partition identity found: {part_key}")
+            seen_partitions.add(part_key)
+
             if hour == "unknown":
                 hour = default_hour
             if hour not in found_feeds_by_cohort:
@@ -308,8 +347,9 @@ def build_epoch_manifest(
                 "restore_verified": bool(r_data.get("restore_verified")),
                 "file_count": r_data.get("file_count", 0),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            if strict:
+                raise ValueError(f"CORRUPT_RECEIPT: {rf.name}: {e}")
     receipt_entries.sort(key=lambda x: x["hour_cohort"])
 
     # 5. Discover full scan reports
@@ -327,8 +367,9 @@ def build_epoch_manifest(
                 "status": fs_data.get("status", "UNKNOWN"),
                 "total_records": fs_data.get("total_records", 0),
             })
-        except Exception:
-            pass
+        except Exception as e:
+            if strict:
+                raise ValueError(f"CORRUPT_FULLSCAN: {fs.name}: {e}")
     fullscan_entries.sort(key=lambda x: x["file_name"])
 
     # 6. Runtime seal & Launch provenance
@@ -343,6 +384,13 @@ def build_epoch_manifest(
         launch_p = epoch_dir / "aws-72h-soak.launch-provenance.json"
     if launch_p.exists():
         launch_prov_sha = _file_sha256(launch_p)
+
+    if mode == "official" and not launch_prov_sha:
+        missing_items.append("MISSING_LAUNCH_PROVENANCE")
+    if mode == "official" and not runtime_seal_sha:
+        missing_items.append("MISSING_RUNTIME_SEAL")
+    if mode == "official" and not contract_data:
+        missing_items.append("MISSING_CONTRACT")
 
     # 7. Check completeness against 76-feed universe and cohorts
     missing_items: list[str] = []

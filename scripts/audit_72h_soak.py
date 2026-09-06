@@ -235,11 +235,13 @@ class SoakAuditor72H:
         self,
         epoch_dir: Path,
         contract_path: Path | None = None,
+        epoch_manifest_path: Path | None = None,
         strict: bool = False,
         mode: str = "lenient",
     ):
         self.epoch_dir = epoch_dir
         self.contract_path = contract_path
+        self.epoch_manifest_path = epoch_manifest_path
         self.mode = mode
         self.strict = strict or (mode == "official")
         self.raw_dir = epoch_dir / "raw"
@@ -293,12 +295,12 @@ class SoakAuditor72H:
 
         manifest_files = []
         if self.manifests_dir.exists():
-            for pat in ("**/manifest_*.json", "**/*.manifest.json", "**/epoch_manifest.json", "**/manifest.json"):
+            for pat in ("**/manifest_*.json", "**/*.manifest.json", "**/manifest.json"):
                 manifest_files.extend(list(self.manifests_dir.glob(pat)))
         elif self.epoch_dir.exists():
-            for pat in ("manifests/**/manifest_*.json", "manifests/**/*.manifest.json", "manifests/**/epoch_manifest.json", "manifests/**/manifest.json"):
+            for pat in ("manifests/**/manifest_*.json", "manifests/**/*.manifest.json", "manifests/**/manifest.json"):
                 manifest_files.extend(list(self.epoch_dir.glob(pat)))
-        manifest_files = sorted(set(manifest_files))
+        manifest_files = sorted(set([f for f in manifest_files if f.name != "epoch_manifest.json"]))
 
         receipt_files = []
         full_scan_reports = []
@@ -314,6 +316,67 @@ class SoakAuditor72H:
         report["summary"]["manifests_count"] = len(manifest_files)
         report["summary"]["receipts_count"] = len(receipt_files)
         report["summary"]["full_scan_reports_count"] = len(full_scan_reports)
+
+        # P1.1 & P1.3: Run Contract & Epoch Root Verification
+        contract_file = self.contract_path
+        if contract_file is None or not contract_file.exists():
+            candidates = [
+                self.epoch_dir / "epoch_contract.json",
+                self.epoch_dir / "runtime_seal.json",
+                self.epoch_dir / "aws-72h-soak.runtime.json",
+            ]
+            for c in candidates:
+                if c.exists():
+                    contract_file = c
+                    break
+
+        contract_data: dict[str, Any] = {}
+        if contract_file and contract_file.exists():
+            try:
+                contract_data = json.loads(contract_file.read_text(encoding="utf-8"))
+            except Exception as e:
+                report["blockers"].append(f"CORRUPT_RUN_CONTRACT: {e}")
+        elif self.strict or self.mode == "official":
+            report["blockers"].append("NO_RUN_CONTRACT: Run contract (epoch_contract.json / runtime_seal.json) required for authoritative DQ audit")
+
+        # P1.1 & P3: Bind to and verify epoch root manifest
+        epoch_manifest_path = self.epoch_manifest_path
+        if epoch_manifest_path is not None:
+            if not epoch_manifest_path.exists():
+                report["blockers"].append(f"NO_EPOCH_MANIFEST: Epoch root manifest not found at {epoch_manifest_path}")
+                epoch_manifest_path = None
+        else:
+            candidates = [
+                self.epoch_dir / "manifests" / "epoch_manifest.json",
+                self.epoch_dir / "epoch_manifest.json",
+            ]
+            for c in candidates:
+                if c.exists():
+                    epoch_manifest_path = c
+                    break
+
+        if epoch_manifest_path and epoch_manifest_path.exists():
+            try:
+                em_data = json.loads(epoch_manifest_path.read_text(encoding="utf-8"))
+                claimed_sha = em_data.get("epoch_manifest_sha256", "")
+                em_copy = {k: v for k, v in em_data.items() if k != "epoch_manifest_sha256"}
+                canon_json = json.dumps(em_copy, sort_keys=True, separators=(",", ":"))
+                actual_sha = hashlib.sha256(canon_json.encode("utf-8")).hexdigest()
+                if claimed_sha and actual_sha != claimed_sha:
+                    report["blockers"].append(f"EPOCH_MANIFEST_HASH_MISMATCH: actual '{actual_sha}' != claimed '{claimed_sha}'")
+                if not em_data.get("sealed_complete", False) and em_data.get("status") != "SEALED_COMPLETE":
+                    if self.strict or self.mode == "official":
+                        report["blockers"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
+                    else:
+                        report["warnings"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
+                report["epoch_manifest_sha256"] = claimed_sha or actual_sha
+            except Exception as e:
+                if self.strict or self.mode == "official":
+                    report["blockers"].append(f"CORRUPT_EPOCH_MANIFEST: {e}")
+                else:
+                    report["warnings"].append(f"Unreadable epoch_manifest.json: {e}")
+        elif self.strict or self.mode == "official":
+            report["blockers"].append("NO_EPOCH_MANIFEST: Epoch root manifest (epoch_manifest.json) required for authoritative deep DQ audit")
 
         # P0.5: Receipt and full-scan verification
         for r_file in receipt_files:
@@ -502,6 +565,11 @@ class SoakAuditor72H:
 
                         # Monotonic stability checked within collector_run_id across EVERY record
                         mono_ns = rec.get("local_recv_monotonic_ns") or rec.get("monotonic_timestamp")
+                        if mono_ns is None and (self.strict or self.mode == "official"):
+                            cell["state"] = "FAIL"
+                            report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} missing monotonic timestamp")
+                            break
+
                         if mono_ns is not None:
                             stats.monotonic_ts_count += 1
                             try:
@@ -520,10 +588,37 @@ class SoakAuditor72H:
                                 report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} invalid monotonic timestamp {mono_ns}")
                                 break
 
-                        # Timestamps & optional sampling
+                        # P10: Timestamps presence and parseability (no 'except: pass')
                         ex_ts_str = rec.get("exchange_ts") or rec.get("exchange_timestamp")
                         wall_ts_str = rec.get("local_recv_ts") or rec.get("receive_timestamp")
+                        write_ts_str = rec.get("local_write_ts")
 
+                        # Validate payload dict
+                        if not isinstance(rec.get("payload"), dict):
+                            cell["state"] = "FAIL"
+                            report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} payload must be a dict")
+                            break
+
+                        # Validate wall clock timestamp (local_recv_ts)
+                        if wall_ts_str is None:
+                            cell["state"] = "FAIL"
+                            report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} missing local_recv_ts")
+                            break
+
+                        wall_dt: datetime | None = None
+                        stats.wall_ts_count += 1
+                        try:
+                            if isinstance(wall_ts_str, (int, float)):
+                                wall_sec = wall_ts_str / 1000.0 if wall_ts_str > 1e11 else float(wall_ts_str)
+                                wall_dt = datetime.fromtimestamp(wall_sec, tz=timezone.utc)
+                            else:
+                                wall_dt = datetime.fromisoformat(str(wall_ts_str).replace("Z", "+00:00"))
+                        except Exception as e:
+                            cell["state"] = "FAIL"
+                            report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} malformed local_recv_ts '{wall_ts_str}': {e}")
+                            break
+
+                        # Validate optional exchange timestamp
                         ex_dt: datetime | None = None
                         if ex_ts_str is not None:
                             stats.exchange_ts_count += 1
@@ -532,21 +627,24 @@ class SoakAuditor72H:
                                     ex_sec = ex_ts_str / 1000.0 if ex_ts_str > 1e11 else float(ex_ts_str)
                                     ex_dt = datetime.fromtimestamp(ex_sec, tz=timezone.utc)
                                 else:
-                                    ex_dt = datetime.fromisoformat(str(ex_ts_str))
-                            except Exception:
-                                pass
+                                    ex_dt = datetime.fromisoformat(str(ex_ts_str).replace("Z", "+00:00"))
+                            except Exception as e:
+                                cell["state"] = "FAIL"
+                                report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} malformed exchange_ts '{ex_ts_str}': {e}")
+                                break
 
-                        wall_dt: datetime | None = None
-                        if wall_ts_str is not None:
-                            stats.wall_ts_count += 1
+                        # Validate local_write_ts
+                        if write_ts_str is not None:
                             try:
-                                if isinstance(wall_ts_str, (int, float)):
-                                    wall_sec = wall_ts_str / 1000.0 if wall_ts_str > 1e11 else float(wall_ts_str)
-                                    wall_dt = datetime.fromtimestamp(wall_sec, tz=timezone.utc)
+                                if isinstance(write_ts_str, (int, float)):
+                                    w_sec = write_ts_str / 1000.0 if write_ts_str > 1e11 else float(write_ts_str)
+                                    datetime.fromtimestamp(w_sec, tz=timezone.utc)
                                 else:
-                                    wall_dt = datetime.fromisoformat(str(wall_ts_str))
-                            except Exception:
-                                pass
+                                    datetime.fromisoformat(str(write_ts_str).replace("Z", "+00:00"))
+                            except Exception as e:
+                                cell["state"] = "FAIL"
+                                report["blockers"].append(f"CORRUPT_RAW_RECORD: {raw_path.name} line {line_idx} malformed local_write_ts '{write_ts_str}': {e}")
+                                break
 
                         if wall_dt is not None:
                             if prev_wall_dt is not None:
@@ -616,39 +714,7 @@ class SoakAuditor72H:
                     report["warnings"].append(f"MISSING_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
                     report["blockers"].append(f"MISSING_REQUIRED_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
             report["hourly_cohorts"][hour] = hour_report
-
-        # P1.1 & P1.3: Run Contract & Expected Hour Cohorts Verification
-        contract_file = self.contract_path
-        if contract_file is None or not contract_file.exists():
-            candidates = [
-                self.epoch_dir / "epoch_contract.json",
-                self.epoch_dir / "runtime_seal.json",
-                self.epoch_dir / "aws-72h-soak.runtime.json",
-            ]
-            for c in candidates:
-                if c.exists():
-                    contract_file = c
-                    break
-
-        contract_data: dict[str, Any] = {}
-        if contract_file and contract_file.exists():
-            try:
-                contract_data = json.loads(contract_file.read_text(encoding="utf-8"))
-            except Exception as e:
-                report["blockers"].append(f"CORRUPT_RUN_CONTRACT: {e}")
-        elif self.strict:
-            report["blockers"].append("NO_RUN_CONTRACT: Run contract (epoch_contract.json / runtime_seal.json) required for authoritative DQ audit")
-
-        # P7: Bind to epoch root manifest if present
-        epoch_manifest_path = self.epoch_dir / "manifests" / "epoch_manifest.json"
-        if epoch_manifest_path.exists():
-            try:
-                em_data = json.loads(epoch_manifest_path.read_text(encoding="utf-8"))
-                report["epoch_manifest_sha256"] = em_data.get("epoch_manifest_sha256", "")
-                if not em_data.get("sealed_complete", False) and em_data.get("status") != "SEALED_COMPLETE":
-                    report["warnings"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
-            except Exception as e:
-                report["warnings"].append(f"Unreadable epoch_manifest.json: {e}")
+        # Expected Hour Cohorts Verification
 
         expected_raw_cohorts: list[str] = []
         expected_archive_cohorts: list[str] = []
@@ -857,11 +923,18 @@ def main() -> int:
     parser.add_argument("--output-md", "--out-md", type=Path, default=None, help="Output Markdown report path")
     parser.add_argument("--sample-lines", type=int, default=1000, help="Max lines per file to sample")
     parser.add_argument("--contract", "--epoch-contract", type=Path, default=None, help="Run contract path")
+    parser.add_argument("--epoch-manifest", "--source-manifest", type=Path, default=None, help="Epoch root manifest path")
     parser.add_argument("--strict", action="store_true", default=False, help="Strict verification mode")
     parser.add_argument("--mode", choices=["official", "lenient", "adhoc"], default="official", help="Audit mode (default: official)")
     args = parser.parse_args()
 
-    auditor = SoakAuditor72H(args.epoch_dir, contract_path=args.contract, strict=args.strict, mode=args.mode)
+    auditor = SoakAuditor72H(
+        args.epoch_dir,
+        contract_path=args.contract,
+        epoch_manifest_path=args.epoch_manifest,
+        strict=args.strict,
+        mode=args.mode,
+    )
     report = auditor.audit(max_sample_lines=args.sample_lines)
 
     if args.output_json:

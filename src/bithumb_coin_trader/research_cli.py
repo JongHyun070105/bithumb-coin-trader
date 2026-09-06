@@ -31,6 +31,10 @@ import uuid
 
 import zstandard
 
+_repo_root = Path(__file__).resolve().parent.parent.parent
+if str(_repo_root) not in sys.path:
+    sys.path.insert(0, str(_repo_root))
+
 from .canonical_market_data import (
     CanonicalDataValidationError,
     CanonicalOrderBook,
@@ -199,6 +203,8 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
 
 def cmd_dq_qualify(args: argparse.Namespace) -> int:
     """Produce cryptographic DQ qualification evidence artifact from authoritative deep audit."""
+    from scripts.build_epoch_manifest import verify_epoch_manifest
+
     audit_report_path = Path(args.audit_report)
     out_path = Path(args.out)
     if not audit_report_path.exists():
@@ -225,45 +231,77 @@ def cmd_dq_qualify(args: argparse.Namespace) -> int:
         print(f"ERROR: Audit report does not qualify for research (status={status}, errors={len(errors)}, blockers={len(blockers)})")
         return 2
 
-    # P6: Remove all fake source hash fallbacks
-    source_manifest_hash = getattr(args, "source_manifest_hash", None) or ""
-    epoch_manifest_sha = ""
-    sm_file_sha = ""
-    if getattr(args, "source_manifest", None):
-        sm_path = Path(args.source_manifest)
-        if sm_path.exists():
-            sm_bytes = sm_path.read_bytes()
-            sm_file_sha = hashlib.sha256(sm_bytes).hexdigest()
-            try:
-                sm_json = json.loads(sm_bytes)
-                epoch_manifest_sha = sm_json.get("epoch_manifest_sha256", "")
-            except Exception:
-                pass
-            if not source_manifest_hash:
-                source_manifest_hash = sm_file_sha
+    # P4: String-only source manifest hash is NOT permitted
+    sm_arg = getattr(args, "source_manifest", None) or getattr(args, "epoch_manifest", None)
+    if not sm_arg:
+        if getattr(args, "source_manifest_hash", None):
+            print("ERROR: HASH_ONLY_QUALIFICATION_NOT_PERMITTED: --epoch-manifest / --source-manifest file is required for official qualification")
+            return 2
+        print("ERROR: Source manifest (--source-manifest / --epoch-manifest) is required for qualification")
+        return 2
 
-    if not source_manifest_hash:
-        print("ERROR: Source manifest (--source-manifest) or source manifest hash is required for qualification")
+    sm_path = Path(sm_arg)
+    if not sm_path.exists():
+        print(f"ERROR: Source manifest not found: {sm_path}")
+        return 2
+
+    sm_file_sha = hashlib.sha256(sm_path.read_bytes()).hexdigest()
+    try:
+        sm_raw = json.loads(sm_path.read_text(encoding="utf-8"))
+        if "epoch_manifest_sha256" in sm_raw or getattr(args, "epoch_manifest", None):
+            sm_json = verify_epoch_manifest(sm_path)
+            epoch_manifest_sha = sm_json.get("epoch_manifest_sha256", "")
+            # Check required provenance fields
+            for prov_field in ("collector_epoch", "collector_run_id", "runtime_commit", "runtime_fingerprint"):
+                val = sm_json.get(prov_field)
+                if not val or val == "unknown":
+                    print(f"ERROR: UNKNOWN_ROOT_PROVENANCE: {prov_field} missing or unknown in epoch manifest")
+                    return 2
+        else:
+            sm_json = sm_raw
+            epoch_manifest_sha = sm_file_sha
+    except Exception as e:
+        print(f"ERROR: Invalid epoch manifest {sm_path}: {e}")
         return 2
 
     # P9: Dynamic commit
     commit_sha = args.commit if (getattr(args, "commit", None) and args.commit != "HEAD") else _detect_git_head()
     audit_report_sha256 = hashlib.sha256(report_bytes).hexdigest()
 
-    # P8.2: Strict verification
-    is_strict = getattr(args, "strict", False)
-    hard_fail_count = len(blockers)
-    unknown_count = 1 if status not in ("DQ_PASS_ELIGIBLE", "PASS") else 0
-    degraded_count = len(audit_data.get("warnings", [])) if is_strict else 0
+    # P4.1: Strict DQ state semantics
+    hard_fail_count = len(blockers) + len(errors)
+    if status != "DQ_PASS_ELIGIBLE":
+        hard_fail_count += 1
+    unknown_count = 0
+    degraded_count = 0
+    for w in audit_data.get("warnings", []):
+        w_str = str(w)
+        if w_str.startswith("INFO:"):
+            continue
+        elif w_str.startswith("UNKNOWN:"):
+            unknown_count += 1
+        else:
+            degraded_count += 1
+
+    if hard_fail_count > 0:
+        qual_status = "DQ_FAIL"
+    elif degraded_count > 0 or unknown_count > 0:
+        qual_status = "DQ_DEGRADED"
+    else:
+        qual_status = "DQ_PASS"
+
+    if qual_status != "DQ_PASS" and getattr(args, "strict", False):
+        print(f"ERROR: Audit report has non-pass status: {qual_status} (degraded={degraded_count}, unknown={unknown_count}, hard_fail={hard_fail_count})")
+        return 2
 
     evidence_dict = {
-        "status": "DQ_PASS",
+        "status": qual_status,
         "auditor_version": getattr(args, "auditor_version", None) or "v9.1.0-offline",
         "auditor_commit": commit_sha,
         "audit_code_commit": commit_sha,
-        "source_manifest_hash": source_manifest_hash,
-        "source_manifest_file_sha256": sm_file_sha or source_manifest_hash,
-        "epoch_manifest_sha256": epoch_manifest_sha or source_manifest_hash,
+        "source_manifest_hash": epoch_manifest_sha,
+        "source_manifest_file_sha256": sm_file_sha,
+        "epoch_manifest_sha256": epoch_manifest_sha,
         "criteria_version": getattr(args, "criteria_version", None) or "v1-strict",
         "hard_fail_count": hard_fail_count,
         "unknown_count": unknown_count,
@@ -318,33 +356,69 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
 
     em_arg = getattr(args, "epoch_manifest", None) or getattr(args, "source_manifest", None)
     em_sha = None
-    expected_raw_hashes: dict[str, str] = {}
+    files_to_process: list[Path] = []
+
     if em_arg:
         em_p = Path(em_arg)
         if not em_p.exists():
             print(f"ERROR: Epoch manifest not found: {em_p}")
             return 2
         try:
-            em_data = json.loads(em_p.read_text(encoding="utf-8"))
-            em_sha = _file_sha256(em_p)
-            for part in em_data.get("partitions", []):
-                raw_h = part.get("raw_sha256")
-                if raw_h:
-                    p_path = part.get("partition_path", "")
-                    expected_raw_hashes[Path(p_path).name] = raw_h
-                    expected_raw_hashes[p_path] = raw_h
-                    expected_raw_hashes[p_path.removeprefix("raw/").removeprefix("/")] = raw_h
+            from scripts.build_epoch_manifest import verify_epoch_manifest
+            em_data = verify_epoch_manifest(em_p)
+            em_sha = em_data.get("epoch_manifest_sha256")
         except Exception as e:
-            print(f"ERROR reading epoch manifest: {e}")
+            print(f"ERROR: Invalid epoch manifest {em_p}: {e}")
             return 2
 
-        for fpath in raw_files:
-            actual_sha, _, _ = _stream_file_sha256(fpath)
-            rel_f = str(fpath.relative_to(input_dir))
-            expected_sha = expected_raw_hashes.get(rel_f) or expected_raw_hashes.get(fpath.name)
-            if expected_sha and actual_sha != expected_sha:
-                print(f"ERROR: SOURCE_RAW_HASH_MISMATCH: {fpath.name} actual '{actual_sha}' != expected '{expected_sha}'")
+        root_partitions = em_data.get("partitions", [])
+        root_known_rel_paths: set[str] = set()
+        root_known_names: set[str] = set()
+
+        for p_meta in root_partitions:
+            p_rel = p_meta.get("partition_path", "")
+            raw_sha_expected = p_meta.get("raw_sha256")
+            p_clean = p_rel.removeprefix("raw/").removeprefix("/")
+            root_known_rel_paths.add(p_clean)
+            root_known_rel_paths.add(p_rel)
+            root_known_names.add(Path(p_rel).name)
+
+            # Locate raw file
+            cand = input_dir / p_clean
+            if not cand.exists():
+                cand = input_dir / Path(p_rel).name
+            if not cand.exists() and em_p.parent.parent:
+                cand = em_p.parent.parent / p_rel
+            if not cand.exists():
+                print(f"ERROR: MISSING_RAW_FILE: Raw partition missing for root manifest: {p_rel}")
                 return 2
+
+            actual_sha, _, _ = _stream_file_sha256(cand)
+            if raw_sha_expected and actual_sha != raw_sha_expected:
+                print(f"ERROR: SOURCE_RAW_HASH_MISMATCH: {cand.name} actual '{actual_sha}' != expected '{raw_sha_expected}'")
+                return 2
+
+            # Check if this partition matches the requested exchange / stream / market
+            p_exch = p_meta.get("exchange", "").lower()
+            p_strm = p_meta.get("stream", "").lower()
+            p_mkt = p_meta.get("market", "").upper()
+            if exchange and p_exch != exchange.lower():
+                continue
+            if stream_filter and p_strm != stream_filter.lower():
+                continue
+            if market_filter and p_mkt != market_filter.upper():
+                continue
+
+            files_to_process.append(cand)
+
+        # P8.1: Check for unsealed raw files in input_dir
+        for fpath in raw_files:
+            rel_f = str(fpath.relative_to(input_dir))
+            if rel_f not in root_known_rel_paths and fpath.name not in root_known_names and f"raw/{rel_f}" not in root_known_rel_paths:
+                print(f"ERROR: UNSEALED_SOURCE_PARTITION: unsealed file found in input_dir: {fpath.name} ({rel_f})")
+                return 2
+    else:
+        files_to_process = list(raw_files)
 
     total_canonicalized = 0
     total_rejected = 0
@@ -363,7 +437,7 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
 
     new_partition_entries: list[dict[str, Any]] = []
 
-    for fpath in raw_files:
+    for fpath in files_to_process:
         clean_stem = fpath.name
         for ext in (".ndjson.zst", ".jsonl.zst", ".jsonl", ".ndjson", ".zst"):
             if clean_stem.endswith(ext):
@@ -510,6 +584,28 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
     (output_dir / report_fname).write_text(json.dumps(transform_report, indent=2))
     (output_dir / "transform_report.json").write_text(json.dumps(transform_report, indent=2))
 
+    # P14: Record DQ qualification artifact SHA if provided
+    dq_qual_arg = getattr(args, "dq_qualification", None) or getattr(args, "dq_report", None)
+    dq_qual_sha = None
+    if dq_qual_arg:
+        dq_qual_p = Path(dq_qual_arg)
+        if not dq_qual_p.exists():
+            print(f"ERROR: DQ qualification artifact not found: {dq_qual_p}")
+            return 2
+        try:
+            dq_qual_data = json.loads(dq_qual_p.read_text(encoding="utf-8"))
+            expected_dq_hash = compute_canonical_report_hash(dq_qual_data)
+            if dq_qual_data.get("report_hash") != expected_dq_hash:
+                print("ERROR: Corrupt DQ qualification report hash")
+                return 2
+            dq_qual_sha = dq_qual_data.get("qualification_sha256") or _file_sha256(dq_qual_p)
+            if em_sha and dq_qual_data.get("epoch_manifest_sha256") and dq_qual_data.get("epoch_manifest_sha256") != em_sha:
+                print(f"ERROR: EVIDENCE_CHAIN_MISMATCH: dq qualification epoch_manifest_sha256 '{dq_qual_data.get('epoch_manifest_sha256')}' != '{em_sha}'")
+                return 2
+        except Exception as e:
+            print(f"ERROR: Invalid DQ qualification artifact: {e}")
+            return 2
+
     # P17: Canonical Manifest Root
     canonical_manifest_path = output_dir / "canonical_manifest.json"
     existing_parts: dict[str, dict[str, Any]] = {}
@@ -536,6 +632,11 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
         cm_dict["source_epoch_manifest_sha256"] = em_sha
     elif "old_manifest" in locals() and old_manifest.get("source_epoch_manifest_sha256"):
         cm_dict["source_epoch_manifest_sha256"] = old_manifest.get("source_epoch_manifest_sha256")
+
+    if dq_qual_sha:
+        cm_dict["dq_qualification_sha256"] = dq_qual_sha
+    elif "old_manifest" in locals() and old_manifest.get("dq_qualification_sha256"):
+        cm_dict["dq_qualification_sha256"] = old_manifest.get("dq_qualification_sha256")
 
     canonical_json = json.dumps(cm_dict, sort_keys=True, separators=(",", ":"))
     cm_dict["canonical_manifest_sha256"] = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
@@ -574,65 +675,78 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
         print(f"ERROR: DQ report not found at {dq_report_path}")
         return 2
 
-    # P8.1: Verify actual deep audit report artifact against qualification
-    if getattr(args, "deep_audit_report", None):
-        deep_p = Path(args.deep_audit_report)
+    try:
+        dq_data = json.loads(dq_report_path.read_text(encoding="utf-8"))
+    except Exception as e:
+        print(f"ERROR reading DQ report: {e}")
+        return 2
+
+    is_official = bool(getattr(args, "canonical_manifest", None))
+
+    if is_official:
+        # P5: Zero legacy official bypasses
+        if dq_data.get("approved_policy") == "strict_phase4" or dq_data.get("auditor_version") == "1.0.0":
+            print("ERROR: LEGACY_QUALIFICATION_REJECTED: strict_phase4 or auditor_version 1.0.0 is strictly rejected in official partition-dataset")
+            return 2
+
+        # P6: Deep audit report is strictly required
+        deep_audit_arg = getattr(args, "deep_audit_report", None)
+        if not deep_audit_arg:
+            print("ERROR: MISSING_DEEP_AUDIT_REPORT: --deep-audit-report is strictly required in official partition-dataset")
+            return 2
+        deep_p = Path(deep_audit_arg)
         if not deep_p.exists():
-            print(f"ERROR: Deep audit report not found at {deep_p}")
+            print(f"ERROR: MISSING_DEEP_AUDIT_REPORT: Deep audit report not found at {deep_p}")
             return 2
         actual_deep_sha = _file_sha256(deep_p)
-        try:
-            dq_raw = json.loads(dq_report_path.read_text(encoding="utf-8"))
-            expected_deep_sha = dq_raw.get("audit_report_sha256") or dq_raw.get("report_hash")
-            if expected_deep_sha and actual_deep_sha != expected_deep_sha:
-                print(f"ERROR: AUDIT_REPORT_HASH_MISMATCH / DEEP_AUDIT_REPORT_MISMATCH: actual '{actual_deep_sha}' != qualification '{expected_deep_sha}'")
-                return 2
-        except Exception as e:
-            print(f"ERROR validating deep audit report: {e}")
+        expected_deep_sha = dq_data.get("audit_report_sha256") or dq_data.get("report_hash")
+        if expected_deep_sha and actual_deep_sha != expected_deep_sha:
+            print(f"ERROR: AUDIT_REPORT_HASH_MISMATCH / DEEP_AUDIT_REPORT_MISMATCH: actual '{actual_deep_sha}' != qualification '{expected_deep_sha}'")
             return 2
 
-    # P1.5: Source manifest verification
-    sm_arg = getattr(args, "source_manifest", None)
-    if not sm_arg:
-        is_legacy = False
-        try:
-            dq_raw = json.loads(dq_report_path.read_text(encoding="utf-8"))
-            if dq_raw.get("approved_policy") == "strict_phase4" or dq_raw.get("auditor_version") == "1.0.0":
-                is_legacy = True
-        except Exception:
-            pass
-        if not is_legacy:
-            print("ERROR: --source-manifest is required for partition-dataset")
+        # P7: Source root manifest required and verified
+        sm_arg = getattr(args, "source_manifest", None) or getattr(args, "epoch_manifest", None)
+        if not sm_arg:
+            print("ERROR: --source-manifest / --epoch-manifest is required for partition-dataset")
             return 2
 
-    sm_sha = ""
-    inner_hash = None
-    if sm_arg:
         sm_path = Path(sm_arg)
         if not sm_path.exists():
             print(f"ERROR: Source manifest not found: {sm_path}")
             return 2
+
         sm_sha = _file_sha256(sm_path)
         try:
-            sm_json = json.loads(sm_path.read_text(encoding="utf-8"))
-            inner_hash = sm_json.get("epoch_manifest_sha256") or sm_json.get("source_hash") or sm_json.get("sha256") or sm_json.get("manifest_hash")
-            if getattr(args, "source_epoch_id", None):
-                sm_epoch = sm_json.get("collector_epoch")
-                if sm_epoch and args.source_epoch_id != sm_epoch:
-                    print(f"ERROR: COLLECTOR_EPOCH_MISMATCH: claimed '{args.source_epoch_id}' != manifest '{sm_epoch}'")
-                    return 2
-            if getattr(args, "source_run_id", None):
-                sm_run = sm_json.get("collector_run_id")
-                if sm_run and args.source_run_id != sm_run:
-                    print(f"ERROR: COLLECTOR_RUN_ID_MISMATCH: claimed '{args.source_run_id}' != manifest '{sm_run}'")
-                    return 2
-        except ValueError:
-            raise
-        except Exception:
-            inner_hash = None
+            from scripts.build_epoch_manifest import verify_epoch_manifest
+            sm_json = verify_epoch_manifest(sm_path)
+            epoch_manifest_sha = sm_json.get("epoch_manifest_sha256")
+            collector_epoch = sm_json.get("collector_epoch")
+            collector_run_id = sm_json.get("collector_run_id")
+            runtime_commit = sm_json.get("runtime_commit")
+            runtime_fingerprint = sm_json.get("runtime_fingerprint")
+        except Exception as e:
+            print(f"ERROR verifying epoch manifest: {e}")
+            return 2
 
-    try:
-        dq_data = json.loads(dq_report_path.read_text(encoding="utf-8"))
+        # P7: Validate non-synthetic provenance derived from epoch root
+        for p_field, p_val in [
+            ("collector_epoch", collector_epoch),
+            ("collector_run_id", collector_run_id),
+            ("runtime_commit", runtime_commit),
+            ("runtime_fingerprint", runtime_fingerprint),
+        ]:
+            if not p_val or str(p_val).lower() in ("unknown", "synthetic", "offline"):
+                print(f"ERROR: INVALID_ROOT_PROVENANCE: {p_field} must be derived and non-synthetic from epoch manifest (got '{p_val}')")
+                return 2
+
+        if getattr(args, "source_epoch_id", None) and args.source_epoch_id != collector_epoch:
+            print(f"ERROR: COLLECTOR_EPOCH_MISMATCH: claimed '{args.source_epoch_id}' != manifest '{collector_epoch}'")
+            return 2
+        if getattr(args, "source_run_id", None) and args.source_run_id != collector_run_id:
+            print(f"ERROR: COLLECTOR_RUN_ID_MISMATCH: claimed '{args.source_run_id}' != manifest '{collector_run_id}'")
+            return 2
+
+        # Verify DQ report canonical hash and source manifest binding
         expected_report_hash = compute_canonical_report_hash(dq_data)
         actual_report_hash = dq_data.get("report_hash", "")
         if actual_report_hash != expected_report_hash:
@@ -641,29 +755,93 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
 
         claimed_src_hash = dq_data.get("source_manifest_hash", "")
         claimed_file_sha = dq_data.get("source_manifest_file_sha256")
+        claimed_epoch_sha = dq_data.get("epoch_manifest_sha256", "")
+        if claimed_file_sha and sm_sha != claimed_file_sha:
+            print(f"ERROR: DQ_SOURCE_MISMATCH: claimed source file sha '{claimed_file_sha}' != actual '{sm_sha}'")
+            return 2
+        if claimed_src_hash and claimed_src_hash not in (sm_sha, epoch_manifest_sha):
+            print(f"ERROR: DQ_SOURCE_MISMATCH: claimed '{claimed_src_hash}' does not match source manifest '{sm_path}'")
+            return 2
+
+        # P4.1: In official mode, only DQ_PASS is permitted (DQ_DEGRADED is rejected)
+        status_str = dq_data.get("status")
+        try:
+            status = DqQualificationStatus(status_str)
+        except Exception:
+            status = None
+        if status != DqQualificationStatus.DQ_PASS:
+            print(f"ERROR: DQ status '{status_str}' is not acceptable in official partition-dataset (only DQ_PASS permitted)")
+            return 2
+    else:
+        # Ad-hoc / input_file mode
+        actual_deep_sha = dq_data.get("audit_report_sha256", "")
+        if getattr(args, "deep_audit_report", None):
+            deep_p = Path(args.deep_audit_report)
+            if not deep_p.exists():
+                print(f"ERROR: Deep audit report not found at {deep_p}")
+                return 2
+            actual_deep_sha = _file_sha256(deep_p)
+            expected_deep_sha = dq_data.get("audit_report_sha256") or dq_data.get("report_hash")
+            if expected_deep_sha and actual_deep_sha != expected_deep_sha:
+                print(f"ERROR: AUDIT_REPORT_HASH_MISMATCH / DEEP_AUDIT_REPORT_MISMATCH: actual '{actual_deep_sha}' != qualification '{expected_deep_sha}'")
+                return 2
+
+        sm_arg = getattr(args, "source_manifest", None) or getattr(args, "epoch_manifest", None)
+        sm_sha = ""
+        epoch_manifest_sha = ""
         if sm_arg:
+            sm_path = Path(sm_arg)
+            if sm_path.exists():
+                sm_sha = _file_sha256(sm_path)
+                try:
+                    sm_raw = json.loads(sm_path.read_text(encoding="utf-8"))
+                    epoch_manifest_sha = sm_raw.get("epoch_manifest_sha256") or sm_sha
+                except Exception:
+                    epoch_manifest_sha = sm_sha
+        if not epoch_manifest_sha:
+            epoch_manifest_sha = dq_data.get("epoch_manifest_sha256", dq_data.get("source_manifest_hash", ""))
+        if sm_arg and sm_sha:
+            claimed_src_hash = dq_data.get("source_manifest_hash", "")
+            claimed_file_sha = dq_data.get("source_manifest_file_sha256")
             if claimed_file_sha and sm_sha != claimed_file_sha:
                 print(f"ERROR: DQ_SOURCE_MISMATCH: claimed source file sha '{claimed_file_sha}' != actual '{sm_sha}'")
                 return 2
-            if claimed_src_hash and claimed_src_hash not in (sm_sha, inner_hash):
+            if claimed_src_hash and claimed_src_hash not in (sm_sha, epoch_manifest_sha):
                 print(f"ERROR: DQ_SOURCE_MISMATCH: claimed '{claimed_src_hash}' does not match source manifest '{sm_path}'")
                 return 2
+        collector_epoch = getattr(args, "source_epoch_id", None) or dq_data.get("collector_epoch", "synthetic")
+        collector_run_id = getattr(args, "source_run_id", None) or dq_data.get("collector_run_id", "offline")
+        runtime_commit = dq_data.get("runtime_commit", _detect_git_head())
+        runtime_fingerprint = dq_data.get("runtime_fingerprint", "fp-default")
+        claimed_src_hash = dq_data.get("source_manifest_hash", "")
+
+        expected_report_hash = compute_canonical_report_hash(dq_data)
+        actual_report_hash = dq_data.get("report_hash", "")
+        if actual_report_hash != expected_report_hash:
+            print(f"ERROR: DQ report hash mismatch: actual '{actual_report_hash}' != expected '{expected_report_hash}'")
+            return 2
 
         status_str = dq_data.get("status")
-        status = DqQualificationStatus(status_str)
+        try:
+            status = DqQualificationStatus(status_str)
+        except Exception:
+            status = None
         if status not in (DqQualificationStatus.DQ_PASS, DqQualificationStatus.DQ_DEGRADED):
-            print(f"ERROR: DQ status {status} is not acceptable")
+            print(f"ERROR: DQ status '{status_str}' is not acceptable")
             return 2
-    except Exception as e:
-        print(f"ERROR reading / validating DQ report: {e}")
-        return 2
+        for k in ("audit_code_commit", "source_manifest_hash", "criteria_version"):
+            if dq_data.get(k) == "unknown":
+                print(f"ERROR: DQ report field {k} cannot be 'unknown'")
+                return 2
 
     # Provenance commits
     deep_dq_auditor_commit = dq_data.get("auditor_commit") or dq_data.get("audit_code_commit") or "unknown"
     dataset_builder_commit = getattr(args, "builder_commit", None) or _detect_git_head()
     canonicalizer_commit = getattr(args, "canonicalizer_commit", None)
+    actual_dq_sha = dq_data.get("qualification_sha256") or _file_sha256(dq_report_path)
 
     input_files: list[Path] = []
+    cm_data: dict[str, Any] = {}
     if getattr(args, "canonical_manifest", None):
         cm_path = Path(args.canonical_manifest)
         if not cm_path.exists():
@@ -673,6 +851,19 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             cm_data = json.loads(cm_path.read_text(encoding="utf-8"))
         except Exception as e:
             print(f"ERROR: Corrupt canonical manifest: {e}")
+            return 2
+
+        # P15: Evidence chain consistency check
+        cm_source_epoch_sha = cm_data.get("source_epoch_manifest_sha256")
+        dq_epoch_sha = dq_data.get("epoch_manifest_sha256") or dq_data.get("source_manifest_hash")
+        actual_epoch_sha = epoch_manifest_sha
+
+        if not cm_source_epoch_sha or not dq_epoch_sha or cm_source_epoch_sha != actual_epoch_sha or dq_epoch_sha != actual_epoch_sha:
+            print(f"ERROR: EVIDENCE_CHAIN_MISMATCH: canonical source root '{cm_source_epoch_sha}', DQ root '{dq_epoch_sha}', and actual root '{actual_epoch_sha}' do not match")
+            return 2
+
+        if cm_data.get("dq_qualification_sha256") and cm_data.get("dq_qualification_sha256") != actual_dq_sha:
+            print(f"ERROR: EVIDENCE_CHAIN_MISMATCH: canonical dq_qualification_sha256 '{cm_data.get('dq_qualification_sha256')}' != actual DQ report sha '{actual_dq_sha}'")
             return 2
 
         # P17 / Table 5.2 #12: Verify internal canonical_manifest_sha256
@@ -729,6 +920,7 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             print(f"ERROR: Input file not found: {in_p}")
             return 2
         input_files.append(in_p)
+        cm_data = {"canonical_manifest_sha256": _file_sha256(in_p)}
     else:
         print("ERROR: Either --canonical-manifest or --input-file must be provided")
         return 2
@@ -953,20 +1145,38 @@ def cmd_partition_dataset(args: argparse.Namespace) -> int:
             "dq_status": dq_data.get("status", "DQ_PASS"),
             "partitions": partition_meta,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "source_epoch_id": getattr(args, "source_epoch_id", None) or "synthetic",
-            "source_run_id": getattr(args, "source_run_id", None) or "offline",
-            "source_manifest_hash": claimed_src_hash,
-            "source_manifest_sha256": claimed_src_hash,
-            "dq_report_hash": actual_report_hash,
-            "deep_dq_report_sha256": dq_data.get("audit_report_sha256", actual_report_hash),
-            "dq_qualification_sha256": dq_data.get("qualification_sha256", actual_report_hash),
-            "deep_dq_auditor_commit": deep_dq_auditor_commit,
-            "dataset_builder_commit": dataset_builder_commit,
-            "dq_criteria_version": dq_data.get("criteria_version", ""),
+            # P16: 10 official provenance fields
+            "source_epoch_id": collector_epoch,
+            "source_run_id": collector_run_id,
+            "source_runtime_commit": runtime_commit,
+            "source_runtime_fingerprint": runtime_fingerprint,
+            "epoch_manifest_sha256": epoch_manifest_sha,
+            "deep_dq_report_sha256": actual_deep_sha,
+            "dq_qualification_sha256": actual_dq_sha,
+            "canonical_manifest_sha256": cm_data.get("canonical_manifest_sha256", ""),
             "canonicalizer_commit": canonicalizer_commit,
+            "dataset_builder_commit": dataset_builder_commit,
+            # Supporting metadata
+            "deep_dq_auditor_commit": deep_dq_auditor_commit,
+            "source_manifest_hash": epoch_manifest_sha,
+            "source_manifest_sha256": epoch_manifest_sha,
+            "dq_report_hash": actual_report_hash,
+            "dq_criteria_version": dq_data.get("criteria_version", ""),
             "canonical_schema_version": canon_schema_ver,
             "partition_config_hash": partition_config_hash,
         }
+
+        # P16: Official dataset metadata validation (no synthetic, offline, or unknown)
+        if is_official:
+            for req_prov in (
+                "source_epoch_id", "source_run_id", "source_runtime_commit", "source_runtime_fingerprint",
+                "epoch_manifest_sha256", "deep_dq_report_sha256", "dq_qualification_sha256",
+                "canonical_manifest_sha256", "canonicalizer_commit", "dataset_builder_commit"
+            ):
+                prov_val = manifest_dict.get(req_prov)
+                if not prov_val or str(prov_val).lower() in ("unknown", "synthetic", "offline"):
+                    print(f"ERROR: INVALID_DATASET_PROVENANCE: {req_prov} has invalid value '{prov_val}' in official mode")
+                    return 2
 
         manifest_path = staging_dir / "manifest.json"
         manifest_path.write_text(json.dumps(manifest_dict, indent=2), encoding="utf-8")
@@ -1033,6 +1243,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_dda.add_argument("--epoch-dir", required=True, help="Directory of 72h soak epoch")
     p_dda.add_argument("--report-out", default="reports/deep_dq_report.json", help="Output report path")
     p_dda.add_argument("--contract", "--epoch-contract", default=None, help="Optional run contract path")
+    p_dda.add_argument("--epoch-manifest", default=None, help="Epoch manifest path for root binding")
 
     # build-epoch-manifest
     p_bem = sub.add_parser("build-epoch-manifest", help="Build sealed epoch root manifest")
@@ -1050,6 +1261,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_tc.add_argument("--stream", required=False, help="Filter by stream (orderbook, trade, ticker)")
     p_tc.add_argument("--market", required=False, help="Filter by market (e.g. KRW-BTC)")
     p_tc.add_argument("--epoch-manifest", "--source-manifest", help="Path to epoch root manifest JSON for TOCTOU verification")
+    p_tc.add_argument("--dq-qualification", "--dq-report", help="Path to DQ qualification evidence artifact")
 
     # partition-dataset
     p_pd = sub.add_parser("partition-dataset", help="Temporally partition a canonical dataset with embargo windows")
@@ -1103,12 +1315,24 @@ def main(argv: Sequence[str] | None = None) -> int:
         from scripts.audit_72h_soak import SoakAuditor72H
         epoch_dir = Path(args.epoch_dir)
         contract_p = Path(args.contract) if getattr(args, "contract", None) else None
-        auditor = SoakAuditor72H(epoch_dir, contract_path=contract_p)
+        epoch_manifest_p = Path(args.epoch_manifest) if getattr(args, "epoch_manifest", None) else None
+        auditor = SoakAuditor72H(
+            epoch_dir,
+            contract_path=contract_p,
+            epoch_manifest_path=epoch_manifest_p,
+            mode="official",
+            strict=True,
+        )
         report = auditor.audit()
         out_path = Path(args.report_out)
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
         print(f"Deep DQ audit complete: status={report['status']}")
+        if report["status"] != "DQ_PASS_ELIGIBLE":
+            for b in report.get("blockers", []):
+                print(f"BLOCKER: {b}", file=sys.stderr)
+            for e in report.get("errors", []):
+                print(f"ERROR: {e}", file=sys.stderr)
         return 0 if report["status"] == "DQ_PASS_ELIGIBLE" else 2
     elif args.command == "build-epoch-manifest":
         return cmd_build_epoch_manifest(args)

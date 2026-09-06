@@ -12,63 +12,57 @@
 
 ---
 
-## 2. 12단계 오프라인 임포트 표준 절차 (Step-by-Step Sequence)
+## 2. 6단계 오프라인 임포트 공식 절차 (Authoritative Step-by-Step Sequence)
 
-### 1단계: 완료된 수집 에포크 스냅샷 확보 (Obtain Exported Snapshot)
-- 72시간 수집 및 시간별 롤링 아카이브가 모두 완료된 로컬 디렉터리 경로를 지정한다.
+### 1단계: 에포크 실행 계약 합성 및 실제 시작 증거 검증 (Compose & Verify Epoch Run Contract)
+- 런타임 씰(`runtime_seal.json`), 런칭 출처(`launch-provenance.json`), 그리고 **실제 시작 증거**(`actual-start-evidence`)를 검증하여 계약서를 합성한다.
+- `launch_provenance`의 `created_at_utc`를 실제 시작 시각으로 간주하지 않으며, 실제 시작 증거가 없을 경우 `ACTUAL_START_EVIDENCE_MISSING` (exit 2)으로 즉각 중단(Fail-Closed)한다.
 ```bash
-# 로컬 반입 디렉터리 구조 예시
-export EPOCH_DIR="data/exported_soak_72h"
-# 구조:
-# $EPOCH_DIR/raw/YYYY-MM-DD/{exchange}/{stream}/...jsonl
-# $EPOCH_DIR/manifests/manifest_*.json
-# $EPOCH_DIR/archive-receipts/*.archive-receipt.json
-# $EPOCH_DIR/archive-receipts/full_scan_*_report.json
-```
-
-### 2단계: 소스 스냅샷 해시 및 출처 전수 검증 (Verify Source Provenance)
-- 각 파티션 매니페스트 파일의 내용과 실제 원시 파일의 바이트 수, 레코드 수, SHA-256 해시를 대조한다.
-
-### 3단계: 권위적 심층 72H DQ 감사기 실행 (Run Authoritative Deep DQ Auditor)
-- `RawMicrostructureStorage` 실제 규격(`exchange_ts`, `local_recv_ts`, `local_recv_monotonic_ns`, `collector_run_id`, `payload`) 및 76개 고정 피드 유니버스를 전수 검사한다.
-```bash
-python scripts/audit_72h_soak.py \
+python scripts/compose_epoch_contract.py \
     --epoch-dir "$EPOCH_DIR" \
-    --out-json reports/deep_dq_audit_72h.json \
-    --out-md reports/deep_dq_audit_72h.md
+    --runtime-seal "$EPOCH_DIR/contracts/runtime_seal.json" \
+    --launch-provenance "$EPOCH_DIR/contracts/launch-provenance.json" \
+    --actual-start-evidence "$EPOCH_DIR/contracts/actual_start.evidence.json" \
+    --out "$EPOCH_DIR/contracts/epoch_contract.json"
 ```
 
-### 4단계: 동결된 72H 합격 판정 검증 (Ensure Frozen Acceptance Verdict)
-- 생성된 감사 보고서의 상태가 `DQ_PASS_ELIGIBLE`인지 확인한다.
-- 블로커(`blockers`)가 1건이라도 존재하거나, 필수 피드 결측, 타임스탬프 역전, 복원 실패가 있는 경우 즉시 중단한다.
-```bash
-# 상태 확인
-jq .status reports/deep_dq_audit_72h.json
-# 기댓값: "DQ_PASS_ELIGIBLE"
-```
-
-### 5단계: 에포크 증거 루트 매니페스트 구축 (Build Epoch Root Manifest)
-- 76개 피드 x 전체 시간대 파티션, 아카이브 영수증, 풀스캔 리포트, 런타임 씰을 총괄 바인딩하는 단일 루트 매니페스트를 생성한다.
+### 2단계: 에포크 증거 루트 매니페스트 구축 및 봉인 (Build Sealed Epoch Root Manifest)
+- 76개 피드 x 전체 시간대 파티션, 아카이브 영수증, 풀스캔 리포트, 실행 계약서를 총괄 바인딩하는 단일 루트 매니페스트를 생성하고 셀프 해시를 봉인한다.
+- 공식 모드에서 `runtime_seal_sha`, `launch_prov_sha`, `contract_data`, `actual_start_evidence`가 누락되거나 손상된 경우 즉시 거부한다.
 ```bash
 python scripts/build_epoch_manifest.py \
     --epoch-dir "$EPOCH_DIR" \
+    --contract "$EPOCH_DIR/contracts/epoch_contract.json" \
     --output "$EPOCH_DIR/manifests/epoch_manifest.json" \
     --strict
 ```
 
-### 6단계: 암호학적 DQ 적격성 증명서 발급 (Build DQ Qualification Artifact)
-- 심층 감사 보고서 바이트 해시(`audit_report_sha256`)와 에포크 증거 루트 매니페스트 해시를 암호학적으로 결속(Cryptographically Bound)한다.
+### 3단계: 루트 연동 권위적 심층 72H DQ 감사기 실행 (Run Authoritative Deep DQ Auditor Against Root)
+- 에포크 루트 매니페스트(`--epoch-manifest`)의 셀프 해시를 대조 검증한 후, `RawMicrostructureStorage` 실제 규격 및 76개 고정 피드 유니버스를 전수 검사한다.
+- 타임스탬프 파싱 실패 시 예외 묵살 없이 `CORRUPT_RAW_RECORD` / `MONOTONIC_CLOCK_REVERSAL` 블로커를 즉시 방출한다.
+```bash
+python scripts/audit_72h_soak.py \
+    --epoch-dir "$EPOCH_DIR" \
+    --epoch-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --contract "$EPOCH_DIR/contracts/epoch_contract.json" \
+    --out-json reports/deep_dq_audit_72h.json \
+    --out-md reports/deep_dq_audit_72h.md
+```
+
+### 4단계: 암호학적 DQ 적격성 증명서 발급 (Build Cryptographic DQ Qualification Evidence)
+- 문자열 전용 해시를 불허하며, 실제 검증된 `--epoch-manifest` 파일과 심층 감사 보고서를 바인딩한다.
+- `degraded_count > 0`인 경우 `DQ_DEGRADED`로 엄격 분류되며, `DQ_PASS`가 부여되지 않는다.
 ```bash
 python -m bithumb_coin_trader.research_cli dq-qualify \
     --audit-report reports/deep_dq_audit_72h.json \
-    --source-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --epoch-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
     --out evidence/research/dq_qualification_72h.json \
     --strict
 ```
 
-### 7단계: 스트림 인식 캐노니컬 변환 (Canonicalize Stream-Aware Data)
-- 대용량 데이터셋 메모리 초과 방지를 위해 행 단위 스트리밍(O(1) RAM) 방식으로 변환한다.
-- 호가창(`orderbook`) 및 체결(`trade`) 스트림을 각각 독립적으로 변환하며, 전체 파티션 메타데이터를 아우르는 `canonical_manifest.json`을 방출한다.
+### 5단계: 스트림 인식 캐노니컬 변환 및 미봉인 주입 방어 (Canonicalize Streams & Root Binding)
+- 파일시스템 임의 파일이 아닌 `epoch_manifest["partitions"]`에 봉인된 파티션만을 엄격 검증하여 변환한다. 미봉인 파일 발견 시 `UNSEALED_SOURCE_PARTITION` (exit 2)으로 즉시 거부한다.
+- 변환 결과 `canonical_manifest.json`에 `source_epoch_manifest_sha256` 및 `dq_qualification_sha256`을 결속한다.
 ```bash
 mkdir -p data/canonical_72h
 
@@ -78,7 +72,9 @@ python -m bithumb_coin_trader.research_cli transform-canonical \
     --output-dir data/canonical_72h \
     --exchange bithumb \
     --stream orderbook \
-    --schema-version 2.1.0
+    --schema-version 2.1.0 \
+    --epoch-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --dq-qualification evidence/research/dq_qualification_72h.json
 
 # 체결 스트림 변환
 python -m bithumb_coin_trader.research_cli transform-canonical \
@@ -86,20 +82,15 @@ python -m bithumb_coin_trader.research_cli transform-canonical \
     --output-dir data/canonical_72h \
     --exchange bithumb \
     --stream trade \
-    --schema-version 2.1.0
+    --schema-version 2.1.0 \
+    --epoch-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --dq-qualification evidence/research/dq_qualification_72h.json
 ```
 
-### 8단계: 레코드 보존 법칙 및 캐노니컬 매니페스트 검증 (Verify Count Conservation & Canonical Manifest)
-- 각 (거래소, 마켓, 스트림) 단위로 소스 원시 유효 레코드 수와 변환 결과 레코드 수가 완전히 보존되는지 대조한다:
-  $$\text{source\_nonblank} = \text{parse\_failures} + \text{skipped\_exchange} + \text{skipped\_stream} + \text{skipped\_market} + \text{eligible\_records}$$
-  $$\text{eligible\_records} = \text{canonicalized} + \text{rejected}$$
-- 생성된 `data/canonical_72h/canonical_manifest.json`의 전체 파티션 파일 해시 및 메타데이터를 검증한다.
-
-### 9단계: 트랜잭션 스테이징 기반 전 시간대 데이터셋 분할 (Partition Full Multi-Hour Series)
-- 단일 파일이 아닌 `canonical_manifest.json`을 통해 72시간 전체에 걸친 대상 마켓 시계열 전체를 2-Pass Bounded-Memory 스트리밍으로 병합·분할한다.
-- 실제 심층 감사 리포트 해시(`--deep-audit-report`)와 적격성 증명서의 무결성을 상호 교차 검증한다.
-- 원자적 디렉터리 스테이징(`<output_dir>.building.<uuid>/`)을 거쳐 안전하게 데이터셋을 생성한다.
-- 트레인(60%), 엠바고 퍼지(15분), 밸리데이션(20%), 엠바고 퍼지(15분), 홀드아웃(20%) 분할을 적용한다.
+### 6단계: 증거 사슬 전수 검증 및 데이터셋 분할 (Verify Evidence Chain & Partition Dataset)
+- `canonical.source_epoch_manifest_sha256 == DQ.epoch_manifest_sha256 == actual_epoch_sha` 증거 사슬 삼자 일치를 검증한다 (`EVIDENCE_CHAIN_MISMATCH` 방지).
+- 레거시 우회 정책(`strict_phase4`, `1.0.0`)을 전면 거부(`LEGACY_QUALIFICATION_REJECTED`)하며, `--deep-audit-report`를 필수로 검증한다.
+- 에포크 루트로부터 소스 에포크/런/커밋/핑거프린트 10종 메타데이터를 자동 도출하여 기록한다.
 ```bash
 python -m bithumb_coin_trader.research_cli partition-dataset \
     --canonical-manifest data/canonical_72h/canonical_manifest.json \
@@ -108,27 +99,13 @@ python -m bithumb_coin_trader.research_cli partition-dataset \
     --stream orderbook \
     --output-dir data/datasets/krw_btc_72h_v1 \
     --dq-report evidence/research/dq_qualification_72h.json \
-    --source-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --epoch-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
     --deep-audit-report reports/deep_dq_audit_72h.json \
     --train-frac 0.60 \
     --val-frac 0.20 \
     --purge-window-ms 900000 \
-    --clock receive_wall_clock \
-    --source-epoch-id "epoch_72h_soak_official" \
-    --source-run-id "run_72h_aws_production"
+    --clock receive_wall_clock
 ```
-
-### 10단계: 데이터셋 식별자 봉인 (Seal Dataset Identity)
-- 생성된 `manifest.json` 내 64자리 SHA-256 `dataset_id` 및 출처 커밋(`deep_dq_auditor_commit`, `canonicalizer_commit`, `dataset_builder_commit`)이 기록되었는지 확인한다.
-- 봉인된 디렉터리는 덮어쓰기가 원천 금지된다 (`FileExistsError`).
-
-### 11단계: 홀드아웃 격리 유지 (Do NOT Open Holdout)
-- `holdout.ndjson.zst` 파티션은 사전 등록 정책 승인 및 탐색 가설 검증이 완료될 때까지 접근이 차단된다.
-
-### 12단계: 사전 등록 연구 거버넌스 승인 후 연구 개시 (Preregistered Discovery)
-- `ResearchCyclePolicy`에 사이클 총 예산 및 특성 패밀리별 최대 트라이얼 수가 등록된 상태에서만 `reserve_trial()`을 통해 트레이딩 연구를 개시한다.
-
----
 
 ## 3. 비정상 대응 가이드 (Troubleshooting & Emergency Matrix)
 

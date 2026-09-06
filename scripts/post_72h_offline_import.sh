@@ -26,6 +26,10 @@ EXCHANGE="${EXCHANGE:-bithumb}"
 MARKET="${MARKET:-KRW-BTC}"
 PYTHON="${PYTHON:-python3}"
 CONTRACT="${CONTRACT:-}"
+RUNTIME_SEAL="${RUNTIME_SEAL:-}"
+LAUNCH_PROVENANCE="${LAUNCH_PROVENANCE:-}"
+ACTUAL_START_EVIDENCE="${ACTUAL_START_EVIDENCE:-}"
+SYNTHETIC_ACTUAL_START="${SYNTHETIC_ACTUAL_START:-}"
 
 # Parse optional flags
 while [[ $# -gt 0 ]]; do
@@ -62,6 +66,22 @@ while [[ $# -gt 0 ]]; do
             CONTRACT="$2"
             shift 2
             ;;
+        --runtime-seal)
+            RUNTIME_SEAL="$2"
+            shift 2
+            ;;
+        --launch-provenance)
+            LAUNCH_PROVENANCE="$2"
+            shift 2
+            ;;
+        --actual-start-evidence)
+            ACTUAL_START_EVIDENCE="$2"
+            shift 2
+            ;;
+        --synthetic-actual-start)
+            SYNTHETIC_ACTUAL_START="$2"
+            shift 2
+            ;;
         --python)
             PYTHON="$2"
             shift 2
@@ -95,87 +115,136 @@ mkdir -p "$REPORTS_DIR"
 mkdir -p "$EVIDENCE_DIR"
 mkdir -p "$CANONICAL_DIR"
 
+COMPOSED_CONTRACT="$EPOCH_DIR/contracts/epoch_contract.json"
+EPOCH_MANIFEST="$EPOCH_DIR/manifests/epoch_manifest.json"
 DEEP_DQ_REPORT="$REPORTS_DIR/deep_dq_audit_72h.json"
 DEEP_DQ_MD="$REPORTS_DIR/deep_dq_audit_72h.md"
-EPOCH_MANIFEST="$EPOCH_DIR/manifests/epoch_manifest.json"
 DQ_QUALIFICATION="$EVIDENCE_DIR/dq_qualification_72h.json"
 CANONICAL_MANIFEST="$CANONICAL_DIR/canonical_manifest.json"
 
 # -----------------------------------------------------------------------------
-# Stage 1: Deep DQ Audit
+# Stage 1: Verify or Compose Run Contract (P1, P17)
 # -----------------------------------------------------------------------------
-echo "[Stage 1/6] Running Authoritative Deep DQ Audit..."
-AUDIT_ARGS=(
-    "$REPO_ROOT/scripts/audit_72h_soak.py"
-    "--epoch-dir" "$EPOCH_DIR"
-    "--out-json" "$DEEP_DQ_REPORT"
-    "--out-md" "$DEEP_DQ_MD"
-)
-if [ -n "$CONTRACT" ]; then
-    AUDIT_ARGS+=("--contract" "$CONTRACT")
+echo "[Stage 1/6] COMPOSE/VERIFY CONTRACT..."
+if [ -z "$CONTRACT" ]; then
+    if [ -f "$EPOCH_DIR/contracts/epoch_contract.json" ]; then
+        CONTRACT="$EPOCH_DIR/contracts/epoch_contract.json"
+    elif [ -f "$EPOCH_DIR/epoch_contract.json" ]; then
+        CONTRACT="$EPOCH_DIR/epoch_contract.json"
+    fi
 fi
 
-"$PYTHON" "${AUDIT_ARGS[@]}"
-echo "✓ Stage 1 Complete: Deep DQ Audit verified."
+if [ -z "$CONTRACT" ]; then
+    # Auto-detect seals if not explicitly provided
+    if [ -z "$RUNTIME_SEAL" ]; then
+        for c in "$EPOCH_DIR/contracts/runtime_seal.json" "$EPOCH_DIR/runtime_seal.json" "$EPOCH_DIR/contracts/runtime.json" "$EPOCH_DIR/runtime.json"; do
+            if [ -f "$c" ]; then RUNTIME_SEAL="$c"; break; fi
+        done
+    fi
+    if [ -z "$LAUNCH_PROVENANCE" ]; then
+        for c in "$EPOCH_DIR/contracts/launch-provenance.json" "$EPOCH_DIR/launch-provenance.json"; do
+            if [ -f "$c" ]; then LAUNCH_PROVENANCE="$c"; break; fi
+        done
+    fi
+    if [ -z "$ACTUAL_START_EVIDENCE" ]; then
+        for c in "$EPOCH_DIR/contracts/actual_start.evidence.json" "$EPOCH_DIR/actual_start.evidence.json" "$EPOCH_DIR/actual_start_evidence.json"; do
+            if [ -f "$c" ]; then ACTUAL_START_EVIDENCE="$c"; break; fi
+        done
+    fi
+
+    mkdir -p "$EPOCH_DIR/contracts"
+    COMP_ARGS=(
+        "$REPO_ROOT/scripts/compose_epoch_contract.py"
+        "--output" "$COMPOSED_CONTRACT"
+    )
+    if [ -n "$RUNTIME_SEAL" ]; then
+        COMP_ARGS+=("--runtime-seal" "$RUNTIME_SEAL")
+    fi
+    if [ -n "$LAUNCH_PROVENANCE" ]; then
+        COMP_ARGS+=("--launch-provenance" "$LAUNCH_PROVENANCE")
+    fi
+    if [ -n "$ACTUAL_START_EVIDENCE" ]; then
+        COMP_ARGS+=("--actual-start-evidence" "$ACTUAL_START_EVIDENCE")
+    fi
+    if [ -n "$SYNTHETIC_ACTUAL_START" ]; then
+        COMP_ARGS+=("--synthetic-actual-start" "$SYNTHETIC_ACTUAL_START")
+    fi
+    "$PYTHON" "${COMP_ARGS[@]}"
+    CONTRACT="$COMPOSED_CONTRACT"
+    echo "✓ Stage 1 Complete: Contract composed and verified at $CONTRACT."
+else
+    echo "✓ Stage 1 Complete: Using provided contract at $CONTRACT."
+fi
 
 # -----------------------------------------------------------------------------
-# Stage 2: Build Epoch Root Manifest
+# Stage 2: Build Sealed Epoch Root Manifest (P1, P3, P11, P12, P13)
 # -----------------------------------------------------------------------------
-echo "[Stage 2/6] Building Sealed Epoch Root Manifest..."
+echo "[Stage 2/6] BUILD ROOT..."
 MANIFEST_ARGS=(
     "$REPO_ROOT/scripts/build_epoch_manifest.py"
     "--epoch-dir" "$EPOCH_DIR"
     "--output" "$EPOCH_MANIFEST"
+    "--contract" "$CONTRACT"
     "--strict"
 )
-if [ -n "$CONTRACT" ]; then
-    MANIFEST_ARGS+=("--contract" "$CONTRACT")
-fi
-
 "$PYTHON" "${MANIFEST_ARGS[@]}"
 echo "✓ Stage 2 Complete: Epoch Root Manifest sealed."
 
 # -----------------------------------------------------------------------------
-# Stage 3: Cryptographic DQ Qualification
+# Stage 3: Authoritative Deep DQ Audit Against Root (P1, P1.1, P2)
 # -----------------------------------------------------------------------------
-echo "[Stage 3/6] Generating Cryptographic DQ Qualification Evidence..."
-"$PYTHON" -m bithumb_coin_trader.research_cli dq-qualify \
-    --audit-report "$DEEP_DQ_REPORT" \
-    --source-manifest "$EPOCH_MANIFEST" \
-    --out "$DQ_QUALIFICATION" \
-    --strict
-echo "✓ Stage 3 Complete: DQ Qualification artifact bound."
+echo "[Stage 3/6] DEEP AUDIT..."
+AUDIT_ARGS=(
+    "$REPO_ROOT/scripts/audit_72h_soak.py"
+    "--epoch-dir" "$EPOCH_DIR"
+    "--epoch-manifest" "$EPOCH_MANIFEST"
+    "--contract" "$CONTRACT"
+    "--out-json" "$DEEP_DQ_REPORT"
+    "--out-md" "$DEEP_DQ_MD"
+)
+"$PYTHON" "${AUDIT_ARGS[@]}"
+echo "✓ Stage 3 Complete: Deep DQ Audit verified against epoch root."
 
 # -----------------------------------------------------------------------------
-# Stage 4: Transform Canonical (orderbook)
+# Stage 4: Cryptographic DQ Qualification (P4, P4.1)
 # -----------------------------------------------------------------------------
-echo "[Stage 4/6] Transforming Orderbook stream to Canonical format..."
+echo "[Stage 4/6] QUALIFY..."
+"$PYTHON" -m bithumb_coin_trader.research_cli dq-qualify \
+    --audit-report "$DEEP_DQ_REPORT" \
+    --epoch-manifest "$EPOCH_MANIFEST" \
+    --out "$DQ_QUALIFICATION" \
+    --strict
+echo "✓ Stage 4 Complete: DQ Qualification artifact bound."
+
+# -----------------------------------------------------------------------------
+# Stage 5: Canonicalize Streams (P8, P14)
+# -----------------------------------------------------------------------------
+echo "[Stage 5/6] CANONICALIZE..."
+echo "  Transforming Orderbook stream..."
 "$PYTHON" -m bithumb_coin_trader.research_cli transform-canonical \
     --input-dir "$EPOCH_DIR/raw" \
     --output-dir "$CANONICAL_DIR" \
     --exchange "$EXCHANGE" \
     --stream "orderbook" \
     --schema-version "2.1.0" \
-    --epoch-manifest "$EPOCH_MANIFEST"
-echo "✓ Stage 4 Complete: Canonical Orderbook transformed."
+    --epoch-manifest "$EPOCH_MANIFEST" \
+    --dq-qualification "$DQ_QUALIFICATION"
 
-# -----------------------------------------------------------------------------
-# Stage 5: Transform Canonical (trade)
-# -----------------------------------------------------------------------------
-echo "[Stage 5/6] Transforming Trade stream to Canonical format..."
+echo "  Transforming Trade stream..."
 "$PYTHON" -m bithumb_coin_trader.research_cli transform-canonical \
     --input-dir "$EPOCH_DIR/raw" \
     --output-dir "$CANONICAL_DIR" \
     --exchange "$EXCHANGE" \
     --stream "trade" \
     --schema-version "2.1.0" \
-    --epoch-manifest "$EPOCH_MANIFEST"
-echo "✓ Stage 5 Complete: Canonical Trade transformed."
+    --epoch-manifest "$EPOCH_MANIFEST" \
+    --dq-qualification "$DQ_QUALIFICATION"
+echo "✓ Stage 5 Complete: Canonical streams transformed and bound."
 
 # -----------------------------------------------------------------------------
-# Stage 6: Partition Dataset
+# Stage 6: Partition Dataset with Embargo Windows (P5, P6, P7, P15, P16)
 # -----------------------------------------------------------------------------
-echo "[Stage 6/6] Partitioning Dataset with Embargo Windows..."
+echo "[Stage 6/6] PARTITION..."
 "$PYTHON" -m bithumb_coin_trader.research_cli partition-dataset \
     --canonical-manifest "$CANONICAL_MANIFEST" \
     --exchange "$EXCHANGE" \
@@ -183,7 +252,7 @@ echo "[Stage 6/6] Partitioning Dataset with Embargo Windows..."
     --stream "orderbook" \
     --output-dir "$DATASET_DIR" \
     --dq-report "$DQ_QUALIFICATION" \
-    --source-manifest "$EPOCH_MANIFEST" \
+    --epoch-manifest "$EPOCH_MANIFEST" \
     --deep-audit-report "$DEEP_DQ_REPORT" \
     --train-frac 0.60 \
     --val-frac 0.20 \
