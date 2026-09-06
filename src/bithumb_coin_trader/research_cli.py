@@ -104,7 +104,14 @@ def cmd_audit_quality(args: argparse.Namespace) -> int:
     report_path.write_text(json.dumps(report, indent=2))
     print(f"Audit complete: status={report['status']} files={len(report['files_found'])} errors={len(report['errors'])}")
     print(f"Report written to: {report_path}")
-    return 0 if report["status"] == "STRUCTURAL_AUDIT_PASS" else 2
+    if report["status"] == "INCOMPLETE":
+        return 1
+    elif report["status"] == "FAIL":
+        return 2
+    elif report["status"] == "STRUCTURAL_AUDIT_PASS":
+        return 0
+    else:
+        return 2
 
 
 def cmd_transform_canonical(args: argparse.Namespace) -> int:
@@ -193,12 +200,17 @@ def cmd_transform_canonical(args: argparse.Namespace) -> int:
         "output_dir": str(output_dir),
         "schema_version": args.schema_version,
         "files_found": [str(f.relative_to(input_dir)) for f in raw_files],
-        "status": "PASS",
+        "status": "PASS" if total_canonicalized > 0 else "INCOMPLETE",
         "canonicalized_count": total_canonicalized,
         "rejected_count": total_rejected,
         "reject_reasons": reject_reasons,
     }
     (output_dir / "transform_report.json").write_text(json.dumps(transform_report, indent=2))
+    
+    if total_canonicalized == 0 and total_rejected == 0:
+        print("ERROR: Empty input dataset.")
+        return 1
+        
     return 0
 
 

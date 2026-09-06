@@ -27,7 +27,7 @@ def _make_canonical_zst(path: Path, n: int = 10) -> None:
             exchange="bithumb",
             market="BTC-KRW",
             receive_timestamp_ms=i * 1000,
-            timestamp=i,
+            exchange_timestamp_ms=i,
             bids=[(100_000_000 - i * 1000, 0.1)],
             asks=[(100_050_000 + i * 1000, 0.1)],
         )

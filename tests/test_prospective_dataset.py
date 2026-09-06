@@ -12,6 +12,7 @@ from pathlib import Path
 from bithumb_coin_trader.canonical_market_data import CanonicalOrderBook
 from bithumb_coin_trader.experiment_runner import DatasetRole
 from bithumb_coin_trader.prospective_dataset import (
+    DqQualificationEvidence,
     DqQualificationStatus,
     DqRejectedError,
     partition_records_temporally,
@@ -71,7 +72,7 @@ def test_build_and_export_dataset(tmp_path: Path):
     records = _make_books(50, interval_ms=10_000)
     manifest = build_and_export_dataset(
         "ds_test_01", out_dir, records,
-        dq_status=DqQualificationStatus.DQ_PASS,
+        dq_evidence=DqQualificationEvidence(status=DqQualificationStatus.DQ_PASS, auditor_version="1.0", audit_code_commit="1", source_manifest_hash="1", report_hash="1", created_at="1", criteria_version="1", hard_fail_count=0, unknown_count=0, degraded_count=0, justification="ok" if "DQ_PASS" == "DQ_DEGRADED" else "", approved_policy=""),
         purge_window_ms=20_000,
     )
 
@@ -173,7 +174,7 @@ def test_dq_fail_rejected(tmp_path):
     with pytest.raises(DqRejectedError, match="DQ_FAIL"):
         build_and_export_dataset(
             "bad_ds", tmp_path / "out", records,
-            dq_status=DqQualificationStatus.DQ_FAIL,
+            dq_evidence=DqQualificationEvidence(status=DqQualificationStatus.DQ_FAIL, auditor_version="1.0", audit_code_commit="1", source_manifest_hash="1", report_hash="1", created_at="1", criteria_version="1", hard_fail_count=0, unknown_count=0, degraded_count=0, justification="ok" if "DQ_FAIL" == "DQ_DEGRADED" else "", approved_policy=""),
         )
 
 
@@ -183,7 +184,7 @@ def test_dq_unknown_rejected(tmp_path):
     with pytest.raises(DqRejectedError, match="DQ_UNKNOWN"):
         build_and_export_dataset(
             "unknown_ds", tmp_path / "out", records,
-            dq_status=DqQualificationStatus.DQ_UNKNOWN,
+            dq_evidence=DqQualificationEvidence(status=DqQualificationStatus.DQ_UNKNOWN, auditor_version="1.0", audit_code_commit="1", source_manifest_hash="1", report_hash="1", created_at="1", criteria_version="1", hard_fail_count=0, unknown_count=0, degraded_count=0, justification="ok" if "DQ_UNKNOWN" == "DQ_DEGRADED" else "", approved_policy=""),
         )
 
 
@@ -192,7 +193,7 @@ def test_dq_degraded_allowed(tmp_path):
     records = _make_books(20, interval_ms=1000)
     manifest = build_and_export_dataset(
         "degraded_ds", tmp_path / "out", records,
-        dq_status=DqQualificationStatus.DQ_DEGRADED,
+        dq_evidence=DqQualificationEvidence(status=DqQualificationStatus.DQ_DEGRADED, auditor_version="1.0", audit_code_commit="1", source_manifest_hash="1", report_hash="1", created_at="1", criteria_version="1", hard_fail_count=0, unknown_count=0, degraded_count=0, justification="ok" if "DQ_DEGRADED" == "DQ_DEGRADED" else "", approved_policy=""),
         purge_window_ms=0,
     )
     assert manifest.dq_status == "DQ_DEGRADED"
@@ -221,7 +222,7 @@ def test_manifest_includes_split_counts(tmp_path):
     records = _make_books(50, interval_ms=1000)
     manifest = build_and_export_dataset(
         "count_test", tmp_path / "counts_ds", records,
-        dq_status=DqQualificationStatus.DQ_PASS,
+        dq_evidence=DqQualificationEvidence(status=DqQualificationStatus.DQ_PASS, auditor_version="1.0", audit_code_commit="1", source_manifest_hash="1", report_hash="1", created_at="1", criteria_version="1", hard_fail_count=0, unknown_count=0, degraded_count=0, justification="ok" if "DQ_PASS" == "DQ_DEGRADED" else "", approved_policy=""),
         purge_window_ms=0,
     )
     assert manifest.train_records >= 0
