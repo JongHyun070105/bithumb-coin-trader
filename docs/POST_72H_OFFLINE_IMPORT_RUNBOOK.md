@@ -47,19 +47,28 @@ jq .status reports/deep_dq_audit_72h.json
 # 기댓값: "DQ_PASS_ELIGIBLE"
 ```
 
-### 5단계: 암호학적 DQ 적격성 증명서 발급 (Build DQ Qualification Artifact)
-- 심층 감사 보고서 바이트 해시(`audit_report_sha256`)와 소스 매니페스트 해시를 암호학적으로 결속(Cryptographically Bound)한다.
+### 5단계: 에포크 증거 루트 매니페스트 구축 (Build Epoch Root Manifest)
+- 76개 피드 x 전체 시간대 파티션, 아카이브 영수증, 풀스캔 리포트, 런타임 씰을 총괄 바인딩하는 단일 루트 매니페스트를 생성한다.
+```bash
+python scripts/build_epoch_manifest.py \
+    --epoch-dir "$EPOCH_DIR" \
+    --output "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --strict
+```
+
+### 6단계: 암호학적 DQ 적격성 증명서 발급 (Build DQ Qualification Artifact)
+- 심층 감사 보고서 바이트 해시(`audit_report_sha256`)와 에포크 증거 루트 매니페스트 해시를 암호학적으로 결속(Cryptographically Bound)한다.
 ```bash
 python -m bithumb_coin_trader.research_cli dq-qualify \
     --audit-report reports/deep_dq_audit_72h.json \
-    --source-manifest "$EPOCH_DIR/manifests/manifest_bithumb_orderbook_krw-btc_....json" \
+    --source-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
     --out evidence/research/dq_qualification_72h.json \
     --strict
 ```
 
-### 6단계: 스트림 인식 캐노니컬 변환 (Canonicalize Stream-Aware Data)
+### 7단계: 스트림 인식 캐노니컬 변환 (Canonicalize Stream-Aware Data)
 - 대용량 데이터셋 메모리 초과 방지를 위해 행 단위 스트리밍(O(1) RAM) 방식으로 변환한다.
-- 호가창(`orderbook`) 및 체결(`trade`) 스트림을 각각 독립적으로 변환한다.
+- 호가창(`orderbook`) 및 체결(`trade`) 스트림을 각각 독립적으로 변환하며, 전체 파티션 메타데이터를 아우르는 `canonical_manifest.json`을 방출한다.
 ```bash
 mkdir -p data/canonical_72h
 
@@ -80,23 +89,27 @@ python -m bithumb_coin_trader.research_cli transform-canonical \
     --schema-version 2.1.0
 ```
 
-### 7단계: 레코드 보존 법칙 전수 대조 (Verify Count Conservation by Stream)
+### 8단계: 레코드 보존 법칙 및 캐노니컬 매니페스트 검증 (Verify Count Conservation & Canonical Manifest)
 - 각 (거래소, 마켓, 스트림) 단위로 소스 원시 유효 레코드 수와 변환 결과 레코드 수가 완전히 보존되는지 대조한다:
-  $$\text{source\_valid\_records} = \text{canonical\_records} + \text{explicit\_rejected\_records}$$
-- 누락 또는 비정상 유실이 발생한 경우 종료 코드 2(`PARTIAL_REJECTED`)로 중단된다.
+  $$\text{source\_nonblank} = \text{parse\_failures} + \text{skipped\_exchange} + \text{skipped\_stream} + \text{skipped\_market} + \text{eligible\_records}$$
+  $$\text{eligible\_records} = \text{canonicalized} + \text{rejected}$$
+- 생성된 `data/canonical_72h/canonical_manifest.json`의 전체 파티션 파일 해시 및 메타데이터를 검증한다.
 
-### 8단계: 캐노니컬 매니페스트 및 무결성 영수증 확인 (Verify Canonical Manifest)
-- 변환 완료된 `canonical_*.ndjson.zst` 파일들의 해시와 헤더 메타데이터를 확인한다.
-
-### 9단계: 트랜잭션 스테이징 기반 데이터셋 분할 (Create Prospective Dataset with Bound Provenance)
+### 9단계: 트랜잭션 스테이징 기반 전 시간대 데이터셋 분할 (Partition Full Multi-Hour Series)
+- 단일 파일이 아닌 `canonical_manifest.json`을 통해 72시간 전체에 걸친 대상 마켓 시계열 전체를 2-Pass Bounded-Memory 스트리밍으로 병합·분할한다.
+- 실제 심층 감사 리포트 해시(`--deep-audit-report`)와 적격성 증명서의 무결성을 상호 교차 검증한다.
 - 원자적 디렉터리 스테이징(`<output_dir>.building.<uuid>/`)을 거쳐 안전하게 데이터셋을 생성한다.
 - 트레인(60%), 엠바고 퍼지(15분), 밸리데이션(20%), 엠바고 퍼지(15분), 홀드아웃(20%) 분할을 적용한다.
 ```bash
 python -m bithumb_coin_trader.research_cli partition-dataset \
-    --input-file data/canonical_72h/canonical_bithumb_orderbook_krw-btc_....ndjson.zst \
+    --canonical-manifest data/canonical_72h/canonical_manifest.json \
+    --exchange bithumb \
+    --market KRW-BTC \
+    --stream orderbook \
     --output-dir data/datasets/krw_btc_72h_v1 \
     --dq-report evidence/research/dq_qualification_72h.json \
-    --source-manifest "$EPOCH_DIR/manifests/manifest_bithumb_orderbook_krw-btc_....json" \
+    --source-manifest "$EPOCH_DIR/manifests/epoch_manifest.json" \
+    --deep-audit-report reports/deep_dq_audit_72h.json \
     --train-frac 0.60 \
     --val-frac 0.20 \
     --purge-window-ms 900000 \
