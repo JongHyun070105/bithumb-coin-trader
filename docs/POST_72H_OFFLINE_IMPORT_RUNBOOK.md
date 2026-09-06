@@ -1,72 +1,128 @@
 # 72시간 무인 수집 완료 후 오프라인 임포트 런북 (Post-72H Offline Import Runbook)
 
-## 1. 개요
-본 문서는 현재 독립적으로 실행 중인 AWS 72시간 시장 데이터 무인 수집(Soak)이 완전히 종료된 후, 수집된 데이터를 로컬 연구 환경으로 안전하게 가져와 표준 캐노니컬 데이터셋으로 정제 및 파티셔닝하는 표준 절차(SOP)를 정의한다.
+## 1. 개요 및 절대 원칙 (Scope & Core Principles)
 
-## 2. 작업 전제 조건 (Prerequisites)
-- AWS 72시간 수집 기간(72시간 + 그레이스 기간)이 공식적으로 만료되었음을 확인.
-- 실거래 트레이딩 및 라이브 수집기에 어떠한 간섭도 하지 않는 읽기 전용(Read-only) 절차 준수.
+본 문서는 현재 AWS 환경에서 독립적으로 실행 중인 72시간 무인 시장 데이터 수집(Soak)이 완료된 후, 수집된 원시 증거(Raw Microstructure Evidence)를 로컬 연구 환경으로 안전하게 반입하고 캐노니컬 데이터셋으로 변환·파티셔닝하기 위한 표준 절차(SOP)를 정의한다.
 
-## 3. 단계별 실행 절차 (Step-by-Step Procedure)
+### 절대 원칙 (Fail-Closed Guarantees)
+- **라이브 환경 간섭 금지**: AWS CLI, EC2, S3, SSM, CloudWatch, Terraform 등 라이브 인프라와 일체 상호작용하지 않는다. 수집이 자연 종료되고 정상 아카이브가 완료된 스냅샷 파일만 오프라인으로 수령하여 처리한다.
+- **Fail-Closed 검증**: 빈 에포크, 누락된 매니페스트, 변조된 해시, 복원 실패, 역전 클록 등 비정상 조건 감지 시 즉시 처리를 중단하고 적격성(`DQ_FAIL`)을 거부한다.
+- **구조적 감사(Structural Audit)의 DQ 대체 금지**: 단순 필드 유무를 검사하는 구조적 감사는 심층 데이터 품질(DQ) 감사를 대체할 수 없으며, 단독으로 `DQ_PASS`를 부여할 수 없다.
+- **홀드아웃 격리 보장**: 데이터셋 생성 후 사전 등록 정책(`ResearchCyclePolicy`) 승인 전까지 홀드아웃 파티션은 절대 열람·탐색하지 않는다 (`HoldoutContaminationError` 강제).
 
+---
 
-> **FORENSIC HARDENING NOTICE (Phase 2.5 — BUG-5/BUG-6 FIX)**:
-> - `archive_hour_001.tar.zst` ~ `archive_hour_072.tar.zst` 는 **실제 존재하지 않는 파일명**입니다.
->   실제 아카이브 파일명은 수집 에포크와 타임스탬프에 따라 결정됩니다. 아래에서 `<EXPORTED_EPOCH_ROOT>`로 표기합니다.
-> - 단계 3, 4, 5의 CLI 명령어(`audit-quality`, `transform-canonical`, `partition-dataset`)는
->   Phase 2.5에서 추가되었습니다. Phase 2 기준 코드에서는 이 명령어가 존재하지 않습니다.
+## 2. 12단계 오프라인 임포트 표준 절차 (Step-by-Step Sequence)
 
-### 단계 1: 수집 완료 상태 및 아카이브 무결성 확인 (Verification)
-1. S3 버킷 내 72개 시간별 아카이브 파일(`<EXPORTED_EPOCH_ROOT>/archive_hour_NNN.tar.zst`, N=001~072) 존재 여부 확인.
-   - 실제 파일명은 수집 에포크 및 시스템 설정에 따라 다릅니다. S3 버킷 내용을 직접 확인하여 실제 파일명을 사용하세요.
-2. 각 시간대 매니페스트(`manifest.json`)의 SHA-256 해시 대조.
-
-### 단계 2: 로컬 데이터 다운로드 (Read-Only Download)
+### 1단계: 완료된 수집 에포크 스냅샷 확보 (Obtain Exported Snapshot)
+- 72시간 수집 및 시간별 롤링 아카이브가 모두 완료된 로컬 디렉터리 경로를 지정한다.
 ```bash
-# 로컬 전용 저장 경로 생성
-mkdir -p data/raw_soak_72h
-
-# S3에서 로컬로 안전 다운로드 (Read-only)
-aws s3 sync s3://bitcoin-trader-archive-bucket/aws-72h-soak-20260905/ data/raw_soak_72h/ --dryrun
-aws s3 sync s3://bitcoin-trader-archive-bucket/aws-72h-soak-20260905/ data/raw_soak_72h/
+# 로컬 반입 디렉터리 구조 예시
+export EPOCH_DIR="data/exported_soak_72h"
+# 구조:
+# $EPOCH_DIR/raw/YYYY-MM-DD/{exchange}/{stream}/...jsonl
+# $EPOCH_DIR/manifests/manifest_*.json
+# $EPOCH_DIR/archive-receipts/*.archive-receipt.json
+# $EPOCH_DIR/archive-receipts/full_scan_*_report.json
 ```
 
-### 단계 3: 데이터 품질 사전 적격성 검사 (Data Quality Audit)
-```bash
-# 데이터 품질 플래그 스캐너 실행
-python -m bithumb_coin_trader.research_cli audit-quality \
-    --input-dir data/raw_soak_72h \
-    --report-out reports/soak_72h_data_quality_report.json
-```
-- 확인 기준:
-  - 타임스탬프 역전율 < 0.001%
-  - 최대 수신 지연 갭 > 5,000ms 발생 횟수 < 10회
-  - 역전 호가(Crossed book) 발생 0건
+### 2단계: 소스 스냅샷 해시 및 출처 전수 검증 (Verify Source Provenance)
+- 각 파티션 매니페스트 파일의 내용과 실제 원시 파일의 바이트 수, 레코드 수, SHA-256 해시를 대조한다.
 
-### 단계 4: 캐노니컬 마켓 데이터 변환 (Canonical Transformation)
+### 3단계: 권위적 심층 72H DQ 감사기 실행 (Run Authoritative Deep DQ Auditor)
+- `RawMicrostructureStorage` 실제 규격(`exchange_ts`, `local_recv_ts`, `local_recv_monotonic_ns`, `collector_run_id`, `payload`) 및 76개 고정 피드 유니버스를 전수 검사한다.
 ```bash
+python scripts/audit_72h_soak.py \
+    --epoch-dir "$EPOCH_DIR" \
+    --out-json reports/deep_dq_audit_72h.json \
+    --out-md reports/deep_dq_audit_72h.md
+```
+
+### 4단계: 동결된 72H 합격 판정 검증 (Ensure Frozen Acceptance Verdict)
+- 생성된 감사 보고서의 상태가 `DQ_PASS_ELIGIBLE`인지 확인한다.
+- 블로커(`blockers`)가 1건이라도 존재하거나, 필수 피드 결측, 타임스탬프 역전, 복원 실패가 있는 경우 즉시 중단한다.
+```bash
+# 상태 확인
+jq .status reports/deep_dq_audit_72h.json
+# 기댓값: "DQ_PASS_ELIGIBLE"
+```
+
+### 5단계: 암호학적 DQ 적격성 증명서 발급 (Build DQ Qualification Artifact)
+- 심층 감사 보고서 바이트 해시(`audit_report_sha256`)와 소스 매니페스트 해시를 암호학적으로 결속(Cryptographically Bound)한다.
+```bash
+python -m bithumb_coin_trader.research_cli dq-qualify \
+    --audit-report reports/deep_dq_audit_72h.json \
+    --source-manifest "$EPOCH_DIR/manifests/manifest_bithumb_orderbook_krw-btc_....json" \
+    --out evidence/research/dq_qualification_72h.json \
+    --strict
+```
+
+### 6단계: 스트림 인식 캐노니컬 변환 (Canonicalize Stream-Aware Data)
+- 대용량 데이터셋 메모리 초과 방지를 위해 행 단위 스트리밍(O(1) RAM) 방식으로 변환한다.
+- 호가창(`orderbook`) 및 체결(`trade`) 스트림을 각각 독립적으로 변환한다.
+```bash
+mkdir -p data/canonical_72h
+
+# 호가창 스트림 변환
 python -m bithumb_coin_trader.research_cli transform-canonical \
-    --input-dir data/raw_soak_72h \
+    --input-dir "$EPOCH_DIR/raw" \
     --output-dir data/canonical_72h \
-    --schema-version 2.0.0
-```
-- 빗썸/바이낸스/업비트 데이터를 `CanonicalOrderBook`, `CanonicalTrade`, `CanonicalTicker` 포맷으로 변환하고 Zstandard(레벨 3) 압축 적용.
+    --exchange bithumb \
+    --stream orderbook \
+    --schema-version 2.1.0
 
-### 단계 5: 시계열 엠바고 파티셔닝 (Temporal Partitioning)
+# 체결 스트림 변환
+python -m bithumb_coin_trader.research_cli transform-canonical \
+    --input-dir "$EPOCH_DIR/raw" \
+    --output-dir data/canonical_72h \
+    --exchange bithumb \
+    --stream trade \
+    --schema-version 2.1.0
+```
+
+### 7단계: 레코드 보존 법칙 전수 대조 (Verify Count Conservation by Stream)
+- 각 (거래소, 마켓, 스트림) 단위로 소스 원시 유효 레코드 수와 변환 결과 레코드 수가 완전히 보존되는지 대조한다:
+  $$\text{source\_valid\_records} = \text{canonical\_records} + \text{explicit\_rejected\_records}$$
+- 누락 또는 비정상 유실이 발생한 경우 종료 코드 2(`PARTIAL_REJECTED`)로 중단된다.
+
+### 8단계: 캐노니컬 매니페스트 및 무결성 영수증 확인 (Verify Canonical Manifest)
+- 변환 완료된 `canonical_*.ndjson.zst` 파일들의 해시와 헤더 메타데이터를 확인한다.
+
+### 9단계: 트랜잭션 스테이징 기반 데이터셋 분할 (Create Prospective Dataset with Bound Provenance)
+- 원자적 디렉터리 스테이징(`<output_dir>.building.<uuid>/`)을 거쳐 안전하게 데이터셋을 생성한다.
+- 트레인(60%), 엠바고 퍼지(15분), 밸리데이션(20%), 엠바고 퍼지(15분), 홀드아웃(20%) 분할을 적용한다.
 ```bash
 python -m bithumb_coin_trader.research_cli partition-dataset \
-    --input-file data/canonical_72h/bithumb_krw_btc_orderbooks.ndjson.zst \
+    --input-file data/canonical_72h/canonical_bithumb_orderbook_krw-btc_....ndjson.zst \
     --output-dir data/datasets/krw_btc_72h_v1 \
+    --dq-report evidence/research/dq_qualification_72h.json \
+    --source-manifest "$EPOCH_DIR/manifests/manifest_bithumb_orderbook_krw-btc_....json" \
     --train-frac 0.60 \
     --val-frac 0.20 \
-    --purge-window-ms 900000
+    --purge-window-ms 900000 \
+    --clock receive_wall_clock \
+    --source-epoch-id "epoch_72h_soak_official" \
+    --source-run-id "run_72h_aws_production"
 ```
-- Train (60%) $	o$ 15분 Purge $	o$ Validation (20%) $	o$ 15분 Purge $	o$ Holdout (20%) 분할 생성.
-- `manifest.json` 내 SHA-256 체크섬 영구 기록.
 
-### 단계 6: 연구 거버넌스 원장에 데이터셋 등록
-- 생성된 데이터셋을 `evidence/research/governed_experiment_ledger.json`에 `ROLE = QUALIFICATION_DATASET`으로 공식 등록.
-- 홀드아웃 파티션은 최종 검증 이전까지 접근 차단(`HoldoutContaminationError` 보장).
+### 10단계: 데이터셋 식별자 봉인 (Seal Dataset Identity)
+- 생성된 `manifest.json` 내 64자리 SHA-256 `dataset_id` 및 출처 커밋(`deep_dq_auditor_commit`, `canonicalizer_commit`, `dataset_builder_commit`)이 기록되었는지 확인한다.
+- 봉인된 디렉터리는 덮어쓰기가 원천 금지된다 (`FileExistsError`).
 
-## 4. 비상 조치 및 롤백
-- 데이터 품질 검사에서 역전 호가 또는 10분 이상의 연속 결측 발생 시, 해당 구간을 즉시 결함 구간으로 마킹하고 적격성 평가 보고서에 기록함.
+### 11단계: 홀드아웃 격리 유지 (Do NOT Open Holdout)
+- `holdout.ndjson.zst` 파티션은 사전 등록 정책 승인 및 탐색 가설 검증이 완료될 때까지 접근이 차단된다.
+
+### 12단계: 사전 등록 연구 거버넌스 승인 후 연구 개시 (Preregistered Discovery)
+- `ResearchCyclePolicy`에 사이클 총 예산 및 특성 패밀리별 최대 트라이얼 수가 등록된 상태에서만 `reserve_trial()`을 통해 트레이딩 연구를 개시한다.
+
+---
+
+## 3. 비정상 대응 가이드 (Troubleshooting & Emergency Matrix)
+
+| 증상 | 원인 | 조치 절차 |
+| :--- | :--- | :--- |
+| `NO_RAW_EVIDENCE` / `NO_MANIFEST_EVIDENCE` | 빈 에포크 또는 잘못된 경로 | 스냅샷 경로 확인, 빈 데이터셋 적격성 판정 즉시 거부 (`FAIL`) |
+| `STRUCTURAL_ONLY_NOT_QUALIFIABLE` | 구조적 감사 보고서를 qualify에 입력 | 3단계 `audit_72h_soak.py` 심층 감사 재수행 후 입력 |
+| `HASH_MISMATCH` / `RECORD_COUNT_MISMATCH` | 원시 파티션 파일 손상 또는 변조 | 아카이브 파일 무결성 재확인, 손상 파티션 격리 |
+| `TEMPORAL_KEY_MISSING` | 타임스탬프 키 누락 | 파티셔닝 기준 시계(`--clock`) 점검 및 원시 인벨로프 수신시각 확인 |
+| `CYCLE_BUDGET_EXCEEDED` / `DISALLOWED_FAMILY` | 거버넌스 사이클 예산 초과 또는 비인가 패밀리 | 사이클 정책 승인 검토 또는 새로운 연구 사이클 등록 |
