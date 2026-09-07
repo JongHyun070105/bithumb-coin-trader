@@ -362,19 +362,10 @@ class SoakAuditor72H:
                 except ModuleNotFoundError:
                     from build_epoch_manifest import verify_epoch_manifest
                 em_data = verify_epoch_manifest(epoch_manifest_path, contract_file)
-                claimed_sha = em_data["epoch_manifest_sha256"]
-                actual_sha = claimed_sha
-                if not em_data.get("sealed_complete", False) and em_data.get("status") != "SEALED_COMPLETE":
-                    if self.strict or self.mode == "official":
-                        report["blockers"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
-                    else:
-                        report["warnings"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
-                report["epoch_manifest_sha256"] = claimed_sha or actual_sha
+                report["epoch_manifest_sha256"] = em_data["epoch_manifest_sha256"]
             except Exception as e:
-                if self.strict or self.mode == "official":
-                    report["blockers"].append(f"CORRUPT_EPOCH_MANIFEST: {e}")
-                else:
-                    report["warnings"].append(f"Unreadable epoch_manifest.json: {e}")
+                # A supplied broken cryptographic edge is never a lenient warning.
+                report["blockers"].append(f"CORRUPT_EPOCH_MANIFEST: {e}")
         elif self.strict or self.mode == "official":
             report["blockers"].append("NO_EPOCH_MANIFEST: Epoch root manifest (epoch_manifest.json) required for authoritative deep DQ audit")
 
