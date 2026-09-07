@@ -728,6 +728,8 @@ def test_p7_epoch_manifest_builder_and_completeness(tmp_path: Path) -> None:
         "duration_seconds": 3600,
         "require_receipts": True,
     }
+    from scripts.evidence_contract import canonical_sha256
+    contract["contract_sha256"] = canonical_sha256(contract)
     (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract))
 
     # Case A: Empty epoch -> incomplete
