@@ -1,35 +1,152 @@
-import { Database, HardDrive, RadioTower, ShieldCheck } from 'lucide-react'
+import React from 'react'
+import { useEvidence } from '../context/useEvidence'
 import { MetricCard } from '../components/MetricCard'
+import { PipelineStrip } from '../components/PipelineStrip'
+import { EvidenceDropZone } from '../components/EvidenceDropZone'
+import { ModeBanner } from '../components/ModeBanner'
 import { StatusBadge } from '../components/StatusBadge'
-import { events, streamMetrics } from '../mockData'
+import { GitBranch, Shield, FileCheck } from 'lucide-react'
 
-const categoryLabels = { SYSTEM: '시스템', DATA: '데이터', TRADING: '트레이딩', SIGNAL: '신호', RISK: '리스크', RESEARCH: '연구' }
-
-export function Overview() {
-  const exchanges = ['빗썸', '바이낸스', '업비트'].map((exchange) => ({
-    exchange,
-    status: streamMetrics.some((metric) => metric.exchange === exchange && metric.status === 'DEGRADED') ? 'DEGRADED' : 'HEALTHY',
-  }))
+export const Overview: React.FC = () => {
+  const { projectSummary, pipelineStages, artifacts, chainEvaluation } = useEvidence()
 
   return (
-    <div className="page-stack">
-      <header className="page-heading"><div><span className="eyebrow">운영 스냅샷</span><h1>개요</h1><p>연구 인프라 상태와 승격 게이트를 보여줍니다.</p></div><StatusBadge value="DEGRADED" /></header>
-      <section className="metric-grid" aria-label="시스템 지표">
-        <MetricCard label="시스템 모드" value="연구" meta="실행 비활성" tone="blue" />
-        <MetricCard label="수집기" value="저하" meta="시장 식별 결함 1건 열림" tone="amber" />
-        <MetricCard label="전략" value="검증 안 됨" meta="연구 전용" />
-        <MetricCard label="실거래 준비" value="아니오" meta="승격 게이트 잠김" tone="red" />
-        <MetricCard label="데이터 상태" value="저하" meta="V9 인프라 감사" tone="amber" />
-        <MetricCard label="가동 시간" value="71시간 58분" meta="추정 모의 스냅샷" />
+    <div className="page-container">
+      <ModeBanner />
+
+      <div className="page-header">
+        <div>
+          <h2>오프라인 증거 및 연구 콘솔 (Overview v0.2)</h2>
+          <p className="page-subtitle">
+            Bithumb Coin Trader — 72시간 무인 수집 포스트소크 오프라인 검증 및 연구 거버넌스 콘솔
+          </p>
+        </div>
+        <div className="repo-status-pill">
+          <GitBranch size={14} />
+          <span>OFFLINE TOOLING: <strong>{projectSummary.offlineTooling}</strong></span>
+          <StatusBadge status={projectSummary.syntheticVerification} label="SYNTHETIC VERIFIED" size="sm" />
+        </div>
+      </div>
+
+      {/* Top Status Cards - 8 Global Verdict Cards */}
+      <section className="section-block">
+        <h3 className="section-title">
+          <span>글로벌 프로젝트 상태 매트릭스 (Project Status Matrix)</span>
+          <small className="muted-text">레포지토리 코드 상태와 런타임/수집 증거 상태를 명확히 구분합니다.</small>
+        </h3>
+
+        <div className="status-grid">
+          <MetricCard
+            title="PROJECT MODE"
+            value={projectSummary.projectMode}
+            subtext="격리 오프라인 연구 모드"
+            evidenceSource="DECLARED"
+          />
+          <MetricCard
+            title="72H SOAK STATUS"
+            value={projectSummary.soak72hStatus}
+            subtext={projectSummary.soak72hStatus === 'PENDING' ? 'AWS 자율 구동 중 (결과 대기)' : '259,200s 수집 완료 증거 확인'}
+            status={projectSummary.soak72hStatus === 'PASS' ? 'success' : 'warning'}
+            evidenceSource={projectSummary.soak72hStatus === 'PASS' ? 'MEASURED' : 'NOT AVAILABLE'}
+          />
+          <MetricCard
+            title="REAL DATA DQ"
+            value={projectSummary.realDqStatus}
+            subtext={projectSummary.realDqStatus === 'NOT RUN' ? '원시 데이터 수신 후 감사 예정' : '심층 타임스탬프 감사 통과'}
+            status={projectSummary.realDqStatus === 'PASS' ? 'success' : projectSummary.realDqStatus === 'DEGRADED' ? 'warning' : 'default'}
+            evidenceSource={projectSummary.realDqStatus === 'PASS' ? 'MEASURED' : 'NOT VERIFIED'}
+          />
+          <MetricCard
+            title="MICROSTRUCTURE ALPHA"
+            value={projectSummary.alphaStatus}
+            subtext="가설 사전등록 동결 (피처 검정 전)"
+            status="default"
+            evidenceSource="NOT VERIFIED"
+          />
+          <MetricCard
+            title="HOLDOUT DATASET"
+            value={projectSummary.holdoutStatus}
+            subtext={projectSummary.holdoutStatus === 'SEALED' ? '22h 데이터 암호학적 완전 봉인' : '데이터셋 분할 미실행'}
+            status="locked"
+            evidenceSource="SEALED"
+          />
+          <MetricCard
+            title="PAPER TRADING"
+            value={projectSummary.paperStatus}
+            subtext="실시간 모의 트레이딩 미시행"
+            status="locked"
+            evidenceSource="DECLARED"
+          />
+          <MetricCard
+            title="LIVE TRADING"
+            value={projectSummary.liveTradingStatus}
+            subtext="실거래 주문 계층 영구 비활성"
+            status="danger"
+            evidenceSource="DECLARED"
+          />
+          <MetricCard
+            title="PRIVATE API KEYS"
+            value={projectSummary.privateApiStatus}
+            subtext="실거래 API 키 0건 (격리 유지)"
+            status="locked"
+            evidenceSource="MEASURED"
+          />
+        </div>
       </section>
-      <section className="two-column">
-        <article className="panel"><div className="panel-title"><div><span className="eyebrow">파이프라인</span><h2>수집기 상태</h2></div><RadioTower size={18} /></div><div className="exchange-list">{exchanges.map((item) => <div className="exchange-row" key={item.exchange}><span>{item.exchange}</span><StatusBadge value={item.status} /></div>)}</div><div className="phase-strip"><div><span>V9</span><strong>인프라 감사</strong></div><div><span>V9.1</span><strong>안정화</strong></div></div></article>
-        <article className="panel"><div className="panel-title"><div><span className="eyebrow">용량</span><h2>저장공간</h2></div><HardDrive size={18} /></div><div className="storage-value"><strong>684 GB</strong><span>모의 용량 1 TB 중</span></div><div className="progress-track" aria-label="저장공간 68.4퍼센트"><span style={{ width: '68.4%' }} /></div><div className="storage-stats"><span><Database size={14} /> Raw 파티션 <strong>1,892</strong></span><span>여유 <strong>316 GB</strong></span></div></article>
+
+      {/* Pipeline Lifecycle Strip */}
+      <section className="section-block">
+        <PipelineStrip stages={pipelineStages} />
       </section>
-      <section className="two-column">
-        <article className="panel unavailable-panel"><div className="panel-title"><div><span className="eyebrow">포트폴리오 &amp; 손익</span><h2>트레이딩 성과</h2></div><ShieldCheck size={18} /></div><div className="unavailable"><strong>제공 안 됨</strong><p>계좌나 트레이딩 backend가 연결되지 않았습니다. 없는 값을 0으로 표시하지 않습니다.</p></div></article>
-        <article className="panel"><div className="panel-title"><div><span className="eyebrow">최근 활동</span><h2>최근 이벤트</h2></div><a className="text-link" href="#logs">전체 보기</a></div><div className="compact-events">{events.slice(0, 4).map((event) => <div className="compact-event" key={event.id}><time>{event.time}</time><StatusBadge value={event.severity} subtle /><div><strong>{event.title}</strong><span>{categoryLabels[event.category]}</span></div></div>)}</div></article>
-      </section>
+
+      {/* Two Column Layout: Evidence Quick Status & Local Import Workspace */}
+      <div className="two-col-grid">
+        <section className="section-block">
+          <h3 className="section-title">
+            <FileCheck size={18} />
+            <span>증거 사슬 빠른 진단 (Evidence Chain Quick Status)</span>
+          </h3>
+
+          <div className="card-surface">
+            <div className="quick-summary-row">
+              <span className="label">사슬 전체 상태:</span>
+              <StatusBadge status={chainEvaluation.overallState} />
+            </div>
+            <p className="summary-desc">{chainEvaluation.summaryMessage}</p>
+
+            <div className="chain-mini-progress">
+              {chainEvaluation.nodes.map((n, idx) => (
+                <div key={n.id} className={`mini-node node-${n.status.toLowerCase()}`} title={`${idx + 1}. ${n.name} (${n.status})`}>
+                  <span className="mini-num">{idx + 1}</span>
+                </div>
+              ))}
+            </div>
+
+            <div className="quick-stats-row">
+              <div className="quick-stat">
+                <span className="stat-num">{artifacts.length}</span>
+                <span className="stat-label">임포트된 아티팩트</span>
+              </div>
+              <div className="quick-stat">
+                <span className="stat-num">{chainEvaluation.nodes.filter((n) => n.status === 'PRESENT').length} / 7</span>
+                <span className="stat-label">확보된 사슬 노드</span>
+              </div>
+              <div className="quick-stat">
+                <span className="stat-num">{chainEvaluation.issues.length}</span>
+                <span className="stat-label">감지된 결함 / 블로커</span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="section-block">
+          <h3 className="section-title">
+            <Shield size={18} />
+            <span>로컬 증거 임포트 (Local Evidence Import)</span>
+          </h3>
+          <EvidenceDropZone />
+        </section>
+      </div>
     </div>
   )
 }

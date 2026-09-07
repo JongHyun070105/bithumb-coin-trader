@@ -1,37 +1,33 @@
-import { AlertTriangle, CheckCircle2, CircleHelp, LockKeyhole, XCircle } from 'lucide-react'
-import type { Evidence, Severity, Status } from '../types'
+import React from 'react'
+import type { Status } from '../types'
 
-type BadgeValue = Status | Evidence | Severity | string
-
-const koreanLabels: Record<string, string> = {
-  HEALTHY: '정상',
-  DEGRADED: '저하',
-  FAIL: '실패',
-  UNKNOWN: '알 수 없음',
-  LOCKED: '잠김',
-  DISABLED: '비활성',
-  FALSE: '아니오',
-  MEASURED: '실측',
-  ESTIMATED: '추정',
-  'NOT VERIFIABLE': '검증 불가',
-  'NOT AVAILABLE': '제공 안 됨',
-  INFO: '정보',
-  WARN: '경고',
-  ERROR: '오류',
-  CRITICAL: '치명적',
+interface StatusBadgeProps {
+  status: Status | string
+  label?: string
+  size?: 'sm' | 'md'
 }
 
-export function StatusBadge({ value, subtle = false }: { value: BadgeValue; subtle?: boolean }) {
-  const normalized = value.toLowerCase().replaceAll(' ', '-')
-  const Icon = value === 'HEALTHY' || value === 'INFO' || value === 'MEASURED'
-    ? CheckCircle2
-    : value === 'DEGRADED' || value === 'WARN' || value === 'ESTIMATED'
-      ? AlertTriangle
-      : value === 'FAIL' || value === 'ERROR' || value === 'CRITICAL' || value === 'FALSE'
-        ? XCircle
-        : value === 'LOCKED' || value === 'DISABLED'
-          ? LockKeyhole
-          : CircleHelp
+export const StatusBadge: React.FC<StatusBadgeProps> = ({ status, label, size = 'md' }) => {
+  const normalized = status.toUpperCase()
+  const display = label ?? normalized
 
-  return <span className={`status-badge status-${normalized}${subtle ? ' subtle' : ''}`} title={value}><Icon size={12} aria-hidden="true" />{koreanLabels[value] ?? value}</span>
+  let colorClass = 'badge-unknown'
+  if (['HEALTHY', 'PASS', 'COMPLETE'].includes(normalized)) {
+    colorClass = 'badge-success'
+  } else if (['DEGRADED', 'WARN', 'PENDING', 'RUNNING'].includes(normalized)) {
+    colorClass = 'badge-warning'
+  } else if (['FAIL', 'FAILED', 'BLOCKED', 'CRITICAL', 'ERROR', 'MISMATCH', 'INVALID'].includes(normalized)) {
+    colorClass = 'badge-danger'
+  } else if (['LOCKED', 'DISABLED', 'FALSE', 'SEALED'].includes(normalized)) {
+    colorClass = 'badge-locked'
+  } else if (['UNPROVEN', 'NOT_STARTED', 'NOT_RUN', 'NOT LOADED'].includes(normalized)) {
+    colorClass = 'badge-neutral'
+  }
+
+  return (
+    <span className={`status-badge ${colorClass} badge-${size}`}>
+      <span className="status-dot" />
+      {display}
+    </span>
+  )
 }
