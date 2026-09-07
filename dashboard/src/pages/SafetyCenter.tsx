@@ -42,7 +42,7 @@ export const SafetyCenter: React.FC = () => {
               <Key size={18} />
               <span className="gate-title">PRIVATE API KEYS</span>
             </div>
-            <div className="gate-status">DISABLED (저장된 키 0건)</div>
+            <div className="gate-status">DISABLED (키 입력 기능 없음)</div>
             <p className="gate-desc">빗썸/바이낸스/업비트 주문용 API Key/Secret이 코드 및 환경변수에 일체 존재하지 않습니다.</p>
           </div>
 

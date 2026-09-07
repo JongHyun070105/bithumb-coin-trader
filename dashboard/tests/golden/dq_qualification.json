@@ -1,0 +1,19 @@
+{
+  "status": "DQ_PASS",
+  "auditor_version": "v9.1.0-offline",
+  "auditor_commit": "da6baa4574a6c88a600c6ed27b08794a51175b5f",
+  "audit_code_commit": "da6baa4574a6c88a600c6ed27b08794a51175b5f",
+  "source_manifest_hash": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c",
+  "source_manifest_file_sha256": "f8257f03805c2052b4d0108ddd4cdd694f757c53fe09f70eecba30946a7e245a",
+  "epoch_manifest_sha256": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c",
+  "criteria_version": "v1-strict",
+  "hard_fail_count": 0,
+  "unknown_count": 0,
+  "degraded_count": 0,
+  "justification": "",
+  "approved_policy": "strict_v1",
+  "audit_report_sha256": "df09f866ae635c47a6fcf5ad8f3f0e9d136c9a1f9340391cf1bd42a41bf9fb5b",
+  "created_at": "2026-09-07T10:12:45.225254+00:00",
+  "report_hash": "c65acec0025a80940571daee245860be20d87689e9dce439da708d66ca4b7f97",
+  "qualification_sha256": "c65acec0025a80940571daee245860be20d87689e9dce439da708d66ca4b7f97"
+}

@@ -1,0 +1,58 @@
+{
+  "dataset_id": "38dbf9f3ac7a79be7da234545e17f7ec31a30f2203c85f158013e289d5e3aaf5",
+  "exchange": "bithumb",
+  "market": "KRW-BTC",
+  "total_records": 5,
+  "source_record_count": 5,
+  "train_records": 3,
+  "validation_records": 0,
+  "holdout_records": 0,
+  "embargo1_dropped": 2,
+  "embargo2_dropped": 0,
+  "purge_window_ms": 900000,
+  "dq_status": "DQ_PASS",
+  "partitions": {
+    "TRAIN": {
+      "role": "TRAIN",
+      "record_count": 3,
+      "start_receive_ms": 1788220800010,
+      "end_receive_ms": 1788220802010,
+      "sha256": "6fb8543883dafcc2ed0934866b8b3f775231f5b0933add08bf502e9e84944cbd",
+      "file_name": "train.ndjson.zst"
+    },
+    "VALIDATION": {
+      "role": "VALIDATION",
+      "record_count": 0,
+      "start_receive_ms": 0,
+      "end_receive_ms": 0,
+      "sha256": "6fb8543883dafcc2ed0934866b8b3f775231f5b0933add08bf502e9e84944cbd",
+      "file_name": "validation.ndjson.zst"
+    },
+    "HOLDOUT": {
+      "role": "HOLDOUT",
+      "record_count": 0,
+      "start_receive_ms": 0,
+      "end_receive_ms": 0,
+      "sha256": "481260b40e3b43a6ff2d5245b7b5189d9726f3286cd0b73f50d7e2a696c46ccc",
+      "file_name": "holdout.ndjson.zst"
+    }
+  },
+  "created_at_utc": "2026-09-07T10:12:45.532967+00:00",
+  "source_epoch_id": "epoch_72h_soak_official",
+  "source_run_id": "run_72h_aws_production",
+  "source_runtime_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "source_runtime_fingerprint": "fp-official-72h",
+  "epoch_manifest_sha256": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c",
+  "deep_dq_report_sha256": "df09f866ae635c47a6fcf5ad8f3f0e9d136c9a1f9340391cf1bd42a41bf9fb5b",
+  "dq_qualification_sha256": "c65acec0025a80940571daee245860be20d87689e9dce439da708d66ca4b7f97",
+  "canonical_manifest_sha256": "3a149206603b22be89391f28c41d6deb4fafdab02dc3b2f2312460a044012f75",
+  "canonicalizer_commit": "da6baa4574a6c88a600c6ed27b08794a51175b5f",
+  "dataset_builder_commit": "da6baa4574a6c88a600c6ed27b08794a51175b5f",
+  "deep_dq_auditor_commit": "da6baa4574a6c88a600c6ed27b08794a51175b5f",
+  "source_manifest_hash": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c",
+  "source_manifest_sha256": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c",
+  "dq_report_hash": "c65acec0025a80940571daee245860be20d87689e9dce439da708d66ca4b7f97",
+  "dq_criteria_version": "v1-strict",
+  "canonical_schema_version": "2.0.0",
+  "partition_config_hash": "4ef1a7344e02330bed86fea83efd9de568d179352cf520c3f67d2368d7928509"
+}

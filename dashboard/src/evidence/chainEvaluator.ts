@@ -1,257 +1,281 @@
-import type { ChainNodeState, ChainOverallState, ParsedArtifact } from '../types'
-
+import type {
+  ArtifactType,
+  ChainNodeState,
+  ChainOverallState,
+  ParsedArtifact,
+} from '../types'
 export interface EvaluationResult {
   nodes: ChainNodeState[]
   overallState: ChainOverallState
   summaryMessage: string
   issues: string[]
 }
-
-export function evaluateEvidenceChain(artifacts: ParsedArtifact[]): EvaluationResult {
+export function uniqueArtifacts(
+  artifacts: ParsedArtifact[],
+): Map<ArtifactType, ParsedArtifact> {
+  const result = new Map<ArtifactType, ParsedArtifact>()
+  for (const a of artifacts)
+    if (
+      a.type !== 'unknown' &&
+      artifacts.filter((b) => b.type === a.type).length === 1 &&
+      a.parseStatus === 'SUCCESS' &&
+      (a.validationLevel === 'VALID_SCHEMA' ||
+        a.validationLevel === 'SELF_HASH_VERIFIED')
+    )
+      result.set(a.type, a)
+  return result
+}
+export function evaluateEvidenceChain(
+  artifacts: ParsedArtifact[],
+): EvaluationResult {
   const issues: string[] = []
-
-  // Map by type
-  const byType: Partial<Record<string, ParsedArtifact>> = {}
-  for (const a of artifacts) {
-    if (a.parseStatus === 'SUCCESS') {
-      byType[a.type] = a
-    }
+  const grouped = new Map<ArtifactType, ParsedArtifact[]>()
+  for (const a of artifacts)
+    if (a.type !== 'unknown')
+      grouped.set(a.type, [...(grouped.get(a.type) ?? []), a])
+  const duplicates = [...grouped]
+    .filter(([, v]) => v.length > 1)
+    .map(([k]) => k)
+  const get = (t: ArtifactType) =>
+    grouped.get(t)?.length === 1 ? grouped.get(t)![0] : undefined
+  const seal = get('runtime_seal'),
+    launch = get('launch_provenance'),
+    start = get('actual_start_evidence'),
+    contract = get('epoch_contract'),
+    root = get('epoch_manifest'),
+    audit = get('deep_dq_report'),
+    qual = get('dq_qualification'),
+    canonical = get('canonical_manifest'),
+    dataset = get('dataset_manifest')
+  const j = (a: ParsedArtifact | undefined) => a?.rawJson ?? {}
+  const valid = (a: ParsedArtifact | undefined) =>
+    !!a &&
+    a.parseStatus === 'SUCCESS' &&
+    (a.validationLevel === 'VALID_SCHEMA' ||
+      a.validationLevel === 'SELF_HASH_VERIFIED')
+  const differs = (a: unknown, b: unknown) =>
+    a !== undefined && b !== undefined && a !== b
+  const same = (a: unknown, b: unknown) =>
+    typeof a === 'string' && a.length > 0 && a === b
+  const nodes: ChainNodeState[] = []
+  function node(
+    id: string,
+    name: string,
+    type: ArtifactType,
+    a: ParsedArtifact | undefined,
+    mismatch: boolean,
+    acceptable: boolean,
+    upstream: boolean,
+    notes: string,
+  ) {
+    const status: ChainNodeState['status'] = !a
+      ? 'MISSING'
+      : mismatch
+        ? 'MISMATCH'
+        : !valid(a) || !acceptable
+          ? 'INVALID'
+          : 'PRESENT'
+    if (status === 'MISMATCH' || status === 'INVALID')
+      issues.push(name + ': ' + status)
+    nodes.push({
+      id,
+      name,
+      expectedArtifactType: type,
+      artifact: a,
+      status,
+      upstreamOk: upstream,
+      claimedSha: a?.selfHashField ? String(j(a)[a.selfHashField]) : undefined,
+      actualSha: a?.calculatedSelfSha256,
+      notes,
+    })
   }
-
-  const runtimeSeal = byType['runtime_seal']
-  const launchProv = byType['launch_provenance']
-  const actualStart = byType['actual_start_evidence']
-  const contract = byType['epoch_contract']
-  const epochManifest = byType['epoch_manifest']
-  const deepDq = byType['deep_dq_report']
-  const dqQual = byType['dq_qualification']
-  const canonicalManifest = byType['canonical_manifest']
-  const datasetManifest = byType['dataset_manifest']
-
-  // 1. Provenance Node
-  const hasProvenance = Boolean(runtimeSeal && launchProv)
-  const provHasActualStart = Boolean(actualStart)
-  let provStatus: 'PRESENT' | 'MISSING' | 'INVALID' = 'MISSING'
-  if (hasProvenance && provHasActualStart) {
-    provStatus = 'PRESENT'
-  } else if (hasProvenance && !provHasActualStart) {
-    provStatus = 'INVALID'
-    issues.push('실제 시작 시각 증거(actual_start_evidence.json)가 누락되어 봉인 전 출처가 불완전합니다.')
-  }
-
-  const node1: ChainNodeState = {
-    id: 'node-provenance',
-    name: '런타임 씰 & 런칭 출처',
-    expectedArtifactType: 'runtime_seal',
-    artifact: runtimeSeal || launchProv,
-    status: provStatus,
-    claimedSha: runtimeSeal?.calculatedSha256,
-    actualSha: runtimeSeal?.calculatedSha256,
-    upstreamOk: true,
-    notes: provHasActualStart ? '런타임 씰 + 런칭 출처 + 실제 시작 증거 완비' : '실제 시작 시각 증거 부재 (Fail-Closed)'
-  }
-
-  // 2. Epoch Contract Node
-  let contractStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let contractNotes = '계약서 미확인'
-  if (contract?.rawJson) {
-    const json = contract.rawJson
-    const claimSealSha = json.runtime_seal_sha256 as string | undefined
-    if (runtimeSeal && claimSealSha && claimSealSha !== runtimeSeal.calculatedSha256) {
-      contractStatus = 'MISMATCH'
-      issues.push(`계약서 내 런타임 씰 해시 불일치: ${claimSealSha.slice(0, 8)} != ${runtimeSeal.calculatedSha256.slice(0, 8)}`)
-    } else {
-      contractStatus = 'PRESENT'
-      contractNotes = `72H 수집 계약 봉인 (${(json.contract_sha256 as string)?.slice(0, 8) ?? 'SHA-OK'})`
-    }
-  }
-
-  const node2: ChainNodeState = {
-    id: 'node-contract',
-    name: '에포크 계약 (Epoch Contract)',
-    expectedArtifactType: 'epoch_contract',
-    artifact: contract,
-    status: contractStatus,
-    claimedSha: (contract?.rawJson?.contract_sha256 as string) || contract?.calculatedSha256,
-    actualSha: contract?.calculatedSha256,
-    upstreamOk: node1.status === 'PRESENT',
-    notes: contractNotes
-  }
-
-  // 3. Epoch Root Manifest Node
-  let rootStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let rootNotes = '에포크 루트 매니페스트 미확인'
-  if (epochManifest?.rawJson) {
-    const json = epochManifest.rawJson
-    const claimedSelfSha = json.epoch_manifest_sha256 as string | undefined
-    const contractClaimedSha = json.contract_sha256 as string | undefined
-
-    if (contract && contractClaimedSha && contractClaimedSha !== contract.calculatedSha256 && contractClaimedSha !== json.contract_sha256) {
-      rootStatus = 'MISMATCH'
-      issues.push('에포크 루트 내 계약서 해시 불일치')
-    } else if (!claimedSelfSha) {
-      rootStatus = 'INVALID'
-      issues.push('에포크 매니페스트에 셀프 해시(epoch_manifest_sha256)가 부재합니다.')
-    } else {
-      rootStatus = 'PRESENT'
-      rootNotes = `76개 피드 원시 파티션 봉인 완료 (${claimedSelfSha.slice(0, 8)}...)`
-    }
-  }
-
-  const node3: ChainNodeState = {
-    id: 'node-epoch-root',
-    name: '에포크 루트 (Epoch Root Manifest)',
-    expectedArtifactType: 'epoch_manifest',
-    artifact: epochManifest,
-    status: rootStatus,
-    claimedSha: (epochManifest?.rawJson?.epoch_manifest_sha256 as string) || epochManifest?.calculatedSha256,
-    actualSha: epochManifest?.calculatedSha256,
-    upstreamOk: node2.status === 'PRESENT',
-    notes: rootNotes
-  }
-
-  // 4. Deep DQ Audit Node
-  let dqStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let dqNotes = '심층 데이터 품질 감사 미수행'
-  if (deepDq?.rawJson) {
-    const json = deepDq.rawJson
-    const blockers = (json.blockers as unknown[]) ?? []
-    if (blockers.length > 0) {
-      dqStatus = 'INVALID'
-      dqNotes = `하드 블로커 ${blockers.length}건 적발`
-      issues.push(`심층 DQ 감사에서 ${blockers.length}건의 하드 블로커가 감지되었습니다.`)
-    } else {
-      dqStatus = 'PRESENT'
-      dqNotes = '스트리밍 타임스탬프/봉투 무결성 검증 통과'
-    }
-  }
-
-  const node4: ChainNodeState = {
-    id: 'node-deep-dq',
-    name: '심층 DQ 감사 (Deep Audit)',
-    expectedArtifactType: 'deep_dq_report',
-    artifact: deepDq,
-    status: dqStatus,
-    claimedSha: deepDq?.calculatedSha256,
-    actualSha: deepDq?.calculatedSha256,
-    upstreamOk: node3.status === 'PRESENT',
-    notes: dqNotes
-  }
-
-  // 5. DQ Qualification Node
-  let qualStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let qualNotes = 'DQ 적격성 판정 미확인'
-  if (dqQual?.rawJson) {
-    const json = dqQual.rawJson
-    const statusVal = json.status as string | undefined
-    if (statusVal === 'DQ_PASS') {
-      qualStatus = 'PRESENT'
-      qualNotes = '공식 72H 데이터 품질 적격 승인 (DQ_PASS)'
-    } else if (statusVal === 'DQ_DEGRADED') {
-      qualStatus = 'INVALID'
-      qualNotes = '품질 저하 발생 (DQ_DEGRADED - 공식 승인 불가)'
-      issues.push('DQ 적격성 상태가 DQ_DEGRADED로 공식 데이터셋 생성 불가 상태입니다.')
-    } else {
-      qualStatus = 'INVALID'
-      qualNotes = `부적격 판정 (${statusVal ?? 'UNKNOWN'})`
-      issues.push(`DQ 적격성 판정 실패: ${statusVal}`)
-    }
-  }
-
-  const node5: ChainNodeState = {
-    id: 'node-dq-qual',
-    name: 'DQ 적격성 판정 (Qualification)',
-    expectedArtifactType: 'dq_qualification',
-    artifact: dqQual,
-    status: qualStatus,
-    claimedSha: dqQual?.calculatedSha256,
-    actualSha: dqQual?.calculatedSha256,
-    upstreamOk: node4.status === 'PRESENT',
-    notes: qualNotes
-  }
-
-  // 6. Canonical Root Node
-  let canonicalStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let canonicalNotes = '캐노니컬 루트 미확인'
-  if (canonicalManifest?.rawJson) {
-    const json = canonicalManifest.rawJson
-    const srcEpochSha = json.source_epoch_manifest_sha256 as string | undefined
-    if (epochManifest && srcEpochSha && srcEpochSha !== (epochManifest.rawJson?.epoch_manifest_sha256 ?? epochManifest.calculatedSha256)) {
-      canonicalStatus = 'MISMATCH'
-      issues.push('캐노니컬 매니페스트 내 소스 에포크 매니페스트 해시 불일치 (EVIDENCE_CHAIN_MISMATCH)')
-    } else {
-      canonicalStatus = 'PRESENT'
-      canonicalNotes = '단일 시계열 캐노니컬 변환 완료'
-    }
-  }
-
-  const node6: ChainNodeState = {
-    id: 'node-canonical-root',
-    name: '캐노니컬 루트 (Canonical Root)',
-    expectedArtifactType: 'canonical_manifest',
-    artifact: canonicalManifest,
-    status: canonicalStatus,
-    claimedSha: (canonicalManifest?.rawJson?.canonical_manifest_sha256 as string) || canonicalManifest?.calculatedSha256,
-    actualSha: canonicalManifest?.calculatedSha256,
-    upstreamOk: node5.status === 'PRESENT',
-    notes: canonicalNotes
-  }
-
-  // 7. Dataset Root Node
-  let datasetStatus: 'PRESENT' | 'MISSING' | 'MISMATCH' | 'INVALID' = 'MISSING'
-  let datasetNotes = '연구 데이터셋 미확인'
-  if (datasetManifest?.rawJson) {
-    const json = datasetManifest.rawJson
-    const canSha = json.canonical_manifest_sha256 as string | undefined
-    if (canonicalManifest && canSha && canSha !== (canonicalManifest.rawJson?.canonical_manifest_sha256 ?? canonicalManifest.calculatedSha256)) {
-      datasetStatus = 'MISMATCH'
-      issues.push('데이터셋 매니페스트 내 캐노니컬 루트 해시 불일치')
-    } else {
-      datasetStatus = 'PRESENT'
-      datasetNotes = 'Discovery 24h / Validation 24h / Holdout 22h 분할 완료'
-    }
-  }
-
-  const node7: ChainNodeState = {
-    id: 'node-dataset-root',
-    name: '연구 데이터셋 (Dataset Root)',
-    expectedArtifactType: 'dataset_manifest',
-    artifact: datasetManifest,
-    status: datasetStatus,
-    claimedSha: datasetManifest?.calculatedSha256,
-    actualSha: datasetManifest?.calculatedSha256,
-    upstreamOk: node6.status === 'PRESENT',
-    notes: datasetNotes
-  }
-
-  const nodes = [node1, node2, node3, node4, node5, node6, node7]
-
-  // Determine overall state
-  const hasAnyMismatch = nodes.some((n) => n.status === 'MISMATCH')
-  const hasAnyInvalid = nodes.some((n) => n.status === 'INVALID')
-  const presentCount = nodes.filter((n) => n.status === 'PRESENT').length
-
+  const lc = j(launch).runtime_code_commit,
+    fp = j(launch).runtime_config_fingerprint ?? j(launch).fingerprint
+  const identityMismatch =
+    ['collector_epoch', 'collector_run_id'].some((k) =>
+      differs(j(start)[k], j(launch)[k]),
+    ) ||
+    differs(j(start).runtime_commit, lc) ||
+    differs(j(start).runtime_fingerprint, fp) ||
+    differs(j(seal).runtime_software_commit, lc) ||
+    differs(
+      j(seal).runtime_config_fingerprint ?? j(seal).runtime_fingerprint,
+      fp,
+    )
+  const provenance =
+    valid(seal) &&
+    valid(launch) &&
+    valid(start) &&
+    same(j(start).collector_epoch, j(launch).collector_epoch) &&
+    same(j(start).collector_run_id, j(launch).collector_run_id) &&
+    same(j(start).runtime_commit, lc) &&
+    same(j(start).runtime_fingerprint, fp) &&
+    same(j(seal).runtime_software_commit, lc)
+  const sealRef = j(launch).runtime_config_seal_sha256
+  node(
+    'node-provenance',
+    '런타임 / 실제 시작 신원',
+    'runtime_seal',
+    seal ?? launch ?? start,
+    identityMismatch || differs(sealRef, seal?.calculatedSha256),
+    provenance,
+    true,
+    '신원 대조 및 로컬 파일 참조. 외부 진위 인증은 미수행.',
+  )
+  const contractMismatch =
+    differs(j(contract).runtime_seal_sha256, seal?.calculatedSha256) ||
+    differs(j(contract).launch_provenance_sha256, launch?.calculatedSha256) ||
+    differs(
+      j(contract).actual_start_evidence_file_sha256,
+      start?.calculatedSha256,
+    ) ||
+    ['collector_epoch', 'collector_run_id'].some((k) =>
+      differs(j(contract)[k], j(launch)[k]),
+    ) ||
+    differs(j(contract).runtime_software_commit, lc) ||
+    differs(j(contract).runtime_fingerprint, fp) ||
+    (valid(start) &&
+      valid(contract) &&
+      Date.parse(String(j(start).actual_start_time_utc)) !==
+        Date.parse(String(j(contract).actual_start_time_utc)))
+  node(
+    'node-contract',
+    '에포크 계약',
+    'epoch_contract',
+    contract,
+    contractMismatch,
+    true,
+    provenance && !identityMismatch,
+    'SELF HASH + upstream FILE BYTE SHA256',
+  )
+  const rootMismatch =
+    differs(j(root).contract_sha256, j(contract).contract_sha256) ||
+    differs(j(root).contract_file_sha256, contract?.calculatedSha256) ||
+    differs(j(root).runtime_seal_sha256, seal?.calculatedSha256) ||
+    differs(j(root).launch_provenance_sha256, launch?.calculatedSha256) ||
+    ['collector_epoch', 'collector_run_id', 'runtime_fingerprint'].some((k) =>
+      differs(j(root)[k], j(contract)[k]),
+    ) ||
+    differs(j(root).runtime_commit, j(contract).runtime_software_commit)
+  node(
+    'node-epoch-root',
+    '에포크 루트',
+    'epoch_manifest',
+    root,
+    rootMismatch,
+    j(root).status === 'SEALED_COMPLETE' &&
+      j(root).sealed_complete === true &&
+      Array.isArray(j(root).missing_items) &&
+      (j(root).missing_items as unknown[]).length === 0,
+    valid(contract),
+    'SELF HASH + contract canonical / file digest. RAW bytes not inspected.',
+  )
+  const warnings = j(audit).warnings
+  const cleanAudit =
+    j(audit).audit_type === 'authoritative_deep_dq' &&
+    j(audit).status === 'DQ_PASS_ELIGIBLE' &&
+    Array.isArray(j(audit).blockers) &&
+    (j(audit).blockers as unknown[]).length === 0 &&
+    Array.isArray(warnings) &&
+    warnings.every((w) => typeof w === 'string' && w.startsWith('INFO:')) &&
+    (!('errors' in j(audit)) ||
+      (Array.isArray(j(audit).errors) &&
+        (j(audit).errors as unknown[]).length === 0)) &&
+    ['unknown_count', 'hard_fail_count', 'degraded_count'].every(
+      (k) => !(k in j(audit)) || j(audit)[k] === 0,
+    )
+  node(
+    'node-deep-dq',
+    '심층 DQ 보고서',
+    'deep_dq_report',
+    audit,
+    differs(j(audit).epoch_manifest_sha256, j(root).epoch_manifest_sha256),
+    cleanAudit,
+    valid(root),
+    '보고된 DQ 상태 및 root digest 대조. RAW 재감사는 미수행.',
+  )
+  const qualMismatch =
+    differs(j(qual).audit_report_sha256, audit?.calculatedSha256) ||
+    differs(j(qual).epoch_manifest_sha256, j(root).epoch_manifest_sha256) ||
+    differs(j(qual).source_manifest_hash, j(root).epoch_manifest_sha256) ||
+    differs(j(qual).source_manifest_file_sha256, root?.calculatedSha256)
+  const cleanQual =
+    j(qual).status === 'DQ_PASS' &&
+    ['hard_fail_count', 'unknown_count', 'degraded_count'].every(
+      (k) => j(qual)[k] === 0,
+    ) &&
+    j(qual).auditor_version === 'v9.1.0-offline' &&
+    j(qual).criteria_version === 'v1-strict' &&
+    j(qual).approved_policy === 'strict_v1' &&
+    same(j(qual).audit_code_commit, j(qual).auditor_commit)
+  node(
+    'node-dq-qual',
+    'DQ 적격성',
+    'dq_qualification',
+    qual,
+    qualMismatch,
+    cleanQual,
+    valid(audit) && cleanAudit && valid(root),
+    'SELF HASH + audit FILE BYTE SHA256 + root canonical / file digest',
+  )
+  node(
+    'node-canonical-root',
+    '캐노니컬 루트',
+    'canonical_manifest',
+    canonical,
+    differs(
+      j(canonical).source_epoch_manifest_sha256,
+      j(root).epoch_manifest_sha256,
+    ) ||
+      differs(
+        j(canonical).dq_qualification_sha256,
+        j(qual).qualification_sha256,
+      ),
+    true,
+    valid(root) && valid(qual) && cleanQual,
+    'SELF HASH + root / qualification canonical digest. Partition bytes not inspected.',
+  )
+  const datasetMismatch =
+    differs(
+      j(dataset).canonical_manifest_sha256,
+      j(canonical).canonical_manifest_sha256,
+    ) ||
+    differs(j(dataset).dq_qualification_sha256, j(qual).qualification_sha256) ||
+    differs(j(dataset).epoch_manifest_sha256, j(root).epoch_manifest_sha256) ||
+    differs(j(dataset).deep_dq_report_sha256, audit?.calculatedSha256) ||
+    [
+      ['source_epoch_id', 'collector_epoch'],
+      ['source_run_id', 'collector_run_id'],
+      ['source_runtime_commit', 'runtime_commit'],
+      ['source_runtime_fingerprint', 'runtime_fingerprint'],
+    ].some(([a, b]) => differs(j(dataset)[a], j(root)[b]))
+  node(
+    'node-dataset-root',
+    '데이터셋 메타데이터',
+    'dataset_manifest',
+    dataset,
+    datasetMismatch,
+    j(dataset).dq_status === 'DQ_PASS',
+    valid(canonical) && valid(qual) && valid(root) && valid(audit),
+    'UPSTREAM references only; no dataset self-hash contract. Holdout not opened.',
+  )
   let overallState: ChainOverallState = 'NOT ENOUGH EVIDENCE'
-  let summaryMessage = '증거 아티팩트가 임포트되지 않았습니다.'
-
-  if (hasAnyMismatch) {
+  if (duplicates.length) {
+    overallState = 'AMBIGUOUS_EVIDENCE'
+    issues.push('Duplicate authoritative types: ' + duplicates.join(', '))
+  } else if (nodes.some((n) => n.status === 'MISMATCH'))
     overallState = 'MISMATCH'
-    summaryMessage = '증거 사슬 간 암호학적 해시 불일치가 감지되었습니다.'
-  } else if (hasAnyInvalid) {
-    overallState = 'INVALID'
-    summaryMessage = '증거 사슬 내 부적격 또는 결함 아티팩트가 존재합니다.'
-  } else if (presentCount === 7) {
-    overallState = 'COMPLETE'
-    summaryMessage = '7단계 증거 사슬이 완벽히 연결되고 암호학적으로 일관됩니다.'
-  } else if (presentCount > 0) {
-    overallState = 'INCOMPLETE'
-    summaryMessage = `증거 사슬 7단계 중 ${presentCount}단계만 확보되었습니다.`
-  }
-
+  else if (nodes.some((n) => n.status === 'INVALID')) overallState = 'INVALID'
+  else if (nodes.every((n) => n.status === 'PRESENT' && n.upstreamOk))
+    overallState = 'STRUCTURALLY COMPLETE'
+  else if (artifacts.length) overallState = 'INCOMPLETE'
   return {
     nodes,
     overallState,
-    summaryMessage,
-    issues
+    issues,
+    summaryMessage:
+      overallState === 'STRUCTURALLY COMPLETE'
+        ? '메타데이터 구조·자체 해시·참조 대조 완료. RAW/partition 및 외부 진위 검증은 미완료.'
+        : '증거 검증 상태: ' + overallState,
   }
 }

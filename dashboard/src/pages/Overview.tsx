@@ -87,9 +87,9 @@ export const Overview: React.FC = () => {
           <MetricCard
             title="PRIVATE API KEYS"
             value={projectSummary.privateApiStatus}
-            subtext="실거래 API 키 0건 (격리 유지)"
+            subtext="키 입력·거래 연결 기능 없음"
             status="locked"
-            evidenceSource="MEASURED"
+            evidenceSource="DECLARED"
           />
         </div>
       </section>

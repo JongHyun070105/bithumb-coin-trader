@@ -1,0 +1,10 @@
+{
+  "collector_epoch": "epoch_72h_soak_official",
+  "collector_run_id": "run_72h_aws_production",
+  "software_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "runtime_code_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "fingerprint": "fp-official-72h",
+  "launch_time_utc": "2026-09-01T00:00:00+00:00",
+  "created_at_utc": "2026-08-31T23:55:00+00:00",
+  "duration_seconds": 3600
+}

@@ -44,12 +44,12 @@ export const EvidenceChain: React.FC = () => {
             <code>canonical.source_epoch_manifest_sha256 == DQ.epoch_manifest_sha256 == actual_epoch_manifest_sha256</code>
           </div>
           <p className="invariant-desc">
-            캐노니컬 데이터셋이 기반으로 삼은 에포크 루트 매니페스트와 심층 데이터 품질 감사(DQ)가 통과한 에포크 루트 매니페스트, 그리고 실제 원시 파일시스템의 에포크 루트 매니페스트가 정확히 1비트의 오차도 없이 일치해야 합니다.
+            캐노니컬·적격성 보고서의 에포크 참조를 반입된 루트의 검증된 자체 해시와 대조합니다. 원시 파일시스템 및 파티션 바이트는 조회하지 않습니다.
           </p>
           <div className="invariant-status-row">
             <span className="inv-label">불변식 검증 상태:</span>
-            <span className={`status-badge ${chainEvaluation.overallState === 'COMPLETE' ? 'badge-success' : 'badge-neutral'}`}>
-              {chainEvaluation.overallState === 'COMPLETE' ? '삼자 일치 검증 통과 (VERIFIED)' : '증거 체인 불완전 / 대기 중'}
+            <span className={`status-badge ${chainEvaluation.overallState === 'STRUCTURALLY COMPLETE' ? 'badge-success' : 'badge-neutral'}`}>
+              {chainEvaluation.overallState === 'STRUCTURALLY COMPLETE' ? '메타데이터 참조 일치 (RAW 미검증)' : '증거 체인 불완전 / 대기 중'}
             </span>
           </div>
         </div>

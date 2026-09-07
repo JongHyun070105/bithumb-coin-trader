@@ -1,6 +1,13 @@
 import React from 'react'
 import type { ChainNodeState, ChainOverallState } from '../types'
-import { CheckCircle2, AlertTriangle, XCircle, Clock, Link2, ShieldAlert } from 'lucide-react'
+import {
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  Clock,
+  Link2,
+  ShieldAlert,
+} from 'lucide-react'
 
 interface EvidenceChainDiagramProps {
   nodes: ChainNodeState[]
@@ -13,15 +20,33 @@ export const EvidenceChainDiagram: React.FC<EvidenceChainDiagramProps> = ({
   nodes,
   overallState,
   summaryMessage,
-  issues
+  issues,
 }) => {
-  const stateBadges: Record<ChainOverallState, { label: string; cls: string }> = {
-    COMPLETE: { label: '증거 사슬 완전 봉인 (COMPLETE)', cls: 'badge-success' },
-    INCOMPLETE: { label: '증거 사슬 불완전 (INCOMPLETE)', cls: 'badge-warning' },
-    MISMATCH: { label: '암호학적 해시 불일치 (MISMATCH)', cls: 'badge-danger' },
-    INVALID: { label: '증거 부적격 / 결함 (INVALID)', cls: 'badge-danger' },
-    'NOT ENOUGH EVIDENCE': { label: '증거 부족 (NOT ENOUGH EVIDENCE)', cls: 'badge-neutral' }
-  }
+  const stateBadges: Record<ChainOverallState, { label: string; cls: string }> =
+    {
+      COMPLETE: { label: '검증 범위 확인 필요', cls: 'badge-warning' },
+      'STRUCTURALLY COMPLETE': {
+        label: '메타데이터 대조 완료 · 전체 검증 미완료',
+        cls: 'badge-warning',
+      },
+      AMBIGUOUS_EVIDENCE: {
+        label: '중복 권위 증거 · 선택 불가',
+        cls: 'badge-danger',
+      },
+      INCOMPLETE: {
+        label: '증거 사슬 불완전 (INCOMPLETE)',
+        cls: 'badge-warning',
+      },
+      MISMATCH: {
+        label: '암호학적 해시 불일치 (MISMATCH)',
+        cls: 'badge-danger',
+      },
+      INVALID: { label: '증거 부적격 / 결함 (INVALID)', cls: 'badge-danger' },
+      'NOT ENOUGH EVIDENCE': {
+        label: '증거 부족 (NOT ENOUGH EVIDENCE)',
+        cls: 'badge-neutral',
+      },
+    }
 
   const overall = stateBadges[overallState]
 
@@ -60,7 +85,9 @@ export const EvidenceChainDiagram: React.FC<EvidenceChainDiagramProps> = ({
 
           return (
             <React.Fragment key={node.id}>
-              <div className={`chain-node node-${node.status.toLowerCase()} ${node.upstreamOk ? 'upstream-ok' : 'upstream-blocked'}`}>
+              <div
+                className={`chain-node node-${node.status.toLowerCase()} ${node.upstreamOk ? 'upstream-ok' : 'upstream-blocked'}`}
+              >
                 <div className="node-step-badge">단계 {index + 1}</div>
 
                 <div className="node-title">
@@ -71,7 +98,7 @@ export const EvidenceChainDiagram: React.FC<EvidenceChainDiagramProps> = ({
                   {isPresent && (
                     <span className="node-status-chip chip-present">
                       <CheckCircle2 size={12} />
-                      PRESENT
+                      {node.artifact?.validationLevel ?? 'PARSED'}
                     </span>
                   )}
                   {isMissing && (
@@ -97,12 +124,16 @@ export const EvidenceChainDiagram: React.FC<EvidenceChainDiagramProps> = ({
                 <div className="node-details">
                   <div className="detail-item">
                     <span className="detail-label">아티팩트:</span>
-                    <span className="detail-val">{node.artifact?.fileName ?? '미확인'}</span>
+                    <span className="detail-val">
+                      {node.artifact?.fileName ?? '미확인'}
+                    </span>
                   </div>
                   {node.claimedSha && (
                     <div className="detail-item">
-                      <span className="detail-label">해시:</span>
-                      <code className="detail-hash">{node.claimedSha.slice(0, 12)}...</code>
+                      <span className="detail-label">Canonical self SHA:</span>
+                      <code className="detail-hash">
+                        {node.claimedSha.slice(0, 12)}...
+                      </code>
                     </div>
                   )}
                   {node.notes && <div className="node-notes">{node.notes}</div>}
@@ -111,7 +142,12 @@ export const EvidenceChainDiagram: React.FC<EvidenceChainDiagramProps> = ({
 
               {index < nodes.length - 1 && (
                 <div className="chain-connector">
-                  <svg width="24" height="40" viewBox="0 0 24 40" className="connector-svg">
+                  <svg
+                    width="24"
+                    height="40"
+                    viewBox="0 0 24 40"
+                    className="connector-svg"
+                  >
                     <path
                       d="M 12 0 L 12 30 M 7 25 L 12 32 L 17 25"
                       stroke="currentColor"

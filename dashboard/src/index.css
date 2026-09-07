@@ -1378,3 +1378,22 @@ main {
   }
   .timeline-item { grid-template-columns: 1fr; }
 }
+
+/* Evidence digests and identifiers must remain readable on small screens. */
+.metric-value, .file-name, .hash-text, .detail-val { overflow-wrap: anywhere; min-width: 0; }
+.metric-value { font-size: clamp(0.9rem, 1.5vw, 1.4rem); }
+.evidence-dropzone:focus-visible { outline: 2px solid #7dd3fc; outline-offset: 3px; }
+.chain-node { display: grid; grid-template-columns: 50px minmax(140px, 1fr) auto; align-items: start; }
+.node-details { grid-column: 2 / -1; flex-wrap: wrap; min-width: 0; }
+.node-title { min-width: 0; }
+.chain-diagram-header, .mode-banner, .banner-left { flex-wrap: wrap; }
+.invariant-equation { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .chain-node { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .node-details { grid-column: 1; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .chain-diagram-header { align-items: flex-start; gap: 12px; }
+  .banner-left { min-width: 0; }
+  .mode-pill { white-space: normal; }
+  .mode-banner { align-items: flex-start; }
+  .topbar-state { display: none; }
+}

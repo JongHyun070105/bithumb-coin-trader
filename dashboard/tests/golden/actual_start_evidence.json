@@ -1,0 +1,12 @@
+{
+  "collector_epoch": "epoch_72h_soak_official",
+  "collector_run_id": "run_72h_aws_production",
+  "actual_start_time_utc": "2026-09-01T00:00:00+00:00",
+  "evidence_type": "unit_start_log",
+  "schema_version": 1,
+  "runtime_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "runtime_fingerprint": "fp-official-72h",
+  "start_evidence_type": "PROCESS_EXEC_START",
+  "source": "synthetic-unit-test",
+  "captured_at_utc": "2026-09-01T00:00:01Z"
+}

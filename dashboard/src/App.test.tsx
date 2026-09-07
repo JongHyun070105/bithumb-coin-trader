@@ -75,7 +75,7 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     expect(parsed.parseStatus).toBe('PARSE_FAILED')
     expect(parsed.type).toBe('unknown')
     expect(parsed.errorMessage).toBeDefined()
-    expect(parsed.validationIssues).toContain('유효한 JSON 포맷이 아닙니다.')
+    expect(parsed.validationIssues).toContain('Invalid metadata input')
   })
 
   // 5. SHA-256 calculation
@@ -137,7 +137,7 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
 
     // Without downstream contract/manifest/dq/dataset, chain is INCOMPLETE
     const evalResult = evaluateEvidenceChain([mockRuntimeSeal, mockLaunchProv, mockActualStart])
-    expect(evalResult.overallState).toBe('INCOMPLETE')
+    expect(evalResult.overallState).toBe('INVALID')
     expect(evalResult.nodes.some((n) => n.status === 'MISSING')).toBe(true)
 
     // Fail-Closed: If actual start is missing from provenance, it is INVALID
@@ -220,7 +220,7 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
 
     // 72H Soak Page should show PENDING / NOT RUN / PENDING EVIDENCE rather than 0
     expect(screen.getByText('PENDING EVIDENCE')).toBeInTheDocument()
-    expect(screen.getByText('259200 s')).toBeInTheDocument()
+    expect(screen.getAllByText('NOT AVAILABLE').length).toBeGreaterThan(0)
 
     // Check slots: missing cohorts, receipts, fullscan in NO_EVIDENCE mode show '—' or '증거 로드 시 확인 가능'
     const metricCards = screen.getAllByRole('article')
@@ -243,9 +243,8 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     expect(screen.getByRole('heading', { name: /연구 데이터셋 콘솔/i })).toBeInTheDocument()
 
     // Holdout must be labeled SEALED
-    expect(screen.getByText('HOLDOUT')).toBeInTheDocument()
-    expect(screen.getByText('SEALED')).toBeInTheDocument()
-    expect(screen.getByText(/홀드아웃 데이터셋 암호학적 봉인/)).toBeInTheDocument()
+    expect(screen.getByText('HOLDOUT: SEALED')).toBeInTheDocument()
+    expect(screen.getByText(/홀드아웃 열람·해제 기능이 없습니다/)).toBeInTheDocument()
 
     // Confirm absence of unlock, view, open buttons anywhere on page
     expect(screen.queryByRole('button', { name: /unlock|open|봉인 해제|홀드아웃 열기|데이터 보기/i })).toBeNull()

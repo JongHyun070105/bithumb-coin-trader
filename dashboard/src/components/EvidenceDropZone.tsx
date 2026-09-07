@@ -1,8 +1,7 @@
 import React, { useState, useRef } from 'react'
 import { UploadCloud, Shield, AlertTriangle, FileCheck2 } from 'lucide-react'
 import { useEvidence } from '../context/useEvidence'
-import { calculateSha256 } from '../evidence/hashCalculator'
-import { parseRawJsonToArtifact } from '../evidence/artifactClassifier'
+import { importFile } from '../evidence/importFile'
 import type { ParsedArtifact } from '../types'
 
 export const EvidenceDropZone: React.FC = () => {
@@ -24,19 +23,13 @@ export const EvidenceDropZone: React.FC = () => {
       for (let i = 0; i < files.length; i++) {
         const file = files[i]
         if (file.size > MAX_SIZE) {
-          setErrorMessage(`경고: '${file.name}' (${(file.size / 1024 / 1024).toFixed(1)}MB) 파일이 너무 큽니다. 이 뷰어는 수 기가바이트의 RAW 데이터가 아닌 메타데이터 아티팩트(JSON) 전용입니다.`)
+          setErrorMessage(
+            `경고: '${file.name}' (${(file.size / 1024 / 1024).toFixed(1)}MB) 파일이 너무 큽니다. 이 뷰어는 수 기가바이트의 RAW 데이터가 아닌 메타데이터 아티팩트(JSON) 전용입니다.`,
+          )
           continue
         }
 
-        const rawText = await file.text()
-        const sha = await calculateSha256(rawText)
-        const parsed = parseRawJsonToArtifact(
-          `art-${Date.now()}-${i}`,
-          file.name,
-          file.size,
-          sha,
-          rawText
-        )
+        const parsed = await importFile(file, `art-${crypto.randomUUID()}`)
         parsedList.push(parsed)
       }
 
@@ -44,7 +37,11 @@ export const EvidenceDropZone: React.FC = () => {
         addArtifacts(parsedList)
       }
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : '파일 로드 중 오류가 발생했습니다.')
+      setErrorMessage(
+        err instanceof Error
+          ? err.message
+          : '파일 로드 중 오류가 발생했습니다.',
+      )
     } finally {
       setProcessing(false)
       if (fileInputRef.current) {
@@ -75,6 +72,14 @@ export const EvidenceDropZone: React.FC = () => {
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            fileInputRef.current?.click()
+          }
+        }}
         onClick={() => fileInputRef.current?.click()}
       >
         <input
@@ -86,7 +91,11 @@ export const EvidenceDropZone: React.FC = () => {
           onChange={(e) => handleFiles(e.target.files)}
         />
         <div className="dropzone-icon">
-          {processing ? <FileCheck2 size={32} className="spin-slow" /> : <UploadCloud size={32} />}
+          {processing ? (
+            <FileCheck2 size={32} className="spin-slow" />
+          ) : (
+            <UploadCloud size={32} />
+          )}
         </div>
         <div className="dropzone-content">
           <strong>증거 아티팩트 파일 드래그 앤 드롭 또는 클릭하여 선택</strong>
@@ -100,7 +109,10 @@ export const EvidenceDropZone: React.FC = () => {
 
       <div className="dropzone-notice">
         <Shield size={14} className="icon-shield" />
-        <span>파일은 브라우저 로컬에서만 처리되며 서버로 업로드되지 않습니다. (Client-side Web Crypto SHA-256)</span>
+        <span>
+          파일은 브라우저 로컬에서만 처리되며 서버로 업로드되지 않습니다.
+          (Client-side Web Crypto SHA-256)
+        </span>
       </div>
 
       {errorMessage && (

@@ -43,6 +43,8 @@ export type ArtifactType =
   | 'unknown'
 
 export type ChainOverallState =
+  | 'AMBIGUOUS_EVIDENCE'
+  | 'STRUCTURALLY COMPLETE'
   | 'COMPLETE'
   | 'INCOMPLETE'
   | 'MISMATCH'
@@ -79,6 +81,10 @@ export interface ParsedArtifact {
   parseStatus: 'SUCCESS' | 'PARSE_FAILED' | 'UNKNOWN_TYPE'
   errorMessage?: string
   rawJson?: Record<string, unknown>
+  validationLevel?: 'UNKNOWN' | 'RECOGNIZED_INVALID' | 'VALID_SCHEMA' | 'SELF_HASH_VERIFIED'
+  calculatedSelfSha256?: string
+  selfHashField?: string
+  rawText?: string
   verifiedAgainstParent?: boolean
   validationIssues?: string[]
 }

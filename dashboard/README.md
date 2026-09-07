@@ -52,3 +52,19 @@ npm test
 # 프로덕션 번들 빌드
 npm run build
 ```
+
+## Phase 6.3 verification contract
+
+The authoritative [Phase 6.3 report](../docs/PHASE6_3_EVIDENCE_CONTRACT_REPORT.md)
+supersedes the v0.2 handoff's parser/hash assumptions. Nine Python-produced core
+metadata fixtures are tested byte-for-byte. Archive receipts and fullscan reports
+are recognized only as ancillary metadata. Filenames never confer trust.
+
+The strongest verdict is **STRUCTURALLY COMPLETE**, not full cryptographic evidence
+verification: RAW, canonical partitions, dataset content, holdout and external producer
+authenticity are not checked by this metadata viewer. Official real-DQ/soak/alpha/trading
+status does not advance on import. Duplicate authoritative candidates are ambiguous.
+
+Imports accept bounded plain UTF-8 JSON only (10 MiB, nesting <=64, no BOM or duplicate
+keys). Noncanonical float spellings outside the documented Python subset fail closed.
+Synthetic demo loads the Python-generated metadata and is cleared by the first import.

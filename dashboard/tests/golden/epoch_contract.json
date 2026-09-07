@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "contract_type": "OFFICIAL_72H_SOAK_CONTRACT",
+  "collector_epoch": "epoch_72h_soak_official",
+  "collector_run_id": "run_72h_aws_production",
+  "runtime_software_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "runtime_fingerprint": "fp-official-72h",
+  "start_time_utc": "2026-09-01T00:00:00+00:00",
+  "actual_start_time_utc": "2026-09-01T00:00:00+00:00",
+  "expected_end_time_utc": "2026-09-01T01:00:00+00:00",
+  "duration_seconds": 3600,
+  "environment_id": "aws-apne2-research",
+  "raw_schema_version": "2.0.0",
+  "runtime_seal_path": "epoch/contracts/runtime_seal.json",
+  "runtime_seal_sha256": "188d63eb041f25ab4597f878a372b9c6cb44e1872762aa4f71ce83c376888135",
+  "launch_provenance_path": "epoch/contracts/launch-provenance.json",
+  "launch_provenance_sha256": "97d38f3663ad02c5f987bf950e201d8b7eb572ecf9cb586d6c2975477ed5ca1a",
+  "actual_start_evidence_path": "epoch/contracts/actual_start.evidence.json",
+  "actual_start_evidence_file_sha256": "26e2bbc1d2284f21746fb43b114bd0678bc137e3056b07d78a9430d0d364fb7e",
+  "feed_count": 76,
+  "feed_universe": [
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-BTC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-BTC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-BTC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-ETH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-ETH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-ETH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-XRP"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-XRP"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-XRP"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-SOL"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-SOL"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-SOL"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-DOGE"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-DOGE"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-DOGE"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-ADA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-ADA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-ADA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-XLM"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-XLM"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-XLM"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-LINK"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-LINK"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-LINK"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-AVAX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-AVAX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-AVAX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-BCH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-BCH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-BCH"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-ETC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-ETC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-ETC"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-NEAR"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-NEAR"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-NEAR"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-SUI"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-SUI"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-SUI"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-APT"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-APT"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-APT"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-TRX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-TRX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-TRX"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-SHIB"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-SHIB"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-SHIB"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-SAND"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-SAND"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-SAND"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-MANA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-MANA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-MANA"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-AXS"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-AXS"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-AXS"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "orderbook",
+      "market": "KRW-DOT"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "trade",
+      "market": "KRW-DOT"
+    },
+    {
+      "exchange": "bithumb",
+      "stream": "ticker",
+      "market": "KRW-DOT"
+    },
+    {
+      "exchange": "binance",
+      "stream": "orderbook",
+      "market": "btcusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "trade",
+      "market": "btcusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "orderbook",
+      "market": "ethusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "trade",
+      "market": "ethusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "orderbook",
+      "market": "solusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "trade",
+      "market": "solusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "orderbook",
+      "market": "xrpusdt"
+    },
+    {
+      "exchange": "binance",
+      "stream": "trade",
+      "market": "xrpusdt"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "orderbook",
+      "market": "KRW-BTC"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "trade",
+      "market": "KRW-BTC"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "orderbook",
+      "market": "KRW-ETH"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "trade",
+      "market": "KRW-ETH"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "orderbook",
+      "market": "KRW-SOL"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "trade",
+      "market": "KRW-SOL"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "orderbook",
+      "market": "KRW-XRP"
+    },
+    {
+      "exchange": "upbit",
+      "stream": "trade",
+      "market": "KRW-XRP"
+    }
+  ],
+  "require_receipts": true,
+  "require_fullscan": true,
+  "created_at_utc": "2026-09-07T10:12:44.941381+00:00",
+  "contract_sha256": "871c3be156151abdd23476c5b6fc09b973a8776bbb4de2659ec49fecb104ab90"
+}
