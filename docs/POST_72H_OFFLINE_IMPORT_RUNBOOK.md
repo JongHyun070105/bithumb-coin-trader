@@ -19,11 +19,10 @@
 - `launch_provenance`의 `created_at_utc`를 실제 시작 시각으로 간주하지 않으며, 실제 시작 증거가 없을 경우 `ACTUAL_START_EVIDENCE_MISSING` (exit 2)으로 즉각 중단(Fail-Closed)한다.
 ```bash
 python scripts/compose_epoch_contract.py \
-    --epoch-dir "$EPOCH_DIR" \
     --runtime-seal "$EPOCH_DIR/contracts/runtime_seal.json" \
     --launch-provenance "$EPOCH_DIR/contracts/launch-provenance.json" \
     --actual-start-evidence "$EPOCH_DIR/contracts/actual_start.evidence.json" \
-    --out "$EPOCH_DIR/contracts/epoch_contract.json"
+    --output "$EPOCH_DIR/contracts/epoch_contract.json"
 ```
 
 ### 2단계: 에포크 증거 루트 매니페스트 구축 및 봉인 (Build Sealed Epoch Root Manifest)

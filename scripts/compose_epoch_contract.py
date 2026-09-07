@@ -17,12 +17,35 @@ import sys
 from typing import Any
 
 
-def _file_sha256(p: Path) -> str:
-    h = hashlib.sha256()
-    with open(p, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
+try:
+    from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+except ModuleNotFoundError:
+    from evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+
+
+def validate_actual_start(data, epoch, run_id, commit, fingerprint):
+    if not isinstance(data, dict) or data.get("schema_version") != 1:
+        raise ValueError("INVALID_ACTUAL_START_SCHEMA")
+    for field, expected, code in (
+        ("collector_epoch", epoch, "EPOCH"),
+        ("collector_run_id", run_id, "RUN_ID"),
+        ("runtime_commit", commit, "RUNTIME_COMMIT"),
+        ("runtime_fingerprint", fingerprint, "RUNTIME_FINGERPRINT"),
+    ):
+        if data.get(field) != expected:
+            raise ValueError("ACTUAL_START_" + code + "_MISMATCH")
+    if data.get("start_evidence_type") not in {"SYSTEMD_SERVICE_START", "PROCESS_EXEC_START", "FIRST_RAW_RECORD"}:
+        raise ValueError("INVALID_ACTUAL_START_EVIDENCE_TYPE")
+    if not isinstance(data.get("source"), str) or not data["source"].strip():
+        raise ValueError("INVALID_ACTUAL_START_SOURCE")
+    for key in ("actual_start_time_utc", "captured_at_utc"):
+        try:
+            dt = datetime.fromisoformat(data[key].replace("Z", "+00:00"))
+            if dt.utcoffset() is None:
+                raise ValueError("timezone required")
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            raise ValueError("INVALID_ACTUAL_START_TIMESTAMP: " + key) from exc
+    return datetime.fromisoformat(data["actual_start_time_utc"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
 
 
 def compose_epoch_contract(
@@ -92,15 +115,12 @@ def compose_epoch_contract(
         start_evidence_sha = _file_sha256(actual_start_evidence_path)
         try:
             ev_data = json.loads(actual_start_evidence_path.read_text(encoding="utf-8"))
-            actual_start_str = (
-                ev_data.get("actual_start_time_utc")
-                or ev_data.get("collector_start_time_utc")
-                or ev_data.get("started_at_utc")
-                or ev_data.get("start_time_utc")
-            )
+            actual_start_str = validate_actual_start(ev_data, collector_epoch, collector_run_id, runtime_commit, runtime_fingerprint)
         except Exception as e:
             raise ValueError(f"CORRUPT_ACTUAL_START_EVIDENCE: {e}")
     elif synthetic_actual_start_time_utc:
+        if strict:
+            raise ValueError("ACTUAL_START_EVIDENCE_MISSING: synthetic timestamp forbidden in official mode")
         actual_start_str = synthetic_actual_start_time_utc
 
     if not actual_start_str:
@@ -149,7 +169,7 @@ def compose_epoch_contract(
         "launch_provenance_path": str(launch_provenance_path),
         "launch_provenance_sha256": prov_sha,
         "actual_start_evidence_path": str(actual_start_evidence_path) if actual_start_evidence_path else "",
-        "actual_start_evidence_sha256": start_evidence_sha,
+        "actual_start_evidence_file_sha256": start_evidence_sha,
         "feed_count": len(feed_universe),
         "feed_universe": feed_universe,
         "require_receipts": True,
@@ -158,8 +178,7 @@ def compose_epoch_contract(
     }
 
     # Compute deterministic contract hash
-    canon_bytes = json.dumps(contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    contract["contract_sha256"] = hashlib.sha256(canon_bytes).hexdigest()
+    contract["contract_sha256"] = canonical_sha256(contract)
 
     if output_path:
         output_path.parent.mkdir(parents=True, exist_ok=True)

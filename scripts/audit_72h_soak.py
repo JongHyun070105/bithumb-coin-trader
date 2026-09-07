@@ -357,24 +357,15 @@ class SoakAuditor72H:
 
         if epoch_manifest_path and epoch_manifest_path.exists():
             try:
-                em_data = json.loads(epoch_manifest_path.read_text(encoding="utf-8"))
-                claimed_sha = em_data.get("epoch_manifest_sha256", "")
-                em_copy = {k: v for k, v in em_data.items() if k != "epoch_manifest_sha256"}
-                canon_json = json.dumps(em_copy, sort_keys=True, separators=(",", ":"))
-                actual_sha = hashlib.sha256(canon_json.encode("utf-8")).hexdigest()
-                if claimed_sha and actual_sha != claimed_sha:
-                    report["blockers"].append(f"EPOCH_MANIFEST_HASH_MISMATCH: actual '{actual_sha}' != claimed '{claimed_sha}'")
-                if not em_data.get("sealed_complete", False) and em_data.get("status") != "SEALED_COMPLETE":
-                    if self.strict or self.mode == "official":
-                        report["blockers"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
-                    else:
-                        report["warnings"].append("EPOCH_MANIFEST_INCOMPLETE: epoch_manifest.json is not sealed complete")
-                report["epoch_manifest_sha256"] = claimed_sha or actual_sha
+                try:
+                    from scripts.build_epoch_manifest import verify_epoch_manifest
+                except ModuleNotFoundError:
+                    from build_epoch_manifest import verify_epoch_manifest
+                em_data = verify_epoch_manifest(epoch_manifest_path, contract_file)
+                report["epoch_manifest_sha256"] = em_data["epoch_manifest_sha256"]
             except Exception as e:
-                if self.strict or self.mode == "official":
-                    report["blockers"].append(f"CORRUPT_EPOCH_MANIFEST: {e}")
-                else:
-                    report["warnings"].append(f"Unreadable epoch_manifest.json: {e}")
+                # A supplied broken cryptographic edge is never a lenient warning.
+                report["blockers"].append(f"CORRUPT_EPOCH_MANIFEST: {e}")
         elif self.strict or self.mode == "official":
             report["blockers"].append("NO_EPOCH_MANIFEST: Epoch root manifest (epoch_manifest.json) required for authoritative deep DQ audit")
 

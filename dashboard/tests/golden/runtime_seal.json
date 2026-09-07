@@ -1,0 +1,45 @@
+{
+  "collector_epoch": "epoch_72h_soak_official",
+  "collector_run_id": "run_72h_aws_production",
+  "runtime_software_commit": "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
+  "runtime_config_fingerprint": "fp-official-72h",
+  "raw_schema_version": "2.0.0",
+  "duration_seconds": 3600,
+  "schema_version": 1,
+  "feeds": {
+    "bithumb_markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-XRP",
+      "KRW-SOL",
+      "KRW-DOGE",
+      "KRW-ADA",
+      "KRW-XLM",
+      "KRW-LINK",
+      "KRW-AVAX",
+      "KRW-BCH",
+      "KRW-ETC",
+      "KRW-NEAR",
+      "KRW-SUI",
+      "KRW-APT",
+      "KRW-TRX",
+      "KRW-SHIB",
+      "KRW-SAND",
+      "KRW-MANA",
+      "KRW-AXS",
+      "KRW-DOT"
+    ],
+    "binance_symbols": [
+      "btcusdt",
+      "ethusdt",
+      "solusdt",
+      "xrpusdt"
+    ],
+    "upbit_markets": [
+      "KRW-BTC",
+      "KRW-ETH",
+      "KRW-SOL",
+      "KRW-XRP"
+    ]
+  }
+}

@@ -584,9 +584,16 @@ def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
             "start_time_utc": "2026-09-01T00:00:00+00:00",
             "duration_seconds": 3600,
         }))
+        from scripts.evidence_contract import canonical_sha256, file_sha256
+        contract_path = case_dir / "epoch_contract.json"
+        contract = json.loads(contract_path.read_text())
+        contract["contract_sha256"] = canonical_sha256(contract)
+        contract_path.write_text(json.dumps(contract))
         _write_valid_epoch_manifest(manifests_dir / "epoch_manifest.json", {
             "collector_epoch": f"ep-{feed_count}",
             "collector_run_id": f"run-{feed_count}",
+            "contract_sha256": contract["contract_sha256"],
+            "contract_file_sha256": file_sha256(contract_path),
         })
 
         auditor = SoakAuditor72H(case_dir)
@@ -728,6 +735,8 @@ def test_p7_epoch_manifest_builder_and_completeness(tmp_path: Path) -> None:
         "duration_seconds": 3600,
         "require_receipts": True,
     }
+    from scripts.evidence_contract import canonical_sha256
+    contract["contract_sha256"] = canonical_sha256(contract)
     (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract))
 
     # Case A: Empty epoch -> incomplete

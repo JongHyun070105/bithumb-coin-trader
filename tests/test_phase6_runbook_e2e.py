@@ -217,6 +217,20 @@ def _populate_official_shaped_epoch(
         "duration_seconds": 3600,
     }, indent=2))
 
+    # Phase 6.3: real composer supplies the canonical/file contract vocabulary.
+    from scripts.compose_epoch_contract import compose_epoch_contract
+    from scripts.audit_72h_soak import EXPECTED_BITHUMB_20, EXPECTED_BINANCE_4, EXPECTED_UPBIT_4
+    seal_path = epoch_dir / "runtime_seal.json"
+    seal = json.loads(seal_path.read_text())
+    seal.update(schema_version=1, feeds={"bithumb_markets": EXPECTED_BITHUMB_20, "binance_symbols": EXPECTED_BINANCE_4, "upbit_markets": EXPECTED_UPBIT_4})
+    seal_path.write_text(json.dumps(seal, indent=2))
+    actual = json.loads(act_evidence.read_text())
+    actual.update(schema_version=1, runtime_commit=software_commit, runtime_fingerprint=fingerprint,
+                  start_evidence_type="PROCESS_EXEC_START", source="synthetic-unit-test",
+                  captured_at_utc="2026-09-01T00:00:01Z")
+    act_evidence.write_text(json.dumps(actual, indent=2))
+    compose_epoch_contract(seal_path, epoch_dir / "launch-provenance.json", epoch_dir / "epoch_contract.json", act_evidence)
+
 
 def test_p4_2_p19_full_runbook_subprocess_execution(tmp_path: Path) -> None:
     """P4.2 & P19: Executes the exact documented runbook sequence via subprocess."""

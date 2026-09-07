@@ -100,19 +100,18 @@ DISABLED
 포스트 소크 시점에 수집되어 제공되어야 하는 아티팩트의 스키마 명세는 다음과 같습니다:
 
 - **예상 파일명**: `actual_start_evidence.json`
-- **필수 스키마 필드**:
+- **필수 스키마 필드** (설명용 placeholder이며 실제 증거가 아님):
   ```json
   {
     "schema_version": 1,
-    "collector_epoch": "epoch-aws-72h-soak-20260905",
-    "collector_run_id": "run-aws-72h-soak-20260905-8017b83e",
+    "collector_epoch": "<must equal launch provenance collector_epoch>",
+    "collector_run_id": "<must equal launch provenance collector_run_id>",
     "actual_start_time_utc": "YYYY-MM-DDTHH:MM:SS.ffffffZ",
     "start_evidence_type": "SYSTEMD_SERVICE_START | PROCESS_EXEC_START | FIRST_RAW_RECORD",
     "source": "journalctl_systemd_start | raw_envelope_record_zero",
-    "runtime_commit": "e9e4be4db086706e57ba51c14a2432a106526fc8",
-    "runtime_fingerprint": "...",
-    "captured_at_utc": "YYYY-MM-DDTHH:MM:SSZ",
-    "evidence_sha256": "..."
+    "runtime_commit": "<must equal runtime seal and launch runtime commit>",
+    "runtime_fingerprint": "<must equal launch runtime_config_fingerprint>",
+    "captured_at_utc": "YYYY-MM-DDTHH:MM:SSZ"
   }
   ```
 
@@ -128,3 +127,5 @@ DISABLED
 - **모의 투자 (Paper Trading)**: 실행 엔진과 주문 파이프라인의 오프라인 테스트는 통과하였으나, 실시간 피드 기반 페이퍼 트레이딩은 시작되지 않았습니다(`NOT STARTED`).
 - **실주문 (Live Trading)**: `order_transport.py` 내 `BithumbLiveOrderTransport`는 안전 가드에 의해 엄격히 봉인되어 있으며, 주문 실행 경로는 전면 차단(`DISABLED`) 상태입니다.
 - **프라이빗 API 키**: 어떠한 실거래 키도 저장되어 있지 않으며(`DISABLED`), 보안 감사 기준을 완벽 준수합니다.
+
+Actual-start has no self hash. The contract binds its exact bytes as `actual_start_evidence_file_sha256`. Epoch root binds both `contract_sha256` (canonical self SHA) and `contract_file_sha256` (exact bytes). UTC-compatible offset-aware timestamps are required.

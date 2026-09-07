@@ -1,0 +1,12 @@
+[
+  {
+    "raw": "{\n  \"\ud55c\uae00\": \"\ud83d\ude00\",\n  \"\ue000\": \"private\",\n  \"\ud800\udc00\": \"astral\",\n  \"array\": [\n    true,\n    null,\n    1,\n    1.0,\n    -0.0,\n    1e-05,\n    1e+16,\n    9007199254740993\n  ]\n}",
+    "canonical": "{\"array\":[true,null,1,1.0,-0.0,1e-05,1e+16,9007199254740993],\"\\ud55c\\uae00\":\"\\ud83d\\ude00\",\"\\ue000\":\"private\",\"\\ud800\\udc00\":\"astral\"}",
+    "sha256": "ddabc0c0ac458c6d9437c51b2e5e95d1a98d756fa821d33b5ec737cf968ed388"
+  },
+  {
+    "raw": "{\n  \"quote\": \"\\\"\\\\\\n\\t\u007f\",\n  \"list\": [\n    3,\n    2,\n    1\n  ]\n}",
+    "canonical": "{\"list\":[3,2,1],\"quote\":\"\\\"\\\\\\n\\t\\u007f\"}",
+    "sha256": "01110e1b0360b361c94af17d48194d1402b324c51f6f337d448bdbe3782e3deb"
+  }
+]

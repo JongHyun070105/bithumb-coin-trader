@@ -59,7 +59,13 @@ def _file_sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def verify_epoch_manifest(manifest_path: Path) -> dict[str, Any]:
+try:
+    from scripts.evidence_contract import verify_contract, verify_root_contract, file_sha256
+except ModuleNotFoundError:
+    from evidence_contract import verify_contract, verify_root_contract, file_sha256
+
+
+def verify_epoch_manifest(manifest_path: Path, contract_path: Path | None = None) -> dict[str, Any]:
     """P3: Recomputes and verifies the canonical root SHA256 of epoch_manifest.json."""
     if not manifest_path.exists():
         raise FileNotFoundError(f"Epoch manifest not found: {manifest_path}")
@@ -77,6 +83,8 @@ def verify_epoch_manifest(manifest_path: Path) -> dict[str, Any]:
             f"EPOCH_MANIFEST_INCOMPLETE: status={data.get('status')}, "
             f"sealed_complete={data.get('sealed_complete')}, missing_items={data.get('missing_items')}"
         )
+    if contract_path is not None:
+        verify_root_contract(data, contract_path)
     return data
 
 
@@ -110,10 +118,9 @@ def build_epoch_manifest(
     contract_data: dict[str, Any] = {}
     if contract_path and contract_path.exists():
         try:
-            contract_data = json.loads(contract_path.read_text(encoding="utf-8"))
+            contract_data = verify_contract(contract_path)
         except Exception as e:
-            if strict:
-                raise ValueError(f"CORRUPT_RUN_CONTRACT: {contract_path}: {e}")
+            raise ValueError(f"CORRUPT_RUN_CONTRACT: {contract_path}: {e}") from e
     elif strict:
         raise ValueError("NO_RUN_CONTRACT: Run contract required for epoch manifest build")
 
@@ -373,24 +380,18 @@ def build_epoch_manifest(
     fullscan_entries.sort(key=lambda x: x["file_name"])
 
     # 6. Runtime seal & Launch provenance
-    runtime_seal_sha = ""
-    launch_prov_sha = ""
-    for seal_p in [epoch_dir / "runtime_seal.json", contract_path]:
-        if seal_p and seal_p.exists():
-            runtime_seal_sha = _file_sha256(seal_p)
-            break
-    launch_p = epoch_dir / "launch-provenance.json"
-    if not launch_p.exists():
-        launch_p = epoch_dir / "aws-72h-soak.launch-provenance.json"
-    if launch_p.exists():
-        launch_prov_sha = _file_sha256(launch_p)
-
-    if mode == "official" and not launch_prov_sha:
-        missing_items.append("MISSING_LAUNCH_PROVENANCE")
-    if mode == "official" and not runtime_seal_sha:
-        missing_items.append("MISSING_RUNTIME_SEAL")
-    if mode == "official" and not contract_data:
-        missing_items.append("MISSING_CONTRACT")
+    # The exact contract paths take precedence; never label contract bytes as a runtime seal.
+    seal_source = Path(contract_data["runtime_seal_path"]) if contract_data.get("runtime_seal_path") else runtime_seal_p
+    launch_source = Path(contract_data["launch_provenance_path"]) if contract_data.get("launch_provenance_path") else launch_prov_p
+    runtime_seal_sha = file_sha256(seal_source) if seal_source and seal_source.exists() else ""
+    launch_prov_sha = file_sha256(launch_source) if launch_source and launch_source.exists() else ""
+    if contract_data.get("contract_type") == "OFFICIAL_72H_SOAK_CONTRACT":
+        for field, digest in (("runtime_seal_sha256", runtime_seal_sha), ("launch_provenance_sha256", launch_prov_sha)):
+            if not digest or contract_data.get(field) != digest:
+                raise ValueError("CONTRACT_FILE_HASH_MISMATCH: " + field)
+        actual_path = Path(contract_data.get("actual_start_evidence_path", ""))
+        if not actual_path.is_file() or file_sha256(actual_path) != contract_data.get("actual_start_evidence_file_sha256"):
+            raise ValueError("ACTUAL_START_EVIDENCE_MISSING: exact start evidence bytes required")
 
     # 7. Check completeness against 76-feed universe and cohorts
     missing_items: list[str] = []
@@ -447,6 +448,8 @@ def build_epoch_manifest(
         "missing_items": missing_items,
         "expected_hour_cohorts": expected_raw_cohorts,
         "expected_archive_cohorts": expected_archive_cohorts,
+        "contract_sha256": contract_data.get("contract_sha256", ""),
+        "contract_file_sha256": file_sha256(contract_path) if contract_data else "",
         "runtime_seal_sha256": runtime_seal_sha,
         "launch_provenance_sha256": launch_prov_sha,
         "partitions_count": len(partition_entries),

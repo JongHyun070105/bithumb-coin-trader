@@ -1,0 +1,679 @@
+{
+  "epoch_dir": "epoch",
+  "audited_at_utc": "2026-09-07T10:12:45.097455+00:00",
+  "status": "DQ_PASS_ELIGIBLE",
+  "audit_type": "authoritative_deep_dq",
+  "blockers": [],
+  "warnings": [],
+  "summary": {
+    "raw_files_count": 76,
+    "manifests_count": 76,
+    "receipts_count": 1,
+    "full_scan_reports_count": 1
+  },
+  "manifest_verification": {
+    "scope": "FULL",
+    "verified": 76,
+    "mismatches": 0
+  },
+  "feed_coverage": {
+    "20260901-00/binance/BTCUSDT/orderbook": {
+      "records": 6,
+      "bytes": 306,
+      "state": "PASS"
+    },
+    "20260901-00/binance/ETHUSDT/orderbook": {
+      "records": 6,
+      "bytes": 306,
+      "state": "PASS"
+    },
+    "20260901-00/binance/SOLUSDT/orderbook": {
+      "records": 6,
+      "bytes": 305,
+      "state": "PASS"
+    },
+    "20260901-00/binance/XRPUSDT/orderbook": {
+      "records": 6,
+      "bytes": 306,
+      "state": "PASS"
+    },
+    "20260901-00/binance/BTCUSDT/trade": {
+      "records": 6,
+      "bytes": 272,
+      "state": "PASS"
+    },
+    "20260901-00/binance/ETHUSDT/trade": {
+      "records": 6,
+      "bytes": 272,
+      "state": "PASS"
+    },
+    "20260901-00/binance/SOLUSDT/trade": {
+      "records": 6,
+      "bytes": 272,
+      "state": "PASS"
+    },
+    "20260901-00/binance/XRPUSDT/trade": {
+      "records": 6,
+      "bytes": 271,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ADA/orderbook": {
+      "records": 6,
+      "bytes": 311,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-APT/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AVAX/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AXS/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BCH/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BTC/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOGE/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOT/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETC/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETH/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-LINK/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-MANA/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-NEAR/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SAND/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SHIB/orderbook": {
+      "records": 6,
+      "bytes": 313,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SOL/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SUI/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-TRX/orderbook": {
+      "records": 6,
+      "bytes": 311,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XLM/orderbook": {
+      "records": 6,
+      "bytes": 312,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XRP/orderbook": {
+      "records": 6,
+      "bytes": 311,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ADA/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-APT/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AVAX/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AXS/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BCH/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BTC/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOGE/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOT/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETC/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETH/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-LINK/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-MANA/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-NEAR/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SAND/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SHIB/ticker": {
+      "records": 6,
+      "bytes": 245,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SOL/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SUI/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-TRX/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XLM/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XRP/ticker": {
+      "records": 6,
+      "bytes": 244,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ADA/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-APT/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AVAX/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-AXS/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BCH/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-BTC/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOGE/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-DOT/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETC/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-ETH/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-LINK/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-MANA/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-NEAR/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SAND/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SHIB/trade": {
+      "records": 6,
+      "bytes": 278,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SOL/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-SUI/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-TRX/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XLM/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/bithumb/KRW-XRP/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-BTC/orderbook": {
+      "records": 6,
+      "bytes": 310,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-ETH/orderbook": {
+      "records": 6,
+      "bytes": 310,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-SOL/orderbook": {
+      "records": 6,
+      "bytes": 310,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-XRP/orderbook": {
+      "records": 6,
+      "bytes": 310,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-BTC/trade": {
+      "records": 6,
+      "bytes": 276,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-ETH/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-SOL/trade": {
+      "records": 6,
+      "bytes": 276,
+      "state": "PASS"
+    },
+    "20260901-00/upbit/KRW-XRP/trade": {
+      "records": 6,
+      "bytes": 277,
+      "state": "PASS"
+    }
+  },
+  "hourly_cohorts": {
+    "20260901-00": {
+      "bithumb/KRW-BTC/orderbook": "PASS",
+      "bithumb/KRW-BTC/trade": "PASS",
+      "bithumb/KRW-BTC/ticker": "PASS",
+      "bithumb/KRW-ETH/orderbook": "PASS",
+      "bithumb/KRW-ETH/trade": "PASS",
+      "bithumb/KRW-ETH/ticker": "PASS",
+      "bithumb/KRW-XRP/orderbook": "PASS",
+      "bithumb/KRW-XRP/trade": "PASS",
+      "bithumb/KRW-XRP/ticker": "PASS",
+      "bithumb/KRW-SOL/orderbook": "PASS",
+      "bithumb/KRW-SOL/trade": "PASS",
+      "bithumb/KRW-SOL/ticker": "PASS",
+      "bithumb/KRW-DOGE/orderbook": "PASS",
+      "bithumb/KRW-DOGE/trade": "PASS",
+      "bithumb/KRW-DOGE/ticker": "PASS",
+      "bithumb/KRW-ADA/orderbook": "PASS",
+      "bithumb/KRW-ADA/trade": "PASS",
+      "bithumb/KRW-ADA/ticker": "PASS",
+      "bithumb/KRW-XLM/orderbook": "PASS",
+      "bithumb/KRW-XLM/trade": "PASS",
+      "bithumb/KRW-XLM/ticker": "PASS",
+      "bithumb/KRW-LINK/orderbook": "PASS",
+      "bithumb/KRW-LINK/trade": "PASS",
+      "bithumb/KRW-LINK/ticker": "PASS",
+      "bithumb/KRW-AVAX/orderbook": "PASS",
+      "bithumb/KRW-AVAX/trade": "PASS",
+      "bithumb/KRW-AVAX/ticker": "PASS",
+      "bithumb/KRW-BCH/orderbook": "PASS",
+      "bithumb/KRW-BCH/trade": "PASS",
+      "bithumb/KRW-BCH/ticker": "PASS",
+      "bithumb/KRW-ETC/orderbook": "PASS",
+      "bithumb/KRW-ETC/trade": "PASS",
+      "bithumb/KRW-ETC/ticker": "PASS",
+      "bithumb/KRW-NEAR/orderbook": "PASS",
+      "bithumb/KRW-NEAR/trade": "PASS",
+      "bithumb/KRW-NEAR/ticker": "PASS",
+      "bithumb/KRW-SUI/orderbook": "PASS",
+      "bithumb/KRW-SUI/trade": "PASS",
+      "bithumb/KRW-SUI/ticker": "PASS",
+      "bithumb/KRW-APT/orderbook": "PASS",
+      "bithumb/KRW-APT/trade": "PASS",
+      "bithumb/KRW-APT/ticker": "PASS",
+      "bithumb/KRW-TRX/orderbook": "PASS",
+      "bithumb/KRW-TRX/trade": "PASS",
+      "bithumb/KRW-TRX/ticker": "PASS",
+      "bithumb/KRW-SHIB/orderbook": "PASS",
+      "bithumb/KRW-SHIB/trade": "PASS",
+      "bithumb/KRW-SHIB/ticker": "PASS",
+      "bithumb/KRW-SAND/orderbook": "PASS",
+      "bithumb/KRW-SAND/trade": "PASS",
+      "bithumb/KRW-SAND/ticker": "PASS",
+      "bithumb/KRW-MANA/orderbook": "PASS",
+      "bithumb/KRW-MANA/trade": "PASS",
+      "bithumb/KRW-MANA/ticker": "PASS",
+      "bithumb/KRW-AXS/orderbook": "PASS",
+      "bithumb/KRW-AXS/trade": "PASS",
+      "bithumb/KRW-AXS/ticker": "PASS",
+      "bithumb/KRW-DOT/orderbook": "PASS",
+      "bithumb/KRW-DOT/trade": "PASS",
+      "bithumb/KRW-DOT/ticker": "PASS",
+      "binance/btcusdt/orderbook": "PASS",
+      "binance/btcusdt/trade": "PASS",
+      "binance/ethusdt/orderbook": "PASS",
+      "binance/ethusdt/trade": "PASS",
+      "binance/solusdt/orderbook": "PASS",
+      "binance/solusdt/trade": "PASS",
+      "binance/xrpusdt/orderbook": "PASS",
+      "binance/xrpusdt/trade": "PASS",
+      "upbit/KRW-BTC/orderbook": "PASS",
+      "upbit/KRW-BTC/trade": "PASS",
+      "upbit/KRW-ETH/orderbook": "PASS",
+      "upbit/KRW-ETH/trade": "PASS",
+      "upbit/KRW-SOL/orderbook": "PASS",
+      "upbit/KRW-SOL/trade": "PASS",
+      "upbit/KRW-XRP/orderbook": "PASS",
+      "upbit/KRW-XRP/trade": "PASS"
+    }
+  },
+  "timestamp_quality": {
+    "binance/orderbook": {
+      "scope": "SAMPLED",
+      "total_records": 20,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "binance/trade": {
+      "scope": "SAMPLED",
+      "total_records": 20,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "bithumb/orderbook": {
+      "scope": "SAMPLED",
+      "total_records": 100,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "bithumb/ticker": {
+      "scope": "SAMPLED",
+      "total_records": 100,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "bithumb/trade": {
+      "scope": "SAMPLED",
+      "total_records": 100,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "upbit/orderbook": {
+      "scope": "SAMPLED",
+      "total_records": 20,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    },
+    "upbit/trade": {
+      "scope": "SAMPLED",
+      "total_records": 20,
+      "exchange_ts_coverage": 1.0,
+      "wall_ts_coverage": 1.0,
+      "monotonic_ts_coverage": 1.0,
+      "monotonic_reversals": 0,
+      "wall_clock_reversals": 0,
+      "offset_p50_ms": 10.0,
+      "offset_p95_ms": 10.0,
+      "offset_p99_ms": 10.0,
+      "offset_max_ms": 10.0
+    }
+  },
+  "bithumb_latency_semantics": {
+    "scope": "SAMPLED",
+    "interpretation": "Exchange semantic age vs host receive clock (not pure network latency)",
+    "offset_p50_ms": 10.0,
+    "offset_p95_ms": 10.0,
+    "offset_p99_ms": 10.0,
+    "pure_network_latency_proven": false,
+    "note": "Never treat exchange semantic age as pure network latency without hardware tap."
+  },
+  "duplicate_audit": {
+    "scope": "SAMPLED",
+    "total_markets_tracked": 28,
+    "duplicate_counts_by_market": {},
+    "duplicates_classified_as_corruption": false,
+    "note": "Upbit/Binance trade ID duplicates across boundary require transaction re-id verification."
+  },
+  "reconnect_reconstruction": {
+    "scope": "FULL",
+    "reconnect_events_detected": 0,
+    "events_sample": [],
+    "missing_telemetry": "UNKNOWN"
+  },
+  "gap_completeness": {
+    "scope": "SAMPLED",
+    "classifications": {
+      "binance/BTCUSDT/orderbook": "OK",
+      "binance/ETHUSDT/orderbook": "OK",
+      "binance/SOLUSDT/orderbook": "OK",
+      "binance/XRPUSDT/orderbook": "OK",
+      "binance/BTCUSDT/trade": "OK",
+      "binance/ETHUSDT/trade": "OK",
+      "binance/SOLUSDT/trade": "OK",
+      "binance/XRPUSDT/trade": "OK",
+      "bithumb/KRW-ADA/orderbook": "OK",
+      "bithumb/KRW-APT/orderbook": "OK",
+      "bithumb/KRW-AVAX/orderbook": "OK",
+      "bithumb/KRW-AXS/orderbook": "OK",
+      "bithumb/KRW-BCH/orderbook": "OK",
+      "bithumb/KRW-BTC/orderbook": "OK",
+      "bithumb/KRW-DOGE/orderbook": "OK",
+      "bithumb/KRW-DOT/orderbook": "OK",
+      "bithumb/KRW-ETC/orderbook": "OK",
+      "bithumb/KRW-ETH/orderbook": "OK",
+      "bithumb/KRW-LINK/orderbook": "OK",
+      "bithumb/KRW-MANA/orderbook": "OK",
+      "bithumb/KRW-NEAR/orderbook": "OK",
+      "bithumb/KRW-SAND/orderbook": "OK",
+      "bithumb/KRW-SHIB/orderbook": "OK",
+      "bithumb/KRW-SOL/orderbook": "OK",
+      "bithumb/KRW-SUI/orderbook": "OK",
+      "bithumb/KRW-TRX/orderbook": "OK",
+      "bithumb/KRW-XLM/orderbook": "OK",
+      "bithumb/KRW-XRP/orderbook": "OK",
+      "bithumb/KRW-ADA/ticker": "OK",
+      "bithumb/KRW-APT/ticker": "OK",
+      "bithumb/KRW-AVAX/ticker": "OK",
+      "bithumb/KRW-AXS/ticker": "OK",
+      "bithumb/KRW-BCH/ticker": "OK",
+      "bithumb/KRW-BTC/ticker": "OK",
+      "bithumb/KRW-DOGE/ticker": "OK",
+      "bithumb/KRW-DOT/ticker": "OK",
+      "bithumb/KRW-ETC/ticker": "OK",
+      "bithumb/KRW-ETH/ticker": "OK",
+      "bithumb/KRW-LINK/ticker": "OK",
+      "bithumb/KRW-MANA/ticker": "OK",
+      "bithumb/KRW-NEAR/ticker": "OK",
+      "bithumb/KRW-SAND/ticker": "OK",
+      "bithumb/KRW-SHIB/ticker": "OK",
+      "bithumb/KRW-SOL/ticker": "OK",
+      "bithumb/KRW-SUI/ticker": "OK",
+      "bithumb/KRW-TRX/ticker": "OK",
+      "bithumb/KRW-XLM/ticker": "OK",
+      "bithumb/KRW-XRP/ticker": "OK",
+      "bithumb/KRW-ADA/trade": "OK",
+      "bithumb/KRW-APT/trade": "OK",
+      "bithumb/KRW-AVAX/trade": "OK",
+      "bithumb/KRW-AXS/trade": "OK",
+      "bithumb/KRW-BCH/trade": "OK",
+      "bithumb/KRW-BTC/trade": "OK",
+      "bithumb/KRW-DOGE/trade": "OK",
+      "bithumb/KRW-DOT/trade": "OK",
+      "bithumb/KRW-ETC/trade": "OK",
+      "bithumb/KRW-ETH/trade": "OK",
+      "bithumb/KRW-LINK/trade": "OK",
+      "bithumb/KRW-MANA/trade": "OK",
+      "bithumb/KRW-NEAR/trade": "OK",
+      "bithumb/KRW-SAND/trade": "OK",
+      "bithumb/KRW-SHIB/trade": "OK",
+      "bithumb/KRW-SOL/trade": "OK",
+      "bithumb/KRW-SUI/trade": "OK",
+      "bithumb/KRW-TRX/trade": "OK",
+      "bithumb/KRW-XLM/trade": "OK",
+      "bithumb/KRW-XRP/trade": "OK",
+      "upbit/KRW-BTC/orderbook": "OK",
+      "upbit/KRW-ETH/orderbook": "OK",
+      "upbit/KRW-SOL/orderbook": "OK",
+      "upbit/KRW-XRP/orderbook": "OK",
+      "upbit/KRW-BTC/trade": "OK",
+      "upbit/KRW-ETH/trade": "OK",
+      "upbit/KRW-SOL/trade": "OK",
+      "upbit/KRW-XRP/trade": "OK"
+    },
+    "total_feeds_checked": 76
+  },
+  "epoch_manifest_sha256": "d07eccca6925bd0d0bcf3e95657702f571993e39c6063dde92a8b316f41d747c"
+}
