@@ -1,0 +1,2 @@
+Verbatim AWS error excerpt from tool output; no guest command executed:
+aws: [ERROR]: An error occurred (AccessDeniedException) when calling the SendCommand operation: User: arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation is not authorized to perform: ssm:SendCommand on resource: arn:aws:ec2:ap-northeast-2:080109295433:instance/i-008bc503c1136349f because no identity-based policy allows the ssm:SendCommand action

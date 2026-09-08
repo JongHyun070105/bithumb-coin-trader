@@ -2,9 +2,9 @@
 
 ## 1. Executive verdict
 
-**AUDIT BLOCKED — AWS SESSION EXPIRED.** Read access could not be established;
-IAM read-permission sufficiency was not tested. This is an authentication blocker,
-not evidence of a failed collector or an AWS permission-policy defect.
+**AUDIT BLOCKED — READ PERMISSION MISSING.** Authentication was restored by the
+user. EC2 DescribeInstances succeeds, but the existing provisioner role is denied
+`ssm:SendCommand`. Natural completion remains unverified. No IAM changes were made.
 
 | Classification | Item | Result |
 |---|---|---|
@@ -72,6 +72,9 @@ No chat timestamp, expected wall-clock end or provenance `created_at_utc` was us
 as actual-start or completion evidence. No `actual_start_evidence` was manufactured.
 
 ## 5. Natural completion and authentication evidence
+
+The following original preflight describes the earlier expired session. The later
+access recheck below supersedes its authentication/access status only.
 
 The only attempted AWS service operation was read-only EC2 `DescribeInstances`,
 using the existing `bitcoin-trader-provisioner` profile, region `ap-northeast-2`,
@@ -196,9 +199,10 @@ not an unverified claim about the remote run's entire history.
 
 ## 17. Next step
 
-Reauthenticate the existing local AWS login session (without sharing credentials),
-then repeat read-only Phase 2 in a new evidence capture directory. Re-check Git and
-the existing profile's read access. If collector/supervisor is active, preserve the
+Authentication is now restored. An authorized access owner must resolve the
+missing read-only SSM inspection access outside this audit, or supply authoritative
+completion evidence through an approved existing path. This audit does not change
+IAM or switch identities. Once accessible, repeat Phase 2 in a new capture directory. If collector/supervisor is active, preserve the
 observation and stop qualification without intervening. If inactive, require actual
 natural-completion evidence before proceeding. No alpha research, paper trading,
 dashboard merge or main merge is authorized by this report.
@@ -208,3 +212,23 @@ Deferred non-blocking product note requested by the user:
 or exclude equityCurve observations newer than snapshot.timestamp before deriving
 display metrics.` This was recorded only; the protected product branch was not
 reviewed or modified for that issue during this audit.
+
+## 18. Authentication recovery and read-access recheck
+
+FACT: The user renewed the existing IAM browser-login profile. The existing
+provisioner role successfully returned EC2 instance `i-008bc503c1136349f` as
+`running`. This is instance power state, not collector process state.
+
+FACT: A request to execute read-only systemctl, ps, date and file-discovery
+commands through SSM was rejected with AccessDeniedException: no identity-based
+policy allows `ssm:SendCommand` for this instance. No guest command executed.
+No alternate identity or IAM modification was attempted. Phase 2 and downstream
+scientific qualification stop under the explicit read-permission-missing rule.
+
+Evidence: `evidence/post72h-final-audit-20260908/access-recheck-20260908T123224Z/manifest.json`.
+Each captured response/excerpt has its exact byte hash and size in that manifest.
+The original preflight snapshot remains unchanged. No real DQ, holdout or RAW
+inspection occurred.
+
+Recheck validation: `PYTHONPATH=src python3 -m pytest -q` completed with
+942 passed, 2 skipped, 128 subtests passed in 61.31 seconds. No tooling code changed.

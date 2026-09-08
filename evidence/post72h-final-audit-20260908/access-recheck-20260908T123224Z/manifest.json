@@ -1,0 +1,18 @@
+{
+  "captured_at_utc": "20260908T123224Z",
+  "ec2_exit_code": 0,
+  "files": [
+    {
+      "path": "ec2-describe.json",
+      "size": 88,
+      "sha256": "802ae69f1dedb9e99bc1f7a7fc56e938288abf171e5721901e9b2ac6ae09fd2a",
+      "source": "fresh AWS CLI DescribeInstances stdout"
+    },
+    {
+      "path": "ssm-denial.txt",
+      "size": 471,
+      "sha256": "cfe3103a1edd92acb9e4c4e7923d540ac7371939a1ff70c44686972555e06774",
+      "source": "AWS CLI SendCommand error excerpt captured from tool response"
+    }
+  ]
+}
