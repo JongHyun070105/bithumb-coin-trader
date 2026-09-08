@@ -23,8 +23,8 @@ describe('snapshotValidation', () => {
     const bad = { ...createDemoSnapshot(), timestamp: 'invalid-time', mode: 'UNKNOWN' }
     const result = validateTradingSnapshot(bad)
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('타임스탬프'))).toBe(true)
-    expect(result.errors.some(e => e.includes('모드'))).toBe(true)
+    expect(result.errors.some(e => e.includes('timestamp'))).toBe(true)
+    expect(result.errors.some(e => e.includes('mode'))).toBe(true)
   })
 
   it('does NOT replace missing portfolio fields with zero', () => {
@@ -33,7 +33,7 @@ describe('snapshotValidation', () => {
     delete bad.portfolio.equity
     const result = validateTradingSnapshot(bad)
     expect(result.valid).toBe(false)
-    expect(result.errors.some(e => e.includes('equity'))).toBe(true)
+    expect(result.errors.some(e => e.includes('portfolio.equity'))).toBe(true)
     // Ensures raw missing property is not silently turned into 0
     expect((bad.portfolio as unknown as Record<string, unknown>).equity).toBeUndefined()
   })
@@ -63,5 +63,94 @@ describe('snapshotValidation', () => {
     expect(parsed.synthetic).toBe(true)
     expect(parsed.notice).toContain('SYNTHETIC DEVELOPMENT DATA ONLY')
     expect(parsed.portfolio.equity).toBe(snapshot.portfolio.equity)
+  })
+
+  describe('Strict structural negative tests', () => {
+    it('rejects dailyPerformance item with string pnl', () => {
+      const bad = createDemoSnapshot()
+      // @ts-expect-error invalid type test
+      bad.dailyPerformance = [{ date: '2026-09-07', pnl: '1000', returnPct: 1.0 }]
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('dailyPerformance[0].pnl'))).toBe(true)
+    })
+
+    it('rejects dailyPerformance with invalid date format', () => {
+      const bad = createDemoSnapshot()
+      bad.dailyPerformance = [{ date: '2026/09/07', pnl: 1000, returnPct: 1.0 }]
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('dailyPerformance[0].date'))).toBe(true)
+    })
+
+    it('rejects invalid equityCurve timestamp', () => {
+      const bad = createDemoSnapshot()
+      bad.equityCurve = [{ timestamp: 'not-a-timestamp', equity: 10000000, returnPct: 0, drawdownPct: 0 }]
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('equityCurve[0].timestamp'))).toBe(true)
+    })
+
+    it('rejects position with missing or invalid openedAt', () => {
+      const bad = createDemoSnapshot()
+      bad.positions[0] = { ...bad.positions[0], openedAt: 'invalid-openedAt' }
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('positions[0].openedAt'))).toBe(true)
+    })
+
+    it('rejects trade with invalid openedAt or closedAt', () => {
+      const bad = createDemoSnapshot()
+      bad.recentTrades[0].openedAt = 'invalid'
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('recentTrades[0].openedAt'))).toBe(true)
+    })
+
+    it('rejects trade where openedAt is later than closedAt (semantic sanity)', () => {
+      const bad = createDemoSnapshot()
+      bad.recentTrades[0].openedAt = '2026-09-08T10:00:00Z'
+      bad.recentTrades[0].closedAt = '2026-09-08T09:00:00Z'
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('진입 시각(openedAt)이 청산 시각(closedAt)보다 미래일 수 없습니다'))).toBe(true)
+    })
+
+    it('rejects negative botStatus error count', () => {
+      const bad = createDemoSnapshot()
+      bad.botStatus.errors = -1
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('botStatus.errors'))).toBe(true)
+    })
+
+    it('rejects negative botStatus uptimeSeconds or todayTrades', () => {
+      const bad = createDemoSnapshot()
+      bad.botStatus.uptimeSeconds = -50
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('botStatus.uptimeSeconds'))).toBe(true)
+    })
+
+    it('rejects negative today trade counts (trades, wins, losses)', () => {
+      const bad = createDemoSnapshot()
+      bad.today.wins = -2
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('today.wins'))).toBe(true)
+    })
+
+    it('rejects malformed dailyBaseline (wrong timezone or invalid tradingDay)', () => {
+      const bad = createDemoSnapshot()
+      bad.dailyBaseline = {
+        equity: 10000000,
+        netCashFlow: 0,
+        tradingDay: '2026-09-08',
+        timeZone: 'UTC' as unknown as 'Asia/Seoul',
+      }
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('dailyBaseline.timeZone'))).toBe(true)
+    })
   })
 })

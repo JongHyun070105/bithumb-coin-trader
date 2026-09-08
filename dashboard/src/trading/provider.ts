@@ -4,15 +4,16 @@
  * Provides a unified data abstraction for the trading dashboard across:
  * - NO_DATA: initial unpopulated state
  * - DEMO: synthetic coherent demonstration data
- * - LOCAL_SNAPSHOT: user-imported offline JSON snapshot
- * - READ_ONLY_API: future local development read-only endpoint (default: disabled)
+ * - LOCAL_SNAPSHOT: user-imported offline JSON snapshot (retains local_snapshot semantics)
+ * - READ_ONLY_API: future local development read-only endpoint (preserves payload semantics)
+ * - REAL_DATA: strictly requires snapshot.source.kind === 'authoritative'
  */
 
 import { createDemoSnapshot } from './demo'
 import type { TradingDataState, TradingSnapshot } from './model'
 import { normalizeTradingSnapshot, validateTradingSnapshot } from './snapshotValidation'
 
-export type DataSourceKind = 'NO_DATA' | 'DEMO' | 'LOCAL_SNAPSHOT' | 'READ_ONLY_API'
+export type DataSourceKind = 'NO_DATA' | 'DEMO' | 'LOCAL_SNAPSHOT' | 'READ_ONLY_API' | 'REAL_DATA'
 
 export interface TradingDataProvider {
   readonly kind: DataSourceKind
@@ -46,6 +47,7 @@ export class DemoTradingProvider implements TradingDataProvider {
 
 /**
  * 3. LocalSnapshotProvider: imports and validates an offline JSON file/string
+ * Never promotes local data to authoritative provenance.
  */
 export class LocalSnapshotProvider implements TradingDataProvider {
   readonly kind: DataSourceKind = 'LOCAL_SNAPSHOT'
@@ -70,8 +72,17 @@ export class LocalSnapshotProvider implements TradingDataProvider {
     }
 
     const normalized = normalizeTradingSnapshot(validation.data)
-    this.currentSnapshot = normalized
-    return { success: true, snapshot: normalized }
+    // Force local_snapshot source semantics to prevent spoofing authoritative provenance via offline file
+    const localSnapshot: TradingSnapshot = {
+      ...normalized,
+      source: {
+        kind: 'local_snapshot',
+        label: '로컬 스냅샷',
+      },
+    }
+
+    this.currentSnapshot = localSnapshot
+    return { success: true, snapshot: localSnapshot }
   }
 
   async loadFromFile(file: File): Promise<{ success: true; snapshot: TradingSnapshot } | { success: false; errors: string[] }> {
@@ -127,7 +138,13 @@ export class ReadOnlyApiProvider implements TradingDataProvider {
 }
 
 /**
- * Helper to produce TradingDataState from snapshot and source kind
+ * Helper to produce TradingDataState from snapshot and source kind.
+ *
+ * Epistemic Rules:
+ * - LOCAL_SNAPSHOT -> status: LOCAL_SNAPSHOT, source.kind: local_snapshot
+ * - READ_ONLY_API -> status: READ_ONLY_API, preserves payload source semantics
+ * - REAL_DATA -> status: REAL_DATA, requires snapshot.source.kind === 'authoritative' (Fail-Closed)
+ * - Schema validity != authoritative provenance.
  */
 export function createTradingState(
   kind: DataSourceKind,
@@ -148,22 +165,54 @@ export function createTradingState(
   }
 
   if (kind === 'DEMO') {
+    if (snapshot.source.kind !== 'synthetic') {
+      return {
+        status: 'ERROR',
+        error: '데모 상태는 합성(synthetic) 출처 스냅샷만 허용됩니다.',
+      }
+    }
     return {
       status: 'SYNTHETIC_DEMO',
       snapshot,
     }
   }
 
-  // Real or imported offline data
-  return {
-    status: 'REAL_DATA',
-    snapshot: {
-      ...snapshot,
-      source: {
-        kind: 'authoritative',
-        label: kind === 'LOCAL_SNAPSHOT' ? '로컬 스냅샷' : '읽기 전용 API',
+  if (kind === 'LOCAL_SNAPSHOT') {
+    return {
+      status: 'LOCAL_SNAPSHOT',
+      snapshot: {
+        ...snapshot,
+        source: {
+          kind: 'local_snapshot',
+          label: '로컬 스냅샷',
+        },
       },
-    },
-    isStale: options?.isStale,
+      isStale: options?.isStale,
+    }
   }
+
+  if (kind === 'READ_ONLY_API') {
+    return {
+      status: 'READ_ONLY_API',
+      snapshot: { ...snapshot },
+      isStale: options?.isStale,
+    }
+  }
+
+  if (kind === 'REAL_DATA') {
+    // Fail-Closed: only genuinely authoritative payloads can be promoted to REAL_DATA
+    if (snapshot.source.kind !== 'authoritative') {
+      return {
+        status: 'ERROR',
+        error: `실제 데이터(REAL_DATA) 상태는 권위 있는(authoritative) 출처가 필수입니다. (현재 출처: ${snapshot.source.kind})`,
+      }
+    }
+    return {
+      status: 'REAL_DATA',
+      snapshot,
+      isStale: options?.isStale,
+    }
+  }
+
+  return { status: 'NO_DATA' }
 }

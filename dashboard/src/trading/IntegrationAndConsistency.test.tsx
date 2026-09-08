@@ -60,6 +60,7 @@ describe('Post-72H Dashboard Integration & Consistency', () => {
   it('renders stale warning badge when snapshot is marked as stale', () => {
     const staleSnapshot: TradingSnapshot = {
       ...createDemoSnapshot(),
+      source: { kind: 'authoritative', label: 'Authoritative Stream' },
       timestamp: '2026-09-08T00:00:00.000Z',
     }
     render(<App initialTradingState={{ status: 'REAL_DATA', snapshot: staleSnapshot, isStale: true }} />)

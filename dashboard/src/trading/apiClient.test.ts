@@ -76,4 +76,68 @@ describe('ReadOnlyTradingApiClient', () => {
 
     await expect(client.getHealth()).rejects.toThrow('API 요청 시간 초과 (50ms)')
   })
+
+  describe('Decomposed endpoints runtime validation', () => {
+    it('validates portfolio endpoint response', async () => {
+      const demo = createDemoSnapshot()
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => demo.portfolio,
+      })
+
+      const client = new ReadOnlyTradingApiClient({ baseUrl: 'http://127.0.0.1:8000', fetcher: mockFetcher })
+      const portfolio = await client.getPortfolio()
+      expect(portfolio.equity).toBe(10843200)
+    })
+
+    it('rejects malformed portfolio response at runtime', async () => {
+      const badPortfolio = { equity: 'not-a-number' }
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => badPortfolio,
+      })
+
+      const client = new ReadOnlyTradingApiClient({ baseUrl: 'http://127.0.0.1:8000', fetcher: mockFetcher })
+      await expect(client.getPortfolio()).rejects.toThrow('포트폴리오 응답 런타임 검증 실패')
+    })
+
+    it('validates positions endpoint response', async () => {
+      const demo = createDemoSnapshot()
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => demo.positions,
+      })
+
+      const client = new ReadOnlyTradingApiClient({ baseUrl: 'http://127.0.0.1:8000', fetcher: mockFetcher })
+      const positions = await client.getPositions()
+      expect(positions).toHaveLength(3)
+    })
+
+    it('rejects position with missing openedAt', async () => {
+      const badPositions = [{ id: 'p1', asset: 'BTC', name: 'Bitcoin', pair: 'BTC/KRW', side: 'LONG', entry: 100, current: 105, quantity: 1, exposure: 105, pnl: 5, pnlPct: 5, entryFee: 0.1 }]
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => badPositions,
+      })
+
+      const client = new ReadOnlyTradingApiClient({ baseUrl: 'http://127.0.0.1:8000', fetcher: mockFetcher })
+      await expect(client.getPositions()).rejects.toThrow('보유 포지션 응답 런타임 검증 실패')
+    })
+
+    it('validates botStatus and rejects negative counts', async () => {
+      const badBotStatus = { ...createDemoSnapshot().botStatus, errors: -5 }
+      const mockFetcher = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => badBotStatus,
+      })
+
+      const client = new ReadOnlyTradingApiClient({ baseUrl: 'http://127.0.0.1:8000', fetcher: mockFetcher })
+      await expect(client.getBotStatus()).rejects.toThrow('봇 상태 응답 런타임 검증 실패')
+    })
+  })
 })

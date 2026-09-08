@@ -7,11 +7,20 @@
  * - Timeout handling with AbortController
  * - Zero credentials transmitted
  * - Injects transport/fetcher to maintain complete air-gap isolation in default builds
+ * - Every single endpoint enforces runtime validation before returning data
  */
 
 import type { ApiHealthResponse, ReadOnlyTradingApiEndpoints } from './apiContract'
 import type { BotStatus, PortfolioSummary, Position, Trade, TradingSnapshot } from './model'
-import { normalizeTradingSnapshot, validateTradingSnapshot } from './snapshotValidation'
+import {
+  normalizeTradingSnapshot,
+  validateBotStatus,
+  validatePerformance,
+  validatePortfolioSummary,
+  validatePositions,
+  validateTrades,
+  validateTradingSnapshot,
+} from './snapshotValidation'
 
 export interface ApiClientOptions {
   baseUrl?: string
@@ -78,7 +87,15 @@ export class ReadOnlyTradingApiClient implements ReadOnlyTradingApiEndpoints {
   }
 
   async getHealth(): Promise<ApiHealthResponse> {
-    return this.request<ApiHealthResponse>('/api/health')
+    const data = await this.request<unknown>('/api/health')
+    if (typeof data !== 'object' || data === null) {
+      throw new Error('Health check 응답이 객체가 아닙니다.')
+    }
+    const d = data as Record<string, unknown>
+    if (d.status !== 'ok' && d.status !== 'degraded') throw new Error('Health check 상태가 올바르지 않습니다.')
+    if (typeof d.version !== 'string') throw new Error('Health check 버전 정보가 누락되었습니다.')
+    if (d.readOnly !== true) throw new Error('Health check readOnly 속성이 true가 아닙니다.')
+    return data as ApiHealthResponse
   }
 
   async getTradingSnapshot(): Promise<TradingSnapshot> {
@@ -91,22 +108,47 @@ export class ReadOnlyTradingApiClient implements ReadOnlyTradingApiEndpoints {
   }
 
   async getPortfolio(): Promise<PortfolioSummary> {
-    return this.request<PortfolioSummary>('/api/portfolio')
+    const raw = await this.request<unknown>('/api/portfolio')
+    const errors = validatePortfolioSummary(raw, 'portfolio')
+    if (errors.length > 0) {
+      throw new Error(`포트폴리오 응답 런타임 검증 실패: ${errors.join(', ')}`)
+    }
+    return raw as PortfolioSummary
   }
 
   async getPositions(): Promise<Position[]> {
-    return this.request<Position[]>('/api/positions')
+    const raw = await this.request<unknown>('/api/positions')
+    const errors = validatePositions(raw, 'positions')
+    if (errors.length > 0) {
+      throw new Error(`보유 포지션 응답 런타임 검증 실패: ${errors.join(', ')}`)
+    }
+    return raw as Position[]
   }
 
   async getTrades(): Promise<Trade[]> {
-    return this.request<Trade[]>('/api/trades')
+    const raw = await this.request<unknown>('/api/trades')
+    const errors = validateTrades(raw, 'recentTrades')
+    if (errors.length > 0) {
+      throw new Error(`거래 내역 응답 런타임 검증 실패: ${errors.join(', ')}`)
+    }
+    return raw as Trade[]
   }
 
   async getPerformance(): Promise<TradingSnapshot['performance']> {
-    return this.request<TradingSnapshot['performance']>('/api/performance')
+    const raw = await this.request<unknown>('/api/performance')
+    const errors = validatePerformance(raw, 'performance')
+    if (errors.length > 0) {
+      throw new Error(`성과 분석 응답 런타임 검증 실패: ${errors.join(', ')}`)
+    }
+    return raw as TradingSnapshot['performance']
   }
 
   async getBotStatus(): Promise<BotStatus> {
-    return this.request<BotStatus>('/api/bot/status')
+    const raw = await this.request<unknown>('/api/bot/status')
+    const errors = validateBotStatus(raw, 'botStatus')
+    if (errors.length > 0) {
+      throw new Error(`봇 상태 응답 런타임 검증 실패: ${errors.join(', ')}`)
+    }
+    return raw as BotStatus
   }
 }
