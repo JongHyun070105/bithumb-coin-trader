@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-09-08T05:33:47.843600+00:00",
+  "pending_archive_jobs": 0,
+  "pending_full_scan_jobs": 0,
+  "completed_full_scan_jobs": 1,
+  "failed_full_scan_jobs": 0,
+  "running_full_scan_jobs": 0,
+  "oldest_pending_age_seconds": null,
+  "archive_job_failures": 0,
+  "archive_errors": [],
+  "archived_count": 0,
+  "already_verified_count": 228,
+  "manifests_generated": 0,
+  "hours_detected": [
+    "05"
+  ],
+  "scan_results": {
+    "05": {
+      "success": true,
+      "message": "Full scan for hour 05 already completed PASS"
+    }
+  }
+}

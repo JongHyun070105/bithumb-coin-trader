@@ -1,0 +1,158 @@
+=== Archive Topology & Receipts (rc=0) ===
+__M_1788882234179___S
+
+===CLEAN_PROMPT=== sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python - << 'PYEOF'
+
+
+> import json
+
+
+> import os
+
+
+> from pathlib import Path
+
+
+> from collections import Counter
+
+
+> 
+
+
+> base = Path('/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e') 
+)
+
+
+> cmp_dir = base / 'compressed'
+
+
+> rcp_dir = base / 'archive-receipts'
+
+
+> 
+
+
+> cmp_files = list(cmp_dir.glob('**/*.zst')) if cmp_dir.exists() else []
+
+
+> print(f"Total compressed .zst files on guest: {len(cmp_files)}")
+
+
+> cmp_cohorts = Counter()
+
+
+> for f in cmp_files:
+
+
+>     parts = f.name.replace('.jsonl.zst', '').split('_')
+
+
+>     if len(parts) >= 2:
+
+
+>         cmp_cohorts[f'{parts[-2]}_{parts[-1]}'] += 1
+
+
+> print(f"Compressed cohorts on guest: {dict(cmp_cohorts)}")
+
+
+> 
+
+
+> rcp_files = list(rcp_dir.glob('**/*.archive-receipt.json')) if rcp_dir.exists() else []
+
+
+> print(f"Total archive receipt files on guest: {len(rcp_files)}")
+
+
+> 
+
+
+> statuses = Counter()
+
+
+> rcp_hours = Counter()
+
+
+> for r in rcp_files:
+
+
+>     try:
+
+
+>         d = json.loads(r.read_text())
+
+
+>         statuses[d.get('status', d.get('state', 'UNKNOWN'))] += 1
+
+
+>         rcp_hours[f"{d.get('date_str', '')}_{d.get('closed_hour', '')}"] += 1
+
+
+>     except:
+
+
+>         statuses['ERR'] += 1
+
+
+> 
+
+
+> print(f"Receipt statuses: {dict(statuses)}")
+
+
+> print(f"Receipt cohorts: {dict(rcp_hours)}")
+
+
+> 
+
+
+> reports = list(rcp_dir.glob('full_scan*.json')) if rcp_dir.exists() else []
+
+
+> print(f"Full scan reports: {[r.name for r in reports]}")
+
+
+> for r in reports:
+
+
+>     try:
+
+
+>         rep = json.loads(r.read_text())
+
+
+>         print(f"  {r.name}: status={rep.get('status')}, records={rep.get('integrity', {}).get('totals', {}).get('records')}")
+
+
+>     except Exception as e:
+
+
+>         print(f"  {r.name} parse err: {e}")
+
+
+> PYEOF
+
+
+Total compressed .zst files on guest: 228
+
+
+Compressed cohorts on guest: {'2026-09-05_05': 76, '2026-09-06_05': 76, '2026-09-07_05': 76}
+
+
+Total archive receipt files on guest: 228
+
+
+Receipt statuses: {'CLEANUP_ELIGIBLE': 228}
+
+
+Receipt cohorts: {'_': 228}
+
+
+Full scan reports: ['full_scan_05_report.json']
+
+
+  full_scan_05_report.json: status=None, records=360356
+
+
+===CLEAN_PROMPT=== echo __M_1788882234179___E $?

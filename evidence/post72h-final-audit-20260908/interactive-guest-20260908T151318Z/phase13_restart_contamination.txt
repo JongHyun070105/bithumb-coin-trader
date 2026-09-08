@@ -1,0 +1,51 @@
+=== sudo ls -la /var/lib/bitcoin-trader/72h-soak/ (rc=-1) ===
+total 32
+
+drwx------.  4 bitcoin-trader bitcoin-trader    82 Sep  5 03:03 .
+
+drwxr-x---. 12 bitcoin-trader bitcoin-trader 16384 Sep  5 03:07 ..
+
+drwx------.  7 bitcoin-trader bitcoin-trader    88 Sep  4 15:55 aws-72h-soak-20260904-43e79055
+
+drwx------.  9 bitcoin-trader bitcoin-trader 16384 Sep  8 15:23 aws-72h-soak-20260905-8017b83e
+
+===PROMPT_CLEAN=== echo __M_1788882263189___S
+
+
+__M_1788882263189___S
+
+===PROMPT_CLEAN=== sudo ls -la /var/lib/bitcoin-trader/72h-soak/
+
+
+echo __M_1788882263189___E $?
+
+=== sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -c 'Starting bitcoin-trader-72h-soak' (rc=0) ===
+__M_1788882263429___S
+
+===PROMPT_CLEAN=== sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -c 'Starting bitcoin-trader-72h-soak'
+
+
+1
+
+===PROMPT_CLEAN=== echo __M_1788882263429___E $?
+
+=== sudo find /var/lib/bitcoin-trader/ -maxdepth 3 -name '*metrics*.json' -ls (rc=-1) ===
+159432055     12 -rw-------   1 bitcoin-trader bitcoin-trader    11341 Sep  3 10:00 /var/lib/bitcoin-trader/short-smoke/aws-short-smoke-20260902-38cb8a72/collector_metrics.json
+
+ 25183402      4 -rw-------   1 bitcoin-trader bitcoin-trader     2793 Sep  4 04:32 /var/lib/bitcoin-trader/short-smoke/aws-short-smoke-20260904-f5257d24/collector_metrics.json
+
+ 92283568      4 -rw-r--r--   1 bitcoin-trader bitcoin-trader      217 Sep  3 15:53 /var/lib/bitcoin-trader/remediation-evidence-650adc8/mini_metrics.json
+
+ 16795061      4 -rw-------   1 bitcoin-trader bitcoin-trader     2805 Sep  4 07:40 /var/lib/bitcoin-trader/120m-validation/aws-120m-validation-20260904-73d8e43c/collector_metrics.json
+
+109193177      4 -rw-------   1 bitcoin-trader bitcoin-trader     2895 Sep  8 05:40 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json
+
+===PROMPT_CLEAN=== echo __M_1788882263659___S
+
+
+__M_1788882263659___S
+
+===PROMPT_CLEAN=== sudo find /var/lib/bitcoin-trader/ -maxdepth 3 -name '*metrics*.json' -ls
+
+
+echo __M_1788882263659___E $?

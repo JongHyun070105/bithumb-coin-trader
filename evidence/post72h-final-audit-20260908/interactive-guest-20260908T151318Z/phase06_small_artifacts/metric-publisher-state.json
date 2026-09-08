@@ -1,0 +1,9 @@
+{
+  "collector_run_id": "aws-72h-soak-run-20260905T024039Z-8017b83e",
+  "counters": {
+    "queue_drops": 0,
+    "writer_errors": 0
+  },
+  "published_at": "2026-09-08T05:39:41.106268+00:00",
+  "schema_version": 1
+}

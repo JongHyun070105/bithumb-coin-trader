@@ -1,0 +1,30 @@
+{
+  "scan": "FULL_SCAN_05_UTC_RAW_AND_ZSTD_PARTITIONS",
+  "epoch": "aws-72h-soak-20260905-8017b83e",
+  "hour": "05",
+  "integrity": {
+    "totals": {
+      "files": 152,
+      "logical_bytes": 572677212,
+      "records": 360356,
+      "valid_records": 360356,
+      "invalid_json": 0,
+      "schema_mismatch": 0,
+      "missing_required_fields": 0,
+      "non_finite_numeric": 0,
+      "malformed_timestamps": 0,
+      "unknown_market": 0,
+      "scan_failures": 0,
+      "compressed_files": 76,
+      "status": "PASS"
+    },
+    "failures": []
+  },
+  "quarantine": {
+    "records": 0,
+    "reasons": {},
+    "malformed": 0
+  },
+  "elapsed_seconds": 11.739208698272705,
+  "timestamp": 1788588790.3833969
+}

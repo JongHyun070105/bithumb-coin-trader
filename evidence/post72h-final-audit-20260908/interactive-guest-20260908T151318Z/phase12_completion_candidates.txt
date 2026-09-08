@@ -1,0 +1,44 @@
+=== sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -iE 'Main process exited|Deactivated successfully|Failed with result' | tail -n 5 (rc=0) ===
+echo __M_1788882262549___S
+
+
+__M_1788882262549___S
+
+===PROMPT_CLEAN=== sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -iE 'Main process exited|Deactivated successfully|Failed with result' | tail -n 5
+
+
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Main process exited, code=exited, status=143/n/a
+
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Failed with result 'exit-code'.
+
+===PROMPT_CLEAN=== echo __M_1788882262549___E $?
+
+=== sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/trade/bithumb_trade_krw-btc_2026-09-08_05.jsonl (rc=-1) ===
+{"exchange":"bithumb","stream":"trade","market":"KRW-BTC","exchange_ts":"2026-09-08T05:39:29.470000+00:00","local_recv_ts":"2026-09-08T05:39:29.722098+00:00","local_recv_monotonic_ns":607980165520466,"collector_run_id":"aws-72h-soak-run-20260905T024039Z-8017b83e","local_write_ts":"2026-09-08T05:39:29.722200+00:00","payload":{"type":"trade","code":"KRW-BTC","trade_price":107040000,"trade_volume":9.151e-05,"ask_bid":"ASK","prev_closing_price":107850000,"change":"FALL","change_price":810000,"trade_date":"2026-09-08","trade_time":"14:39:29","trade_timestamp":1788845969470,"sequential_id":1036750393750611203,"timestamp":1788845969718,"stream_type":"REALTIME"}}
+
+{"exchange":"bithumb","stream":"trade","market":"KRW-BTC","exchange_ts":"2026-09-08T05:39:56.468000+00:00","local_recv_ts":"2026-09-08T05:39:56.730096+00:00","local_recv_monotonic_ns":608007173519174,"collector_run_id":"aws-72h-soak-run-20260905T024039Z-8017b83e","local_write_ts":"2026-09-08T05:39:56.730223+00:00","payload":{"type":"trade","code":"KRW-BTC","trade_price":107040000,"trade_volume":1.92e-06,"ask_bid":"BID","prev_closing_price":107850000,"change":"FALL","change_price":810000,"trade_date":"2026-09-08","trade_time":"14:39:56","trade_timestamp":1788845996468,"sequential_id":1036751299653166340,"timestamp":1788845996719,"stream_type":"REALTIME"}}
+
+===PROMPT_CLEAN=== echo __M_1788882262749___S
+
+
+__M_1788882262749___S
+
+===PROMPT_CLEAN=== sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/trade/bithumb_trade_krw-btc_2026-09-08_05.jsonl
+
+
+echo __M_1788882262749___E $?
+
+=== sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/orderbook/bithumb_orderbook_krw-btc_2026-09-08_05.jsonl (rc=-1) ===
+{"exchange":"bithumb","stream":"orderbook","market":"KRW-BTC","exchange_ts":"2026-09-08T05:40:03.072305+00:00","local_recv_ts":"2026-09-08T05:40:03.153163+00:00","local_recv_monotonic_ns":608013596583468,"collector_run_id":"aws-72h-soak-run-20260905T024039Z-8017b83e","local_write_ts":"2026-09-08T05:40:03.153250+00:00","payload":{"type":"orderbook","code":"KRW-BTC","total_ask_size":0.1245,"total_bid_size":0.9172,"orderbook_units":[{"ask_price":107041000,"bid_price":107040000,"ask_size":0.0,"bid_size":0.0021},{"ask_price":107044000,"bid_price":107037000,"ask_size":0.0051,"bid_size":0.0003},{"ask_price":107046000,"bid_price":107008000,"ask_size":0.002,"bid_size":0.0076},{"ask_price":107048000,"bid_price":106992000,"ask_size":0.0025,"bid_size":0.0001},{"ask_price":107053000,"bid_price":106991000,"ask_size":0.0056,"bid_size":0.0246},{"ask_price":107056000,"bid_price":106990000,"ask_size":0.0003,"bid_size":0.002},{"ask_price":107057000,"bid_price":106988000,"ask_size":0.0012,"bid_size":0.005},{"ask_price":107058000,"bid_price":106984000,"ask_size":0.0009,"bid_size":0.059},{"ask_price":107059000,"bid_price":106981000,"ask_size":0.0245,"bid_size":0.0554},{"ask_price":107060000,"bid_price":106980000,"ask_size":0.0484,"bid_size":0.06},{"ask_price":107065000,"bid_price":106979000,"ask_size":0.0093,"bid_size":0.0051},{"ask_price":107066000,"bid_price":106976000,"ask_size":0.0028,"bid_size":0.4609},{"ask_price":107068000,"bid_price":106975000,"ask_size":0.0061,"bid_size":0.1114},{"ask_price":107070000,"bid_price":106972000,"ask_size":0.0149,"bid_size":0.1168},{"ask_price":107071000,"bid_price":106971000,"ask_size":0.0009,"bid_size":0.0069}],"level":1,"timestamp":1788846003072305,"stream_type":"REALTIME"}}
+
+{"exchange":"bithumb","stream":"orderbook","market":"KRW-BTC","exchange_ts":"2026-09-08T05:40:03.151296+00:00","local_recv_ts":"2026-09-08T05:40:03.204879+00:00","local_recv_monotonic_ns":608013648299075,"collector_run_id":"aws-72h-soak-run-20260905T024039Z-8017b83e","local_write_ts":"2026-09-08T05:40:03.204955+00:00","payload":{"type":"orderbook","code":"KRW-BTC","total_ask_size":0.1245,"total_bid_size":0.9172,"orderbook_units":[{"ask_price":107041000,"bid_price":107040000,"ask_size":0.0,"bid_size":0.0021},{"ask_price":107044000,"bid_price":107037000,"ask_size":0.0051,"bid_size":0.0003},{"ask_price":107046000,"bid_price":107008000,"ask_size":0.002,"bid_size":0.0076},{"ask_price":107048000,"bid_price":106992000,"ask_size":0.0025,"bid_size":0.0001},{"ask_price":107053000,"bid_price":106991000,"ask_size":0.0056,"bid_size":0.0246},{"ask_price":107056000,"bid_price":106990000,"ask_size":0.0003,"bid_size":0.002},{"ask_price":107057000,"bid_price":106988000,"ask_size":0.0012,"bid_size":0.005},{"ask_price":107058000,"bid_price":106984000,"ask_size":0.0009,"bid_size":0.059},{"ask_price":107059000,"bid_price":106981000,"ask_size":0.0245,"bid_size":0.0554},{"ask_price":107060000,"bid_price":106980000,"ask_size":0.0484,"bid_size":0.06},{"ask_price":107065000,"bid_price":106979000,"ask_size":0.0093,"bid_size":0.0051},{"ask_price":107066000,"bid_price":106976000,"ask_size":0.0028,"bid_size":0.4609},{"ask_price":107068000,"bid_price":106975000,"ask_size":0.0185,"bid_size":0.1114},{"ask_price":107070000,"bid_price":106972000,"ask_size":0.0025,"bid_size":0.1168},{"ask_price":107071000,"bid_price":106971000,"ask_size":0.0009,"bid_size":0.0069}],"level":1,"timestamp":1788846003151296,"stream_type":"REALTIME"}}
+
+===PROMPT_CLEAN=== echo __M_1788882262969___S
+
+
+__M_1788882262969___S
+
+===PROMPT_CLEAN=== sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/orderbook/bithumb_orderbook_krw-btc_2026-09-08_05.jsonl
+
+
+echo __M_1788882262969___E $?

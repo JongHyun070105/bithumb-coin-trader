@@ -1,0 +1,35 @@
+=== df -h / (rc=0) ===
+__M_1788882261227___S
+
+===PROMPT_CLEAN=== df -h /
+
+
+Filesystem      Size  Used Avail Use% Mounted on
+
+/dev/nvme0n1p1  200G   73G  128G  37% /
+
+===PROMPT_CLEAN=== echo __M_1788882261227___E $?
+
+=== sudo du -sh /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/* (rc=-1) ===
+du: cannot access '/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/*': No such file or directory
+
+===PROMPT_CLEAN=== echo __M_1788882261559___S
+
+
+__M_1788882261559___S
+
+===PROMPT_CLEAN=== sudo du -sh /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/*
+
+
+echo __M_1788882261559___E $?
+
+=== sudo find /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e -user root -ls 2>/dev/null || echo NO_ROOT (rc=-1) ===
+echo __M_1788882261751___S
+
+sudo find /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e -user root -ls 2>/dev/null || echo NO_ROOT
+
+echo __M_1788882261751___E $?
+
+184822046      0 drwxr-xr-x   2 root     root            6 Sep  8 15:23 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/local-archive-fixture
+
+===PROMPT_CLEAN===

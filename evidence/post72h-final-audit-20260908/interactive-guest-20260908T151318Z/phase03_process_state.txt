@@ -1,0 +1,55 @@
+=== ps aux | grep -E 'python|collector|supervisor|archive|bithumb' | grep -v grep || echo 'NO_MATCHING_PROCESS' (rc=0) ===
+root      389435  0.0  0.2 235456  8424 pts/3    S+   15:18   0:00 sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+
+root      389447  0.0  0.0 235456  2656 pts/4    Ss+  15:18   0:00 sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+
+root      389448  6.3  0.7 252416 28060 pts/4    S    15:18   0:02 /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+
+=== pgrep -fl python || echo 'NO_PYTHON_PROCESS' (rc=0) ===
+389435 sudo
+
+389447 sudo
+
+389448 python
+
+=== sudo systemctl list-units --all 'bitcoin*' --no-pager (rc=0) ===
+UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+
+To show all installed unit files use 'systemctl list-unit-files'.
+
+=== sudo systemctl list-units --all '*collector*' --no-pager (rc=0) ===
+UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+
+To show all installed unit files use 'systemctl list-unit-files'.
+
+=== sudo systemctl list-units --all '*soak*' --no-pager (rc=0) ===
+UNIT LOAD ACTIVE SUB DESCRIPTION
+
+0 loaded units listed.
+
+To show all installed unit files use 'systemctl list-unit-files'.
+
+=== sudo systemctl list-timers --all --no-pager (rc=0) ===
+NEXT         LEFT        LAST          PASSED        UNIT          ACTIVATES    
+
+Tue 2026-09… 14s left    Tue 2026-09-… 47s ago       refresh-poli… refresh-poli…
+
+Tue 2026-09… 35s left    Tue 2026-09-… 9min ago      sysstat-coll… sysstat-coll…
+
+Wed 2026-09… 8h left     Tue 2026-09-… 15h ago       logrotate.ti… logrotate.se…
+
+Wed 2026-09… 8h left     Tue 2026-09-… 15h ago       sysstat-summ… sysstat-summ…
+
+Wed 2026-09… 13h left    Tue 2026-09-… 10h ago       systemd-tmpf… systemd-tmpf…
+
+Wed 2026-09… 16h left    Tue 2026-09-… 5h 4min ago   update-motd.… update-motd.…
+
+Mon 2026-09… 5 days left Mon 2026-09-… 1 day 14h ago fstrim.timer  fstrim.servi…
+
+
+
+7 timers listed.

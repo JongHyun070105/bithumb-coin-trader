@@ -1,0 +1,20 @@
+=== whoami (rc=0) ===
+ssm-user
+
+=== id (rc=0) ===
+uid=1001(ssm-user) gid=1001(ssm-user) groups=1001(ssm-user) context=system_u:system_r:unconfined_service_t:s0
+
+=== date -u +'%Y-%m-%dT%H:%M:%SZ' (rc=0) ===
+2026-09-08T15:19:23Z
+
+=== pwd (rc=0) ===
+/usr/bin
+
+=== hostname (rc=0) ===
+ip-10-91-1-65.ap-northeast-2.compute.internal
+
+=== uname -a (rc=0) ===
+Linux ip-10-91-1-65.ap-northeast-2.compute.internal 6.12.103-127.188.amzn2023.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Aug 25 15:42:53 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+
+=== sudo id (rc=0) ===
+uid=0(root) gid=0(root) groups=0(root) context=system_u:system_r:unconfined_service_t:s0

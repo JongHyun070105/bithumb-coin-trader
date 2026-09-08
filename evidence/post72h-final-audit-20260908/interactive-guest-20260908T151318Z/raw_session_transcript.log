@@ -1,0 +1,409 @@
+
+Starting session with SessionId: codex-preapply-validation-tkazeb3se8g7pijrnne7euob3a
+[?2004hsh-5.2$ export PS1='<<<EVIDENCE_READY>>> '
+[?2004l[?2004h<<<EVIDENCE_READY>>> bind 'set enable-bracketed-paste off' 2>/dev/null
+[?2004l<<<EVIDENCE_READY>>> echo __MK_1788880763420___S; whoami; echo __MK_1788880763420___E $?
+__MK_1788880763420___S
+ssm-user
+__MK_1788880763420___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763438___S; id; echo __MK_1788880763438___E $?
+__MK_1788880763438___S
+uid=1001(ssm-user) gid=1001(ssm-user) groups=1001(ssm-user) context=system_u:system_r:unconfined_service_t:s0
+__MK_1788880763438___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763458___S; date -u +'%Y-%m-%dT%H:%M:%SZ'; echo __MK_1788880763458___E $?
+__MK_1788880763458___S
+2026-09-08T15:19:23Z
+__MK_1788880763458___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763476___S; pwd; echo __MK_1788880763476___E $?
+__MK_1788880763476___S
+/usr/bin
+__MK_1788880763476___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763492___S; hostname; echo __MK_1788880763492___E $?
+__MK_1788880763492___S
+ip-10-91-1-65.ap-northeast-2.compute.internal
+__MK_1788880763492___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763510___S; uname -a; echo __MK_1788880763510___E $?
+__MK_1788880763510___S
+Linux ip-10-91-1-65.ap-northeast-2.compute.internal 6.12.103-127.188.amzn2023.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Aug 25 15:42:53 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+__MK_1788880763510___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763528___S; sudo id; echo __MK_1788880763528___E $?
+__MK_1788880763528___S
+uid=0(root) gid=0(root) groups=0(root) context=system_u:system_r:unconfined_service_t:s0
+__MK_1788880763528___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763667___S; ps aux | grep -E 'python|collector|supervisor|archive|bithumb' | grep -v grep || echo 'NO_MATCHING_PROCESS'; echo __MK_1788880763667___E $?
+__MK_1788880763667___S
+root      389435  0.0  0.2 235456  8424 pts/3    S+   15:18   0:00 sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+root      389447  0.0  0.0 235456  2656 pts/4    Ss+  15:18   0:00 sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+root      389448  6.3  0.7 252416 28060 pts/4    S    15:18   0:02 /var/lib/bitcoin-trader/venv-pre-soak/bin/python -
+__MK_1788880763667___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763691___S; pgrep -fl python || echo 'NO_PYTHON_PROCESS'; echo __MK_1788880763691___E $?
+__MK_1788880763691___S
+389435 sudo
+389447 sudo
+389448 python
+__MK_1788880763691___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763732___S; sudo systemctl list-units --all 'bitcoin*' --no-pager; echo __MK_1788880763732___E $?
+__MK_1788880763732___S
+[0m[0;4m [0m[0m[0;4m UNIT[0m[0m[0;4m LOAD[0m[0m[0;4m ACTIVE[0m[0m[0;4m SUB[0m[0m[0;4m DESCRIPTION[0m
+[0;1;31m0 loaded units listed.[0m
+[0;38;5;245mTo show all installed unit files use 'systemctl list-unit-files'.[0m
+__MK_1788880763732___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763856___S; sudo systemctl list-units --all '*collector*' --no-pager; echo __MK_1788880763856___E $?
+__MK_1788880763856___S
+[0m[0;4m [0m[0m[0;4m UNIT[0m[0m[0;4m LOAD[0m[0m[0;4m ACTIVE[0m[0m[0;4m SUB[0m[0m[0;4m DESCRIPTION[0m
+[0;1;31m0 loaded units listed.[0m
+[0;38;5;245mTo show all installed unit files use 'systemctl list-unit-files'.[0m
+__MK_1788880763856___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880763966___S; sudo systemctl list-units --all '*soak*' --no-pager; echo __MK_1788880763966___E $?
+__MK_1788880763966___S
+[0m[0;4m [0m[0m[0;4m UNIT[0m[0m[0;4m LOAD[0m[0m[0;4m ACTIVE[0m[0m[0;4m SUB[0m[0m[0;4m DESCRIPTION[0m
+[0;1;31m0 loaded units listed.[0m
+[0;38;5;245mTo show all installed unit files use 'systemctl list-unit-files'.[0m
+__MK_1788880763966___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764078___S; sudo systemctl list-timers --all --no-pager; echo __MK_1788880764078___E $?
+__MK_1788880764078___S
+[0m[0;4mNEXT        [0m[0m[0;4m LEFT       [0m[0m[0;4m LAST         [0m[0m[0;4m PASSED       [0m[0m[0;4m UNIT         [0m[0m[0;4m ACTIVATES    [0m
+Tue 2026-09… 14s left    Tue 2026-09-… 47s ago       refresh-poli… refresh-poli…
+Tue 2026-09… 35s left    Tue 2026-09-… 9min ago      sysstat-coll… sysstat-coll…
+Wed 2026-09… 8h left     Tue 2026-09-… 15h ago       logrotate.ti… logrotate.se…
+Wed 2026-09… 8h left     Tue 2026-09-… 15h ago       sysstat-summ… sysstat-summ…
+Wed 2026-09… 13h left    Tue 2026-09-… 10h ago       systemd-tmpf… systemd-tmpf…
+Wed 2026-09… 16h left    Tue 2026-09-… 5h 4min ago   update-motd.… update-motd.…
+Mon 2026-09… 5 days left Mon 2026-09-… 1 day 14h ago fstrim.timer  fstrim.servi…
+
+[0;1;39m7 timers listed.[0m
+__MK_1788880764078___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764202___S; sudo systemctl show bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service -p Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestamp,ExecMainExitTimestampMonotonic,InactiveEnterTimestamp,StateChangeTimestamp,MainPID,StatusText,Description,User,ExecStart --no-pager; echo __MK_1788880764202___E $?
+__MK_1788880764202___S
+MainPID=0
+StatusText=
+Result=success
+ExecMainStartTimestamp=
+ExecMainStartTimestampMonotonic=0
+ExecMainExitTimestamp=
+ExecMainExitTimestampMonotonic=0
+ExecMainCode=0
+ExecMainStatus=0
+User=
+Id=bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service
+Description=bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service
+LoadState=not-found
+ActiveState=inactive
+SubState=dead
+StateChangeTimestamp=
+InactiveEnterTimestamp=
+__MK_1788880764202___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764342___S; sudo systemctl status bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service --no-pager || true; echo __MK_1788880764342___E $?
+__MK_1788880764342___S
+[0;1;31mUnit bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service could not be found.[0m
+__MK_1788880764342___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764459___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | head -n 40; echo __MK_1788880764459___E $?
+__MK_1788880764459___S
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration...
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration.
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Main process exited, code=exited, status=143/n/a
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Failed with result 'exit-code'.
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Consumed 8h 47min 11.839s CPU time.
+__MK_1788880764459___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764573___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | tail -n 50; echo __MK_1788880764573___E $?
+__MK_1788880764573___S
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration...
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration.
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Main process exited, code=exited, status=143/n/a
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Failed with result 'exit-code'.
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Consumed 8h 47min 11.839s CPU time.
+__MK_1788880764573___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764687___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -iE 'started|stopping|stopped|exited|failed|sigterm|sigkill|duration|flush' | head -n 50; echo __MK_1788880764687___E $?
+__MK_1788880764687___S
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration...
+Sep 05 05:40:02 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service - /var/lib/bitcoin-trader/venv-pre-soak/bin/python scripts/run_bounded_short_smoke.py --run-id aws-72h-soak-run-20260905T024039Z-8017b83e --duration-seconds 259200 --collector-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_cross_market_collector.py", "--bithumb-markets", "20", "--duration", "259200", "--config-file", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json", "--storage-base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--environment-id", "aws-apne2-research", "--collector-epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--config-fingerprint", "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b", "--runtime-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--lifecycle-status-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json"] --publisher-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/publish_collector_metrics.py", "--environment-id", "aws-apne2-research", "--region", "ap-northeast-2", "--metrics-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json", "--state-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json", "--storage-path", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw", "--ops-log", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/metric-publisher-ops.jsonl"] --archive-scheduler-command-json ["/var/lib/bitcoin-trader/venv-pre-soak/bin/python", "scripts/run_closed_hour_archive_scheduler.py", "--epoch", "aws-72h-soak-20260905-8017b83e", "--run-id", "aws-72h-soak-run-20260905T024039Z-8017b83e", "--base-dir", "/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e", "--environment-id", "aws-apne2-research", "--git-commit", "9532cebc902856d954bf80b51dbe567b543dc8e2", "--store", "s3", "--s3-bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433", "--allow-aws-write", "--remote-prefix", "market-data/temporary/aws-72h-soak-20260905-8017b83e", "--poll-interval-seconds", "30.0", "--grace-seconds", "600", "--expected-owner", "bitcoin-trader", "--scan-runner", "auto", "--disk-critical-percent", "90.0"] --metrics-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json --collector-lifecycle-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector-lifecycle.json --result-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json --log-path /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/logs/supervisor.log --publisher-interval-seconds 60 --shutdown-grace-seconds 45.0 --require-full-duration.
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Main process exited, code=exited, status=143/n/a
+Sep 08 05:41:33 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service: Failed with result 'exit-code'.
+__MK_1788880764687___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880764827___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json; echo __MK_1788880764827___E $?
+__MK_1788880764827___S
+838 1788846093 993 993
+33d4fd460e069928464e2cbc0dbeb8e3853db40f65214da0440e972a2cff18cf  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json
+__MK_1788880764827___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880765102___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/result.json; echo __MK_1788880765102___E $?
+__MK_1788880765102___S
+ewogICJhcmNoaXZlX3NjaGVkdWxlcl9leGl0X2NvZGUiOiAtOSwKICAiYXJjaGl2ZV9zY2hlZHVsZXJfcGlkIjogMjI5MDc3LAogICJhcmNoaXZlX3NjaGVkdWxlcl9zdGFydGVkIjogdHJ1ZSwKICAiYXJjaGl2ZV9zY2hlZHVsZXJfc3RvcHBlZF9hZnRlcl9jb2xsZWN0b3IiOiB0cnVlLAogICJjb2xsZWN0b3JfZXhpdF9jb2RlIjogLTE1LAogICJjb2xsZWN0b3JfcGlkIjogMjI5MDc2LAogICJkdXJhdGlvbl9saW1pdF9zZWNvbmRzIjogMjU5MjAwLjAsCiAgImVsYXBzZWRfc2Vjb25kcyI6IDI1OTI5MC4yMTg1OTksCiAgImVuZGVkX2F0IjogIjIwMjYtMDktMDhUMDU6NDE6MzMuMjc3NjMwKzAwOjAwIiwKICAiZmluYWxfbWFuaWZlc3RfZmx1c2hfb2JzZXJ2ZWQiOiBmYWxzZSwKICAiZmluYWxfbWV0cmljc192YWxpZCI6IHRydWUsCiAgImZvcmNlZF90aW1lb3V0IjogdHJ1ZSwKICAiZnVsbF9kdXJhdGlvbl9zYXRpc2ZpZWQiOiB0cnVlLAogICJvdmVyYWxsX3N0YXR1cyI6ICJJTlRFUlJVUFRFRCIsCiAgInB1Ymxpc2hlcl9leGl0X2NvZGUiOiAwLAogICJwdWJsaXNoZXJfcGlkIjogMzcwNjI5LAogICJwdWJsaXNoZXJfc3RhcnRlZCI6IHRydWUsCiAgInB1Ymxpc2hlcl9zdG9wcGVkX2FmdGVyX2NvbGxlY3RvciI6IGZhbHNlLAogICJyZWNlaXZlZF9zaWduYWwiOiAiU0lHVEVSTSIsCiAgInJ1bl9pZCI6ICJhd3MtNzJoLXNvYWstcnVuLTIwMjYwOTA1VDAyNDAzOVotODAxN2I4M2UiLAogICJzY2hlbWFfdmVyc2lvbiI6IDEsCiAgInN0YXJ0ZWRfYXQiOiAiMjAyNi0wOS0wNVQwNTo0MDowMy4wNTg2NjArMDA6MDAiLAogICJzdXBlcnZpc29yX3BpZCI6IDIyOTA3NQp9Cg==__MK_1788880765102___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880765222___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json; echo __MK_1788880765222___E $?
+__MK_1788880765222___S
+2895 1788846003 993 993
+5ba0c637e00608a514eec37d1f71b0cd186ecf3c35b5750c0fef34c2636dce9b  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json
+__MK_1788880765222___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880765553___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/collector_metrics.json; echo __MK_1788880765553___E $?
+__MK_1788880765553___S
+ewogICJhY3RpdmVfcGFydGl0aW9uX2ZpbGVzIjogW10sCiAgImNvbGxlY3Rvcl9jb25maWdfZmluZ2VycHJpbnQiOiAiYTAyM2ZiNTcyMzgzMGMzOGE3ZjdkNDdmMjQzOTMzNGZjYjQ0ZDJjNjU1OTkzOWRiYTdhN2NiMWMyZjg4NzgzYiIsCiAgImNvbGxlY3Rvcl9lcG9jaCI6ICJhd3MtNzJoLXNvYWstMjAyNjA5MDUtODAxN2I4M2UiLAogICJjb2xsZWN0b3JfZ2l0X2NvbW1pdCI6ICI5NTMyY2ViYzkwMjg1NmQ5NTRiZjgwYjUxZGJlNTY3YjU0M2RjOGUyIiwKICAiY29sbGVjdG9yX3J1bl9pZCI6ICJhd3MtNzJoLXNvYWstcnVuLTIwMjYwOTA1VDAyNDAzOVotODAxN2I4M2UiLAogICJjb2xsZWN0b3Jfc3RhcnRlZF9hdCI6ICIyMDI2LTA5LTA1VDA1OjQwOjAzLjIwNzMyOCswMDowMCIsCiAgImVudmlyb25tZW50X2lkIjogImF3cy1hcG5lMi1yZXNlYXJjaCIsCiAgImV4Y2hhbmdlcyI6IHsKICAgICJiaW5hbmNlIjogewogICAgICAiY3VycmVudF9jb25uZWN0aW9uX3VwdGltZV9zZWNvbmRzIjogNzk3LjE3LAogICAgICAiZGlzY29ubmVjdF9jb3VudCI6IDMsCiAgICAgICJleGNoYW5nZSI6ICJiaW5hbmNlIiwKICAgICAgImtiX3Blcl9zZWMiOiA1My4yNywKICAgICAgImxhc3RfcmVjb25uZWN0X3JlYXNvbiI6ICJyZWNlaXZlZCAxMDAxIChnb2luZyBhd2F5KTsgdGhlbiBzZW50IDEwMDEgKGdvaW5nIGF3YXkpIiwKICAgICAgIm1hbGZvcm1lZF9xdWFyYW50aW5lZCI6IDAsCiAgICAgICJtc2dfcGVyX3NlYyI6IDkxLjcsCiAgICAgICJxdWV1ZV9iYWNrcHJlc3N1cmVfZXZlbnRzIjogMCwKICAgICAgInF1ZXVlX2Ryb3BwZWRfZXZlbnRzIjogMCwKICAgICAgInJlY29ubmVjdF9jb3VudCI6IDMsCiAgICAgICJzZWNvbmRzX3NpbmNlX2xhc3RfY29ubmVjdGlvbl9ldmVudCI6IDAuMDEsCiAgICAgICJzdHJlYW1fY291bnRzIjogewogICAgICAgICJvcmRlcmJvb2siOiA4NTc0MTg1LAogICAgICAgICJ0aWNrZXIiOiAwLAogICAgICAgICJ0cmFkZSI6IDE1MTk0ODYwCiAgICAgIH0sCiAgICAgICJ0b3RhbF9ieXRlcyI6IDE0MTM5NDMxODM3LAogICAgICAidG90YWxfbWVzc2FnZXMiOiAyMzc2OTA0NSwKICAgICAgInRyYWRlX2R1cGxpY2F0ZXMiOiAwLAogICAgICAidHJhZGVfc2VxdWVuY2VfZ2FwcyI6IDAsCiAgICAgICJ1cHRpbWVfc2Vjb25kcyI6IDI1OTIwMC4wMywKICAgICAgIndyaXRlcl9lcnJvcnMiOiAwCiAgICB9LAogICAgImJpdGh1bWIiOiB7CiAgICAgICJjdXJyZW50X2Nvbm5lY3Rpb25fdXB0aW1lX3NlY29uZHMiOiA1NDE0NS41NywKICAgICAgImRpc2Nvbm5lY3RfY291bnQiOiAyLAogICAgICAiZXhjaGFuZ2UiOiAiYml0aHVtYiIsCiAgICAgICJrYl9wZXJfc2VjIjogMTAxLjg4LAogICAgICAibGFzdF9yZWNvbm5lY3RfcmVhc29uIjogImNvbm5lY3Rpb25fc3RhbGVfMzBzIiwKICAgICAgIm1hbGZvcm1lZF9xdWFyYW50aW5lZCI6IDAsCiAgICAgICJtc2dfcGVyX3NlYyI6IDc4LjQ3LAogICAgICAicXVldWVfYmFja3ByZXNzdXJlX2V2ZW50cyI6IDAsCiAgICAgICJxdWV1ZV9kcm9wcGVkX2V2ZW50cyI6IDAsCiAgICAgICJyZWNvbm5lY3RfY291bnQiOiAyLAogICAgICAic2Vjb25kc19zaW5jZV9sYXN0X2Nvbm5lY3Rpb25fZXZlbnQiOiAwLjAzLAogICAgICAic3RyZWFtX2NvdW50cyI6IHsKICAgICAgICAib3JkZXJib29rIjogMTk0MTMyNDksCiAgICAgICAgInRpY2tlciI6IDM3NjYyMSwKICAgICAgICAidHJhZGUiOiA1NTAxNzUKICAgICAgfSwKICAgICAgInRvdGFsX2J5dGVzIjogMjcwNDAyOTQxODQsCiAgICAgICJ0b3RhbF9tZXNzYWdlcyI6IDIwMzQwMDQ1LAogICAgICAidHJhZGVfZHVwbGljYXRlcyI6IDAsCiAgICAgICJ0cmFkZV9zZXF1ZW5jZV9nYXBzIjogMCwKICAgICAgInVwdGltZV9zZWNvbmRzIjogMjU5MjAwLjAzLAogICAgICAid3JpdGVyX2Vycm9ycyI6IDAKICAgIH0sCiAgICAidXBiaXQiOiB7CiAgICAgICJjdXJyZW50X2Nvbm5lY3Rpb25fdXB0aW1lX3NlY29uZHMiOiAyNTkyMDAuMDEsCiAgICAgICJkaXNjb25uZWN0X2NvdW50IjogMCwKICAgICAgImV4Y2hhbmdlIjogInVwYml0IiwKICAgICAgImtiX3Blcl9zZWMiOiA1NC42NCwKICAgICAgImxhc3RfcmVjb25uZWN0X3JlYXNvbiI6ICIiLAogICAgICAibWFsZm9ybWVkX3F1YXJhbnRpbmVkIjogMCwKICAgICAgIm1zZ19wZXJfc2VjIjogMjIuMjMsCiAgICAgICJxdWV1ZV9iYWNrcHJlc3N1cmVfZXZlbnRzIjogMCwKICAgICAgInF1ZXVlX2Ryb3BwZWRfZXZlbnRzIjogMCwKICAgICAgInJlY29ubmVjdF9jb3VudCI6IDAsCiAgICAgICJzZWNvbmRzX3NpbmNlX2xhc3RfY29ubmVjdGlvbl9ldmVudCI6IDAuMDMsCiAgICAgICJzdHJlYW1fY291bnRzIjogewogICAgICAgICJvcmRlcmJvb2siOiA0ODQ5ODE2LAogICAgICAgICJ0aWNrZXIiOiAwLAogICAgICAgICJ0cmFkZSI6IDkxMTA4OQogICAgICB9LAogICAgICAidG90YWxfYnl0ZXMiOiAxNDUwMjgyNzAxOSwKICAgICAgInRvdGFsX21lc3NhZ2VzIjogNTc2MDkwNSwKICAgICAgInRyYWRlX2R1cGxpY2F0ZXMiOiAwLAogICAgICAidHJhZGVfc2VxdWVuY2VfZ2FwcyI6IDAsCiAgICAgICJ1cHRpbWVfc2Vjb25kcyI6IDI1OTIwMC4wMywKICAgICAgIndyaXRlcl9lcnJvcnMiOiAwCiAgICB9CiAgfSwKICAiZmF0YWxfd3JpdGVyX2Vycm9yX3R5cGUiOiBudWxsLAogICJwcm9jZXNzX2lkIjogMjI5MDc2LAogICJxdWV1ZV9tYXhzaXplIjogNTAwMDAsCiAgInF1ZXVlX3NpemUiOiAwLAogICJzY2hlbWFfdmVyc2lvbiI6IDEsCiAgInVucGVyc2lzdGVkX2V2ZW50X2NvdW50IjogMCwKICAid3JpdGVyX2ZhaWxfY2xvc2VkIjogZmFsc2UsCiAgIndyaXR0ZW5fYXQiOiAiMjAyNi0wOS0wOFQwNTo0MDowMy4yMzY1MzMrMDA6MDAiCn0K__MK_1788880765553___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880765663___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json; echo __MK_1788880765663___E $?
+__MK_1788880765663___S
+214 1788845981 993 993
+8e367da4b626c52c5891a75fd4e6bfeaba98f53cdd1ecabbc0963184465ca865  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json
+__MK_1788880765663___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880765951___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/metric-publisher-state.json; echo __MK_1788880765951___E $?
+__MK_1788880765951___S
+ewogICJjb2xsZWN0b3JfcnVuX2lkIjogImF3cy03Mmgtc29hay1ydW4tMjAyNjA5MDVUMDI0MDM5Wi04MDE3YjgzZSIsCiAgImNvdW50ZXJzIjogewogICAgInF1ZXVlX2Ryb3BzIjogMCwKICAgICJ3cml0ZXJfZXJyb3JzIjogMAogIH0sCiAgInB1Ymxpc2hlZF9hdCI6ICIyMDI2LTA5LTA4VDA1OjM5OjQxLjEwNjI2OCswMDowMCIsCiAgInNjaGVtYV92ZXJzaW9uIjogMQp9Cg==__MK_1788880765951___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880766070___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json; echo __MK_1788880766070___E $?
+__MK_1788880766070___S
+2619 1788577494 993 993
+cb3dee0331cebed2ede5b43a0092fad0b2aad0989be63f7666d3e6547a66c11c  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json
+__MK_1788880766070___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880766394___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/aws-72h-soak-20260905.runtime.json; echo __MK_1788880766394___E $?
+__MK_1788880766394___S
+ewogICJzY2hlbWFfdmVyc2lvbiI6IDEsCiAgInJ1bnRpbWVfc29mdHdhcmVfY29tbWl0IjogIjk1MzJjZWJjOTAyODU2ZDk1NGJmODBiNTFkYmU1NjdiNTQzZGM4ZTIiLAogICJlbnZpcm9ubWVudF9pZCI6ICJhd3MtYXBuZTItcmVzZWFyY2giLAogICJyZWdpb24iOiAiYXAtbm9ydGhlYXN0LTIiLAogICJhdmFpbGFiaWxpdHlfem9uZSI6ICJhcC1ub3J0aGVhc3QtMmEiLAogICJpbnN0YW5jZV90eXBlIjogInQzLm1lZGl1bSIsCiAgImFyY2hpdGVjdHVyZSI6ICJ4ODZfNjQiLAogICJyYXdfc2NoZW1hX3ZlcnNpb24iOiA0LAogICJjbG9ja19zb3VyY2UiOiAiQW1hem9uIFRpbWUgU3luYyBTZXJ2aWNlIDE2OS4yNTQuMTY5LjEyMyIsCiAgInB1YmxpY19kYXRhX29ubHkiOiB0cnVlLAogICJwcml2YXRlX2FwaV9lbmFibGVkIjogZmFsc2UsCiAgImR1cmF0aW9uX3NlY29uZHMiOiAyNTkyMDAsCiAgImZlZWRzIjogewogICAgImJpdGh1bWJfbWFya2V0X2NvdW50IjogMjAsCiAgICAiYml0aHVtYl9tYXJrZXRzIjogWwogICAgICAiS1JXLUJUQyIsCiAgICAgICJLUlctRVRIIiwKICAgICAgIktSVy1YUlAiLAogICAgICAiS1JXLVNPTCIsCiAgICAgICJLUlctRE9HRSIsCiAgICAgICJLUlctQURBIiwKICAgICAgIktSVy1YTE0iLAogICAgICAiS1JXLUxJTksiLAogICAgICAiS1JXLUFWQVgiLAogICAgICAiS1JXLUJDSCIsCiAgICAgICJLUlctRVRDIiwKICAgICAgIktSVy1ORUFSIiwKICAgICAgIktSVy1TVUkiLAogICAgICAiS1JXLUFQVCIsCiAgICAgICJLUlctVFJYIiwKICAgICAgIktSVy1TSElCIiwKICAgICAgIktSVy1TQU5EIiwKICAgICAgIktSVy1NQU5BIiwKICAgICAgIktSVy1BWFMiLAogICAgICAiS1JXLURPVCIKICAgIF0sCiAgICAiYmluYW5jZV9zeW1ib2xzIjogWwogICAgICAiYnRjdXNkdCIsCiAgICAgICJldGh1c2R0IiwKICAgICAgInNvbHVzZHQiLAogICAgICAieHJwdXNkdCIKICAgIF0sCiAgICAidXBiaXRfbWFya2V0cyI6IFsKICAgICAgIktSVy1CVEMiLAogICAgICAiS1JXLUVUSCIsCiAgICAgICJLUlctU09MIiwKICAgICAgIktSVy1YUlAiCiAgICBdCiAgfSwKICAicGF0aHMiOiB7CiAgICAicmF3X3Jvb3RfdGVtcGxhdGUiOiAiL3Zhci9saWIvYml0Y29pbi10cmFkZXIvNzJoLXNvYWsve2NvbGxlY3Rvcl9lcG9jaH0vcmF3IiwKICAgICJtYW5pZmVzdF9yb290X3RlbXBsYXRlIjogIi92YXIvbGliL2JpdGNvaW4tdHJhZGVyLzcyaC1zb2FrL3tjb2xsZWN0b3JfZXBvY2h9L21hbmlmZXN0cyIsCiAgICAiY29tcHJlc3NlZF9yb290X3RlbXBsYXRlIjogIi92YXIvbGliL2JpdGNvaW4tdHJhZGVyLzcyaC1zb2FrL3tjb2xsZWN0b3JfZXBvY2h9L2NvbXByZXNzZWQiLAogICAgInJlY2VpcHRfcm9vdF90ZW1wbGF0ZSI6ICIvdmFyL2xpYi9iaXRjb2luLXRyYWRlci83Mmgtc29hay97Y29sbGVjdG9yX2Vwb2NofS9hcmNoaXZlLXJlY2VpcHRzIiwKICAgICJtZXRyaWNzX3BhdGhfdGVtcGxhdGUiOiAiL3Zhci9saWIvYml0Y29pbi10cmFkZXIvNzJoLXNvYWsve2NvbGxlY3Rvcl9lcG9jaH0vY29sbGVjdG9yX21ldHJpY3MuanNvbiIsCiAgICAicHVibGlzaGVyX3N0YXRlX3BhdGhfdGVtcGxhdGUiOiAiL3Zhci9saWIvYml0Y29pbi10cmFkZXIvNzJoLXNvYWsve2NvbGxlY3Rvcl9lcG9jaH0vbWV0cmljLXB1Ymxpc2hlci1zdGF0ZS5qc29uIiwKICAgICJsb2dfcm9vdF90ZW1wbGF0ZSI6ICIvdmFyL2xpYi9iaXRjb2luLXRyYWRlci83Mmgtc29hay97Y29sbGVjdG9yX2Vwb2NofS9sb2dzIgogIH0sCiAgImFyY2hpdmUiOiB7CiAgICAicmVtb3RlX2NsYXNzIjogInRlbXBvcmFyeSIsCiAgICAidGVtcG9yYXJ5X3ByZWZpeF90ZW1wbGF0ZSI6ICJtYXJrZXQtZGF0YS90ZW1wb3Jhcnkve2NvbGxlY3Rvcl9lcG9jaH0iLAogICAgImNvbXByZXNzaW9uIjogewogICAgICAiYWxnb3JpdGhtIjogInpzdGQiLAogICAgICAibGV2ZWwiOiAxCiAgICB9LAogICAgIndvcmtlcl9jb25jdXJyZW5jeSI6IDEsCiAgICAiZ3JhY2Vfc2Vjb25kcyI6IDYwMCwKICAgICJjbGVhbnVwX2VuYWJsZWQiOiBmYWxzZQogIH0sCiAgImZ1bGxfc2Nhbl9hcmNoaXRlY3R1cmUiOiAic3VwZXJ2aXNlZC1kZXRhY2hlZC1zZXRzaWQiLAogICJhcmNoaXZlX2NvbmN1cnJlbmN5IjogMSwKICAiZnVsbF9zY2FuX2NvbmN1cnJlbmN5IjogMSwKICAibWV0cmljcyI6IHsKICAgICJuYW1lc3BhY2UiOiAiQml0Y29pblRyYWRlci9Db2xsZWN0b3IiLAogICAgImVudmlyb25tZW50X2RpbWVuc2lvbiI6ICJhd3MtYXBuZTItcmVzZWFyY2giLAogICAgInB1Ymxpc2hfY2FkZW5jZV9zZWNvbmRzIjogNjAsCiAgICAiZmFsc2VfZ3JlZW5fcHJvdGVjdGlvbiI6IHRydWUKICB9LAogICJkaXNrX3RocmVzaG9sZF9wZXJjZW50IjogewogICAgIndhcm5pbmciOiA3MCwKICAgICJoaWdoIjogODAsCiAgICAiY3JpdGljYWwiOiA5MAogIH0sCiAgImV4ZWN1dGlvbiI6IHsKICAgICJsYXVuY2hfbW9kZSI6ICJib3VuZGVkLXRyYW5zaWVudC1zeXN0ZW1kIiwKICAgICJjb2xsZWN0b3JfYXV0b3N0YXJ0IjogZmFsc2UsCiAgICAic3lzdGVtZF9lbmFibGUiOiBmYWxzZSwKICAgICJjcm9zc191dGNfaG91cl9yZXF1aXJlZCI6IHRydWUKICB9Cn0K__MK_1788880766394___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880766519___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/archive_backlog_metrics.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/archive_backlog_metrics.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/archive_backlog_metrics.json; echo __MK_1788880766519___E $?
+__MK_1788880766519___S
+548 1788845857 993 993
+05d4d2ad02bb937210b61bcd9a95055e79accd02edc2b02049fa1d33cf837d1f  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/archive_backlog_metrics.json
+__MK_1788880766519___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880766855___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/archive_backlog_metrics.json; echo __MK_1788880766855___E $?
+__MK_1788880766855___S
+ewogICJ0aW1lc3RhbXAiOiAiMjAyNi0wOS0wOFQwNTozMzo0Ny44NDM2MDArMDA6MDAiLAogICJwZW5kaW5nX2FyY2hpdmVfam9icyI6IDAsCiAgInBlbmRpbmdfZnVsbF9zY2FuX2pvYnMiOiAwLAogICJjb21wbGV0ZWRfZnVsbF9zY2FuX2pvYnMiOiAxLAogICJmYWlsZWRfZnVsbF9zY2FuX2pvYnMiOiAwLAogICJydW5uaW5nX2Z1bGxfc2Nhbl9qb2JzIjogMCwKICAib2xkZXN0X3BlbmRpbmdfYWdlX3NlY29uZHMiOiBudWxsLAogICJhcmNoaXZlX2pvYl9mYWlsdXJlcyI6IDAsCiAgImFyY2hpdmVfZXJyb3JzIjogW10sCiAgImFyY2hpdmVkX2NvdW50IjogMCwKICAiYWxyZWFkeV92ZXJpZmllZF9jb3VudCI6IDIyOCwKICAibWFuaWZlc3RzX2dlbmVyYXRlZCI6IDAsCiAgImhvdXJzX2RldGVjdGVkIjogWwogICAgIjA1IgogIF0sCiAgInNjYW5fcmVzdWx0cyI6IHsKICAgICIwNSI6IHsKICAgICAgInN1Y2Nlc3MiOiB0cnVlLAogICAgICAibWVzc2FnZSI6ICJGdWxsIHNjYW4gZm9yIGhvdXIgMDUgYWxyZWFkeSBjb21wbGV0ZWQgUEFTUyIKICAgIH0KICB9Cn0=__MK_1788880766855___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880766965___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/full_scan_05_report.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/full_scan_05_report.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/full_scan_05_report.json; echo __MK_1788880766965___E $?
+__MK_1788880766965___S
+705 1788588790 993 993
+ec50ee56d0df9bc31ca0342cb3c5cae9d24a7ffb15416bd0485333402a9b9d7a  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/full_scan_05_report.json
+__MK_1788880766965___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880767293___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/full_scan_05_report.json; echo __MK_1788880767293___E $?
+__MK_1788880767293___S
+ewogICJzY2FuIjogIkZVTExfU0NBTl8wNV9VVENfUkFXX0FORF9aU1REX1BBUlRJVElPTlMiLAogICJlcG9jaCI6ICJhd3MtNzJoLXNvYWstMjAyNjA5MDUtODAxN2I4M2UiLAogICJob3VyIjogIjA1IiwKICAiaW50ZWdyaXR5IjogewogICAgInRvdGFscyI6IHsKICAgICAgImZpbGVzIjogMTUyLAogICAgICAibG9naWNhbF9ieXRlcyI6IDU3MjY3NzIxMiwKICAgICAgInJlY29yZHMiOiAzNjAzNTYsCiAgICAgICJ2YWxpZF9yZWNvcmRzIjogMzYwMzU2LAogICAgICAiaW52YWxpZF9qc29uIjogMCwKICAgICAgInNjaGVtYV9taXNtYXRjaCI6IDAsCiAgICAgICJtaXNzaW5nX3JlcXVpcmVkX2ZpZWxkcyI6IDAsCiAgICAgICJub25fZmluaXRlX251bWVyaWMiOiAwLAogICAgICAibWFsZm9ybWVkX3RpbWVzdGFtcHMiOiAwLAogICAgICAidW5rbm93bl9tYXJrZXQiOiAwLAogICAgICAic2Nhbl9mYWlsdXJlcyI6IDAsCiAgICAgICJjb21wcmVzc2VkX2ZpbGVzIjogNzYsCiAgICAgICJzdGF0dXMiOiAiUEFTUyIKICAgIH0sCiAgICAiZmFpbHVyZXMiOiBbXQogIH0sCiAgInF1YXJhbnRpbmUiOiB7CiAgICAicmVjb3JkcyI6IDAsCiAgICAicmVhc29ucyI6IHt9LAogICAgIm1hbGZvcm1lZCI6IDAKICB9LAogICJlbGFwc2VkX3NlY29uZHMiOiAxMS43MzkyMDg2OTgyNzI3MDUsCiAgInRpbWVzdGFtcCI6IDE3ODg1ODg3OTAuMzgzMzk2OQp9__MK_1788880767293___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880767411___S; sudo test -f /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/.full_scan_runner.json && sudo stat -c '%s %Y %u %g' /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/.full_scan_runner.json && sudo sha256sum /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/.full_scan_runner.json; echo __MK_1788880767411___E $?
+__MK_1788880767411___S
+220 1788588778 993 993
+7fa3b1cd3fb73c036f295ddea384fab21fc1dd1ec87a5cf013362f690524c1d4  /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/.full_scan_runner.json
+__MK_1788880767411___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880767692___S; sudo base64 -w 0 /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/archive-receipts/.full_scan_runner.json; echo __MK_1788880767692___E $?
+__MK_1788880767692___S
+ewogICJwaWQiOiAyMzE0OTIsCiAgImhvdXIiOiAiMDUiLAogICJlcG9jaCI6ICJhd3MtNzJoLXNvYWstMjAyNjA5MDUtODAxN2I4M2UiLAogICJzdGFydF90aW1lIjogIjIwMjYtMDktMDVUMDY6MTI6NTguNTgxOTkzKzAwOjAwIiwKICAidGltZW91dF9zZWNvbmRzIjogMTgwMC4wLAogICJzdGF0dXMiOiAiUlVOTklORyIsCiAgInByb2Nlc3Nfc3RhcnRfdGltZSI6ICIzNTA3ODg5NCIKfQ==__MK_1788880767692___E 0
+<<<EVIDENCE_READY>>> echo __MK_1788880767821___S; sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python -c "
+> import os
+> from pathlib import Path
+> from collections import Counter
+> 
+> raw_root = Path('/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw')
+> print(f"RAW Path: {raw_root}")
+> print(f"Exists: {raw_root.exists()}")
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> 
+<<<EVIDENCE_READY>>> all_files = list(raw_root.glob('**/*.jsonl'))
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> print(f"Total .jsonl files: {len(all_files)}")
+sh: syntax error near unexpected token `f"Total .jsonl files: {len(all_files)}"'
+<<<EVIDENCE_READY>>> 
+<<<EVIDENCE_READY>>> zero_sized = [f for f in all_files if f.stat().st_size == 0]
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> print(f"Zero-sized files: {len(zero_sized)}")
+sh: syntax error near unexpected token `f"Zero-sized files: {len(zero_sized)}"'
+<<<EVIDENCE_READY>>> 
+<<<EVIDENCE_READY>>> hours_counter = Counter()
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> exchanges_counter = Counter()
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> streams_counter = Counter()
+sh: syntax error near unexpected token `('
+<<<EVIDENCE_READY>>> 
+<<<EVIDENCE_READY>>> for f in all_files:
+>     parts = f.name.replace('.jsonl', '').split('_')
+sh: syntax error near unexpected token `parts'
+<<<EVIDENCE_READY>>>     # e.g. bithumb_orderbook_krw-btc_2026-09-05_05
+<<<EVIDENCE_READY>>>     if len(parts) >= 4:
+sh: syntax error near unexpected token `parts'
+<<<EVIDENCE_READY>>>         ex = parts[0]
+2 files to edit
+[?1049h[22;0;0t[>4;2m[?1h=[?2004h[?1004h[1;24r[?12h[?12l[22;2t[22;1t[?25l[24;1H"=" [New][2;1H▽[6n[2;1H  [3;1HPzz\[0%m[6n[3;1H           [1;1H[>c]11;?[1;1H[?25h[24;1H
+[?25lEntering Ex mode.  Type "visual" to go to Normal mode.[?25h
+:        st = parts[1]
+[?25l[97m[41mE488: Trailing characters: = parts[1][?25h[m
+:        dt = parts[-2]
+[?25l[97m[41mE492: Not an editor command: dt = parts[-2][?25h[m
+:        hr = parts[-1]
+[?25l[97m[41mE492: Not an editor command: hr = parts[-1][?25h[m
+:  [?4m      hours_counter[f"{dt}_{hr}"] += 1
+[?25l[97m[41mE492: Not an editor command: hours_counter[f"{dt}_{hr}"] += 1[?25h[m
+:        exchanges_counter[ex] += 1
+[?25l[97m[41mE492: Not an editor command: exchanges_counter[ex] += 1[?25h[m
+:        streams_counter[st] += 1
+[?25l[97m[41mE492: Not an editor command: streams_counter[st] += 1[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:sorted_hours = sorted(hours_counter.keys())
+[?25l[97m[41mE492: Not an editor command: sorted_hours = sorted(hours_counter.keys())[?25h[m
+:print(f"Distinct hour cohorts count: {len(sorted_hours)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Earliest 5 cohorts: {sorted_hours[:5]}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Latest 5 cohorts: {sorted_hours[-5:]}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Exchanges distribution: {dict(exchanges_counter)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Streams distribution: {dict(streams_counter)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:# File mtime earliest and latest
+[?25l[97m[41mE488: Trailing characters: File mtime earliest and latest[?25h[m
+:file_stats = [(f.stat().st_mtime, f.name) for f in all_files[:500]]
+[?25l"_stats = [(f.stat().st_mtime, f.name) for f in all_files[:500]]" [Not edited][
+[23;80HN[24;1Hew] --No lines in buffer-- (1 of 2)[?25h
+:all_mtimes = [f.stat().st_mtime for f in all_files]
+[?25l[97m[41mE488: Trailing characters: _mtimes = [f.stat().st_mtime for f in all_files][?25h[m
+:import datetime
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:print(f"Earliest mtime UTC: {datetime.datetime.fromtimestamp(min(all_mtimes), 
+[23;80Ht[24;1Hz=datetime.timezone.utc).isoformat()}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Latest mtime UTC: {datetime.datetime.fromtimestamp(max(all_mtimes), tz
+[23;80H=[24;1Hdatetime.timezone.utc).isoformat()}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:"; echo __MK_1788880767821___E $?
+:echo __MK_1788880767865___S; sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/py
+[23;80Ht[24;1Hhon -c "
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:import json
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:import os
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:from pathlib import Path
+[?25l[97m[41mE492: Not an editor command: from pathlib import Path[?25h[m
+:from collections import Counter
+[?25l[97m[41mE492: Not an editor command: from collections import Counter[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:base = Path('/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e')
+[?25l[97m[41mE492: Not an editor command: base = Path('/var/lib/bitcoin-trader/72h-soak/aws-[m
+[23;80H[97m[41m7[24;1H2h-soak-20260905-8017b83e')[?25h[m
+:cmp_dir = base / 'compressed'
+[?25l[97m[41mE492: Not an editor command: cmp_dir = base / 'compressed'[?25h[m
+:rcp_dir = base / 'archive-receipts'
+[?25l[97m[41mE492: Not an editor command: rcp_dir = base / 'archive-receipts'[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:cmp_files = list(cmp_dir.glob('**/*.zst')) if cmp_dir.exists() else []
+[?25l[97m[41mE492: Not an editor command: cmp_files = list(cmp_dir.glob('**/*.zst')) if cmp_[m
+[23;80H[97m[41md[24;1Hir.exists() else [][?25h[m
+:print(f"Total compressed .zst files: {len(cmp_files)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:cmp_cohorts = Counter()
+[?25l[97m[41mE492: Not an editor command: cmp_cohorts = Counter()[?25h[m
+:for f in cmp_files:
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:    parts = f.name.replace('.jsonl.zst', '').split('_')
+[?25l[97m[41mE492: Not an editor command: parts = f.name.replace('.jsonl.zst', '').split('_'[m
+[23;80H[97m[41m)[?25h[m[24;1H
+:    if len(parts) >= 2:
+:        cmp_cohorts[f'{parts[-2]}_{parts[-1]}'] += 1
+[?25l[97m[41mE492: Not an editor command: cmp_cohorts[f'{parts[-2]}_{parts[-1]}'] += 1[?25h[m
+:print(f"Compressed cohorts: {dict(cmp_cohorts)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:rcp_files = list(rcp_dir.glob('**/*.archive-receipt.json')) if rcp_dir.exists(
+[23;80H)[24;1H else []
+[?25l[97m[41mE492: Not an editor command: rcp_files = list(rcp_dir.glob('**/*.archive-receip[m
+[23;80H[97m[41mt[24;1H.json')) if rcp_dir.exists() else [][?25h[m
+:print(f"Total archive receipt files: {len(rcp_files)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:receipt_statuses = Counter()
+[?25l[97m[41mE492: Not an editor command: receipt_statuses = Counter()[?25h[m
+:receipt_hours = Counter()
+[?25l[97m[41mE492: Not an editor command: receipt_hours = Counter()[?25h[m
+:for r in rcp_files:
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:    try:
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:        data = json.loads(r.read_text())
+[?25l[97m[41mE492: Not an editor command: data = json.loads(r.read_text())[?25h[m
+:        st = data.get('status', data.get('state', 'UNKNOWN'))
+[?25l[97m[41mE488: Trailing characters: = data.get('status', data.get('state', 'UNKNOWN'))[?25h[m
+:        hr = data.get('closed_hour', 'UNKNOWN')
+[?25l[97m[41mE492: Not an editor command: hr = data.get('closed_hour', 'UNKNOWN')[?25h[m
+:        dt = data.get('date_str', '')
+[?25l[97m[41mE492: Not an editor command: dt = data.get('date_str', '')[?25h[m
+:        receipt_statuses[st] += 1
+[?25l[97m[41mE492: Not an editor command: receipt_statuses[st] += 1[?25h[m
+:        receipt_hours[f'{dt}_{hr}'] += 1
+[?25l[97m[41mE492: Not an editor command: receipt_hours[f'{dt}_{hr}'] += 1[?25h[m
+:    except Exception as e:
+[?25l[97m[41mE492: Not an editor command: except Exception as e:[?25h[m
+:        receipt_statuses['PARSE_ERR'] += 1
+[?25l[97m[41mE492: Not an editor command: receipt_statuses['PARSE_ERR'] += 1[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:print(f"Receipt status breakdown: {dict(receipt_statuses)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:print(f"Receipt cohorts breakdown: {dict(receipt_hours)}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:
+[?25l[97m[41mE749: Empty buffer[?25h[m
+:full_scan_reports = list(rcp_dir.glob('full_scan*.json')) if rcp_dir.exists() 
+[23;80He[24;1Hlse []
+[?25l[97m[41mE492: Not an editor command: full_scan_reports = list(rcp_dir.glob('full_scan*.[m
+[23;80H[97m[41mj[24;1Hson')) if rcp_dir.exists() else [][?25h[m
+:print(f"Full scan reports found: {[r.name for r in full_scan_reports]}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:for r in full_scan_reports:
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:    try:
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:        rep = json.loads(r.read_text())
+[?25l[97m[41mE492: Not an editor command: rep = json.loads(r.read_text())[?25h[m
+:        print(f"Report {r.name}: status={rep.get('status')}, records={rep.get(
+[23;80H'[24;1Hintegrity', {}).get('totals', {}).get('records')}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:    except Exception as e:
+[?25l[97m[41mE492: Not an editor command: except Exception as e:[?25h[m
+:        print(f"Report {r.name} parse error: {e}")
+[?25l[97m[41mE488: Trailing characters: (f[?25h[m
+:"; echo __MK_1788880767865___E $?
+:echo __MK_1788880827890___S; df -h /; echo __MK_1788880827890___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788880872921___S; sudo du -sh /var/lib/bitcoin-trader/72h-soak/aws-
+[23;80H7[24;1H2h-soak-20260905-8017b83e/*; echo __MK_1788880872921___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788880917967___S; sudo find /var/lib/bitcoin-trader/72h-soak/aws-72
+[23;80Hh[24;1H-soak-20260905-8017b83e -user root -ls 2>/dev/null | head -n 30 || echo 'NO_ROO
+[23;80HT[24;1H_FILES'; echo __MK_1788880917967___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788880963005___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-7
+[23;80H2[24;1Hh-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -iE 'Starting|S
+[23;80Ht[24;1Harted' | head -n 10; echo __MK_1788880963005___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881008114___S; sudo head -n 2 /var/lib/bitcoin-trader/72h-soak/a
+[23;80Hw[24;1Hs-72h-soak-20260905-8017b83e/raw/2026-09-05/bithumb/trade/bithumb_trade_krw-btc
+[23;80H_[24;1H2026-09-05_05.jsonl 2>/dev/null || echo NO_BTC_TRADE; echo __MK_1788881008114__
+[23;80H_[24;1HE $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881053191___S; sudo head -n 2 /var/lib/bitcoin-trader/72h-soak/a
+[23;80Hw[24;1Hs-72h-soak-20260905-8017b83e/raw/2026-09-05/bithumb/orderbook/bithumb_orderbook
+[23;80H_[24;1Hkrw-btc_2026-09-05_05.jsonl 2>/dev/null || echo NO_BTC_ORDERBOOK; echo __MK_178
+[23;80H8[24;1H881053191___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881098270___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-7
+[23;80H2[24;1Hh-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -iE 'Main proce
+[23;80Hs[24;1Hs exited|Deactivated successfully|Failed with result' | tail -n 10; echo __MK_1
+[23;80H7[24;1H88881098270___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881143294___S; sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/a
+[23;80Hw[24;1Hs-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/trade/bithumb_trade_krw-btc
+[23;80H_[24;1H2026-09-08_05.jsonl 2>/dev/null || echo NO_BTC_TRADE_END; echo __MK_17888811432
+[23;80H9[24;1H4___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881188315___S; sudo tail -n 2 /var/lib/bitcoin-trader/72h-soak/a
+[23;80Hw[24;1Hs-72h-soak-20260905-8017b83e/raw/2026-09-08/bithumb/orderbook/bithumb_orderbook
+[23;80H_[24;1Hkrw-btc_2026-09-08_05.jsonl 2>/dev/null || echo NO_BTC_ORDERBOOK_END; echo __MK
+[23;80H_[24;1H1788881188315___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881233389___S; sudo ls -la /var/lib/bitcoin-trader/72h-soak/; ec
+[23;80Hh[24;1Ho __MK_1788881233389___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881278403___S; sudo journalctl -u 'bitcoin-trader-72h-soak-aws-7
+[23;80H2[24;1Hh-soak-run-20260905T024039Z-8017b83e.service' --no-pager | grep -i 'Starting' |
+[23;80H [24;1Hwc -l; echo __MK_1788881278403___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:echo __MK_1788881323460___S; sudo find /var/lib/bitcoin-trader/ -maxdepth 3 -n
+[23;80Ha[24;1Hme '*metrics*.json' -ls; echo __MK_1788881323460___E $?
+[?25l[97m[41mE319: Sorry, the command is not available in this version[?25h[m
+:

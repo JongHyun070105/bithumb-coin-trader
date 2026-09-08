@@ -1,0 +1,151 @@
+=== RAW Topology Analysis (rc=0) ===
+__M_1788882233695___S
+
+===CLEAN_PROMPT=== sudo /var/lib/bitcoin-trader/venv-pre-soak/bin/python - << 'PYEOF'
+
+
+> import os
+
+
+> from pathlib import Path
+
+
+> from collections import Counter
+
+
+> import datetime
+
+
+> 
+
+
+> raw_root = Path('/var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw')
+
+
+> print(f"RAW Directory: {raw_root}")
+
+
+> all_files = list(raw_root.glob('**/*.jsonl'))
+
+
+> print(f"Total RAW files: {len(all_files)}")
+
+
+> 
+
+
+> zero_files = [f for f in all_files if f.stat().st_size == 0]
+
+
+> print(f"Zero-sized files: {len(zero_files)}")
+
+
+> 
+
+
+> hours = Counter()
+
+
+> exchanges = Counter()
+
+
+> streams = Counter()
+
+
+> for f in all_files:
+
+
+>     parts = f.name.replace('.jsonl', '').split('_')
+
+
+>     if len(parts) >= 4:
+
+
+>         exchanges[parts[0]] += 1
+
+
+>         streams[parts[1]] += 1
+
+
+>         hours[f"{parts[-2]}_{parts[-1]}"] += 1
+
+
+> 
+
+
+> sorted_hours = sorted(hours.keys())
+
+
+> print(f"Distinct hour cohorts: {len(sorted_hours)}")
+
+
+> print(f"Earliest 5: {sorted_hours[:5]}")
+
+
+> print(f"Latest 5: {sorted_hours[-5:]}")
+
+
+> print(f"Files per cohort: min={min(hours.values())}, max={max(hours.values())}")
+
+
+> print(f"Exchanges: {dict(exchanges)}")
+
+
+> print(f"Streams: {dict(streams)}")
+
+
+> 
+
+
+> all_mtimes = [f.stat().st_mtime for f in all_files]
+
+
+> earliest = datetime.datetime.fromtimestamp(min(all_mtimes), tz=datetime.timezone.utc).isoformat()
+
+
+> latest = datetime.datetime.fromtimestamp(max(all_mtimes), tz=datetime.timezone.utc).isoformat()
+
+
+> print(f"Earliest mtime UTC: {earliest}")
+
+
+> print(f"Latest mtime UTC: {latest}")
+
+
+> PYEOF
+
+
+RAW Directory: /var/lib/bitcoin-trader/72h-soak/aws-72h-soak-20260905-8017b83e/raw
+
+
+Total RAW files: 5530
+
+
+Zero-sized files: 0
+
+
+Distinct hour cohorts: 73
+
+
+Earliest 5: ['2026-09-05_05', '2026-09-05_06', '2026-09-05_07', '2026-09-05_08', '2026-09-05_09']
+
+
+Latest 5: ['2026-09-08_01', '2026-09-08_02', '2026-09-08_03', '2026-09-08_04', '2026-09-08_05']
+
+
+Files per cohort: min=72, max=77
+
+
+Exchanges: {'upbit': 584, 'binance': 586, 'bithumb': 4360}
+
+
+Streams: {'orderbook': 2046, 'trade': 2034, 'ticker': 1450}
+
+
+Earliest mtime UTC: 2026-09-05T05:47:54.206051+00:00
+
+
+Latest mtime UTC: 2026-09-08T05:40:03.223110+00:00
+
+
+===CLEAN_PROMPT=== echo __M_1788882233695___E $?

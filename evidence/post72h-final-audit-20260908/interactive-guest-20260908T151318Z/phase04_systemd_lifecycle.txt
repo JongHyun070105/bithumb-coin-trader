@@ -1,0 +1,37 @@
+=== sudo systemctl show bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service -p Id,LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,ExecMainStartTimestamp,ExecMainStartTimestampMonotonic,ExecMainExitTimestamp,ExecMainExitTimestampMonotonic,InactiveEnterTimestamp,StateChangeTimestamp,MainPID,StatusText,Description,User,ExecStart --no-pager (rc=0) ===
+MainPID=0
+
+StatusText=
+
+Result=success
+
+ExecMainStartTimestamp=
+
+ExecMainStartTimestampMonotonic=0
+
+ExecMainExitTimestamp=
+
+ExecMainExitTimestampMonotonic=0
+
+ExecMainCode=0
+
+ExecMainStatus=0
+
+User=
+
+Id=bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service
+
+Description=bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service
+
+LoadState=not-found
+
+ActiveState=inactive
+
+SubState=dead
+
+StateChangeTimestamp=
+
+InactiveEnterTimestamp=
+
+=== sudo systemctl status bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service --no-pager || true (rc=0) ===
+Unit bitcoin-trader-72h-soak-aws-72h-soak-run-20260905T024039Z-8017b83e.service could not be found.

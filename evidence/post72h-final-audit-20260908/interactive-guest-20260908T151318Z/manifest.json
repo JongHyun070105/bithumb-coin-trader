@@ -1,0 +1,119 @@
+{
+  "schema_version": "1.0.0",
+  "epoch": "aws-72h-soak-20260905-8017b83e",
+  "run_id": "aws-72h-soak-run-20260905T024039Z-8017b83e",
+  "instance_id": "i-008bc503c1136349f",
+  "session_path": "existing_ssm_start_session",
+  "capture_timestamp_utc": "20260908T151318Z",
+  "artifacts_count": 18,
+  "artifacts": {
+    "phase02_identity.txt": {
+      "size": 633,
+      "sha256": "d3c7e2492afe615e9aaf4ed02563fa88ac79b90f0638f621cc53799b6dd7d4bb",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:19:23Z"
+    },
+    "phase03_process_state.txt": {
+      "size": 1962,
+      "sha256": "1386887591391426580ae47c7bcf7e9dbb4b6a5d299e3d9a53021d260f1dacc5",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:19:24Z"
+    },
+    "phase04_systemd_lifecycle.txt": {
+      "size": 1094,
+      "sha256": "e1a37076e5c831bb91c5cd7fbb21bd4cc84a41b0d994699311730d79f1e86379",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:19:24Z"
+    },
+    "phase05_journal_lifecycle.txt": {
+      "size": 20055,
+      "sha256": "4c296ed2d94dbfb66156c3085044d554d3a703bd8f248cdf37178cb4b4ba44de",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:19:24Z"
+    },
+    "phase07_raw_topology.txt": {
+      "size": 2298,
+      "sha256": "d14e97fac490582cc218f323aaee3dcadb3c0492189806de39d1d470a4f4795b",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:43:54Z"
+    },
+    "phase08_archive_topology.txt": {
+      "size": 2288,
+      "sha256": "72f400c3197b3c7f2488eee343795d80bdcfc7c3baf79d5d0e67b0d9ec1f8420",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:43:54Z"
+    },
+    "phase10_disk_ownership.txt": {
+      "size": 1113,
+      "sha256": "4e8a9cbc66c521b31cf68aaedaa5c47a48f4ce193b6fee8b8bb90da01168ecb8",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:44:21Z"
+    },
+    "phase11_start_candidates.txt": {
+      "size": 12080,
+      "sha256": "c2c7a53f895246c6b2194b61114e708c60833bbfd0d36c227161d4380aa218e8",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:44:22Z"
+    },
+    "phase12_completion_candidates.txt": {
+      "size": 6581,
+      "sha256": "43651bc2ac8618e2603baa2893615328698af8b581ee30c96b9fdfd998a9ae72",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:44:23Z"
+    },
+    "phase13_restart_contamination.txt": {
+      "size": 2140,
+      "sha256": "91739ec6fe73e4a4e045412011ff3bd2271db755e50e59a4f8502624caee5220",
+      "source": "interactive_guest_session",
+      "capture_utc": "2026-09-08T15:44:23Z"
+    },
+    "raw_session_transcript.log": {
+      "size": 58243,
+      "sha256": "fa87ea237dfa5ae0e52dba470387e4ce40d700edc45e863037577a67c0d0e3aa",
+      "source": "raw_pty_session_transcript",
+      "capture_utc": "2026-09-08T15:29:29Z"
+    },
+    "phase06_small_artifacts/result.json": {
+      "size": 838,
+      "sha256": "33d4fd460e069928464e2cbc0dbeb8e3853db40f65214da0440e972a2cff18cf",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../result.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/collector_metrics.json": {
+      "size": 2895,
+      "sha256": "5ba0c637e00608a514eec37d1f71b0cd186ecf3c35b5750c0fef34c2636dce9b",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../collector_metrics.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/metric-publisher-state.json": {
+      "size": 214,
+      "sha256": "8e367da4b626c52c5891a75fd4e6bfeaba98f53cdd1ecabbc0963184465ca865",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../metric-publisher-state.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/aws-72h-soak-20260905.runtime.json": {
+      "size": 2619,
+      "sha256": "cb3dee0331cebed2ede5b43a0092fad0b2aad0989be63f7666d3e6547a66c11c",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../aws-72h-soak-20260905.runtime.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/archive_backlog_metrics.json": {
+      "size": 548,
+      "sha256": "05d4d2ad02bb937210b61bcd9a95055e79accd02edc2b02049fa1d33cf837d1f",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../archive_backlog_metrics.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/full_scan_05_report.json": {
+      "size": 705,
+      "sha256": "ec50ee56d0df9bc31ca0342cb3c5cae9d24a7ffb15416bd0485333402a9b9d7a",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../full_scan_05_report.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    },
+    "phase06_small_artifacts/.full_scan_runner.json": {
+      "size": 220,
+      "sha256": "7fa3b1cd3fb73c036f295ddea384fab21fc1dd1ec87a5cf013362f690524c1d4",
+      "source": "remote_guest:/var/lib/bitcoin-trader/.../.full_scan_runner.json",
+      "capture_utc": "2026-09-08T15:13:18Z"
+    }
+  }
+}
