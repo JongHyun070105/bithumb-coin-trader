@@ -5,6 +5,11 @@ Never calls external exchange/AWS APIs.
 Never guesses market prices or cash.
 Never conflates individual fills with round-trip closed trades.
 Produces TradingSnapshot with source.kind = "local_snapshot".
+
+TECHNICAL_DEBT / ASTRA_REVIEW_CANDIDATE:
+Calls ledger._load() because FillLedger does not currently expose a public
+interface for chronological fill execution records needed to compute current
+position cycle openedAt. Core FillLedger accounting semantics remain untouched.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from bithumb_coin_trader.dashboard_contract import validate_trading_snapshot
 from bithumb_coin_trader.fill_ledger import FillLedger, FillLedgerError
 
 SNAPSHOT_SCHEMA_VERSION = 1
@@ -54,7 +60,7 @@ def _to_decimal(value: Any, name: str, *, positive: bool = False, non_negative: 
     return dec
 
 
-def _parse_iso_timestamp(ts_str: Any, name: str) -> datetime:
+def _parse_iso_timestamp(ts_str: Any, name: str, *, require_timezone: bool = True) -> datetime:
     if not isinstance(ts_str, str) or not ts_str.strip():
         raise SnapshotBuilderError(f"{name} must be a non-empty ISO 8601 string")
     clean = ts_str.replace("Z", "+00:00")
@@ -63,6 +69,8 @@ def _parse_iso_timestamp(ts_str: Any, name: str) -> datetime:
     except Exception as exc:
         raise SnapshotBuilderError(f"{name} has invalid ISO 8601 format: {ts_str!r}") from exc
     if dt.tzinfo is None:
+        if require_timezone:
+            raise SnapshotBuilderError(f"{name} must be timezone-aware (e.g. +09:00 or Z): {ts_str!r}")
         dt = dt.replace(tzinfo=timezone.utc)
     return dt
 
@@ -95,10 +103,8 @@ def build_trading_snapshot(
     if schema_ver != 1:
         raise SnapshotBuilderError(f"unsupported account state schema version: {schema_ver!r}")
 
-    ts_str = account_state.get("timestamp")
-    snapshot_dt = _parse_iso_timestamp(ts_str, "account_state.timestamp")
-    timestamp_iso = snapshot_dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
-    kst_today = _kst_date_str(snapshot_dt)
+    acct_ts_str = account_state.get("timestamp")
+    account_dt = _parse_iso_timestamp(acct_ts_str, "account_state.timestamp", require_timezone=True)
 
     mode = account_state.get("mode", "OFF")
     if mode not in ("OFF", "PAPER", "LIVE"):
@@ -109,6 +115,41 @@ def build_trading_snapshot(
     starting_equity: Decimal | None = None
     if starting_equity_raw is not None:
         starting_equity = _to_decimal(starting_equity_raw, "account_state.starting_equity_krw", positive=True)
+
+    # 2. Load & validate mark_prices
+    if not mark_prices_path.exists():
+        raise SnapshotBuilderError(f"mark prices file not found: {mark_prices_path}")
+    try:
+        with mark_prices_path.open("r", encoding="utf-8") as f:
+            mark_prices_data = json.load(f)
+    except json.JSONDecodeError as exc:
+        raise SnapshotBuilderError(f"invalid JSON in mark prices: {exc}") from exc
+
+    if not isinstance(mark_prices_data, dict):
+        raise SnapshotBuilderError("mark prices root must be an object")
+
+    mp_schema = mark_prices_data.get("schemaVersion") or mark_prices_data.get("schema_version")
+    if mp_schema != 1:
+        raise SnapshotBuilderError(f"unsupported mark prices schema version: {mp_schema!r}")
+
+    # Mark price timestamp is mandatory and must be timezone-aware
+    mp_ts_str = mark_prices_data.get("timestamp")
+    if mp_ts_str is None:
+        raise SnapshotBuilderError("mark_prices must contain a timezone-aware timestamp")
+    mark_dt = _parse_iso_timestamp(mp_ts_str, "mark_prices.timestamp", require_timezone=True)
+
+    # P4: Snapshot freshness rule: min(account_dt, mark_dt)
+    snapshot_dt = min(account_dt, mark_dt)
+    timestamp_iso = snapshot_dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    kst_today = _kst_date_str(snapshot_dt)
+
+    raw_markets = mark_prices_data.get("markets")
+    if not isinstance(raw_markets, dict):
+        raise SnapshotBuilderError("mark prices 'markets' must be a dictionary")
+
+    marks: dict[str, Decimal] = {}
+    for m, p in raw_markets.items():
+        marks[m] = _to_decimal(p, f"mark_prices.markets[{m}]", positive=True)
 
     # Daily baseline
     daily_baseline_raw = account_state.get("daily_baseline")
@@ -135,41 +176,33 @@ def build_trading_snapshot(
             "timeZone": "Asia/Seoul",
         }
 
-    # 2. Load & validate mark_prices
-    if not mark_prices_path.exists():
-        raise SnapshotBuilderError(f"mark prices file not found: {mark_prices_path}")
-    try:
-        with mark_prices_path.open("r", encoding="utf-8") as f:
-            mark_prices_data = json.load(f)
-    except json.JSONDecodeError as exc:
-        raise SnapshotBuilderError(f"invalid JSON in mark prices: {exc}") from exc
-
-    if not isinstance(mark_prices_data, dict):
-        raise SnapshotBuilderError("mark prices root must be an object")
-
-    mp_schema = mark_prices_data.get("schemaVersion") or mark_prices_data.get("schema_version")
-    if mp_schema != 1:
-        raise SnapshotBuilderError(f"unsupported mark prices schema version: {mp_schema!r}")
-
-    raw_markets = mark_prices_data.get("markets")
-    if not isinstance(raw_markets, dict):
-        raise SnapshotBuilderError("mark prices 'markets' must be a dictionary")
-
-    marks: dict[str, Decimal] = {}
-    for m, p in raw_markets.items():
-        marks[m] = _to_decimal(p, f"mark_prices.markets[{m}]", positive=True)
-
     # 3. Load FillLedger
+    # TECHNICAL_DEBT / ASTRA_REVIEW_CANDIDATE:
+    # We call ledger._load() to inspect chronological fill records for current position cycle openedAt.
     ledger = FillLedger(ledger_path)
     records, _, _ = ledger._load()
     positions_map = ledger.positions()
 
-    # Find earliest bid timestamp per market for openedAt
-    first_bid_at: dict[str, str] = {}
+    # P6: Track current position cycle openedAt (volume 0 -> positive sets openedAt, positive -> 0 clears)
+    current_cycle_opened_at: dict[str, str | None] = {}
+    running_volumes: dict[str, Decimal] = {}
     for rec in records:
         m = rec["market"]
-        if rec.get("side") == "bid" and m not in first_bid_at:
-            first_bid_at[m] = rec["executed_at"]
+        vol_change = Decimal(str(rec["volume"]))
+        prev_vol = running_volumes.get(m, Decimal("0"))
+        side = rec.get("side")
+
+        if side == "bid":
+            if prev_vol == Decimal("0"):
+                current_cycle_opened_at[m] = rec["executed_at"]
+            running_volumes[m] = prev_vol + vol_change
+        elif side == "ask":
+            new_vol = prev_vol - vol_change
+            if new_vol <= Decimal("0"):
+                running_volumes[m] = Decimal("0")
+                current_cycle_opened_at[m] = None
+            else:
+                running_volumes[m] = new_vol
 
     # 4. Calculate open positions
     calculated_positions: list[dict[str, Any]] = []
@@ -191,9 +224,12 @@ def build_trading_snapshot(
         # Position unrealized PnL = market value - cost basis
         pnl = exposure - cost_basis
         pnl_pct = (pnl / cost_basis * 100) if cost_basis > Decimal("0") else Decimal("0")
-        entry_fee = pos.paid_fees
 
-        opened_at = first_bid_at.get(market) or timestamp_iso
+        # P2: entryFee must NOT be pos.paid_fees after a sell. Set to None (null).
+        entry_fee = None
+
+        # P6: Use current position cycle openedAt
+        opened_at = current_cycle_opened_at.get(market) or timestamp_iso
         asset = market.split("-")[1] if "-" in market else market
         name = NAME_MAP.get(market, asset)
 
@@ -212,7 +248,7 @@ def build_trading_snapshot(
             "exposure": float(exposure),
             "pnl": float(pnl),
             "pnlPct": float(pnl_pct),
-            "entryFee": float(entry_fee),
+            "entryFee": entry_fee,
             "openedAt": opened_at,
             "strategy": account_state.get("strategy"),
         })
@@ -239,14 +275,15 @@ def build_trading_snapshot(
     # 6. Performance & History (Optional)
     equity_curve: list[dict[str, Any]] = []
     daily_performance: list[dict[str, Any]] = []
-    perf_metrics = {
+    # P5: Accounting truth from current account state must remain authoritative
+    perf_metrics: dict[str, Any] = {
         "return7d": None,
         "return30d": None,
         "totalReturn": float(total_return_pct) if total_return_pct is not None else None,
         "maxDrawdown": None,
-        "winRate": None,
-        "profitFactor": None,
-        "averageTrade": None,
+        "winRate": None,  # P5: null without closed-trade ledger
+        "profitFactor": None,  # P5: null without closed-trade ledger
+        "averageTrade": None,  # P5: null without closed-trade ledger
     }
 
     if equity_history_path and equity_history_path.exists():
@@ -254,33 +291,73 @@ def build_trading_snapshot(
             with equity_history_path.open("r", encoding="utf-8") as f:
                 hist_data = json.load(f)
             if isinstance(hist_data, dict):
+                # Validate schema version if present
+                h_ver = hist_data.get("schemaVersion") or hist_data.get("schema_version")
+                if h_ver is not None and h_ver != 1:
+                    raise SnapshotBuilderError(f"unsupported equity history schema version: {h_ver}")
+
                 raw_curve = hist_data.get("equityCurve") or hist_data.get("equity_curve")
                 if isinstance(raw_curve, list):
                     equity_curve = raw_curve
                 raw_daily = hist_data.get("dailyPerformance") or hist_data.get("daily_performance")
                 if isinstance(raw_daily, list):
                     daily_performance = raw_daily
+
+                # P5: Only permit curve-based stats (return7d, return30d, maxDrawdown)
+                # Never overwrite totalReturn, winRate, profitFactor, averageTrade
                 raw_perf = hist_data.get("performance")
                 if isinstance(raw_perf, dict):
-                    for k in perf_metrics:
-                        if k in raw_perf:
-                            perf_metrics[k] = raw_perf[k]
+                    for k in ("return7d", "return30d", "maxDrawdown"):
+                        if k in raw_perf and raw_perf[k] is not None:
+                            val = raw_perf[k]
+                            if isinstance(val, (int, float)) and math.isfinite(val):
+                                perf_metrics[k] = float(val)
         except Exception as exc:
+            if isinstance(exc, SnapshotBuilderError):
+                raise
             raise SnapshotBuilderError(f"failed to read equity history: {exc}") from exc
 
-    # 7. Bot Status
-    bot_status_data = account_state.get("botStatus") or account_state.get("bot_status") or {}
-    bot_status = {
-        "mode": mode,
-        "strategy": account_state.get("strategy") or bot_status_data.get("strategy"),
-        "marketData": bot_status_data.get("marketData", "READY"),
-        "orderExecution": bot_status_data.get("orderExecution", "DISABLED"),
-        "riskGuard": bot_status_data.get("riskGuard", "ACTIVE"),
-        "lastActivity": bot_status_data.get("lastActivity", timestamp_iso),
-        "uptimeSeconds": bot_status_data.get("uptimeSeconds"),
-        "todayTrades": bot_status_data.get("todayTrades"),
-        "errors": bot_status_data.get("errors", 0),
-    }
+    # 7. Bot Status - P3: Fail-closed defaults when botStatus is absent
+    raw_bot_status = account_state.get("botStatus") or account_state.get("bot_status")
+    if raw_bot_status is not None and isinstance(raw_bot_status, dict):
+        # Validate and pass through explicitly provided bot status
+        bot_mode = raw_bot_status.get("mode", mode)
+        if bot_mode not in ("OFF", "PAPER", "LIVE"):
+            raise SnapshotBuilderError(f"invalid botStatus.mode: {bot_mode!r}")
+        bot_market_data = raw_bot_status.get("marketData", "PENDING")
+        if bot_market_data not in ("PENDING", "READY"):
+            raise SnapshotBuilderError(f"invalid botStatus.marketData: {bot_market_data!r}")
+        bot_execution = raw_bot_status.get("orderExecution", "DISABLED")
+        if bot_execution not in ("DISABLED", "PAPER", "LIVE"):
+            raise SnapshotBuilderError(f"invalid botStatus.orderExecution: {bot_execution!r}")
+        bot_guard = raw_bot_status.get("riskGuard", "LOCKED")
+        if bot_guard not in ("LOCKED", "ACTIVE"):
+            raise SnapshotBuilderError(f"invalid botStatus.riskGuard: {bot_guard!r}")
+
+        bot_status = {
+            "mode": bot_mode,
+            "strategy": account_state.get("strategy") or raw_bot_status.get("strategy"),
+            "marketData": bot_market_data,
+            "orderExecution": bot_execution,
+            "riskGuard": bot_guard,
+            "lastActivity": raw_bot_status.get("lastActivity"),
+            "uptimeSeconds": raw_bot_status.get("uptimeSeconds"),
+            "todayTrades": raw_bot_status.get("todayTrades"),
+            "errors": raw_bot_status.get("errors"),
+        }
+    else:
+        # P3: Conservative fail-closed defaults (no false-green)
+        bot_status = {
+            "mode": mode,
+            "strategy": account_state.get("strategy"),
+            "marketData": "PENDING",
+            "orderExecution": "DISABLED",
+            "riskGuard": "LOCKED",
+            "lastActivity": None,
+            "uptimeSeconds": None,
+            "todayTrades": None,
+            "errors": None,
+        }
 
     # 8. Assemble complete TradingSnapshot v1
     snapshot: dict[str, Any] = {
@@ -320,6 +397,14 @@ def build_trading_snapshot(
         },
         "dailyBaseline": daily_baseline_dict,
     }
+
+    # P1.2: Builder self-validation before returning or writing
+    contract_errors = validate_trading_snapshot(snapshot)
+    if contract_errors:
+        raise SnapshotBuilderError(
+            f"빌더 생성 스냅샷이 계약 검증을 통과하지 못했습니다 ({len(contract_errors)}건): "
+            + "; ".join(contract_errors[:5])
+        )
 
     return snapshot
 
