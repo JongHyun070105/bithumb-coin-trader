@@ -6,7 +6,8 @@
 
 - **스키마 버전**: `schemaVersion: 1`
 - **검증 규칙**: Fail-Closed (스키마 버전 누락 또는 `schemaVersion !== 1`인 경우 로딩 거부)
-- **통신 제약**: Localhost(127.0.0.1 / ::1) 전용, 읽기 전용(GET 전용), 외부 네트워크 차단
+- **통신 제약**: Localhost(127.0.0.1 / localhost) 전용 (테스트되지 않은 ::1 바인딩 제외), 읽기 전용(GET 전용), 외부 네트워크 차단
+- **CORS 보안**: 루프백 오리진(`http://localhost:<port>`, `http://127.0.0.1:<port>`)만 허용. 와일드카드 `Access-Control-Allow-Origin: *` 절대 금지. 외부 오리진 프리플라이트 요청은 403 Forbidden 거부.
 
 ---
 
@@ -15,7 +16,8 @@
 - **`null`**: 알 수 없음(Unknown) 또는 현재 데이터 소스에서 제공되지 않음(Unavailable).
   - 예: 과거 자산 이력이 없어 MDD 계산이 불가능한 경우 `maxDrawdown: null`
   - 예: 일별 베이스라인이 없거나 KST 기준일 불일치 시 `todayPnl: null`, `todayReturnPct: null`
-  - 예: 개별 체결(Fill)만 존재하고 완결된 왕복 거래(Round-trip Trade) 원장이 없을 때 `recentTrades: []`
+  - 예: 개별 체결(Fill)만 존재하고 완결된 왕복 거래(Round-trip Trade) 원장이 없을 때 `recentTrades: []`, `winRate: null`, `profitFactor: null`, `averageTrade: null`
+  - 예: `FillLedger`가 매도 후 진입 수수료 분해를 노출하지 않는 경우 `entryFee: null`
 - **`0`**: 수치적으로 확인된 0 (Confirmed Zero).
   - 예: 당일 외부 순입출금이 없는 경우 `netCashFlow: 0`
   - 예: 에러 카운트가 0건인 경우 `errors: 0`
@@ -88,8 +90,8 @@ export interface TradingSnapshot {
 - `exposure`: 평가금액 (`quantity * current`).
 - `pnl`: 미실현 손익 (`(current * quantity) - cost_basis`). 진입 수수료 반영, 미실행 청산 수수료 미가정.
 - `pnlPct`: 미실현 수익률 (%).
-- `entryFee`: 해당 포지션에 할당된 기지불 진입 수수료.
-- `openedAt`: 최초 진입 시각 (ISO 8601).
+- `entryFee`: 해당 포지션에 할당된 기지불 진입 수수료 (number | null). `FillLedger`는 마켓 전체의 누적 수수료(청산/매도 수수료 포함)를 관리하므로, 매도 발생 후 잔여 진입 수수료를 임의 추정하지 않고 `null`로 표기함.
+- `openedAt`: 현재 보유 포지션 사이클의 진입 시각 (ISO 8601). 전량 매도(0 수량) 후 재매수한 경우 새 사이클의 시각을 반영.
 - `strategy`: 전략 식별자 또는 null.
 
 ### 5.3 최근 거래 (`recentTrades: Trade[]`)
@@ -99,13 +101,13 @@ export interface TradingSnapshot {
 ### 5.4 봇 상태 (`botStatus: BotStatus`)
 - `mode`: `'OFF' | 'PAPER' | 'LIVE'`
 - `strategy`: 운용 중인 전략명 또는 null.
-- `marketData`: `'PENDING' | 'READY'`
-- `orderExecution`: `'DISABLED' | 'PAPER' | 'LIVE'`
-- `riskGuard`: `'LOCKED' | 'ACTIVE'`
-- `lastActivity`: 마지막 활동 시각 (ISO 8601) 또는 null.
-- `uptimeSeconds`: 가동 시간 (초) 또는 null (음수 불가).
-- `todayTrades`: 당일 거래 횟수 또는 null (음수 불가).
-- `errors`: 에러 카운트 (음수 불가).
+- `marketData`: `'PENDING' | 'READY'` (미제공 시 `'PENDING'`)
+- `orderExecution`: `'DISABLED' | 'PAPER' | 'LIVE'` (미제공 시 `'DISABLED'`)
+- `riskGuard`: `'LOCKED' | 'ACTIVE'` (미제공 시 `'LOCKED'`)
+- `lastActivity`: 마지막 활동 시각 (ISO 8601) 또는 null (미제공 시 `null`).
+- `uptimeSeconds`: 가동 시간 (초) 또는 null (미제공 시 `null`, 음수 불가).
+- `todayTrades`: 당일 거래 횟수 또는 null (미제공 시 `null`, 음수 불가).
+- `errors`: 에러 카운트 또는 null (미제공 시 `null`, 음수 불가).
 
 ### 5.5 일별 베이스라인 (`dailyBaseline: DailyBaseline | null`)
 - 당일 KST(Asia/Seoul) 00:00:00 기준 시작 자산 및 순외부입출금 데이터.
@@ -124,10 +126,11 @@ export interface DailyBaseline {
 
 ---
 
-## 6. 데이터 지연 및 만료 시맨틱 (Stale Semantics)
+## 6. 입력 데이터 신선도 및 회계 진실 불변식
 
-1. **로컬 API 연결 (`READ_ONLY_API`)**:
-   - 스냅샷 `timestamp`가 현재 시각 기준 60초를 초과한 경우 화면에 "지연(STALE)" 상태 표시.
-   - 주기적 폴링 또는 수동 새로고침으로 최신 상태 갱신 가능.
-2. **수동 로컬 파일 임포트 (`LOCAL_SNAPSHOT`)**:
-   - 오프라인 정적 파일이므로 파일 생성 시각(`timestamp`)을 명시적으로 표기하되, 실시간 폴링 대상이 아니므로 연결 지연 에러로 취급하지 않음.
+1. **보수적 스냅샷 신선도 (Freshness Rule)**:
+   - `snapshot.timestamp = min(account_state.timestamp, mark_prices.timestamp)`
+   - 계좌 잔고가 최신이더라도 마크 가격이 과거 데이터인 경우 스냅샷 타임스탬프는 마크 가격의 시각을 보수적으로 반영하여 거짓 신선도를 방지함.
+2. **회계 진실 우선 원칙 (Accounting Truth)**:
+   - `equity_history` 파일이 제공되더라도 계좌 잔고와 체결 원장에서 산출된 `portfolio.totalReturnPct`가 `performance.totalReturn`보다 우선하며 덮어쓰지 않음.
+   - 왕복 거래 원장이 없는 경우 `winRate`, `profitFactor`, `averageTrade`는 엄격히 `null`로 유지됨.
