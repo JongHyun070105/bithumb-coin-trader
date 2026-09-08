@@ -15,8 +15,9 @@
   - `NO_DATA`: 기본 빈 상태.
   - `DEMO`: 상단 '데모 미리보기'로 활성화되는 결정론적 합성 데이터.
   - `LOCAL_SNAPSHOT`: 상단 '스냅샷 가져오기'를 통해 로컬 `trading_snapshot.json`을 직접 브라우저로 로드하여 검증 및 조회.
-  - `READ_ONLY_API`: 미래 백엔드 연동을 위한 읽기 전용 REST 계약 (`GET /api/trading/snapshot` 등) 준비 완료 (기본 비활성화, localhost 전용).
+  - `READ_ONLY_API`: 로컬 읽기 전용 HTTP 서버(`http://127.0.0.1:8765`) 연동 모드. 상단 '로컬 API 연결' 버튼 또는 URL 쿼리(`?source=api`)로 즉시 연결 가능. 60초 초과 시 자동 노후화 감지 및 오류 배너 지원. (자세한 내용은 [docs/DASHBOARD_LOCAL_API.md](../docs/DASHBOARD_LOCAL_API.md) 참조)
 - **데모 스냅샷 내보내기**: 데모 모드에서 '데모 내보내기'를 클릭하여 테스트용 `trading_snapshot.demo.json`을 저장할 수 있습니다. (`synthetic: true` 명시)
+- **교차 언어 계약 검증**: Python `dashboard_snapshot.py`가 생성한 스냅샷을 TypeScript `validateTradingSnapshot`으로 검증하는 골든 테스트(`crossLanguageContract.test.ts`) 구비.
 - **실거래 통로 완전 차단**: 실거래/페이퍼 주문 발주 컨트롤(BUY/SELL) 및 API 키 입력란이 일체 존재하지 않으며, '페이퍼 OFF' 및 '라이브 비활성화' 안전 상태가 유지됩니다.
 - **고급 기능 (Phase 6.2/6.3 오프라인 증거 콘솔 보존)**: 사이드바 '고급 기능'을 통해 72시간 무인 수집, 증거 사슬, 데이터 품질, 연구실 등 기존 연구/검증 기능을 그대로 열람할 수 있습니다.
 
