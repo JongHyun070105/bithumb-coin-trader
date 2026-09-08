@@ -33,6 +33,15 @@ describe('Cross-Language Contract: Python dashboard_snapshot -> TypeScript Valid
     const sumPosPnl = snapshot.positions.reduce((acc, p) => acc + (p.pnl ?? 0), 0)
     expect(sumPosPnl).toBe(snapshot.portfolio.unrealizedPnl)
 
+    // Fail-honest P2: entryFee is null because FillLedger does not separate acquisition fees after sells
+    expect(snapshot.positions.every((p) => p.entryFee === null)).toBe(true)
+
+    // P5: No closed round-trip trades -> winRate, profitFactor, averageTrade are null
+    expect(snapshot.performance.winRate).toBeNull()
+    expect(snapshot.performance.profitFactor).toBeNull()
+    expect(snapshot.performance.averageTrade).toBeNull()
+    expect(snapshot.performance.totalReturn).toBe(snapshot.portfolio.totalReturnPct)
+
     // State creation preserves local_snapshot semantics
     const localState = createTradingState('LOCAL_SNAPSHOT', snapshot)
     expect(localState.status).toBe('LOCAL_SNAPSHOT')

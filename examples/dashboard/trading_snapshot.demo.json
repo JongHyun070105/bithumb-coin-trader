@@ -31,7 +31,7 @@
       "exposure": 2520000.0,
       "pnl": 118800.0,
       "pnlPct": 4.94752623688156,
-      "entryFee": 2850.0,
+      "entryFee": null,
       "openedAt": "2026-09-08T01:00:00Z",
       "strategy": "Conservative-Trend"
     },
@@ -47,7 +47,7 @@
       "exposure": 3600000.0,
       "pnl": 98250.0,
       "pnlPct": 2.8057399871492823,
-      "entryFee": 1750.0,
+      "entryFee": null,
       "openedAt": "2026-09-08T02:00:00Z",
       "strategy": "Conservative-Trend"
     }
@@ -88,9 +88,9 @@
   "performance": {
     "return7d": 5.94,
     "return30d": 5.94,
-    "totalReturn": 4.43,
+    "totalReturn": 4.428571428571429,
     "maxDrawdown": -0.85,
-    "winRate": 100.0,
+    "winRate": null,
     "profitFactor": null,
     "averageTrade": null
   },
