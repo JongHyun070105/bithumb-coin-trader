@@ -314,7 +314,7 @@ def test_mark_price_missing_or_naive_timestamp_rejected(temp_env):
         build_trading_snapshot(temp_env["ledger"], temp_env["account"], temp_env["marks"])
 
 
-# P5: Equity history must NOT override accounting truth or closed trade metrics
+# P5 / FIX 4: Equity history performance block is ignored, metrics derived from curve
 def test_equity_history_cannot_override_accounting_truth(temp_env):
     with temp_env["history"].open("w", encoding="utf-8") as f:
         json.dump({
@@ -324,8 +324,9 @@ def test_equity_history_cannot_override_accounting_truth(temp_env):
                 "winRate": 0.85,
                 "profitFactor": 2.5,
                 "averageTrade": 50000,
-                "return7d": 5.0,
-                "maxDrawdown": -1.2,
+                "return7d": 999.0,
+                "return30d": 999.0,
+                "maxDrawdown": -99.0,
             },
             "equityCurve": [{"timestamp": "2026-09-08T08:00:00Z", "equity": 18650000, "returnPct": 0.0, "drawdownPct": 0.0}],
             "dailyPerformance": [{"date": "2026-09-08", "pnl": 650000, "returnPct": 3.61}],
@@ -344,9 +345,83 @@ def test_equity_history_cannot_override_accounting_truth(temp_env):
     assert perf["winRate"] is None
     assert perf["profitFactor"] is None
     assert perf["averageTrade"] is None
-    # Curve-derived metrics pass through
-    assert perf["return7d"] == 5.0
-    assert perf["maxDrawdown"] == -1.2
+    # Precomputed return7d, return30d, maxDrawdown are completely ignored
+    # Since equityCurve only has 1 observation at 08:00Z, return7d is None and maxDrawdown is 0.0
+    assert perf["return7d"] is None
+    assert perf["return30d"] is None
+    assert perf["maxDrawdown"] == 0.0
+
+
+def test_performance_derived_deterministically_from_equity_curve(temp_env):
+    # Curve spanning 8 days with a drawdown
+    # Day 0 (8 days ago): 10,000,000
+    # Day 4 (4 days ago): 12,000,000 (peak)
+    # Day 6 (2 days ago): 9,600,000 (drawdown from 12M: -20%)
+    # Day 8 (today): 18,650,000 (account equity from ledger+marks: 8.15M cash + 0.1 BTC @ 105M = 18.65M)
+    with temp_env["history"].open("w", encoding="utf-8") as f:
+        json.dump({
+            "schema_version": 1,
+            "performance": {
+                "return7d": -999.9,  # Fake precomputed value
+                "return30d": 999.9,  # Fake precomputed value
+                "maxDrawdown": -99.9,  # Fake precomputed value
+            },
+            "equityCurve": [
+                {"timestamp": "2026-08-31T08:00:00Z", "equity": 10000000, "returnPct": 0.0, "drawdownPct": 0.0},
+                {"timestamp": "2026-09-04T08:00:00Z", "equity": 12000000, "returnPct": 20.0, "drawdownPct": 0.0},
+                {"timestamp": "2026-09-06T08:00:00Z", "equity": 9600000, "returnPct": -4.0, "drawdownPct": -20.0},
+                {"timestamp": "2026-09-08T08:00:00Z", "equity": 18650000, "returnPct": 86.5, "drawdownPct": 0.0},
+            ],
+            "dailyPerformance": [],
+        }, f)
+
+    snapshot = build_trading_snapshot(
+        ledger_path=temp_env["ledger"],
+        account_state_path=temp_env["account"],
+        mark_prices_path=temp_env["marks"],
+        equity_history_path=temp_env["history"],
+    )
+    perf = snapshot["performance"]
+    # return7d: 8 days ago observation (10M) is at/before 7d horizon (2026-09-01T08:00:00Z)
+    # Return = (18.65M - 10M) / 10M * 100 = 86.5%
+    assert perf["return7d"] == pytest.approx(86.5)
+    # return30d: No observation at or before 30d horizon -> None
+    assert perf["return30d"] is None
+    # maxDrawdown: Peak 12M -> Trough 9.6M = -20.0%
+    assert perf["maxDrawdown"] == pytest.approx(-20.0)
+
+
+# FIX 5: Opened position without reconstructable cycle openedAt must fail-closed
+def test_open_position_without_reconstructable_cycle_opened_at_fails_closed(temp_env, monkeypatch):
+    # Add KRW-SOL to mark prices so missing mark price error is not raised
+    with temp_env["marks"].open("r", encoding="utf-8") as f:
+        m_data = json.load(f)
+    m_data["markets"]["KRW-SOL"] = 200000
+    with temp_env["marks"].open("w", encoding="utf-8") as f:
+        json.dump(m_data, f)
+
+    # Simulate internal inconsistency: FillLedger reports an open position in KRW-SOL,
+    # but the ledger record replay does not have a buy fill to establish openedAt for KRW-SOL.
+    from bithumb_coin_trader.fill_ledger import PositionSnapshot
+    real_positions = FillLedger.positions
+
+    def fake_positions(self):
+        pos = dict(real_positions(self))
+        pos["KRW-SOL"] = PositionSnapshot(
+            market="KRW-SOL",
+            volume=Decimal("1.0"),
+            cost_basis=Decimal("200000"),
+            average_cost=Decimal("200000"),
+        )
+        return pos
+
+    monkeypatch.setattr(FillLedger, "positions", fake_positions)
+    with pytest.raises(SnapshotBuilderError, match="오픈 포지션 진입 시각 재구성 실패"):
+        build_trading_snapshot(
+            ledger_path=temp_env["ledger"],
+            account_state_path=temp_env["account"],
+            mark_prices_path=temp_env["marks"],
+        )
 
 
 # P6: Reopened position openedAt semantics test

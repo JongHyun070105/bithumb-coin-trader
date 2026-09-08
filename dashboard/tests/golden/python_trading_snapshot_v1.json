@@ -86,10 +86,10 @@
     "errors": 0
   },
   "performance": {
-    "return7d": 5.94,
-    "return30d": 5.94,
+    "return7d": 5.942028985507246,
+    "return30d": null,
     "totalReturn": 4.428571428571429,
-    "maxDrawdown": -0.85,
+    "maxDrawdown": 0.0,
     "winRate": null,
     "profitFactor": null,
     "averageTrade": null

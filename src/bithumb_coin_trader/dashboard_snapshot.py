@@ -80,6 +80,94 @@ def _kst_date_str(dt: datetime) -> str:
     return kst_dt.strftime("%Y-%m-%d")
 
 
+def _derive_equity_curve_metrics(
+    equity_curve: list[Any],
+    current_dt: datetime,
+    current_equity: Decimal,
+) -> tuple[float | None, float | None, float | None]:
+    """Deterministically derive (return7d, return30d, maxDrawdown) from equity curve points.
+
+    Fail-honest rules:
+    - Never trusts precomputed performance blocks.
+    - If curve has no valid points, returns (None, None, None).
+    - maxDrawdown is derived from chronological peak-to-trough in percent (<= 0.0).
+    - return7d and return30d require an observation at or before the horizon target without aggressive interpolation.
+    """
+    valid_points: list[tuple[datetime, Decimal]] = []
+    for pt in equity_curve:
+        if not isinstance(pt, dict):
+            continue
+        ts_str = pt.get("timestamp")
+        if not isinstance(ts_str, str) or not ts_str.strip():
+            continue
+        clean = ts_str.replace("Z", "+00:00")
+        try:
+            pt_dt = datetime.fromisoformat(clean)
+        except Exception:
+            continue
+        if pt_dt.tzinfo is None:
+            continue
+        eq_val = pt.get("equity")
+        if eq_val is None or isinstance(eq_val, bool) or not isinstance(eq_val, (int, float, Decimal)):
+            continue
+        try:
+            dec_eq = Decimal(str(eq_val))
+        except (InvalidOperation, TypeError, ValueError):
+            continue
+        if not dec_eq.is_finite() or dec_eq < Decimal("0"):
+            continue
+        valid_points.append((pt_dt, dec_eq))
+
+    if not valid_points:
+        return (None, None, None)
+
+    valid_points.sort(key=lambda p: p[0])
+
+    # Ensure chronological sequence includes current snapshot state
+    if valid_points[-1][0] < current_dt:
+        valid_points.append((current_dt, current_equity))
+    elif valid_points[-1][0] == current_dt:
+        valid_points[-1] = (current_dt, current_equity)
+
+    # 1. maxDrawdown: Peak-to-trough drawdown over chronological observations (<= 0.0)
+    peak = valid_points[0][1]
+    min_dd = Decimal("0")
+    for _, eq in valid_points:
+        if eq > peak:
+            peak = eq
+        elif peak > Decimal("0"):
+            dd = ((eq - peak) / peak) * Decimal("100")
+            if dd < min_dd:
+                min_dd = dd
+    max_drawdown: float | None = float(min_dd)
+
+    # 2. return7d: Horizon snapshot_dt - 7 days
+    target_7d = current_dt - timedelta(days=7)
+    candidates_7d = [p for p in valid_points if p[0] <= target_7d]
+    return_7d: float | None = None
+    if candidates_7d:
+        p_7d = candidates_7d[-1]
+        # Observation must be within bounded window of 7-day horizon (within 3 days)
+        if (target_7d - p_7d[0]) <= timedelta(days=3):
+            base_7d = p_7d[1]
+            if base_7d > Decimal("0"):
+                return_7d = float(((current_equity - base_7d) / base_7d) * Decimal("100"))
+
+    # 3. return30d: Horizon snapshot_dt - 30 days
+    target_30d = current_dt - timedelta(days=30)
+    candidates_30d = [p for p in valid_points if p[0] <= target_30d]
+    return_30d: float | None = None
+    if candidates_30d:
+        p_30d = candidates_30d[-1]
+        # Observation must be within bounded window of 30-day horizon (within 7 days)
+        if (target_30d - p_30d[0]) <= timedelta(days=7):
+            base_30d = p_30d[1]
+            if base_30d > Decimal("0"):
+                return_30d = float(((current_equity - base_30d) / base_30d) * Decimal("100"))
+
+    return (return_7d, return_30d, max_drawdown)
+
+
 def build_trading_snapshot(
     ledger_path: Path,
     account_state_path: Path,
@@ -228,8 +316,13 @@ def build_trading_snapshot(
         # P2: entryFee must NOT be pos.paid_fees after a sell. Set to None (null).
         entry_fee = None
 
-        # P6: Use current position cycle openedAt
-        opened_at = current_cycle_opened_at.get(market) or timestamp_iso
+        # P6: Use current position cycle openedAt (fail-closed if cannot be reconstructed)
+        opened_at = current_cycle_opened_at.get(market)
+        if not opened_at:
+            raise SnapshotBuilderError(
+                f"오픈 포지션 진입 시각 재구성 실패 (market: {market!r}, volume: {volume}): "
+                f"체결 기록에서 현재 사이클의 openedAt을 찾을 수 없습니다."
+            )
         asset = market.split("-")[1] if "-" in market else market
         name = NAME_MAP.get(market, asset)
 
@@ -303,15 +396,12 @@ def build_trading_snapshot(
                 if isinstance(raw_daily, list):
                     daily_performance = raw_daily
 
-                # P5: Only permit curve-based stats (return7d, return30d, maxDrawdown)
-                # Never overwrite totalReturn, winRate, profitFactor, averageTrade
-                raw_perf = hist_data.get("performance")
-                if isinstance(raw_perf, dict):
-                    for k in ("return7d", "return30d", "maxDrawdown"):
-                        if k in raw_perf and raw_perf[k] is not None:
-                            val = raw_perf[k]
-                            if isinstance(val, (int, float)) and math.isfinite(val):
-                                perf_metrics[k] = float(val)
+                # FIX 4: Derive curve-based stats (return7d, return30d, maxDrawdown) deterministically.
+                # Never trust precomputed equity_history.performance.
+                ret_7d, ret_30d, mdd = _derive_equity_curve_metrics(equity_curve, snapshot_dt, equity)
+                perf_metrics["return7d"] = ret_7d
+                perf_metrics["return30d"] = ret_30d
+                perf_metrics["maxDrawdown"] = mdd
         except Exception as exc:
             if isinstance(exc, SnapshotBuilderError):
                 raise
