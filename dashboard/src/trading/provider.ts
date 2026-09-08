@@ -86,6 +86,10 @@ export class LocalSnapshotProvider implements TradingDataProvider {
   }
 
   async loadFromFile(file: File): Promise<{ success: true; snapshot: TradingSnapshot } | { success: false; errors: string[] }> {
+    const MAX_FILE_SIZE = 5 * 1024 * 1024 // 5 MiB
+    if (file.size > MAX_FILE_SIZE) {
+      return { success: false, errors: [`파일 크기가 제한(5MB)을 초과했습니다. (현재 크기: ${(file.size / (1024 * 1024)).toFixed(2)}MB)`] }
+    }
     return new Promise((resolve) => {
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -115,25 +119,37 @@ export interface HttpTransport {
   get<T = unknown>(path: string): Promise<T>
 }
 
+import { createLocalhostApiClient, ReadOnlyTradingApiClient, type ApiClientOptions } from './apiClient'
+
 export class ReadOnlyApiProvider implements TradingDataProvider {
   readonly kind: DataSourceKind = 'READ_ONLY_API'
   readonly label = '읽기 전용 API'
   private transport?: HttpTransport
+  private client?: ReadOnlyTradingApiClient
 
-  constructor(transport?: HttpTransport) {
-    this.transport = transport
+  constructor(target?: HttpTransport | ReadOnlyTradingApiClient | string, options?: ApiClientOptions) {
+    if (typeof target === 'string') {
+      this.client = createLocalhostApiClient({ baseUrl: target, ...options })
+    } else if (target instanceof ReadOnlyTradingApiClient) {
+      this.client = target
+    } else if (target && typeof target.get === 'function') {
+      this.transport = target
+    }
   }
 
   async fetchSnapshot(): Promise<TradingSnapshot | null> {
-    if (!this.transport) {
-      throw new Error('읽기 전용 API 어댑터가 설정되지 않았습니다 (기본 비활성화).')
+    if (this.client) {
+      return this.client.getTradingSnapshot()
     }
-    const raw = await this.transport.get<unknown>('/api/trading/snapshot')
-    const validation = validateTradingSnapshot(raw)
-    if (!validation.valid || !validation.data) {
-      throw new Error(`API 응답 검증 실패: ${validation.errors.join(', ')}`)
+    if (this.transport) {
+      const raw = await this.transport.get<unknown>('/api/trading/snapshot')
+      const validation = validateTradingSnapshot(raw)
+      if (!validation.valid || !validation.data) {
+        throw new Error(`API 응답 검증 실패: ${validation.errors.join(', ')}`)
+      }
+      return normalizeTradingSnapshot(validation.data)
     }
-    return normalizeTradingSnapshot(validation.data)
+    throw new Error('읽기 전용 API 어댑터가 설정되지 않았습니다 (기본 비활성화).')
   }
 }
 

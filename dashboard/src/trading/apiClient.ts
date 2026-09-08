@@ -28,13 +28,26 @@ export interface ApiClientOptions {
   fetcher?: (url: string, init?: RequestInit) => Promise<Response>
 }
 
+/**
+ * Factory for creating a localhost-guarded API client using browser native fetch.
+ * Explicitly guards against non-localhost targets before attaching fetch.
+ */
+export function createLocalhostApiClient(options: ApiClientOptions = {}): ReadOnlyTradingApiClient {
+  const fetcher =
+    options.fetcher ??
+    (typeof globalThis.fetch === 'function'
+      ? (url: string, init?: RequestInit) => globalThis.fetch(url, init)
+      : undefined)
+  return new ReadOnlyTradingApiClient({ ...options, fetcher })
+}
+
 export class ReadOnlyTradingApiClient implements ReadOnlyTradingApiEndpoints {
   private readonly baseUrl: string
   private readonly timeoutMs: number
   private readonly fetcher?: (url: string, init?: RequestInit) => Promise<Response>
 
   constructor(options: ApiClientOptions = {}) {
-    const rawUrl = options.baseUrl ?? 'http://127.0.0.1:8000'
+    const rawUrl = options.baseUrl ?? 'http://127.0.0.1:8765'
     this.assertLocalhostOnly(rawUrl)
     this.baseUrl = rawUrl.replace(/\/+$/, '')
     this.timeoutMs = options.timeoutMs ?? 5000
@@ -44,7 +57,7 @@ export class ReadOnlyTradingApiClient implements ReadOnlyTradingApiEndpoints {
   private assertLocalhostOnly(url: string): void {
     const parsed = new URL(url)
     const host = parsed.hostname.toLowerCase()
-    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1'
+    const isLocal = host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]'
     if (!isLocal) {
       throw new Error(`보안 위반: 읽기 전용 API는 localhost / 127.0.0.1에서만 연결할 수 있습니다. (요청 호스트: ${host})`)
     }

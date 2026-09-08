@@ -269,8 +269,8 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     expect(screen.queryByRole('textbox', { name: /api|secret|key/i })).toBeNull()
   })
 
-  // 12. No network client introduced (Air-gap & Offline invariant)
-  it('enforces complete air-gap isolation with zero fetch, axios, WebSocket, or EventSource clients', () => {
+  // 12. Localhost-only read-only network isolation (Phase 3.3 invariant)
+  it('enforces complete air-gap isolation: browser fetch allowed ONLY in apiClient.ts targeting localhost', () => {
     const srcDir = path.resolve(process.cwd(), 'src')
 
     function scanDir(dir: string): string[] {
@@ -290,7 +290,6 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
 
     const files = scanDir(srcDir)
     const forbiddenPatterns = [
-      /\bfetch\s*\(/,
       /\baxios\b/,
       /\bnew\s+WebSocket\b/,
       /\bnew\s+EventSource\b/,
@@ -300,11 +299,25 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     const violations: { file: string; line: number; match: string }[] = []
 
     for (const filePath of files) {
-      // Exclude test file itself from forbidden check
       if (filePath.endsWith('App.test.tsx')) continue
 
       const content = fs.readFileSync(filePath, 'utf-8')
       const lines = content.split('\n')
+
+      // Disallow fetch anywhere outside apiClient.ts
+      if (!filePath.endsWith('apiClient.ts')) {
+        lines.forEach((line: string, idx: number) => {
+          if (/\bfetch\s*\(/.test(line)) {
+            violations.push({
+              file: path.relative(srcDir, filePath),
+              line: idx + 1,
+              match: line.trim()
+            })
+          }
+        })
+      }
+
+      // Check strictly forbidden libraries everywhere (including apiClient.ts)
       lines.forEach((line: string, idx: number) => {
         for (const pattern of forbiddenPatterns) {
           if (pattern.test(line)) {
@@ -319,5 +332,24 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     }
 
     expect(violations).toEqual([])
+
+    // Verify apiClient.ts explicitly enforces localhost-only and method GET
+    const apiClientContent = fs.readFileSync(path.join(srcDir, 'trading', 'apiClient.ts'), 'utf-8')
+    expect(apiClientContent).toContain('assertLocalhostOnly')
+    expect(apiClientContent).toContain("method: 'GET'")
+    expect(apiClientContent).not.toContain("method: 'POST'")
+    expect(apiClientContent).not.toContain("method: 'PUT'")
+    expect(apiClientContent).not.toContain("method: 'DELETE'")
+  })
+
+  // 13. Local API connection UI toggle
+  it('provides explicit Local API connect and disconnect controls without auto-connecting on mount', () => {
+    render(<App />)
+
+    // Initial state: NO_DATA, button says "로컬 API 연결"
+    expect(screen.getByText('트레이딩 데이터 없음')).toBeInTheDocument()
+    const connectBtn = screen.getByRole('button', { name: /로컬 API 연결/ })
+    expect(connectBtn).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /로컬 API 연결 해제/ })).toBeNull()
   })
 })

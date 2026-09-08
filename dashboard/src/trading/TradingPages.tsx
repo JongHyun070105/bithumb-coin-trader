@@ -376,19 +376,21 @@ function OperationalPage({
       ? (data.snapshot?.source.label ?? '실제 데이터')
       : '트레이딩 데이터 없음'
 
-  const apiStatus = data.status === 'READ_ONLY_API' ? '연결됨 (읽기 전용)' : '미연결 (오프라인)'
+  const isApi = data.status === 'READ_ONLY_API'
+  const apiStatus = isApi ? '연결됨 (127.0.0.1:8765)' : '미연결 (오프라인)'
   const lastUpdated = dateLabel(data.snapshot?.timestamp, true)
+  const dataStaleStatus = data.snapshot ? (data.isStale ? '오래됨 (지연)' : '최신') : '—'
 
   const rows = system
     ? [
         ['앱 버전', '0.3.0'],
-        ['데이터 소스', sourceLabel],
+        ['스냅샷 버전', data.snapshot?.schemaVersion ? `v${data.snapshot.schemaVersion}` : '—'],
+        ['데이터 소스', isApi ? '읽기 전용 로컬 API' : sourceLabel],
         ['API 상태', apiStatus],
-        ['런타임 모드', '로컬 UI 전용'],
-        ['시장 데이터 상태', '대기 중'],
-        ['백엔드 연결', '미연결'],
+        ['런타임 모드', isApi ? '로컬 개발 API' : '로컬 UI 전용'],
+        ['백엔드 연결', isApi ? '로컬 API 연결됨' : '미연결'],
         ['마지막 업데이트', lastUpdated],
-        ['데이터 지연', '—'],
+        ['데이터 상태', dataStaleStatus],
         ['거래 모드', data.snapshot?.mode ?? 'OFF'],
         ['오류', data.status === 'ERROR' ? (data.error ?? '오류 발생') : '—'],
         ['경고', '—'],

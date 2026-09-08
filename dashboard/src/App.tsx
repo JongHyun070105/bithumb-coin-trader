@@ -13,8 +13,10 @@ import {
   LayoutDashboard,
   LockKeyhole,
   Menu,
+  Radio,
   ReceiptText,
   RefreshCw,
+  Unlink,
   Wallet,
   X,
 } from 'lucide-react'
@@ -35,7 +37,7 @@ import { TradingPage } from './trading/TradingPages'
 import { createDemoSnapshot } from './trading/demo'
 import type { TradingDataState } from './trading/model'
 import { prepareTradingState } from './trading/format'
-import { LocalSnapshotProvider } from './trading/provider'
+import { createTradingState, LocalSnapshotProvider, ReadOnlyApiProvider } from './trading/provider'
 import { exportDemoSnapshotJson } from './trading/snapshotValidation'
 import './index.css'
 import './trading/trading.css'
@@ -123,6 +125,64 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
   const isAdvanced = page.startsWith('advanced/')
   const isDemo = data.status === 'SYNTHETIC_DEMO'
   const isSnapshot = data.status === 'LOCAL_SNAPSHOT'
+  const isApi = data.status === 'READ_ONLY_API'
+
+  const [apiLoading, setApiLoading] = useState(false)
+  const [apiError, setApiError] = useState<string | null>(null)
+
+  const connectLocalApi = async () => {
+    setApiLoading(true)
+    setApiError(null)
+    try {
+      const provider = new ReadOnlyApiProvider('http://127.0.0.1:8765')
+      const snapshot = await provider.fetchSnapshot()
+      if (snapshot) {
+        const now = Date.now()
+        const snapTime = Date.parse(snapshot.timestamp)
+        const isStale = Number.isFinite(snapTime) && now - snapTime > 60_000
+        setData(createTradingState('READ_ONLY_API', snapshot, { isStale }))
+      } else {
+        throw new Error('스냅샷 데이터를 수신하지 못했습니다.')
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setApiError(`로컬 API 연결 실패: ${msg}`)
+      setData({ status: 'ERROR', error: `로컬 API 오류: ${msg}` })
+    } finally {
+      setApiLoading(false)
+    }
+  }
+
+  const disconnectLocalApi = () => {
+    setApiError(null)
+    setData({ status: 'NO_DATA' })
+  }
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || initialTradingState) return
+    const params = new URLSearchParams(window.location.search)
+    if (params.get('source') === 'api' || params.get('connect') === 'api') {
+      const timer = setTimeout(() => {
+        void connectLocalApi()
+      }, 0)
+      return () => clearTimeout(timer)
+    }
+  }, [initialTradingState])
+
+  useEffect(() => {
+    if (data.status !== 'READ_ONLY_API' || !data.snapshot) return
+    const checkStale = () => {
+      const snapTime = Date.parse(data.snapshot!.timestamp)
+      if (Number.isFinite(snapTime)) {
+        const isStale = Date.now() - snapTime > 60_000
+        if (isStale !== data.isStale) {
+          setData((prev) => (prev.status === 'READ_ONLY_API' ? { ...prev, isStale } : prev))
+        }
+      }
+    }
+    const interval = setInterval(checkStale, 10_000)
+    return () => clearInterval(interval)
+  }, [data.status, data.snapshot, data.isStale])
 
   useEffect(() => {
     const onHash = () => {
@@ -208,8 +268,24 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
     URL.revokeObjectURL(url)
   }
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true)
+    if (data.status === 'READ_ONLY_API') {
+      try {
+        const provider = new ReadOnlyApiProvider('http://127.0.0.1:8765')
+        const snapshot = await provider.fetchSnapshot()
+        if (snapshot) {
+          const now = Date.now()
+          const snapTime = Date.parse(snapshot.timestamp)
+          const isStale = Number.isFinite(snapTime) && now - snapTime > 60_000
+          setData(createTradingState('READ_ONLY_API', snapshot, { isStale }))
+          setApiError(null)
+        }
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setApiError(`새로고침 실패: ${msg}`)
+      }
+    }
     setTimeout(() => {
       setIsRefreshing(false)
     }, 600)
@@ -219,11 +295,19 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
     ? '데모 데이터'
     : isSnapshot
     ? '로컬 스냅샷'
-    : data.status === 'READ_ONLY_API'
-    ? '읽기 전용 API'
+    : isApi
+    ? (data.isStale ? '로컬 API (지연됨)' : '로컬 API 연결됨')
     : data.status === 'REAL_DATA'
     ? '실제 데이터'
     : '트레이딩 데이터 없음'
+
+  const sourceBadgeClass = isDemo
+    ? 'demo-data-badge'
+    : isSnapshot
+    ? 'snapshot-badge'
+    : isApi
+    ? (data.isStale ? 'api-badge is-stale' : 'api-badge')
+    : 'source-label'
 
   return (
     <div className="trade-shell">
@@ -336,7 +420,7 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
             </span>
           </div>
           <div className="data-mode-control">
-            <span className={isDemo ? 'demo-data-badge' : isSnapshot ? 'snapshot-badge' : 'source-label'}>
+            <span className={sourceBadgeClass}>
               {sourceBadgeText}
             </span>
 
@@ -349,21 +433,44 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
               aria-label="스냅샷 JSON 파일 선택"
             />
 
+            {isApi ? (
+              <button
+                onClick={disconnectLocalApi}
+                title="로컬 API 연결 해제"
+              >
+                <Unlink size={13} />
+                로컬 API 연결 해제
+              </button>
+            ) : (
+              <button
+                onClick={connectLocalApi}
+                disabled={apiLoading}
+                title="로컬 127.0.0.1:8765 API 연결"
+              >
+                <Radio size={13} />
+                {apiLoading ? '연결 중...' : '로컬 API 연결'}
+              </button>
+            )}
+
             <button
-              onClick={() =>
+              onClick={() => {
+                setApiError(null)
                 setData(
                   isDemo
                     ? { status: 'NO_DATA' }
                     : { status: 'SYNTHETIC_DEMO', snapshot: createDemoSnapshot() },
                 )
-              }
+              }}
             >
               {isDemo ? '데모 종료' : '데모 미리보기'}
               <ArrowUpRight size={13} />
             </button>
 
             <button
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => {
+                setApiError(null)
+                fileInputRef.current?.click()
+              }}
               title="로컬 trading_snapshot.json 파일 가져오기"
             >
               <FileJson size={13} />
@@ -390,6 +497,12 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
             </button>
           </div>
         </div>
+        {apiError && (
+          <div className="api-error-banner" role="alert">
+            <span>{apiError}</span>
+            <button onClick={() => setApiError(null)} aria-label="오류 닫기">✕</button>
+          </div>
+        )}
         <main id="main-content" className="trade-main" tabIndex={-1}>
           <ErrorBoundary>
             {isAdvanced ? (
@@ -408,6 +521,8 @@ function DashboardShell({ initialTradingState }: { initialTradingState?: Trading
               ? '합성 데이터 미리보기 · 주문이 실행되지 않습니다'
               : isSnapshot
               ? '오프라인 로컬 스냅샷 · 읽기 전용'
+              : isApi
+              ? '로컬 개발 API 연결 · 읽기 전용'
               : '페이퍼 트레이딩이 시작되지 않았습니다'}
           </span>
         </footer>

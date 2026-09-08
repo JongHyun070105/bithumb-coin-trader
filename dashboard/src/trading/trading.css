@@ -56,6 +56,11 @@
 .data-mode-control { display: flex; align-items: center; gap: 12px; }
 .demo-data-badge { display: inline-flex; background: #23324b; color: #b9cefc; border-radius: 4px; padding: 3px 7px; font-size: 9px; font-weight: 650; letter-spacing: .65px; }
 .snapshot-badge { display: inline-flex; background: #1e3a2f; color: #86efac; border-radius: 4px; padding: 3px 7px; font-size: 9px; font-weight: 650; letter-spacing: .65px; }
+.api-badge { display: inline-flex; align-items: center; gap: 4px; background: #1e293b; color: #38bdf8; border-radius: 4px; padding: 3px 7px; font-size: 9px; font-weight: 650; letter-spacing: .65px; }
+.api-badge.is-stale { background: #382414; color: #f59e0b; }
+.api-error-banner { display: flex; align-items: center; justify-content: space-between; padding: 7px 32px; background: rgba(239, 68, 68, 0.1); border-bottom: 1px solid rgba(239, 68, 68, 0.25); color: #fca5a5; font-size: 11px; }
+.api-error-banner button { background: none; border: 0; color: #fca5a5; cursor: pointer; padding: 2px 6px; font-size: 11px; }
+.api-error-banner button:hover { color: #fff; }
 .source-label { font-size: 9px; color: var(--trade-muted); letter-spacing: .5px; }
 .data-mode-control button { display: flex; gap: 5px; align-items: center; background: none; border: 0; color: #b9c3d4; font-size: 10px; padding: 3px 0; cursor: pointer; transition: color 0.15s ease; }
 .data-mode-control button:hover { color: #f1f5f9; }

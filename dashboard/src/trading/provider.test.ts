@@ -67,6 +67,18 @@ describe('TradingDataProvider', () => {
     }
   })
 
+  it('LocalSnapshotProvider rejects files larger than 5MB before reading', async () => {
+    const provider = new LocalSnapshotProvider()
+    const largeFile = new File(['x'.repeat(100)], 'huge.json', { type: 'application/json' })
+    Object.defineProperty(largeFile, 'size', { value: 6 * 1024 * 1024 }) // 6MB
+
+    const result = await provider.loadFromFile(largeFile)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(result.errors[0]).toContain('파일 크기가 제한(5MB)을 초과했습니다')
+    }
+  })
+
   it('ReadOnlyApiProvider throws when transport is missing (fail-closed)', async () => {
     const provider = new ReadOnlyApiProvider()
     expect(provider.kind).toBe('READ_ONLY_API')

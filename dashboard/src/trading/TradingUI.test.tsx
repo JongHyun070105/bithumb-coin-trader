@@ -34,6 +34,7 @@ function expectNoExecutionControls() {
 /** Deliberately independent of the trading preview factory. */
 function suppliedSnapshot(): TradingSnapshot {
   return {
+    schemaVersion: 1,
     timestamp: '2026-09-08T07:30:00.000Z',
     mode: 'OFF',
     source: { kind: 'authoritative', label: 'Local test adapter' },
