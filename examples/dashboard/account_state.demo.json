@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "timestamp": "2026-09-08T07:30:00Z",
+  "mode": "OFF",
+  "cash_krw": 8500000,
+  "starting_equity_krw": 14000000,
+  "strategy": "Conservative-Trend",
+  "daily_baseline": {
+    "equity": 14000000,
+    "netCashFlow": 0,
+    "tradingDay": "2026-09-08",
+    "timeZone": "Asia/Seoul"
+  },
+  "botStatus": {
+    "mode": "OFF",
+    "strategy": "Conservative-Trend",
+    "marketData": "READY",
+    "orderExecution": "DISABLED",
+    "riskGuard": "ACTIVE",
+    "lastActivity": "2026-09-08T07:30:00Z",
+    "uptimeSeconds": 86400,
+    "todayTrades": 0,
+    "errors": 0
+  }
+}

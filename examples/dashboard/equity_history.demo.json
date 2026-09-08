@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "equityCurve": [
+    {
+      "timestamp": "2026-09-01T00:00:00Z",
+      "equity": 13800000,
+      "returnPct": 0.0,
+      "drawdownPct": 0.0
+    },
+    {
+      "timestamp": "2026-09-08T07:30:00Z",
+      "equity": 14620000,
+      "returnPct": 5.94,
+      "drawdownPct": 0.0
+    }
+  ],
+  "dailyPerformance": [
+    {
+      "date": "2026-09-07",
+      "pnl": 120000,
+      "returnPct": 0.86
+    }
+  ],
+  "performance": {
+    "return7d": 5.94,
+    "return30d": 5.94,
+    "totalReturn": 4.43,
+    "maxDrawdown": -0.85,
+    "winRate": 100.0,
+    "profitFactor": null,
+    "averageTrade": null
+  }
+}

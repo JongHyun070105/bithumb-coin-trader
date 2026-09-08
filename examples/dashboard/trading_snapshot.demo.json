@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-09-08T07:30:00Z",
+  "mode": "OFF",
+  "source": {
+    "kind": "local_snapshot",
+    "label": "오프라인 FillLedger 스냅샷"
+  },
+  "portfolio": {
+    "equity": 14620000.0,
+    "cash": 8500000.0,
+    "exposure": 6120000.0,
+    "todayPnl": 620000.0,
+    "todayReturnPct": 4.428571428571429,
+    "totalPnl": 620000.0,
+    "totalReturnPct": 4.428571428571429,
+    "realizedPnl": 98350.0,
+    "unrealizedPnl": 217050.0,
+    "fees": 4600.0
+  },
+  "positions": [
+    {
+      "id": "pos-krw-btc",
+      "asset": "BTC",
+      "name": "비트코인",
+      "pair": "KRW-BTC",
+      "side": "LONG",
+      "entry": 80040000.0,
+      "current": 84000000.0,
+      "quantity": 0.03,
+      "exposure": 2520000.0,
+      "pnl": 118800.0,
+      "pnlPct": 4.94752623688156,
+      "entryFee": 2850.0,
+      "openedAt": "2026-09-08T01:00:00Z",
+      "strategy": "Conservative-Trend"
+    },
+    {
+      "id": "pos-krw-eth",
+      "asset": "ETH",
+      "name": "이더리움",
+      "pair": "KRW-ETH",
+      "side": "LONG",
+      "entry": 3501750.0,
+      "current": 3600000.0,
+      "quantity": 1.0,
+      "exposure": 3600000.0,
+      "pnl": 98250.0,
+      "pnlPct": 2.8057399871492823,
+      "entryFee": 1750.0,
+      "openedAt": "2026-09-08T02:00:00Z",
+      "strategy": "Conservative-Trend"
+    }
+  ],
+  "recentTrades": [],
+  "equityCurve": [
+    {
+      "timestamp": "2026-09-01T00:00:00Z",
+      "equity": 13800000,
+      "returnPct": 0.0,
+      "drawdownPct": 0.0
+    },
+    {
+      "timestamp": "2026-09-08T07:30:00Z",
+      "equity": 14620000,
+      "returnPct": 5.94,
+      "drawdownPct": 0.0
+    }
+  ],
+  "dailyPerformance": [
+    {
+      "date": "2026-09-07",
+      "pnl": 120000,
+      "returnPct": 0.86
+    }
+  ],
+  "botStatus": {
+    "mode": "OFF",
+    "strategy": "Conservative-Trend",
+    "marketData": "READY",
+    "orderExecution": "DISABLED",
+    "riskGuard": "ACTIVE",
+    "lastActivity": "2026-09-08T07:30:00Z",
+    "uptimeSeconds": 86400,
+    "todayTrades": 0,
+    "errors": 0
+  },
+  "performance": {
+    "return7d": 5.94,
+    "return30d": 5.94,
+    "totalReturn": 4.43,
+    "maxDrawdown": -0.85,
+    "winRate": 100.0,
+    "profitFactor": null,
+    "averageTrade": null
+  },
+  "today": {
+    "realizedPnl": null,
+    "unrealizedPnl": 217050.0,
+    "fees": null,
+    "trades": null,
+    "wins": null,
+    "losses": null,
+    "exposurePct": 41.86046511627907
+  },
+  "dailyBaseline": {
+    "equity": 14000000.0,
+    "netCashFlow": 0.0,
+    "tradingDay": "2026-09-08",
+    "timeZone": "Asia/Seoul"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "timestamp": "2026-09-08T07:30:00Z",
+  "markets": {
+    "KRW-BTC": 84000000,
+    "KRW-ETH": 3600000
+  }
+}
