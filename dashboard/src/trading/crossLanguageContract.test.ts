@@ -56,4 +56,54 @@ describe('Cross-Language Contract: Python dashboard_snapshot -> TypeScript Valid
     expect(normalized.schemaVersion).toBe(1)
     expect(normalized.portfolio.equity).toBe(14620000)
   })
+
+  it('rejects snake_case schema_version in agreement with Python contract validator', () => {
+    const goldenPath = path.resolve(__dirname, '../../tests/golden/python_trading_snapshot_v1.json')
+    const raw = JSON.parse(fs.readFileSync(goldenPath, 'utf-8'))
+    delete raw.schemaVersion
+    raw.schema_version = 1
+
+    const result = validateTradingSnapshot(raw)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(e => e.includes('schemaVersion: 필드가 누락되었습니다'))).toBe(true)
+  })
+
+  it('rejects timezone-naive timestamps in agreement with Python contract validator', () => {
+    const goldenPath = path.resolve(__dirname, '../../tests/golden/python_trading_snapshot_v1.json')
+    const raw = JSON.parse(fs.readFileSync(goldenPath, 'utf-8'))
+    raw.timestamp = '2026-09-08T16:30:00'
+
+    const result = validateTradingSnapshot(raw)
+    expect(result.valid).toBe(false)
+    expect(result.errors.some(e => e.includes('timestamp: 유효하지 않거나 누락된'))).toBe(true)
+  })
+
+  it('rejects invalid calendar dates in agreement with Python contract validator', () => {
+    const goldenPath = path.resolve(__dirname, '../../tests/golden/python_trading_snapshot_v1.json')
+    for (const invalidDate of ['2026-02-29', '2026-02-31', '2026-13-01', '2026-00-10']) {
+      const raw = JSON.parse(fs.readFileSync(goldenPath, 'utf-8'))
+      raw.dailyBaseline = {
+        equity: 14000000,
+        netCashFlow: 0,
+        tradingDay: invalidDate,
+        timeZone: 'Asia/Seoul',
+      }
+      const result = validateTradingSnapshot(raw)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('dailyBaseline.tradingDay'))).toBe(true)
+    }
+  })
+
+  it('accepts valid calendar dates including leap years in agreement with Python', () => {
+    const goldenPath = path.resolve(__dirname, '../../tests/golden/python_trading_snapshot_v1.json')
+    const raw = JSON.parse(fs.readFileSync(goldenPath, 'utf-8'))
+    raw.dailyBaseline = {
+      equity: 14000000,
+      netCashFlow: 0,
+      tradingDay: '2024-02-29',
+      timeZone: 'Asia/Seoul',
+    }
+    const result = validateTradingSnapshot(raw)
+    expect(result.valid).toBe(true)
+  })
 })

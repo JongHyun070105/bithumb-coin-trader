@@ -176,5 +176,84 @@ describe('snapshotValidation', () => {
       expect(result.valid).toBe(false)
       expect(result.errors.some(e => e.includes('지원하지 않는 스키마 버전'))).toBe(true)
     })
+
+    it('rejects schema_version wire alias in favor of exact schemaVersion (FIX 1)', () => {
+      const bad = { ...createDemoSnapshot() }
+      // @ts-expect-error testing snake_case wire key
+      delete bad.schemaVersion
+      // @ts-expect-error testing snake_case wire key
+      bad.schema_version = 1
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('schemaVersion: 필드가 누락되었습니다'))).toBe(true)
+    })
+
+    it('accepts timezone-aware timestamps (Z and +09:00) across all timestamp fields (FIX 2)', () => {
+      for (const tz of ['2026-09-08T07:30:00Z', '2026-09-08T16:30:00+09:00']) {
+        const s = createDemoSnapshot()
+        s.timestamp = tz
+        s.botStatus.lastActivity = tz
+        s.positions[0].openedAt = tz
+        s.recentTrades[0].openedAt = tz
+        s.recentTrades[0].closedAt = tz
+        s.equityCurve[0].timestamp = tz
+        const result = validateTradingSnapshot(s)
+        expect(result.valid).toBe(true)
+      }
+    })
+
+    it('rejects timezone-naive timestamps across all timestamp fields (FIX 2)', () => {
+      const naive = '2026-09-08T16:30:00'
+
+      // snapshot.timestamp
+      const s1 = { ...createDemoSnapshot(), timestamp: naive }
+      expect(validateTradingSnapshot(s1).errors.some(e => e.includes('timestamp: 유효하지 않거나'))).toBe(true)
+
+      // botStatus.lastActivity
+      const s2 = createDemoSnapshot()
+      s2.botStatus.lastActivity = naive
+      expect(validateTradingSnapshot(s2).errors.some(e => e.includes('botStatus.lastActivity'))).toBe(true)
+
+      // positions[].openedAt
+      const s3 = createDemoSnapshot()
+      s3.positions[0].openedAt = naive
+      expect(validateTradingSnapshot(s3).errors.some(e => e.includes('positions[0].openedAt'))).toBe(true)
+
+      // trades[].openedAt
+      const s4 = createDemoSnapshot()
+      s4.recentTrades[0].openedAt = naive
+      expect(validateTradingSnapshot(s4).errors.some(e => e.includes('recentTrades[0].openedAt'))).toBe(true)
+
+      // trades[].closedAt
+      const s5 = createDemoSnapshot()
+      s5.recentTrades[0].closedAt = naive
+      expect(validateTradingSnapshot(s5).errors.some(e => e.includes('recentTrades[0].closedAt'))).toBe(true)
+
+      // equityCurve[].timestamp
+      const s6 = createDemoSnapshot()
+      s6.equityCurve[0].timestamp = naive
+      expect(validateTradingSnapshot(s6).errors.some(e => e.includes('equityCurve[0].timestamp'))).toBe(true)
+    })
+
+    it('rejects impossible calendar dates without silent normalization (FIX 3)', () => {
+      for (const invalidDate of ['2026-02-29', '2026-02-31', '2026-13-01', '2026-00-10']) {
+        // dailyBaseline
+        const s1 = createDemoSnapshot()
+        s1.dailyBaseline = { equity: 1000, netCashFlow: 0, tradingDay: invalidDate, timeZone: 'Asia/Seoul' }
+        expect(validateTradingSnapshot(s1).errors.some(e => e.includes('dailyBaseline.tradingDay'))).toBe(true)
+
+        // dailyPerformance
+        const s2 = createDemoSnapshot()
+        s2.dailyPerformance = [{ date: invalidDate, pnl: 100, returnPct: 1 }]
+        expect(validateTradingSnapshot(s2).errors.some(e => e.includes('dailyPerformance[0].date'))).toBe(true)
+      }
+    })
+
+    it('accepts valid leap year date 2024-02-29 (FIX 3)', () => {
+      const s = createDemoSnapshot()
+      s.dailyBaseline = { equity: 1000, netCashFlow: 0, tradingDay: '2024-02-29', timeZone: 'Asia/Seoul' }
+      s.dailyPerformance = [{ date: '2024-02-29', pnl: 100, returnPct: 1 }]
+      expect(validateTradingSnapshot(s).valid).toBe(true)
+    })
   })
 })

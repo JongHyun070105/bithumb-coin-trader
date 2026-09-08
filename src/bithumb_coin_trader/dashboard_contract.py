@@ -259,13 +259,11 @@ def validate_trading_snapshot(raw: Any) -> list[str]:
     if not isinstance(raw, dict):
         return ["스냅샷 최상위 데이터가 올바른 JSON 객체가 아닙니다."]
 
-    # 0. schemaVersion
-    if "schemaVersion" not in raw and "schema_version" not in raw:
+    # 0. schemaVersion (exact wire contract key required; snake_case not permitted)
+    if "schemaVersion" not in raw:
         errors.append("schemaVersion: 필드가 누락되었습니다 (지원 버전: 1).")
-    else:
-        ver = raw.get("schemaVersion", raw.get("schema_version"))
-        if ver != 1:
-            errors.append(f"schemaVersion: 지원하지 않는 스키마 버전입니다. (지원 버전: 1, 입력값: {ver})")
+    elif raw["schemaVersion"] != 1:
+        errors.append(f"schemaVersion: 지원하지 않는 스키마 버전입니다. (지원 버전: 1, 입력값: {raw['schemaVersion']})")
 
     # 1. timestamp
     if not _is_valid_iso_timestamp(raw.get("timestamp")):

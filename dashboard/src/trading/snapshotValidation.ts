@@ -29,16 +29,23 @@ function isStringOrNull(val: unknown): val is string | null {
 }
 
 function isValidTimestamp(val: unknown): val is string {
-  if (typeof val !== 'string') return false
+  if (typeof val !== 'string' || !val.trim()) return false
+  // Require ISO 8601 with explicit timezone (Z or [+-]HH:MM or [+-]HHMM)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$/.test(val)) return false
   const parsed = Date.parse(val)
   return Number.isFinite(parsed)
 }
 
 function isValidDateYmd(val: unknown): val is string {
   if (typeof val !== 'string') return false
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(val)) return false
-  const parsed = Date.parse(`${val}T00:00:00Z`)
-  return Number.isFinite(parsed)
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(val)
+  if (!match) return false
+  const y = parseInt(match[1], 10)
+  const m = parseInt(match[2], 10)
+  const d = parseInt(match[3], 10)
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
 }
 
 /**
