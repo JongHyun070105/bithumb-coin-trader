@@ -1,5 +1,6 @@
 """Integration tests for localhost-only read-only Dashboard API server."""
 
+import concurrent.futures
 import json
 import threading
 import urllib.error
@@ -10,14 +11,14 @@ import pytest
 
 from bithumb_coin_trader.dashboard_api import (
     DashboardApiError,
+    SnapshotCache,
     run_dashboard_api,
 )
 
 
 @pytest.fixture
-def valid_snapshot_file(tmp_path: Path):
-    file_path = tmp_path / "valid_snapshot.json"
-    data = {
+def valid_snapshot_data():
+    return {
         "schemaVersion": 1,
         "timestamp": "2026-09-08T08:00:00Z",
         "mode": "OFF",
@@ -72,14 +73,18 @@ def valid_snapshot_file(tmp_path: Path):
         },
         "dailyBaseline": None,
     }
+
+
+@pytest.fixture
+def valid_snapshot_file(tmp_path: Path, valid_snapshot_data):
+    file_path = tmp_path / "valid_snapshot.json"
     with file_path.open("w", encoding="utf-8") as f:
-        json.dump(data, f)
+        json.dump(valid_snapshot_data, f)
     return file_path
 
 
 @pytest.fixture
 def live_server(valid_snapshot_file):
-    # Port 0 lets the OS pick an available ephemeral port
     server = run_dashboard_api(valid_snapshot_file, host="127.0.0.1", port=0)
     actual_port = server.server_address[1]
 
@@ -93,26 +98,26 @@ def live_server(valid_snapshot_file):
     server.server_close()
 
 
-def _get(url: str) -> tuple[int, dict]:
-    req = urllib.request.Request(url, headers={"Accept": "application/json"})
+def _request(url: str, method: str = "GET", headers: dict | None = None) -> tuple[int, dict, dict]:
+    req_headers = {"Accept": "application/json"}
+    if headers:
+        req_headers.update(headers)
+    req = urllib.request.Request(url, headers=req_headers, method=method)
     try:
         with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return resp.status, data
+            data = json.loads(resp.read().decode("utf-8")) if resp.length != 0 else {}
+            resp_headers = dict(resp.headers)
+            return resp.status, data, resp_headers
     except urllib.error.HTTPError as e:
-        data = json.loads(e.read().decode("utf-8"))
-        return e.code, data
+        body = e.read().decode("utf-8")
+        data = json.loads(body) if body.strip() else {}
+        resp_headers = dict(e.headers)
+        return e.code, data, resp_headers
 
 
-def _send_method(url: str, method: str) -> tuple[int, dict]:
-    req = urllib.request.Request(url, headers={"Accept": "application/json"}, method=method)
-    try:
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            return resp.status, data
-    except urllib.error.HTTPError as e:
-        data = json.loads(e.read().decode("utf-8"))
-        return e.code, data
+def _get(url: str, headers: dict | None = None) -> tuple[int, dict]:
+    status, data, _ = _request(url, method="GET", headers=headers)
+    return status, data
 
 
 def test_api_health_endpoint(live_server):
@@ -140,9 +145,8 @@ def test_api_get_all_read_only_endpoints(live_server):
 
 
 def test_api_rejection_of_mutation_methods(live_server):
-    # Check POST, PUT, DELETE, PATCH all return 405 Method Not Allowed
     for method in ["POST", "PUT", "PATCH", "DELETE"]:
-        status, data = _send_method(f"{live_server}/api/trading/snapshot", method)
+        status, data, _ = _request(f"{live_server}/api/trading/snapshot", method=method)
         assert status == 405
         assert "메서드는 지원되지 않습니다" in data["error"]
         assert data["allowed"] == ["GET", "OPTIONS"]
@@ -154,15 +158,76 @@ def test_api_rejects_bind_to_all_interfaces(valid_snapshot_file):
 
 
 def test_api_rejects_external_hosts(valid_snapshot_file):
-    for bad_host in ["192.168.1.10", "example.com", "ec2-1-2-3-4.compute.amazonaws.com"]:
+    for bad_host in ["192.168.1.10", "example.com", "ec2-1-2-3-4.compute.amazonaws.com", "::1"]:
         with pytest.raises(DashboardApiError, match="보안 위반"):
             run_dashboard_api(valid_snapshot_file, host=bad_host, port=8765)
 
 
+def test_cors_no_wildcard_on_any_response(live_server):
+    status, _, headers = _request(f"{live_server}/api/health")
+    assert headers.get("Access-Control-Allow-Origin") != "*"
+
+
+def test_cors_localhost_origin_allowed(live_server):
+    # Origin from http://localhost:4177 should be echoed
+    status, data, headers = _request(
+        f"{live_server}/api/trading/snapshot",
+        method="GET",
+        headers={"Origin": "http://localhost:4177"},
+    )
+    assert status == 200
+    assert headers.get("Access-Control-Allow-Origin") == "http://localhost:4177"
+    assert headers.get("Vary") == "Origin"
+
+
+def test_cors_127_0_0_1_origin_allowed(live_server):
+    # Origin from http://127.0.0.1:5173 should be echoed
+    status, data, headers = _request(
+        f"{live_server}/api/portfolio",
+        method="GET",
+        headers={"Origin": "http://127.0.0.1:5173"},
+    )
+    assert status == 200
+    assert headers.get("Access-Control-Allow-Origin") == "http://127.0.0.1:5173"
+    assert headers.get("Vary") == "Origin"
+
+
+def test_cors_external_origin_receives_no_acao(live_server):
+    # External evil origin GET must not receive Access-Control-Allow-Origin
+    status, data, headers = _request(
+        f"{live_server}/api/trading/snapshot",
+        method="GET",
+        headers={"Origin": "http://evil.example"},
+    )
+    assert status == 200
+    assert "Access-Control-Allow-Origin" not in headers
+    assert headers.get("Vary") == "Origin"
+
+
+def test_cors_external_origin_options_rejected_403(live_server):
+    # Preflight OPTIONS from evil origin must be rejected with 403 Forbidden
+    status, data, headers = _request(
+        f"{live_server}/api/trading/snapshot",
+        method="OPTIONS",
+        headers={"Origin": "http://evil.example"},
+    )
+    assert status == 403
+    assert "Access-Control-Allow-Origin" not in headers
+
+
+def test_cors_localhost_options_preflight_allowed(live_server):
+    status, _, headers = _request(
+        f"{live_server}/api/trading/snapshot",
+        method="OPTIONS",
+        headers={"Origin": "http://localhost:4177"},
+    )
+    assert status == 204
+    assert headers.get("Access-Control-Allow-Origin") == "http://localhost:4177"
+
+
 def test_api_health_degraded_when_snapshot_corrupted(tmp_path: Path):
     corrupt_file = tmp_path / "corrupt.json"
-    with corrupt_file.open("w", encoding="utf-8") as f:
-        f.write("{ broken json")
+    corrupt_file.write_text("{ broken json", encoding="utf-8")
 
     server = run_dashboard_api(corrupt_file, host="127.0.0.1", port=0)
     port = server.server_address[1]
@@ -176,10 +241,60 @@ def test_api_health_degraded_when_snapshot_corrupted(tmp_path: Path):
         assert data["status"] == "degraded"
         assert data["snapshotAvailable"] is False
 
-        # Endpoint returns 503 Service Unavailable when snapshot is corrupt
         snap_status, snap_data = _get(f"{base}/api/trading/snapshot")
         assert snap_status == 503
         assert "스냅샷 로드 불가" in snap_data["error"]
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("mutator,err_keyword", [
+    (lambda d: d["portfolio"].update({"equity": "abc"}), "portfolio.equity"),
+    (lambda d: d["botStatus"].update({"orderExecution": "INVALID"}), "botStatus.orderExecution"),
+    (lambda d: d["positions"].append({"id": ""}), "positions[0].id"),
+    (lambda d: d.update({"schemaVersion": 999}), "schemaVersion"),
+    (lambda d: d.update({"dailyBaseline": {"equity": 100, "netCashFlow": 0, "tradingDay": "invalid", "timeZone": "Asia/Seoul"}}), "tradingDay"),
+    (lambda d: d.update({"timestamp": "invalid_timestamp"}), "timestamp"),
+])
+def test_api_health_degraded_when_snapshot_contract_invalid(tmp_path: Path, valid_snapshot_data, mutator, err_keyword):
+    mutator(valid_snapshot_data)
+    bad_file = tmp_path / "bad_snapshot.json"
+    with bad_file.open("w", encoding="utf-8") as f:
+        json.dump(valid_snapshot_data, f)
+
+    server = run_dashboard_api(bad_file, host="127.0.0.1", port=0)
+    port = server.server_address[1]
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    try:
+        base = f"http://127.0.0.1:{port}"
+        status, data = _get(f"{base}/api/health")
+        assert status == 200
+        assert data["status"] == "degraded"
+        assert data["snapshotAvailable"] is False
+        assert err_keyword in data["error"]
+
+        snap_status, snap_data = _get(f"{base}/api/trading/snapshot")
+        assert snap_status == 503
+        assert "계약 검증 실패" in snap_data["error"]
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_snapshot_cache_concurrent_access(valid_snapshot_file):
+    cache = SnapshotCache(valid_snapshot_file)
+
+    def read_cache():
+        for _ in range(50):
+            data, err, mtime = cache.get_snapshot()
+            assert err is None
+            assert data is not None
+            assert data["schemaVersion"] == 1
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(read_cache) for _ in range(8)]
+        for f in concurrent.futures.as_completed(futures):
+            f.result()

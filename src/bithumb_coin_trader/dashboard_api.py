@@ -1,11 +1,13 @@
 """Localhost-only read-only HTTP API server for Bithumb Coin Trader Dashboard.
 
 STRICT SAFETY BOUNDARIES:
-- Localhost only (127.0.0.1, localhost, ::1). Explicitly rejects 0.0.0.0 or external interfaces.
+- Localhost only (127.0.0.1, localhost). Explicitly rejects 0.0.0.0 or external interfaces.
 - Read-only endpoints only (GET /api/*).
 - Mutation methods (POST, PUT, PATCH, DELETE) unconditionally return 405 Method Not Allowed.
 - Zero external network connections, zero exchange API connections, zero AWS access.
-- Validates snapshot schemaVersion == 1 before serving.
+- Validates full TradingSnapshot v1 structural contract before serving.
+- CORS restricted strictly to loopback origins (http://localhost:<port>, http://127.0.0.1:<port>).
+  Never uses wildcard Access-Control-Allow-Origin: *. External origins receive 403 on OPTIONS.
 """
 
 from __future__ import annotations
@@ -14,12 +16,17 @@ import argparse
 import json
 import os
 import sys
+import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
-ALLOWED_HOSTS = {"127.0.0.1", "localhost", "::1"}
+from bithumb_coin_trader.dashboard_contract import validate_trading_snapshot
+
+ALLOWED_HOSTS = {"127.0.0.1", "localhost"}
+ALLOWED_ORIGIN_HOSTNAMES = {"127.0.0.1", "localhost"}
 API_VERSION = "0.3.0"
 SUPPORTED_SCHEMA_VERSION = 1
 
@@ -29,58 +36,87 @@ class DashboardApiError(ValueError):
 
 
 class SnapshotCache:
-    """Thread-safe snapshot reader caching by file mtime."""
+    """Thread-safe snapshot reader caching by file mtime with full contract validation."""
 
     def __init__(self, snapshot_path: Path) -> None:
         self.path = Path(snapshot_path)
         self._cached_data: dict[str, Any] | None = None
         self._cached_mtime: float = -1.0
         self._load_error: str | None = None
+        self._lock = threading.Lock()
 
     def get_snapshot(self) -> tuple[dict[str, Any] | None, str | None, float]:
-        """Returns (snapshot_data, error_message, last_modified_timestamp)."""
-        if not self.path.exists():
-            return None, f"스냅샷 파일이 존재하지 않습니다: {self.path}", 0.0
+        """Returns (snapshot_data, error_message, last_modified_timestamp).
 
-        try:
-            current_mtime = self.path.stat().st_mtime
-            if self._cached_data is not None and current_mtime == self._cached_mtime:
+        Thread-safe: guarded by internal mutex lock.
+        """
+        with self._lock:
+            if not self.path.exists():
+                self._load_error = f"스냅샷 파일이 존재하지 않습니다: {self.path}"
+                self._cached_data = None
+                return None, self._load_error, 0.0
+
+            try:
+                current_mtime = self.path.stat().st_mtime
+                if self._cached_data is not None and current_mtime == self._cached_mtime:
+                    return self._cached_data, None, current_mtime
+
+                with self.path.open("r", encoding="utf-8") as f:
+                    data = json.load(f)
+
+                if not isinstance(data, dict):
+                    self._load_error = "스냅샷 루트가 JSON 객체가 아닙니다."
+                    self._cached_data = None
+                    return None, self._load_error, current_mtime
+
+                # Full structural validation against TradingSnapshot v1 contract
+                validation_errors = validate_trading_snapshot(data)
+                if validation_errors:
+                    self._load_error = f"스냅샷 계약 검증 실패 ({len(validation_errors)}건): " + "; ".join(validation_errors[:5])
+                    self._cached_data = None
+                    return None, self._load_error, current_mtime
+
+                self._cached_data = data
+                self._cached_mtime = current_mtime
+                self._load_error = None
                 return self._cached_data, None, current_mtime
 
-            with self.path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
+            except json.JSONDecodeError as exc:
+                self._load_error = f"스냅샷 JSON 파싱 오류: {exc}"
+                self._cached_data = None
+                return None, self._load_error, 0.0
+            except Exception as exc:
+                self._load_error = f"스냅샷 파일 읽기 실패: {exc}"
+                self._cached_data = None
+                return None, self._load_error, 0.0
 
-            if not isinstance(data, dict):
-                self._load_error = "스냅샷 루트가 JSON 객체가 아닙니다."
-                return None, self._load_error, current_mtime
 
-            schema_ver = data.get("schemaVersion") or data.get("schema_version")
-            if schema_ver != SUPPORTED_SCHEMA_VERSION:
-                self._load_error = f"지원하지 않는 스키마 버전입니다 (지원: {SUPPORTED_SCHEMA_VERSION}, 실제: {schema_ver})"
-                return None, self._load_error, current_mtime
-
-            required_keys = {"timestamp", "mode", "source", "portfolio", "positions"}
-            missing = required_keys - set(data.keys())
-            if missing:
-                self._load_error = f"필수 최상위 필드 누락: {', '.join(sorted(missing))}"
-                return None, self._load_error, current_mtime
-
-            self._cached_data = data
-            self._cached_mtime = current_mtime
-            self._load_error = None
-            return self._cached_data, None, current_mtime
-
-        except json.JSONDecodeError as exc:
-            self._load_error = f"스냅샷 JSON 파싱 오류: {exc}"
-            return None, self._load_error, 0.0
-        except Exception as exc:
-            self._load_error = f"스냅샷 파일 읽기 실패: {exc}"
-            return None, self._load_error, 0.0
+def _is_allowed_origin(origin: str) -> bool:
+    """Check if an Origin header is a valid loopback address."""
+    if not origin:
+        return False
+    try:
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        hostname = (parsed.hostname or "").lower()
+        return hostname in ALLOWED_ORIGIN_HOSTNAMES
+    except Exception:
+        return False
 
 
 def create_handler_class(cache: SnapshotCache):
     class DashboardApiHandler(BaseHTTPRequestHandler):
         server_version = f"BithumbCoinTrader-LocalApi/{API_VERSION}"
+
+        def _apply_cors_headers(self) -> None:
+            """Apply loopback-only CORS headers. Never emits wildcard *."""
+            self.send_header("Vary", "Origin")
+            origin = self.headers.get("Origin")
+            if origin and _is_allowed_origin(origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Accept, Content-Type")
 
         def _send_json(self, status_code: int, payload: Mapping[str, Any] | Sequence[Any]) -> None:
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -89,19 +125,32 @@ def create_handler_class(cache: SnapshotCache):
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
-            # Allow local browser development access (e.g. Vite on 4177 or 5173 connecting to 8765)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Accept, Content-Type")
+            self._apply_cors_headers()
             self.end_headers()
             self.wfile.write(body)
 
         def do_OPTIONS(self) -> None:
+            origin = self.headers.get("Origin")
+            # If Origin is present but not loopback, explicitly reject with 403 Forbidden
+            if origin and not _is_allowed_origin(origin):
+                self.send_response(HTTPStatus.FORBIDDEN)
+                self.send_header("Vary", "Origin")
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                msg = b'{"error": "Forbidden: External Origin is not permitted to access local API"}\n'
+                self.send_header("Content-Length", str(len(msg)))
+                self.end_headers()
+                self.wfile.write(msg)
+                return
+
             self.send_response(HTTPStatus.NO_CONTENT)
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-            self.send_header("Access-Control-Allow-Headers", "Accept, Content-Type")
-            self.send_header("Access-Control-Max-Age", "86400")
+            self.send_header("Vary", "Origin")
+            if origin and _is_allowed_origin(origin):
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+                self.send_header("Access-Control-Allow-Headers", "Accept, Content-Type")
+                self.send_header("Access-Control-Max-Age", "86400")
+            else:
+                self.send_header("Allow", "GET, OPTIONS")
             self.end_headers()
 
         def do_GET(self) -> None:
@@ -123,8 +172,7 @@ def create_handler_class(cache: SnapshotCache):
                     ),
                     "error": err,
                 }
-                status_code = HTTPStatus.OK if status == "ok" else HTTPStatus.OK
-                self._send_json(status_code, health_payload)
+                self._send_json(HTTPStatus.OK, health_payload)
                 return
 
             data, err, _ = cache.get_snapshot()
@@ -212,7 +260,7 @@ def main() -> None:
     parser.add_argument(
         "--host",
         default="127.0.0.1",
-        help="Host address to bind. Must be 127.0.0.1, localhost, or ::1 (default: 127.0.0.1).",
+        help="Host address to bind. Must be 127.0.0.1 or localhost (default: 127.0.0.1).",
     )
     parser.add_argument(
         "--port",
