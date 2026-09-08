@@ -89,7 +89,7 @@ export interface DailyBaseline {
 export interface TradingSnapshot {
   timestamp: string
   mode: 'OFF' | 'PAPER' | 'LIVE'
-  source: { kind: 'synthetic' | 'authoritative'; label: string }
+  source: { kind: 'synthetic' | 'authoritative' | 'local_snapshot'; label: string }
   portfolio: PortfolioSummary
   positions: Position[]
   recentTrades: Trade[]
@@ -118,9 +118,23 @@ export interface TradingSnapshot {
   dailyBaseline: DailyBaseline | null
 }
 
+export type TradingDataStatus =
+  | 'LOADING'
+  | 'NO_DATA'
+  | 'SYNTHETIC_DEMO'
+  | 'LOCAL_SNAPSHOT'
+  | 'READ_ONLY_API'
+  | 'REAL_DATA'
+  | 'ERROR'
+
 export type TradingDataState =
-  | { status: 'LOADING' | 'NO_DATA' | 'ERROR'; snapshot?: never; error?: string }
-  | { status: 'SYNTHETIC_DEMO' | 'REAL_DATA'; snapshot: TradingSnapshot }
+  | { status: 'LOADING' | 'NO_DATA' | 'ERROR'; snapshot?: never; error?: string; isStale?: boolean }
+  | {
+      status: 'SYNTHETIC_DEMO' | 'LOCAL_SNAPSHOT' | 'READ_ONLY_API' | 'REAL_DATA'
+      snapshot: TradingSnapshot
+      error?: string
+      isStale?: boolean
+    }
 
 export const NO_TRADING_DATA: TradingDataState = { status: 'NO_DATA' }
 
