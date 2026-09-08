@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "snapshot_type": "LOCAL_PREFLIGHT_ONLY_NOT_72H_EVIDENCE",
+  "captured_at_utc": "2026-09-08T11:01:57.219704+00:00",
+  "evidence_files": [
+    {
+      "file": "baseline-pytest.txt",
+      "source": {
+        "type": "local_test_output",
+        "command": "PYTHONPATH=src python3 -m pytest",
+        "cwd_role": "clean audit branch from origin/main"
+      },
+      "size_bytes": 8682,
+      "sha256": "01d56b938093796f8f0caf6788a6ba17eda82f78a35b3ced75d9c13bce73fde2",
+      "captured_at_utc": "2026-09-08T11:01:57.219704+00:00"
+    },
+    {
+      "file": "aws-72h-soak-20260905.runtime.json",
+      "source": {
+        "type": "tracked_repository_file",
+        "path": "infra/aws/seals/aws-72h-soak-20260905.runtime.json",
+        "commit": "0a45a66324e0e49cbe02db4b47d9529353b5f20d",
+        "authority": "expected launch identity only; NOT guest execution evidence"
+      },
+      "size_bytes": 2619,
+      "sha256": "cb3dee0331cebed2ede5b43a0092fad0b2aad0989be63f7666d3e6547a66c11c",
+      "captured_at_utc": "2026-09-08T11:01:57.219704+00:00"
+    },
+    {
+      "file": "aws-72h-soak-20260905.launch-provenance.json",
+      "source": {
+        "type": "tracked_repository_file",
+        "path": "infra/aws/seals/aws-72h-soak-20260905.launch-provenance.json",
+        "commit": "0a45a66324e0e49cbe02db4b47d9529353b5f20d",
+        "authority": "expected launch identity only; NOT guest execution evidence"
+      },
+      "size_bytes": 1174,
+      "sha256": "441e8722b82a26304ec04446b01df26b4d4b67e58fd0e4c90adc1faff3073310",
+      "captured_at_utc": "2026-09-08T11:01:57.219704+00:00"
+    },
+    {
+      "file": "aws-read-failure.txt",
+      "source": {
+        "type": "verbatim_error_excerpt_from_tool_output",
+        "tool": "exec_command",
+        "chunk_id": "a08c8a",
+        "command": "aws ec2 describe-instances --profile bitcoin-trader-provisioner --region ap-northeast-2 --filters Name=tag:Project,Values=bitcoin-trader --query Reservations[].Instances[].{InstanceId:InstanceId,State:State.Name,Name:Tags[?Key==`Name`].Value|[0]} --output json --no-cli-pager",
+        "exit_code": 255,
+        "limitation": "Error line preserved from tool output. Capture time is not execution-start time."
+      },
+      "size_bytes": 81,
+      "sha256": "d0ef5b4b79e1b0733f4032e590e6768ea8f535998345a8e448c358ab01ab9e41",
+      "captured_at_utc": "2026-09-08T11:01:57.219704+00:00"
+    },
+    {
+      "file": "preflight-identity.json",
+      "source": {
+        "type": "local_audit_preflight",
+        "authority": "Git/toolchain and authentication status only"
+      },
+      "size_bytes": 592,
+      "sha256": "c8a8ea8cd0378df8b5cd4a29bc26eae4f927c51b6824adf0568b37d19bcff6f9",
+      "captured_at_utc": "2026-09-08T11:01:57.219704+00:00"
+    }
+  ],
+  "remote_evidence_snapshot_created": false,
+  "immutability": "Files captured exclusively; never silently replace. Any retrieval goes in a new timestamped directory."
+}

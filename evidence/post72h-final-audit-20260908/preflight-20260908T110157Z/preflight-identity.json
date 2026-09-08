@@ -1,0 +1,15 @@
+{
+  "captured_at_utc": "2026-09-08T11:01:57.219704+00:00",
+  "base_main": "0a45a66324e0e49cbe02db4b47d9529353b5f20d",
+  "audit_branch": "codex/post-72h-final-audit-20260908",
+  "auditor_code_sha": "0a45a66324e0e49cbe02db4b47d9529353b5f20d",
+  "protected_product_branch": {
+    "name": "gemini/dashboard-local-api-ledger-e2e-20260908",
+    "remote_head": "22784e5b51884d41a0e38a1a5d7d659d1da93ce0",
+    "source": "Phase 0 git ls-remote observation",
+    "modified_by_audit": false
+  },
+  "aws_authentication": "EXPIRED",
+  "aws_evidence_received": false,
+  "scientific_audit_started": false
+}
