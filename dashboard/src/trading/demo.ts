@@ -220,6 +220,7 @@ export function createDemoSnapshot(): TradingSnapshot {
   const todayMetrics = calculateTodayMetrics(CURRENT_EQUITY, dailyBaseline, DEMO_TIMESTAMP)
 
   return {
+    schemaVersion: 1,
     timestamp: DEMO_TIMESTAMP, mode: 'OFF',
     source: { kind: 'synthetic', label: 'DEMO DATA · 합성 미리보기' },
     portfolio: {

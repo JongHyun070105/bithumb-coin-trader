@@ -277,6 +277,13 @@ export function validateTradingSnapshot(raw: unknown): ValidationResult {
     return { valid: false, errors: ['스냅샷 최상위 데이터가 올바른 JSON 객체가 아닙니다.'] }
   }
 
+  // 0. schemaVersion
+  if (!('schemaVersion' in raw)) {
+    errors.push('schemaVersion: 필드가 누락되었습니다 (지원 버전: 1).')
+  } else if (raw.schemaVersion !== 1) {
+    errors.push(`schemaVersion: 지원하지 않는 스키마 버전입니다. (지원 버전: 1, 입력값: ${String(raw.schemaVersion)})`)
+  }
+
   // 1. timestamp
   if (!isValidTimestamp(raw.timestamp)) {
     errors.push('timestamp: 유효하지 않거나 누락된 ISO 8601 타임스탬프 형식입니다.')
@@ -377,6 +384,7 @@ export function validateTradingSnapshot(raw: unknown): ValidationResult {
  */
 export function normalizeTradingSnapshot(snapshot: TradingSnapshot): TradingSnapshot {
   return {
+    schemaVersion: snapshot.schemaVersion ?? 1,
     timestamp: snapshot.timestamp,
     mode: snapshot.mode,
     source: {

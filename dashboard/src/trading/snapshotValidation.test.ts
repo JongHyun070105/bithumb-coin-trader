@@ -152,5 +152,29 @@ describe('snapshotValidation', () => {
       expect(result.valid).toBe(false)
       expect(result.errors.some(e => e.includes('dailyBaseline.timeZone'))).toBe(true)
     })
+
+    it('rejects missing schemaVersion', () => {
+      const bad = createDemoSnapshot()
+      // @ts-expect-error testing missing schemaVersion
+      delete bad.schemaVersion
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('schemaVersion: 필드가 누락되었습니다'))).toBe(true)
+    })
+
+    it('rejects unsupported schemaVersion (e.g. schemaVersion 999) fail-closed', () => {
+      const bad = { ...createDemoSnapshot(), schemaVersion: 999 }
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('지원하지 않는 스키마 버전'))).toBe(true)
+      expect(result.errors.some(e => e.includes('999'))).toBe(true)
+    })
+
+    it('rejects non-numeric schemaVersion', () => {
+      const bad = { ...createDemoSnapshot(), schemaVersion: '1' }
+      const result = validateTradingSnapshot(bad)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes('지원하지 않는 스키마 버전'))).toBe(true)
+    })
   })
 })

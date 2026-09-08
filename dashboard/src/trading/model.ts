@@ -87,6 +87,7 @@ export interface DailyBaseline {
 }
 
 export interface TradingSnapshot {
+  schemaVersion: 1
   timestamp: string
   mode: 'OFF' | 'PAPER' | 'LIVE'
   source: { kind: 'synthetic' | 'authoritative' | 'local_snapshot'; label: string }
