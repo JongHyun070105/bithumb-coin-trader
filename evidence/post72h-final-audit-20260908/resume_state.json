@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "audit_branch": "codex/post-72h-final-audit-20260908",
+  "prep_branch": "gemini/post72h-blocked-prep-20260908",
+  "base_audit_head": "c2aa0d51bb19d83d71ec25390fe4878a9348d17a",
+  "main_baseline": "0a45a66324e0e49cbe02db4b47d9529353b5f20d",
+  "epoch": "aws-72h-soak-20260905-8017b83e",
+  "run_id": "aws-72h-soak-run-20260905T024039Z-8017b83e",
+  "runtime_fingerprint": "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b",
+  "runtime_code_commit": "9532cebc902856d954bf80b51dbe567b543dc8e2",
+  "target_instance_id": "i-008bc503c1136349f",
+  "target_region": "ap-northeast-2",
+  "target_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "current_blocker": "SSM_SEND_COMMAND_PERMISSION_MISSING",
+  "missing_capability_categories": [
+    "ssm:SendCommand",
+    "ssm:GetCommandInvocation",
+    "ssm:ListCommands",
+    "ssm:ListCommandInvocations"
+  ],
+  "available_evidence_manifests": [
+    "evidence/post72h-final-audit-20260908/preflight-20260908T110157Z/manifest.json",
+    "evidence/post72h-final-audit-20260908/access-recheck-20260908T123224Z/manifest.json",
+    "evidence/post72h-final-audit-20260908/blocked-prep-20260908T124348Z/manifest.json"
+  ],
+  "scientific_state": {
+    "72h_process": "UNKNOWN / BLOCKED",
+    "natural_completion_verified": false,
+    "actual_start_verified": false,
+    "authoritative_completion_verified": false,
+    "real_dq_run": false,
+    "qualification_run": false,
+    "canonical_root_created": false,
+    "prospective_dataset_created": false,
+    "holdout_opened": false,
+    "alpha_proven": false,
+    "paper_started": false,
+    "live_enabled": false,
+    "private_api_enabled": false
+  }
+}

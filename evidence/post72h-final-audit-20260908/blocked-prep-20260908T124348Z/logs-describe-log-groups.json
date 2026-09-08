@@ -1,0 +1,52 @@
+{
+    "logGroups": [
+        {
+            "logGroupName": "/aws/lambda/openloop-dev-api",
+            "creationTime": 1786849482890,
+            "retentionInDays": 7,
+            "metricFilterCount": 0,
+            "arn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/aws/lambda/openloop-dev-api:*",
+            "storedBytes": 0,
+            "logGroupClass": "STANDARD",
+            "logGroupArn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/aws/lambda/openloop-dev-api",
+            "deletionProtectionEnabled": false,
+            "bearerTokenAuthenticationEnabled": false
+        },
+        {
+            "logGroupName": "/aws/lambda/openloop-dev-checkpoint-dispatcher",
+            "creationTime": 1786849482769,
+            "retentionInDays": 7,
+            "metricFilterCount": 0,
+            "arn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/aws/lambda/openloop-dev-checkpoint-dispatcher:*",
+            "storedBytes": 0,
+            "logGroupClass": "STANDARD",
+            "logGroupArn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/aws/lambda/openloop-dev-checkpoint-dispatcher",
+            "deletionProtectionEnabled": false,
+            "bearerTokenAuthenticationEnabled": false
+        },
+        {
+            "logGroupName": "/bitcoin-trader/aws-apne2-research/collector",
+            "creationTime": 1788237970094,
+            "retentionInDays": 14,
+            "metricFilterCount": 0,
+            "arn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector:*",
+            "storedBytes": 0,
+            "logGroupClass": "STANDARD",
+            "logGroupArn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector",
+            "deletionProtectionEnabled": false,
+            "bearerTokenAuthenticationEnabled": false
+        },
+        {
+            "logGroupName": "openloop-dev-HttpApiAccessLog-O87V8pbFHAA3",
+            "creationTime": 1786849482705,
+            "retentionInDays": 7,
+            "metricFilterCount": 0,
+            "arn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:openloop-dev-HttpApiAccessLog-O87V8pbFHAA3:*",
+            "storedBytes": 0,
+            "logGroupClass": "STANDARD",
+            "logGroupArn": "arn:aws:logs:ap-northeast-2:080109295433:log-group:openloop-dev-HttpApiAccessLog-O87V8pbFHAA3",
+            "deletionProtectionEnabled": false,
+            "bearerTokenAuthenticationEnabled": false
+        }
+    ]
+}

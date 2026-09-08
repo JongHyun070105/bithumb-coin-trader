@@ -1,0 +1,2 @@
+
+aws: [ERROR]: An error occurred (AccessDeniedException) when calling the DescribeLogStreams operation: User: arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation is not authorized to perform: logs:DescribeLogStreams on resource: arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector because no identity-based policy allows the logs:DescribeLogStreams action

@@ -1,0 +1,2514 @@
+{
+    "Contents": [
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/orderbook/binance_orderbook_btcusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:28+00:00",
+            "ETag": "\"821a7d597d21134695cfc5f51e2562f9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 420861,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/orderbook/binance_orderbook_ethusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:29+00:00",
+            "ETag": "\"0713e00f6b40a13540c4ffcb4d11a103\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 383791,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/orderbook/binance_orderbook_solusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:31+00:00",
+            "ETag": "\"fbe2c18d2825570633c02a3e397924a3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 266876,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/orderbook/binance_orderbook_xrpusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:32+00:00",
+            "ETag": "\"2a17a801e7f581e2b8703d75ff7abbe6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 234826,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/trade/binance_trade_btcusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:33+00:00",
+            "ETag": "\"3130b81cb6f7e16bbbc1393992cef3c7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 322468,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/trade/binance_trade_ethusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:35+00:00",
+            "ETag": "\"d0f42ec76ec20ce9a6f05a4e4dd76b17\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 238495,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/trade/binance_trade_solusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:36+00:00",
+            "ETag": "\"a299ab0316da9dea1dc88bb82fd3bd0f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 97352,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/binance/trade/binance_trade_xrpusdt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:37+00:00",
+            "ETag": "\"648b1f251b1a5759ede1e59c6a2e98d1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 103845,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-ada_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:38+00:00",
+            "ETag": "\"89e55843e9f30eb1cb3de3dae68382bc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 62892,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-apt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:39+00:00",
+            "ETag": "\"c5260f0fffafa9aaa6b18ccfcf9c5598\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 165645,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-avax_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:40+00:00",
+            "ETag": "\"cf763b5fa437f68c67890eb5e437fd01\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 31807,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-axs_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:42+00:00",
+            "ETag": "\"9f1281c1db7e7114576b7f7a10f7913e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 34439,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-bch_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:43+00:00",
+            "ETag": "\"cffdbd935d24e59f19462a0f0e604447\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 122713,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-btc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:44+00:00",
+            "ETag": "\"b954ad9d2c15aa3adab3ffa5c04d677b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 593303,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-doge_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:46+00:00",
+            "ETag": "\"380088ad55ab39199a643a335939f716\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 337614,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-dot_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:47+00:00",
+            "ETag": "\"41d35a7f24c14d68a0dbf6b63b37b42f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 136192,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-etc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:48+00:00",
+            "ETag": "\"6e2a8c31c9fa61c301d973580540e66d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 87332,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-eth_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:50+00:00",
+            "ETag": "\"c88ad8a8d63bb57fed0ab27a050f41a5\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 543650,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-link_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:51+00:00",
+            "ETag": "\"1afc104d906b2f768af2a0b7ffea02cb\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 63094,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-mana_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:52+00:00",
+            "ETag": "\"d39750cd6a8de511cba140be7f49ba3b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 9473,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-near_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:53+00:00",
+            "ETag": "\"79fd36ddbbb6f276d6ea4fac3591a912\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 578514,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-sand_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:55+00:00",
+            "ETag": "\"40ffcd84422ba9cf6174ead7c2fe658b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 179801,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-shib_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:56+00:00",
+            "ETag": "\"c9deea89d5b67b3e13b301be395a2fb6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 12047,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-sol_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:57+00:00",
+            "ETag": "\"755923e72b40decedb0afbf2f1e23782\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 389845,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-sui_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:11:58+00:00",
+            "ETag": "\"b1386ad041983f0e1ca2778963d6f267\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 104249,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-trx_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:00+00:00",
+            "ETag": "\"034fb6a916c6a37ec21b83d02f5e86f5\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 10873,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-xlm_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:01+00:00",
+            "ETag": "\"40e094bc5504414aa37ca6e3ba41a443\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 50069,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/orderbook/bithumb_orderbook_krw-xrp_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:03+00:00",
+            "ETag": "\"c15882ba87f32fc0a8331a34fa3a5eff\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 503772,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-ada_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:04+00:00",
+            "ETag": "\"28b2e43981aa9a2a89a153c967ec660e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3042,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-apt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:06+00:00",
+            "ETag": "\"f1dd6f25756e184689d3b5681ef0aec3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5093,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-avax_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:07+00:00",
+            "ETag": "\"bdd71981956bc0d813af8aaef66f2408\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1958,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-axs_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:08+00:00",
+            "ETag": "\"b82296e0620e4c54b108e1dcfc2c06a8\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 741,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-bch_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:09+00:00",
+            "ETag": "\"0829a5b2dd2bbf70285717f1c994dbf0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2851,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-btc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:10+00:00",
+            "ETag": "\"a5baa72ca20d4952839119a3f877cbf0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 22558,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-doge_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:11+00:00",
+            "ETag": "\"d882982ba1b4ec4e6de1e74885efb501\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2141,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-dot_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:12+00:00",
+            "ETag": "\"c165da98fb8ee1cc2b5e5dbf5880c7c8\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6182,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-etc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:13+00:00",
+            "ETag": "\"6141931ecaa59d87b2ecab7e73103331\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2870,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-eth_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:15+00:00",
+            "ETag": "\"28ee050b14c636dd111937e4604cf249\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 10715,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-link_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:16+00:00",
+            "ETag": "\"2294afbfebb4c9adb6ba83fc34ba651e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3740,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-mana_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:17+00:00",
+            "ETag": "\"14bf885e34026782020b61dc72ca250f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1016,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-near_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:18+00:00",
+            "ETag": "\"65794be2a76a9cb5aaa72e58a67c4003\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 23167,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-sand_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:19+00:00",
+            "ETag": "\"0299ce3b2a082c14b90c96d641db2457\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2071,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-shib_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:20+00:00",
+            "ETag": "\"4047cf2f6f5bbb2bb1edbef3d337f092\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1745,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-sol_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:21+00:00",
+            "ETag": "\"beaf56a7020e8d0dcae68d0ea8b2221d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6439,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-sui_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:23+00:00",
+            "ETag": "\"c56519df94e2f7c68b1995e9de5cf025\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6672,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-trx_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:24+00:00",
+            "ETag": "\"8ff57a00b0ac06a2b7d3c5c3c99c9852\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2553,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-xlm_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:25+00:00",
+            "ETag": "\"1550ec6e42983753520d4c37e6cefc0f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 21244,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/ticker/bithumb_ticker_krw-xrp_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:26+00:00",
+            "ETag": "\"241c71b19383a4d64856f9aaae5a4713\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 36395,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-ada_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:27+00:00",
+            "ETag": "\"63dabe10486220eb55d94462a5c45883\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2015,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-apt_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:28+00:00",
+            "ETag": "\"c4b8cc78cd5374f3b20eab9d758affdb\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3300,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-avax_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:29+00:00",
+            "ETag": "\"19d0a6d127a822bbbd71d7af957de3fb\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1292,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-axs_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:30+00:00",
+            "ETag": "\"ec3f5f3b1850de97db1c104f0521bc42\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 478,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-bch_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:32+00:00",
+            "ETag": "\"88e998e43ddf6057ca6fab8c0e0c0541\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2219,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-btc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:33+00:00",
+            "ETag": "\"3ea045d493e670e6e5cb121a377416cc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 22111,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-doge_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:34+00:00",
+            "ETag": "\"6024eec92dee3a4e01bdf3a2756fe3b0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1418,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-dot_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:35+00:00",
+            "ETag": "\"b2bdd592ca722123fefeda60efa527d7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4521,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-etc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:36+00:00",
+            "ETag": "\"4f228f65d525521cef020d21d2355018\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2030,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-eth_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:37+00:00",
+            "ETag": "\"e722a1f770be2ba051406c73014e325e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7746,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-link_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:38+00:00",
+            "ETag": "\"0c3e4a11b80c48ff74315775b10f4908\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2425,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-mana_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:40+00:00",
+            "ETag": "\"a4092f4e1d08a13bbc6275579ad1b9e9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 624,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-near_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:41+00:00",
+            "ETag": "\"c75f1a05980d4e3f60f880c1bd18e6e1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 25504,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-sand_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:42+00:00",
+            "ETag": "\"a4cab695e3702be375f004979496fefe\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1373,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-shib_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:43+00:00",
+            "ETag": "\"25f9d68f867e08f06c7bdc3089331f15\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1069,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-sol_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:44+00:00",
+            "ETag": "\"07293eabed34040625be17ce17cbaf2e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5269,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-sui_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:45+00:00",
+            "ETag": "\"88a95606da7bafee943d09dbeb7a715a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5319,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-trx_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:46+00:00",
+            "ETag": "\"c7639edb10b4efb8a1c3d9776ac9441b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1529,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-xlm_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:48+00:00",
+            "ETag": "\"0761ad56251ed2b2d10e1c110b650159\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 15590,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/bithumb/trade/bithumb_trade_krw-xrp_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:49+00:00",
+            "ETag": "\"1385aa0acfa0e8afadd957eee9ffb52c\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 28731,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/orderbook/upbit_orderbook_krw-btc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:50+00:00",
+            "ETag": "\"f4886dd314bd45e7ee73789c5c1ab1dc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 282316,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/orderbook/upbit_orderbook_krw-eth_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:51+00:00",
+            "ETag": "\"6dd9ac05622d81296d37d3660f3953e9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 231307,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/orderbook/upbit_orderbook_krw-sol_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:53+00:00",
+            "ETag": "\"e32e02bd8aa1a581f9a161a22334d4bd\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 116541,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/orderbook/upbit_orderbook_krw-xrp_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:54+00:00",
+            "ETag": "\"4a0633024d192088de3625635eb74541\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 252940,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/trade/upbit_trade_krw-btc_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:55+00:00",
+            "ETag": "\"f8c3911c527f33feaf88564eb206c849\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 41973,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/trade/upbit_trade_krw-eth_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:57+00:00",
+            "ETag": "\"57eb69585919a7b5e03db06ce1319dbd\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 17079,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/trade/upbit_trade_krw-sol_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:58+00:00",
+            "ETag": "\"410c5a8d85ab282e1664c95962453ddc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 8325,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-05/upbit/trade/upbit_trade_krw-xrp_2026-09-05_05.jsonl.zst",
+            "LastModified": "2026-09-05T06:12:59+00:00",
+            "ETag": "\"d8db96232a7aa77f5875ae9aecbf8ca3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 36711,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/orderbook/binance_orderbook_btcusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:04+00:00",
+            "ETag": "\"2c41cb9bcac09a319c42f1e16824cbbb\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1525009,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/orderbook/binance_orderbook_ethusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:06+00:00",
+            "ETag": "\"dcfb0aa8a59b66910ef35047e5898227\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1675846,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/orderbook/binance_orderbook_solusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:08+00:00",
+            "ETag": "\"595ea648ac6efe25426f298ed675c23b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1297056,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/orderbook/binance_orderbook_xrpusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:10+00:00",
+            "ETag": "\"e84882a52d90dfdcea4d8f07a397dbe4\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1021994,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/trade/binance_trade_btcusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:12+00:00",
+            "ETag": "\"cc67b85026d9c57369979c16837daa22\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2135709,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/trade/binance_trade_ethusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:14+00:00",
+            "ETag": "\"c1f637f5690f248f24bcda728d4d7834\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2306841,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/trade/binance_trade_solusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:16+00:00",
+            "ETag": "\"539371ac2308a20a28ed14437628afd7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1048799,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/binance/trade/binance_trade_xrpusdt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:18+00:00",
+            "ETag": "\"ee4139c932b3cfd05583e5107062a7b2\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 476202,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-ada_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:19+00:00",
+            "ETag": "\"2067573011992642490ce2dc876a7056\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 190699,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-apt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:20+00:00",
+            "ETag": "\"9d2918f44d7595c9f4ca88b43e92d0eb\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 137798,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-avax_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:21+00:00",
+            "ETag": "\"384cb716acef28e7459b7574bbdcb4b9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 209032,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-axs_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:23+00:00",
+            "ETag": "\"a2879e7645f0b84876ec3b74c095427a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 136542,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-bch_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:24+00:00",
+            "ETag": "\"a97e78311af3b7b3126e7e9231eb9f1e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 662126,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-btc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:26+00:00",
+            "ETag": "\"2c1cf3265fce51587fc0db83fbe76b8c\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1919114,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-doge_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:29+00:00",
+            "ETag": "\"24fa571f919571d13677016ba4ef1a74\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1077569,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-dot_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:30+00:00",
+            "ETag": "\"ae9a38cef40f7666029cd16f9ab1f1ed\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 250562,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-etc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:31+00:00",
+            "ETag": "\"748ebaa09196d768a13c3f76dee1c95b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 375776,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-eth_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:34+00:00",
+            "ETag": "\"12891884f6d0a7e39d1484ce7a4dedc1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1846079,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-link_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:35+00:00",
+            "ETag": "\"1b1fb3b0e1c74149f74957722f076437\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 458502,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-mana_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:37+00:00",
+            "ETag": "\"15fccdabe03f58bb2612910bc7d8c0df\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 23372,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-near_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:38+00:00",
+            "ETag": "\"41d3af96b988ce1ea3db4e5a83ce5e6d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1050702,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-sand_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:39+00:00",
+            "ETag": "\"b2690f79bc5a6ad62fe99734cee3778d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 213206,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-shib_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:41+00:00",
+            "ETag": "\"85f0774f42f11fbe76e15c0cb69f536d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 40216,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-sol_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:43+00:00",
+            "ETag": "\"b4e90557eaa9a606d228625789c9bf36\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1463438,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-sui_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:44+00:00",
+            "ETag": "\"58f474be0fd7cbb65325383a02f340f0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 294502,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-trx_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:45+00:00",
+            "ETag": "\"e6059aad6275da27c92cde444ade44de\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 39101,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-xlm_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:47+00:00",
+            "ETag": "\"abb6b0009a48adcb152f23b8cf05fe7e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 117599,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/orderbook/bithumb_orderbook_krw-xrp_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:49+00:00",
+            "ETag": "\"7632fb66bf8d32163f91134792c183dd\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1663833,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-ada_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:50+00:00",
+            "ETag": "\"73e801d8b0589670aef641a7e3875ec7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 12046,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-apt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:51+00:00",
+            "ETag": "\"7feb87638d2f7425953aed29128dc8f9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4553,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-avax_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:52+00:00",
+            "ETag": "\"d33dcc5290476f721680c97c1ea878d6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4405,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-axs_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:53+00:00",
+            "ETag": "\"682fed940ee7d784e0cca0e0038c8f0b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3193,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-bch_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:55+00:00",
+            "ETag": "\"a2f86c50f3ec195a60459300b12bfa3d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 13422,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-btc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:56+00:00",
+            "ETag": "\"edfd4c73a4921a7b991c5b6d03e7e883\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 107338,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-doge_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:57+00:00",
+            "ETag": "\"74bf14dff81a4942590e4e2889ec2724\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 15378,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-dot_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:58+00:00",
+            "ETag": "\"4b77be3645a23511e7f70b081b3aa244\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 9649,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-etc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:14:59+00:00",
+            "ETag": "\"35760226d38815588bd59e4c5f9c0926\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5566,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-eth_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:00+00:00",
+            "ETag": "\"0c9bb688943062d7f3f154a7c9acf815\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 95983,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-link_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:01+00:00",
+            "ETag": "\"08e5d3314e832f23e50acf324bdd4fe8\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 24976,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-mana_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:03+00:00",
+            "ETag": "\"dfbba4e679de6a65031c12ae13c24a3b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 924,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-near_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:04+00:00",
+            "ETag": "\"139b2f9cf718f8d81e0ad56912e568e5\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 35871,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-sand_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:05+00:00",
+            "ETag": "\"2a0f2e22a5cbf84f13d3f2087178c70e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4304,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-shib_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:06+00:00",
+            "ETag": "\"f25eecc2184530724b822a1ac190b03e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 9157,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-sol_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:07+00:00",
+            "ETag": "\"ccc472dd8115a1c456acc01ecec0d240\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 52109,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-sui_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:08+00:00",
+            "ETag": "\"525507b1fa9bdeab02f3fc5521594e8f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 17544,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-trx_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:09+00:00",
+            "ETag": "\"30bb1fb3aa5f6632caea8f207515dadc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5017,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-xlm_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:11+00:00",
+            "ETag": "\"4be88cffe2be7a093d430e35046e4056\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7843,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/ticker/bithumb_ticker_krw-xrp_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:12+00:00",
+            "ETag": "\"cdc4f7a4a6bd3e6ba302cf75ecd55d18\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 98451,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-ada_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:13+00:00",
+            "ETag": "\"4ff33c994da63f0120baa04665077229\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 13698,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-apt_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:14+00:00",
+            "ETag": "\"2e3bff3ebf6aa54d7fb78312e6670140\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2896,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-avax_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:15+00:00",
+            "ETag": "\"284b26afdcc67516eb6adbda5e92668c\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2734,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-axs_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:16+00:00",
+            "ETag": "\"61ac1bf1da8eba6201f0f08b5ed70624\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2013,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-bch_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:17+00:00",
+            "ETag": "\"a190bf389792ee717cf6f4418d63b091\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 10250,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-btc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:19+00:00",
+            "ETag": "\"99320a13a895795a583521c7e4fde6e0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 115597,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-doge_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:20+00:00",
+            "ETag": "\"51ac2bb913a34ec834fd07085c43332a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 11696,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-dot_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:21+00:00",
+            "ETag": "\"c36a80ae6c2d09425209b1957b0cbc17\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6616,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-etc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:22+00:00",
+            "ETag": "\"37b5eb4d4fefcd9425bae6b7bcc608a1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3894,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-eth_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:23+00:00",
+            "ETag": "\"7a084af2348d4727a412113b8e492f34\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 99476,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-link_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:24+00:00",
+            "ETag": "\"a13e75d0255fd152bc8ee55e025d2421\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 31377,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-mana_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:25+00:00",
+            "ETag": "\"fb5ddc6e4270347923a5a42bbf70b67f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 537,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-near_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:27+00:00",
+            "ETag": "\"a0d724cfddb270b6a28fa02e1b2725f4\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 34518,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-sand_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:28+00:00",
+            "ETag": "\"1a5644f4cc2907e93d859bda1c89628e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3046,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-shib_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:29+00:00",
+            "ETag": "\"26646e9b6ea3074775286c8d7b64417e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7341,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-sol_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:30+00:00",
+            "ETag": "\"f2a6bb2eb936c2cbbc8e9340e2e259f2\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 64040,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-sui_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:31+00:00",
+            "ETag": "\"28a3d52efda8029b5c7b3ab959796f66\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 12659,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-trx_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:32+00:00",
+            "ETag": "\"62e9842512fa61d93fb3712d4d266ed8\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3109,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-xlm_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:33+00:00",
+            "ETag": "\"e18a51e434764fbc335c34bc4b36fdaf\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4914,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/bithumb/trade/bithumb_trade_krw-xrp_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:35+00:00",
+            "ETag": "\"b1c58e85d2f568e9ee37c4a1fa0d5ee1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 91287,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/orderbook/upbit_orderbook_krw-btc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:36+00:00",
+            "ETag": "\"df91df48f7b6e57738b5ba8543626179\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1150572,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/orderbook/upbit_orderbook_krw-eth_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:39+00:00",
+            "ETag": "\"3c91a03347f1fd2a9d32708d7cf1304b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1053471,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/orderbook/upbit_orderbook_krw-sol_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:41+00:00",
+            "ETag": "\"941824b1a510bfb3ddfcde15ae9faaa6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 642303,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/orderbook/upbit_orderbook_krw-xrp_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:43+00:00",
+            "ETag": "\"b70b34d8d57d4d7c5c9ebbcb62215c2a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 957186,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/trade/upbit_trade_krw-btc_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:44+00:00",
+            "ETag": "\"06033b2047a89edf4c5d8f13c04ed501\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 203517,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/trade/upbit_trade_krw-eth_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:46+00:00",
+            "ETag": "\"7a81ae4bc216364734e543df090a87e8\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 142055,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/trade/upbit_trade_krw-sol_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:47+00:00",
+            "ETag": "\"1461108339f442372a0c26c7ad937088\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 77973,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-06/upbit/trade/upbit_trade_krw-xrp_2026-09-06_05.jsonl.zst",
+            "LastModified": "2026-09-06T06:15:48+00:00",
+            "ETag": "\"8675be9bd7fece424f693bc0c10686da\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 145717,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/orderbook/binance_orderbook_btcusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:02+00:00",
+            "ETag": "\"bae10e9e3e9a1b00b7bc95fff1b60cc2\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1694755,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/orderbook/binance_orderbook_ethusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:04+00:00",
+            "ETag": "\"bcf81310c2c856a8bac97ceca79166f6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1699350,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/orderbook/binance_orderbook_solusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:06+00:00",
+            "ETag": "\"c6e532e5b134b72358944a65b8656344\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1116099,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/orderbook/binance_orderbook_xrpusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:08+00:00",
+            "ETag": "\"c583814c33599a1dee2562ffdd4ee162\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 949820,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/trade/binance_trade_btcusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:10+00:00",
+            "ETag": "\"3cd2a7e59bf740915ece4337a66bbaf1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2612107,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/trade/binance_trade_ethusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:12+00:00",
+            "ETag": "\"6d41cd7a7dc61632187e65fe67d1461d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1786979,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/trade/binance_trade_solusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:13+00:00",
+            "ETag": "\"478b4097c55d14117b92ce6ebd8172e6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 674142,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/binance/trade/binance_trade_xrpusdt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:15+00:00",
+            "ETag": "\"8fd365096dc3ff3abda9b126e084e267\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 481994,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-ada_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:16+00:00",
+            "ETag": "\"7412bb436f2e11fcd2763f10f52ed709\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 206242,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-apt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:17+00:00",
+            "ETag": "\"83cf170a2e10350d764dd64659d74397\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 205307,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-avax_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:19+00:00",
+            "ETag": "\"648f4d1f37892e187a23c30694a302a4\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 328295,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-axs_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:20+00:00",
+            "ETag": "\"6cda8a10845fab6a0cf6039e91f5d02d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 115381,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-bch_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:21+00:00",
+            "ETag": "\"57713b753ff11a021995d41b2722d583\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 482179,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-btc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:23+00:00",
+            "ETag": "\"2635d069a0b646b8d429b2adc5aed626\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1773144,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-doge_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:26+00:00",
+            "ETag": "\"90e2142d9375d473bd45e0e633881948\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1087924,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-dot_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:27+00:00",
+            "ETag": "\"bc13acd9f014581640d6bc07c851ceb7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 255043,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-etc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:28+00:00",
+            "ETag": "\"dcc3a0f9616be6f172e318191fcf079c\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 217767,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-eth_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:31+00:00",
+            "ETag": "\"1f7283117f75389d6092c141fb8ddc1f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1769161,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-link_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:32+00:00",
+            "ETag": "\"5d7bcf0a2e31f4954eb9f6a65879a71d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1032291,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-mana_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:34+00:00",
+            "ETag": "\"c69a604e45f569a397f88522f9713738\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 25582,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-near_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:35+00:00",
+            "ETag": "\"e9a15a480a0a20c05c6d517745e3e4f3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1125466,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-sand_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:37+00:00",
+            "ETag": "\"bff0b3c77eece5a8e1a0ae301f0128b5\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 197894,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-shib_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:38+00:00",
+            "ETag": "\"e1b021a558e6397ead6bebab06a394bc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 41505,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-sol_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:40+00:00",
+            "ETag": "\"382709f84d178a848f573b1aa266525f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1333319,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-sui_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:41+00:00",
+            "ETag": "\"c50c34a65873020b2367edfa4d7e6963\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 418042,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-trx_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:43+00:00",
+            "ETag": "\"2d0fa5ba2dad35b780ee8e98b240a6f3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 51971,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-xlm_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:44+00:00",
+            "ETag": "\"8091e7210c51795369dfefdaccfbe39f\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 315427,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/orderbook/bithumb_orderbook_krw-xrp_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:46+00:00",
+            "ETag": "\"fa7f425c9b0d266c91277013bbe47308\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1818597,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-ada_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:48+00:00",
+            "ETag": "\"29e96c7bd30823b2c63dd286dbdddef1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6143,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-apt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:49+00:00",
+            "ETag": "\"88a3a9d482f5573e4b87a8e81973bc08\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7787,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-avax_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:50+00:00",
+            "ETag": "\"c0371f65975d26344475a89f57359939\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 14425,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-axs_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:51+00:00",
+            "ETag": "\"081b3cb5d92fc805b739788d39141042\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 2924,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-bch_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:52+00:00",
+            "ETag": "\"20413b3e236667bb587518bed86c87c0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 6649,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-btc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:53+00:00",
+            "ETag": "\"9e0b123a5013a1756bae701a356fdac6\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 59888,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-doge_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:54+00:00",
+            "ETag": "\"f17bfad9b638aed080dfb5f1600842dc\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 15957,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-dot_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:56+00:00",
+            "ETag": "\"d7811fb292e0d0867220264162d27b39\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7758,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-etc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:57+00:00",
+            "ETag": "\"4e37b109dbfe3a47b00bfc469e9d4d4b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 7128,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-eth_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:58+00:00",
+            "ETag": "\"bf2f9fdd4eb10d5865219f29fe343d9d\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 44032,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-link_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:17:59+00:00",
+            "ETag": "\"a8826632cc79674a6874d4274cd6cde3\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 66354,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-mana_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:00+00:00",
+            "ETag": "\"e680331303434c0fed854f4b34a2bba7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1271,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-near_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:01+00:00",
+            "ETag": "\"e2188e3c626b7bd2b7b8f79cc2201a2a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 26612,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-sand_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:02+00:00",
+            "ETag": "\"4f90529835296bd6f815eb08a3456f94\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4123,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-shib_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:04+00:00",
+            "ETag": "\"4da7849c75c34ecbe83333b580f02a17\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5922,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-sol_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:05+00:00",
+            "ETag": "\"afdee21fe0697b5d854b564d63d266d9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 27457,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-sui_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:06+00:00",
+            "ETag": "\"05b421b5c8e70c299573961661925d65\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 23230,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-trx_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:07+00:00",
+            "ETag": "\"5dbc219d99f6239db64c16691438acbf\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5407,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-xlm_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:08+00:00",
+            "ETag": "\"3ac0723d99e3c885b2c6b065c215f6b1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 19988,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/ticker/bithumb_ticker_krw-xrp_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:10+00:00",
+            "ETag": "\"f853ba2e299253ca8603d540c005a4c9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 105286,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-ada_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:11+00:00",
+            "ETag": "\"1172af0aafa572b9b98a2be2ba0fc0ce\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4082,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-apt_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:12+00:00",
+            "ETag": "\"be92e74a77f18f0498e310a529c68118\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5044,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-avax_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:13+00:00",
+            "ETag": "\"5302f2ad6ec713229a64565518735718\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 10175,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-axs_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:14+00:00",
+            "ETag": "\"b1ec70070bb72210847b2321afda441e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1841,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-bch_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:15+00:00",
+            "ETag": "\"973fbb0a35288b679e4304bdac5ac625\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4904,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-btc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:16+00:00",
+            "ETag": "\"81980ebe782f8a232587fe15871c792e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 49195,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-doge_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:18+00:00",
+            "ETag": "\"ea6fd52652ec32ca14c7a358d279cf3a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 11317,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-dot_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:19+00:00",
+            "ETag": "\"0abccc5b815d2dc85cd15b69a0e077de\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 5318,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-etc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:20+00:00",
+            "ETag": "\"d3a84ff3c7c2d7a655dacfd4a8a637a0\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 4972,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-eth_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:21+00:00",
+            "ETag": "\"513758576a3bf5e193ba2548548b7094\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 32863,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-link_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:22+00:00",
+            "ETag": "\"9d5586633fa33bc48a1be8eaded6fa08\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 57569,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-mana_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:23+00:00",
+            "ETag": "\"9652558be776fbc08150c3570770d5f9\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 781,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-near_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:24+00:00",
+            "ETag": "\"1564bafaa049b09642c844e6799b81f7\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 21892,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-sand_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:25+00:00",
+            "ETag": "\"5629e40d534a65b43aeff7a695272524\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3118,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-shib_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:27+00:00",
+            "ETag": "\"b0f31f8209094609489a7113c5880442\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3504,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-sol_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:28+00:00",
+            "ETag": "\"7463b3fef89e63b2ad63f4aced68d8a5\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 19879,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-sui_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:29+00:00",
+            "ETag": "\"5461cd58112ec4ef2e833b79f396389e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 23710,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-trx_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:30+00:00",
+            "ETag": "\"e71f308f485b36e9d48d909ddfd20bd4\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 3283,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-xlm_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:31+00:00",
+            "ETag": "\"0c0192fcaae0c9fd1983160c1e7ae531\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 14193,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/bithumb/trade/bithumb_trade_krw-xrp_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:32+00:00",
+            "ETag": "\"cd0cb4f74a9e9b8f659fc089d79cfc53\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 75513,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/orderbook/upbit_orderbook_krw-btc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:34+00:00",
+            "ETag": "\"3ad61da702fb754b18917b7b220c9429\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 1560882,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/orderbook/upbit_orderbook_krw-eth_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:37+00:00",
+            "ETag": "\"f584d6628f85c4262e197fa58f920f37\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 748846,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/orderbook/upbit_orderbook_krw-sol_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:38+00:00",
+            "ETag": "\"a9d854f2fdd88a5a9a92bbe35be1ae3a\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 460004,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/orderbook/upbit_orderbook_krw-xrp_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:41+00:00",
+            "ETag": "\"107018f6ef31540efe284804f50e617b\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 992385,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/trade/upbit_trade_krw-btc_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:42+00:00",
+            "ETag": "\"3b50b282e3f7b117a0898a935557588e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 176540,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/trade/upbit_trade_krw-eth_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:43+00:00",
+            "ETag": "\"09706d2cf0266e2a1cdf0fed5e5ad6a1\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 119211,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/trade/upbit_trade_krw-sol_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:44+00:00",
+            "ETag": "\"683b6ecef854d47d8165561d11d0c05e\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 52984,
+            "StorageClass": "STANDARD"
+        },
+        {
+            "Key": "market-data/temporary/aws-72h-soak-20260905-8017b83e/2026-09-07/upbit/trade/upbit_trade_krw-xrp_2026-09-07_05.jsonl.zst",
+            "LastModified": "2026-09-07T06:18:46+00:00",
+            "ETag": "\"82fb0a2ef9709690821f0a5ac9a3d3a4\"",
+            "ChecksumAlgorithm": [
+                "SHA256"
+            ],
+            "ChecksumType": "FULL_OBJECT",
+            "Size": 150810,
+            "StorageClass": "STANDARD"
+        }
+    ],
+    "RequestCharged": null,
+    "Prefix": "market-data/temporary/aws-72h-soak-20260905-8017b83e/"
+}

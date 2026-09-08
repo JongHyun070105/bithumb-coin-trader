@@ -1,0 +1,2 @@
+
+aws: [ERROR]: An error occurred (AccessDenied) when calling the GetMetricStatistics operation: User: arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation is not authorized to perform: cloudwatch:GetMetricStatistics because no identity-based policy allows the cloudwatch:GetMetricStatistics action

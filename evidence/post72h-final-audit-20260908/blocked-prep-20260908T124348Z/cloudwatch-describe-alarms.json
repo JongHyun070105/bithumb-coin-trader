@@ -1,0 +1,150 @@
+{
+    "MetricAlarms": [
+        {
+            "AlarmName": "bitcoin-trader-aws-apne2-research-disk-critical",
+            "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:080109295433:alarm:bitcoin-trader-aws-apne2-research-disk-critical",
+            "AlarmDescription": "Block new nonessential work and fail closed; never delete unverified raw",
+            "AlarmConfigurationUpdatedTimestamp": "2026-09-01T13:46:10.231000+09:00",
+            "ActionsEnabled": true,
+            "OKActions": [],
+            "AlarmActions": [],
+            "InsufficientDataActions": [],
+            "StateValue": "ALARM",
+            "StateReason": "Threshold Crossed: no datapoints were received for 1 period and 1 missing datapoint was treated as [Breaching].",
+            "StateReasonData": "{\"version\":\"1.0\",\"queryDate\":\"2026-09-08T05:55:54.551+0000\",\"statistic\":\"Maximum\",\"period\":300,\"recentDatapoints\":[],\"threshold\":90.0,\"evaluatedDatapoints\":[{\"timestamp\":\"2026-09-08T05:50:00.000+0000\"}]}",
+            "StateUpdatedTimestamp": "2026-09-08T14:55:54.552000+09:00",
+            "MetricName": "DiskUsedPercent",
+            "Namespace": "BitcoinTrader/Collector",
+            "Statistic": "Maximum",
+            "Dimensions": [
+                {
+                    "Name": "EnvironmentId",
+                    "Value": "aws-apne2-research"
+                }
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "Threshold": 90.0,
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "TreatMissingData": "breaching",
+            "StateTransitionedTimestamp": "2026-09-08T14:55:54.552000+09:00"
+        },
+        {
+            "AlarmName": "bitcoin-trader-aws-apne2-research-disk-high",
+            "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:080109295433:alarm:bitcoin-trader-aws-apne2-research-disk-high",
+            "AlarmDescription": "Stop optional work and prioritize verified finalization/archive",
+            "AlarmConfigurationUpdatedTimestamp": "2026-09-01T13:46:10.223000+09:00",
+            "ActionsEnabled": true,
+            "OKActions": [],
+            "AlarmActions": [],
+            "InsufficientDataActions": [],
+            "StateValue": "ALARM",
+            "StateReason": "Threshold Crossed: no datapoints were received for 2 periods and 2 missing datapoints were treated as [Breaching].",
+            "StateReasonData": "{\"version\":\"1.0\",\"queryDate\":\"2026-09-08T06:00:25.442+0000\",\"statistic\":\"Maximum\",\"period\":300,\"recentDatapoints\":[],\"threshold\":80.0,\"evaluatedDatapoints\":[{\"timestamp\":\"2026-09-08T05:55:00.000+0000\"},{\"timestamp\":\"2026-09-08T05:50:00.000+0000\"}]}",
+            "StateUpdatedTimestamp": "2026-09-08T15:00:25.445000+09:00",
+            "MetricName": "DiskUsedPercent",
+            "Namespace": "BitcoinTrader/Collector",
+            "Statistic": "Maximum",
+            "Dimensions": [
+                {
+                    "Name": "EnvironmentId",
+                    "Value": "aws-apne2-research"
+                }
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 2,
+            "Threshold": 80.0,
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "TreatMissingData": "breaching",
+            "StateTransitionedTimestamp": "2026-09-08T15:00:25.445000+09:00"
+        },
+        {
+            "AlarmName": "bitcoin-trader-aws-apne2-research-disk-warning",
+            "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:080109295433:alarm:bitcoin-trader-aws-apne2-research-disk-warning",
+            "AlarmDescription": "Investigate compression, upload, or retention lag",
+            "AlarmConfigurationUpdatedTimestamp": "2026-09-01T13:46:10.223000+09:00",
+            "ActionsEnabled": true,
+            "OKActions": [],
+            "AlarmActions": [],
+            "InsufficientDataActions": [],
+            "StateValue": "ALARM",
+            "StateReason": "Threshold Crossed: no datapoints were received for 3 periods and 3 missing datapoints were treated as [Breaching].",
+            "StateReasonData": "{\"version\":\"1.0\",\"queryDate\":\"2026-09-08T06:05:21.814+0000\",\"statistic\":\"Maximum\",\"period\":300,\"recentDatapoints\":[],\"threshold\":70.0,\"evaluatedDatapoints\":[{\"timestamp\":\"2026-09-08T06:00:00.000+0000\"},{\"timestamp\":\"2026-09-08T05:55:00.000+0000\"},{\"timestamp\":\"2026-09-08T05:50:00.000+0000\"}]}",
+            "StateUpdatedTimestamp": "2026-09-08T15:05:21.816000+09:00",
+            "MetricName": "DiskUsedPercent",
+            "Namespace": "BitcoinTrader/Collector",
+            "Statistic": "Maximum",
+            "Dimensions": [
+                {
+                    "Name": "EnvironmentId",
+                    "Value": "aws-apne2-research"
+                }
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 3,
+            "Threshold": 70.0,
+            "ComparisonOperator": "GreaterThanOrEqualToThreshold",
+            "TreatMissingData": "breaching",
+            "StateTransitionedTimestamp": "2026-09-08T15:05:21.816000+09:00"
+        },
+        {
+            "AlarmName": "bitcoin-trader-aws-apne2-research-queue-drops",
+            "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:080109295433:alarm:bitcoin-trader-aws-apne2-research-queue-drops",
+            "AlarmDescription": "Collector reported queue drops or backpressure loss",
+            "AlarmConfigurationUpdatedTimestamp": "2026-09-01T13:46:10.255000+09:00",
+            "ActionsEnabled": true,
+            "OKActions": [],
+            "AlarmActions": [],
+            "InsufficientDataActions": [],
+            "StateValue": "ALARM",
+            "StateReason": "Threshold Crossed: no datapoints were received for 1 period and 1 missing datapoint was treated as [Breaching].",
+            "StateReasonData": "{\"version\":\"1.0\",\"queryDate\":\"2026-09-08T05:55:54.900+0000\",\"statistic\":\"Maximum\",\"period\":300,\"recentDatapoints\":[],\"threshold\":0.0,\"evaluatedDatapoints\":[{\"timestamp\":\"2026-09-08T05:50:00.000+0000\"}]}",
+            "StateUpdatedTimestamp": "2026-09-08T14:55:54.902000+09:00",
+            "MetricName": "QueueDrops",
+            "Namespace": "BitcoinTrader/Collector",
+            "Statistic": "Maximum",
+            "Dimensions": [
+                {
+                    "Name": "EnvironmentId",
+                    "Value": "aws-apne2-research"
+                }
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "Threshold": 0.0,
+            "ComparisonOperator": "GreaterThanThreshold",
+            "TreatMissingData": "breaching",
+            "StateTransitionedTimestamp": "2026-09-08T14:55:54.902000+09:00"
+        },
+        {
+            "AlarmName": "bitcoin-trader-aws-apne2-research-writer-errors",
+            "AlarmArn": "arn:aws:cloudwatch:ap-northeast-2:080109295433:alarm:bitcoin-trader-aws-apne2-research-writer-errors",
+            "AlarmDescription": "Collector reported writer or unpersisted-event errors",
+            "AlarmConfigurationUpdatedTimestamp": "2026-09-01T13:46:10.228000+09:00",
+            "ActionsEnabled": true,
+            "OKActions": [],
+            "AlarmActions": [],
+            "InsufficientDataActions": [],
+            "StateValue": "ALARM",
+            "StateReason": "Threshold Crossed: no datapoints were received for 1 period and 1 missing datapoint was treated as [Breaching].",
+            "StateReasonData": "{\"version\":\"1.0\",\"queryDate\":\"2026-09-08T05:55:18.848+0000\",\"statistic\":\"Maximum\",\"period\":300,\"recentDatapoints\":[],\"threshold\":0.0,\"evaluatedDatapoints\":[{\"timestamp\":\"2026-09-08T05:50:00.000+0000\"}]}",
+            "StateUpdatedTimestamp": "2026-09-08T14:55:18.850000+09:00",
+            "MetricName": "WriterErrors",
+            "Namespace": "BitcoinTrader/Collector",
+            "Statistic": "Maximum",
+            "Dimensions": [
+                {
+                    "Name": "EnvironmentId",
+                    "Value": "aws-apne2-research"
+                }
+            ],
+            "Period": 300,
+            "EvaluationPeriods": 1,
+            "Threshold": 0.0,
+            "ComparisonOperator": "GreaterThanThreshold",
+            "TreatMissingData": "breaching",
+            "StateTransitionedTimestamp": "2026-09-08T14:55:18.850000+09:00"
+        }
+    ],
+    "CompositeAlarms": []
+}

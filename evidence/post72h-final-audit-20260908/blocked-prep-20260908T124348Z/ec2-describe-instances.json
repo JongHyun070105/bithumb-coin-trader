@@ -1,0 +1,232 @@
+{
+    "Reservations": [
+        {
+            "ReservationId": "r-0a0a7c9a6da0261aa",
+            "OwnerId": "080109295433",
+            "Groups": [],
+            "Instances": [
+                {
+                    "Architecture": "x86_64",
+                    "BlockDeviceMappings": [
+                        {
+                            "DeviceName": "/dev/xvda",
+                            "Ebs": {
+                                "AttachTime": "2026-09-01T04:46:20+00:00",
+                                "DeleteOnTermination": false,
+                                "Status": "attached",
+                                "VolumeId": "vol-0d46ca4af0d463549",
+                                "EbsCardIndex": 0
+                            }
+                        }
+                    ],
+                    "ClientToken": "terraform-MnHMHu8YSK4BDJjZq636fVLJrb",
+                    "EbsOptimized": false,
+                    "EnaSupport": true,
+                    "Hypervisor": "xen",
+                    "IamInstanceProfile": {
+                        "Arn": "arn:aws:iam::080109295433:instance-profile/bitcoin-trader-aws-apne2-research-collector",
+                        "Id": "AIPARFJXC25E3BYFZ6JLL"
+                    },
+                    "NetworkInterfaces": [
+                        {
+                            "Association": {
+                                "IpOwnerId": "amazon",
+                                "PublicDnsName": "ec2-3-39-227-95.ap-northeast-2.compute.amazonaws.com",
+                                "PublicIp": "3.39.227.95"
+                            },
+                            "Attachment": {
+                                "AttachTime": "2026-09-01T04:46:20+00:00",
+                                "AttachmentId": "eni-attach-0c635ce1207ef258b",
+                                "DeleteOnTermination": true,
+                                "DeviceIndex": 0,
+                                "Status": "attached",
+                                "NetworkCardIndex": 0
+                            },
+                            "Description": "",
+                            "Groups": [
+                                {
+                                    "GroupId": "sg-08025d91b9b8a40a5",
+                                    "GroupName": "bitcoin-trader-aws-apne2-research-collector"
+                                }
+                            ],
+                            "Ipv6Addresses": [],
+                            "MacAddress": "02:08:0a:93:81:2d",
+                            "NetworkInterfaceId": "eni-0ba496b7d64ae2dcf",
+                            "OwnerId": "080109295433",
+                            "PrivateDnsName": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+                            "PrivateIpAddress": "10.91.1.65",
+                            "PrivateIpAddresses": [
+                                {
+                                    "Association": {
+                                        "IpOwnerId": "amazon",
+                                        "PublicDnsName": "ec2-3-39-227-95.ap-northeast-2.compute.amazonaws.com",
+                                        "PublicIp": "3.39.227.95"
+                                    },
+                                    "Primary": true,
+                                    "PrivateDnsName": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+                                    "PrivateIpAddress": "10.91.1.65"
+                                }
+                            ],
+                            "SourceDestCheck": true,
+                            "Status": "in-use",
+                            "SubnetId": "subnet-08b180ca5fb491233",
+                            "VpcId": "vpc-058f03a804ab22d80",
+                            "InterfaceType": "interface",
+                            "Operator": {
+                                "Managed": false
+                            }
+                        }
+                    ],
+                    "RootDeviceName": "/dev/xvda",
+                    "RootDeviceType": "ebs",
+                    "SecurityGroups": [
+                        {
+                            "GroupId": "sg-08025d91b9b8a40a5",
+                            "GroupName": "bitcoin-trader-aws-apne2-research-collector"
+                        }
+                    ],
+                    "SourceDestCheck": true,
+                    "Tags": [
+                        {
+                            "Key": "AvailabilityAZ",
+                            "Value": "ap-northeast-2a"
+                        },
+                        {
+                            "Key": "ManagedBy",
+                            "Value": "terraform"
+                        },
+                        {
+                            "Key": "ConfigFingerprint",
+                            "Value": "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b"
+                        },
+                        {
+                            "Key": "Project",
+                            "Value": "bitcoin-trader"
+                        },
+                        {
+                            "Key": "CompressionMode",
+                            "Value": "zstd-level-1"
+                        },
+                        {
+                            "Key": "Architecture",
+                            "Value": "x86_64"
+                        },
+                        {
+                            "Key": "CollectorCommit",
+                            "Value": "9532cebc902856d954bf80b51dbe567b543dc8e2"
+                        },
+                        {
+                            "Key": "CollectorEpoch",
+                            "Value": "aws-72h-soak-20260905-8017b83e"
+                        },
+                        {
+                            "Key": "SchemaVersion",
+                            "Value": "4"
+                        },
+                        {
+                            "Key": "InstanceType",
+                            "Value": "t3.medium"
+                        },
+                        {
+                            "Key": "Name",
+                            "Value": "bitcoin-trader-aws-apne2-research-collector"
+                        },
+                        {
+                            "Key": "Environment",
+                            "Value": "aws-apne2-research"
+                        },
+                        {
+                            "Key": "LiveTrading",
+                            "Value": "disabled"
+                        },
+                        {
+                            "Key": "CollectorRunId",
+                            "Value": "aws-72h-soak-run-20260905T024039Z-8017b83e"
+                        },
+                        {
+                            "Key": "ClockSource",
+                            "Value": "Amazon Time Sync Service 169.254.169.123"
+                        },
+                        {
+                            "Key": "Repository",
+                            "Value": "JongHyun070105/bithumb-coin-trader"
+                        },
+                        {
+                            "Key": "AlphaReady",
+                            "Value": "false"
+                        }
+                    ],
+                    "VirtualizationType": "hvm",
+                    "CpuOptions": {
+                        "CoreCount": 1,
+                        "ThreadsPerCore": 2
+                    },
+                    "CapacityReservationSpecification": {
+                        "CapacityReservationPreference": "open"
+                    },
+                    "HibernationOptions": {
+                        "Configured": false
+                    },
+                    "MetadataOptions": {
+                        "State": "applied",
+                        "HttpTokens": "required",
+                        "HttpPutResponseHopLimit": 1,
+                        "HttpEndpoint": "enabled",
+                        "HttpProtocolIpv6": "disabled",
+                        "InstanceMetadataTags": "enabled"
+                    },
+                    "EnclaveOptions": {
+                        "Enabled": false
+                    },
+                    "BootMode": "uefi-preferred",
+                    "PlatformDetails": "Linux/UNIX",
+                    "UsageOperation": "RunInstances",
+                    "UsageOperationUpdateTime": "2026-09-01T04:46:20+00:00",
+                    "PrivateDnsNameOptions": {
+                        "HostnameType": "ip-name",
+                        "EnableResourceNameDnsARecord": false,
+                        "EnableResourceNameDnsAAAARecord": false
+                    },
+                    "MaintenanceOptions": {
+                        "AutoRecovery": "default",
+                        "RebootMigration": "default"
+                    },
+                    "CurrentInstanceBootMode": "uefi",
+                    "NetworkPerformanceOptions": {
+                        "BandwidthWeighting": "default"
+                    },
+                    "Operator": {
+                        "Managed": false,
+                        "HiddenByDefault": false
+                    },
+                    "InstanceId": "i-008bc503c1136349f",
+                    "ImageId": "ami-08d82cf148c92fcc3",
+                    "State": {
+                        "Code": 16,
+                        "Name": "running"
+                    },
+                    "PrivateDnsName": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+                    "PublicDnsName": "ec2-3-39-227-95.ap-northeast-2.compute.amazonaws.com",
+                    "StateTransitionReason": "",
+                    "AmiLaunchIndex": 0,
+                    "ProductCodes": [],
+                    "InstanceType": "t3.medium",
+                    "LaunchTime": "2026-09-01T04:46:20+00:00",
+                    "Placement": {
+                        "AvailabilityZoneId": "apne2-az1",
+                        "GroupName": "",
+                        "Tenancy": "default",
+                        "AvailabilityZone": "ap-northeast-2a"
+                    },
+                    "Monitoring": {
+                        "State": "disabled"
+                    },
+                    "SubnetId": "subnet-08b180ca5fb491233",
+                    "VpcId": "vpc-058f03a804ab22d80",
+                    "PrivateIpAddress": "10.91.1.65",
+                    "PublicIpAddress": "3.39.227.95"
+                }
+            ]
+        }
+    ]
+}

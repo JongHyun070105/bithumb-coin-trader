@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-09-08T12:43:48Z",
+  "profile": "bitcoin-trader-provisioner",
+  "region": "ap-northeast-2",
+  "account_id_masked": "080109295433",
+  "files": [
+    {
+      "path": "cloudwatch-describe-alarms.json",
+      "size": 8400,
+      "sha256": "c0bd11f89a3d4770ca1b6ada2cef6f441a064d848502b851379b88b3d87bec99",
+      "source": "AWS CLI cloudwatch describe-alarms stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "cloudwatch-get-metric-statistics-denial.txt",
+      "size": 347,
+      "sha256": "ac00c4dd2cac998fcba0c506e8f0da9788aaf52e2f71411c17235a8711ea103a",
+      "source": "AWS CLI cloudwatch get-metric-statistics AccessDenied stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "cloudwatch-list-metrics-denial.txt",
+      "size": 323,
+      "sha256": "f24de8690b7b288267034d21e4c062f1897a74ac5f447a36f1e1b1c336102cc0",
+      "source": "AWS CLI cloudwatch list-metrics AccessDenied stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ec2-describe-instance-status.json",
+      "size": 1210,
+      "sha256": "200527fc9f01b2f8f87be712a366a4f1563183952b62bdbba1ba5cad10df3575",
+      "source": "AWS CLI ec2 describe-instance-status stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ec2-describe-instances.json",
+      "size": 10481,
+      "sha256": "8369582f7b69621ea6e0ec4eff9934716a0400af0e93e2084bee48e85066095b",
+      "source": "AWS CLI ec2 describe-instances stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ec2-describe-tags.json",
+      "size": 3281,
+      "sha256": "cf2d0287faa5e056950acc23bddf111be2b4d32439f61335ae404b0adf2b8107",
+      "source": "AWS CLI ec2 describe-tags stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "logs-describe-log-groups.json",
+      "size": 2497,
+      "sha256": "7cf9bce363008a810f3056de1d93bb605e844aae0ac20bddfeea657f8d36de8b",
+      "source": "AWS CLI logs describe-log-groups stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "logs-describe-log-streams-denial.txt",
+      "size": 450,
+      "sha256": "0e863c21cc95a8edf148a556dffb6eae1bb6204e8b4635f96e97ec863d96d647",
+      "source": "AWS CLI logs describe-log-streams AccessDeniedException stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "s3-head-object-denial.txt",
+      "size": 88,
+      "sha256": "a299c099a23a7f63c123018dfa82218ce160fa7a060e33c91d323fcb6d41eb47",
+      "source": "AWS CLI s3api head-object 403 Forbidden stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "s3-list-bucket-root.json",
+      "size": 137,
+      "sha256": "85ef6784ae36c61edd1177fa45484fc41daea9cdf274133430f429d4ba825cac",
+      "source": "AWS CLI s3api list-objects-v2 bucket-root stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "s3-list-market-data.json",
+      "size": 159,
+      "sha256": "11d5b7b70ff56876383afcaadbc40c8c0d67546aa3c919f4470e2e5e0a441160",
+      "source": "AWS CLI s3api list-objects-v2 market-data/ stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "s3-list-target-epoch.json",
+      "size": 107627,
+      "sha256": "8325356e6b51682bbf4c131637d2efbdc0aea76d6d7ddf098bf9e8dbd5c63574",
+      "source": "AWS CLI s3api list-objects-v2 target-epoch stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "s3-list-temporary.json",
+      "size": 504,
+      "sha256": "4c9f389eaaa125da061da3a0a3c2bf3b5ebcd504cf072d79206b130c291877d9",
+      "source": "AWS CLI s3api list-objects-v2 market-data/temporary/ stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ssm-describe-instance-information.json",
+      "size": 669,
+      "sha256": "a769a5449e7eb2ac5c822ea9c8865156ae6bc0dd9e2f9075b67ab5f9210e6cf3",
+      "source": "AWS CLI ssm describe-instance-information stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ssm-list-command-invocations-denial.txt",
+      "size": 406,
+      "sha256": "bdbeb1e57c96d03b3b031e3dca20438a0bee2d9bcf3bc11199ef32cdd1bff244",
+      "source": "AWS CLI ssm list-command-invocations AccessDeniedException stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "ssm-list-commands-denial.txt",
+      "size": 376,
+      "sha256": "f306e156da1d6e67d3b010aa6a430ea62699b46065615f5e6eabdafe5f17b5f1",
+      "source": "AWS CLI ssm list-commands AccessDeniedException stderr",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    },
+    {
+      "path": "sts-caller-identity.json",
+      "size": 215,
+      "sha256": "2f22f4c07f0bfe96c8fde72b6e366a5078780917fd41dfeb7025e463452bc4a1",
+      "source": "AWS CLI sts get-caller-identity stdout",
+      "capture_utc": "2026-09-08T12:43:48Z"
+    }
+  ]
+}

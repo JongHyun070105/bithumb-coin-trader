@@ -1,0 +1,18 @@
+{
+    "CommonPrefixes": [
+        {
+            "Prefix": "market-data/temporary/aws-120m-validation-20260904-73d8e43c/"
+        },
+        {
+            "Prefix": "market-data/temporary/aws-72h-soak-20260905-8017b83e/"
+        },
+        {
+            "Prefix": "market-data/temporary/aws-short-smoke-20260904-f5257d24/"
+        },
+        {
+            "Prefix": "market-data/temporary/aws-v91-clean-soak-20260830/"
+        }
+    ],
+    "RequestCharged": null,
+    "Prefix": "market-data/temporary/"
+}

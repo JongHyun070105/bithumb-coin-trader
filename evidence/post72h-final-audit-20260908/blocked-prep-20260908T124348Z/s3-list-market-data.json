@@ -1,0 +1,9 @@
+{
+    "CommonPrefixes": [
+        {
+            "Prefix": "market-data/temporary/"
+        }
+    ],
+    "RequestCharged": null,
+    "Prefix": "market-data/"
+}

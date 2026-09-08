@@ -1,0 +1,19 @@
+{
+    "InstanceInformationList": [
+        {
+            "InstanceId": "i-008bc503c1136349f",
+            "PingStatus": "Online",
+            "LastPingDateTime": "2026-09-08T21:43:26.400000+09:00",
+            "AgentVersion": "3.3.4624.0",
+            "IsLatestVersion": false,
+            "PlatformType": "Linux",
+            "PlatformName": "Amazon Linux",
+            "PlatformVersion": "2023",
+            "ResourceType": "EC2Instance",
+            "IPAddress": "10.91.1.65",
+            "ComputerName": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+            "SourceId": "i-008bc503c1136349f",
+            "SourceType": "AWS::EC2::Instance"
+        }
+    ]
+}

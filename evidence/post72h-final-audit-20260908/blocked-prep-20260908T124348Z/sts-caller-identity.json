@@ -1,0 +1,5 @@
+{
+    "UserId": "AROARFJXC25ESQFWEIXOJ:codex-preapply-validation",
+    "Account": "080109295433",
+    "Arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation"
+}

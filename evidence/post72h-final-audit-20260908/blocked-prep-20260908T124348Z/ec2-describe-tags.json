@@ -1,0 +1,106 @@
+{
+    "Tags": [
+        {
+            "Key": "AlphaReady",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "false"
+        },
+        {
+            "Key": "Architecture",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "x86_64"
+        },
+        {
+            "Key": "AvailabilityAZ",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "ap-northeast-2a"
+        },
+        {
+            "Key": "ClockSource",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "Amazon Time Sync Service 169.254.169.123"
+        },
+        {
+            "Key": "CollectorCommit",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "9532cebc902856d954bf80b51dbe567b543dc8e2"
+        },
+        {
+            "Key": "CollectorEpoch",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "aws-72h-soak-20260905-8017b83e"
+        },
+        {
+            "Key": "CollectorRunId",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "aws-72h-soak-run-20260905T024039Z-8017b83e"
+        },
+        {
+            "Key": "CompressionMode",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "zstd-level-1"
+        },
+        {
+            "Key": "ConfigFingerprint",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b"
+        },
+        {
+            "Key": "Environment",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "aws-apne2-research"
+        },
+        {
+            "Key": "InstanceType",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "t3.medium"
+        },
+        {
+            "Key": "LiveTrading",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "disabled"
+        },
+        {
+            "Key": "ManagedBy",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "terraform"
+        },
+        {
+            "Key": "Name",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "bitcoin-trader-aws-apne2-research-collector"
+        },
+        {
+            "Key": "Project",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "bitcoin-trader"
+        },
+        {
+            "Key": "Repository",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "JongHyun070105/bithumb-coin-trader"
+        },
+        {
+            "Key": "SchemaVersion",
+            "ResourceId": "i-008bc503c1136349f",
+            "ResourceType": "instance",
+            "Value": "4"
+        }
+    ]
+}
