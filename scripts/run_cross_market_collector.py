@@ -54,6 +54,15 @@ async def _run(args: argparse.Namespace) -> None:
     )
 
     collector_error: BaseException | None = None
+    if args.lifecycle_status_path is not None:
+        _write_lifecycle_status(
+            args.lifecycle_status_path,
+            run_id=args.run_id,
+            phase="COLLECTING",
+            final_manifest_flush_observed=False,
+            manifest_count=0,
+            error_type=None,
+        )
     try:
         await collector.run_collector(max_duration_seconds=args.duration)
     except BaseException as error:
@@ -61,6 +70,15 @@ async def _run(args: argparse.Namespace) -> None:
         raise
     finally:
         print("Flushing final manifests...")
+        if args.lifecycle_status_path is not None:
+            _write_lifecycle_status(
+                args.lifecycle_status_path,
+                run_id=args.run_id,
+                phase="FINALIZING",
+                final_manifest_flush_observed=False,
+                manifest_count=0,
+                error_type=type(collector_error).__name__ if collector_error is not None else None,
+            )
         manifests: list[dict[str, object]] = []
         flush_observed = False
         flush_error: BaseException | None = None
@@ -76,6 +94,7 @@ async def _run(args: argparse.Namespace) -> None:
                 _write_lifecycle_status(
                     args.lifecycle_status_path,
                     run_id=args.run_id,
+                    phase="COMPLETE" if flush_observed and collector_error is None else "FINALIZING",
                     final_manifest_flush_observed=flush_observed,
                     manifest_count=len(manifests),
                     error_type=(
@@ -90,14 +109,18 @@ def _write_lifecycle_status(
     path: Path,
     *,
     run_id: str,
+    phase: str,
     final_manifest_flush_observed: bool,
     manifest_count: int,
     error_type: str | None,
 ) -> None:
+    if phase not in {"COLLECTING", "FINALIZING", "COMPLETE"}:
+        raise ValueError("lifecycle phase must be COLLECTING, FINALIZING, or COMPLETE")
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "collector_run_id": run_id,
+        "phase": phase,
         "written_at": datetime.now(timezone.utc).isoformat(),
         "process_id": os.getpid(),
         "final_manifest_flush_observed": final_manifest_flush_observed,

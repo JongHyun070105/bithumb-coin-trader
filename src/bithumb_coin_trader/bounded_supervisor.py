@@ -21,12 +21,14 @@ SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 @dataclass(frozen=True)
 class SupervisorConfig:
     run_id: str
-    duration_seconds: float
+    collection_duration_seconds: float
     collector_command: tuple[str, ...]
     metrics_path: Path
     collector_lifecycle_path: Path
     result_path: Path
     log_path: Path
+    finalization_timeout_seconds: float = 45.0
+    hard_ceiling_seconds: float | None = None
     publisher_command: tuple[str, ...] | None = None
     archive_scheduler_command: tuple[str, ...] | None = None
     poll_interval_seconds: float = 0.2
@@ -37,8 +39,13 @@ class SupervisorConfig:
     def __post_init__(self) -> None:
         if not SAFE_RUN_ID.fullmatch(self.run_id):
             raise ValueError("run_id must be a safe identifier")
-        if self.duration_seconds <= 0:
-            raise ValueError("duration_seconds must be positive")
+        if self.collection_duration_seconds <= 0:
+            raise ValueError("collection_duration_seconds must be positive")
+        if self.finalization_timeout_seconds <= 0:
+            raise ValueError("finalization_timeout_seconds must be positive")
+        minimum_ceiling = self.collection_duration_seconds + self.finalization_timeout_seconds
+        if self.hard_ceiling_seconds is not None and self.hard_ceiling_seconds + 1e-9 < minimum_ceiling:
+            raise ValueError("hard_ceiling_seconds must cover collection plus finalization")
         if not self.collector_command or any(not item for item in self.collector_command):
             raise ValueError("collector_command must be non-empty")
         if self.publisher_command is not None and any(not item for item in self.publisher_command):
@@ -50,29 +57,41 @@ class SupervisorConfig:
         if self.shutdown_grace_seconds <= 0:
             raise ValueError("shutdown_grace_seconds must be positive")
 
+    @property
+    def effective_hard_ceiling_seconds(self) -> float:
+        return self.hard_ceiling_seconds or (
+            self.collection_duration_seconds + self.finalization_timeout_seconds
+        )
+
 
 @dataclass(frozen=True)
 class TransientLaunchConfig:
     run_id: str
     workdir: Path
     supervisor_command: tuple[str, ...]
-    supervisor_duration_seconds: int = 2700
-    hard_ceiling_seconds: int = 2760
+    collection_duration_seconds: int = 2700
+    finalization_timeout_seconds: int = 120
+    supervisor_hard_ceiling_seconds: int = 2820
+    systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if not SAFE_RUN_ID.fullmatch(config.run_id):
         raise ValueError("run_id must be a safe identifier")
-    if config.supervisor_duration_seconds not in (2700, 7200, 259200):
+    if config.collection_duration_seconds not in (2700, 7200, 259200):
         raise ValueError("production supervisor duration must be exactly 2700, 7200, or 259200 seconds")
-    if config.hard_ceiling_seconds <= config.supervisor_duration_seconds:
-        raise ValueError("hard ceiling must exceed supervisor duration")
+    if config.supervisor_hard_ceiling_seconds < (
+        config.collection_duration_seconds + config.finalization_timeout_seconds
+    ):
+        raise ValueError("supervisor hard ceiling must cover collection plus finalization")
+    if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
+        raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     if not config.workdir.is_absolute() or not config.supervisor_command:
         raise ValueError("workdir must be absolute and supervisor_command must be non-empty")
-    if config.supervisor_duration_seconds == 259200:
+    if config.collection_duration_seconds == 259200:
         prefix = "bitcoin-trader-72h-soak"
-    elif config.supervisor_duration_seconds == 7200:
+    elif config.collection_duration_seconds == 7200:
         prefix = "bitcoin-trader-120m"
     else:
         prefix = "bitcoin-trader-short-smoke"
@@ -87,7 +106,7 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         f"--setenv=PYTHONPATH={config.pythonpath}",
         "--property=Restart=no",
         "--property=KillMode=mixed",
-        f"--property=RuntimeMaxSec={config.hard_ceiling_seconds}s",
+        f"--property=RuntimeMaxSec={config.systemd_runtime_max_seconds}s",
         "--property=TimeoutStopSec=55s",
         f"--working-directory={config.workdir}",
         "--",
@@ -179,9 +198,10 @@ class BoundedSupervisor:
         payload = _read_json(self.config.collector_lifecycle_path)
         return bool(
             payload
-            and payload.get("schema_version") == 1
+            and payload.get("schema_version") in {1, 2}
             and payload.get("collector_run_id") == self.config.run_id
             and payload.get("final_manifest_flush_observed") is True
+            and (payload.get("schema_version") == 1 or payload.get("phase") == "COMPLETE")
         )
 
     @staticmethod
@@ -253,18 +273,14 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
-                deadline = started_monotonic + cfg.duration_seconds
+                hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
                     now = time.monotonic()
                     if self._received_signal is not None:
                         break
-                    if now >= deadline:
-                        try:
-                            collector_exit = self._collector.wait(timeout=cfg.shutdown_grace_seconds)
-                        except subprocess.TimeoutExpired:
-                            forced_timeout = True
-                            self._forward_signal(signal.SIGTERM)
+                    if now >= hard_deadline:
+                        forced_timeout = True
                         break
                     if publisher is not None and publisher.poll() is not None:
                         publisher_exit = publisher.returncode
@@ -297,11 +313,7 @@ class BoundedSupervisor:
                     time.sleep(cfg.poll_interval_seconds)
 
                 if self._collector.poll() is None:
-                    try:
-                        collector_exit = self._collector.wait(timeout=cfg.shutdown_grace_seconds)
-                    except subprocess.TimeoutExpired:
-                        forced_timeout = True
-                        collector_exit = self._stop_process(self._collector, cfg.shutdown_grace_seconds)
+                    collector_exit = self._stop_process(self._collector, cfg.shutdown_grace_seconds)
                 else:
                     collector_exit = self._collector.returncode
                 if publisher is not None:
@@ -325,7 +337,7 @@ class BoundedSupervisor:
         final_manifest_observed = self._final_manifest_observed()
         ran_long_enough = (
             not cfg.require_full_duration
-            or ended_monotonic - started_monotonic >= cfg.duration_seconds - 0.05
+            or ended_monotonic - started_monotonic >= cfg.collection_duration_seconds - 0.05
         )
         passed = bool(
             collector_exit == 0
@@ -341,11 +353,13 @@ class BoundedSupervisor:
         )
         overall_status = "PASS" if passed else ("INTERRUPTED" if self._received_signal else "FAIL")
         result: dict[str, object] = {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": cfg.run_id,
             "started_at": started_at,
             "ended_at": _utc_iso(),
-            "duration_limit_seconds": cfg.duration_seconds,
+            "collection_duration_seconds": cfg.collection_duration_seconds,
+            "finalization_timeout_seconds": cfg.finalization_timeout_seconds,
+            "hard_ceiling_seconds": cfg.effective_hard_ceiling_seconds,
             "elapsed_seconds": round(ended_monotonic - started_monotonic, 6),
             "supervisor_pid": os.getpid(),
             "collector_pid": collector_pid,

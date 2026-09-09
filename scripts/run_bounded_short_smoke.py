@@ -21,7 +21,9 @@ def _command(value: str) -> tuple[str, ...]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--duration-seconds", type=float, required=True)
+    parser.add_argument("--collection-duration-seconds", type=float, required=True)
+    parser.add_argument("--finalization-timeout-seconds", type=float, default=45.0)
+    parser.add_argument("--hard-ceiling-seconds", type=float)
     parser.add_argument("--collector-command-json", type=_command, required=True)
     parser.add_argument("--publisher-command-json", type=_command)
     parser.add_argument("--archive-scheduler-command-json", type=_command)
@@ -37,7 +39,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     return BoundedSupervisor(
         SupervisorConfig(
             run_id=args.run_id,
-            duration_seconds=args.duration_seconds,
+            collection_duration_seconds=args.collection_duration_seconds,
+            finalization_timeout_seconds=args.finalization_timeout_seconds,
+            hard_ceiling_seconds=args.hard_ceiling_seconds,
             collector_command=args.collector_command_json,
             publisher_command=args.publisher_command_json,
             archive_scheduler_command=args.archive_scheduler_command_json,

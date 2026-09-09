@@ -111,7 +111,7 @@ def test_chaos_supervisor_subcommand_failure_fails_result(tmp_path: Path):
 
     cfg = SupervisorConfig(
         run_id="chaos-supervisor-test",
-        duration_seconds=1.0,
+        collection_duration_seconds=1.0,
         collector_command=collector_cmd,
         metrics_path=metrics_path,
         collector_lifecycle_path=lifecycle_path,

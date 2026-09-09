@@ -28,8 +28,17 @@ class BoundedSupervisorTests(unittest.TestCase):
             "log": root / "supervisor.log",
         }
 
-    def _collector(self, paths: dict[str, Path], run_id: str, seconds: float = 0.15) -> tuple[str, ...]:
-        return (
+    def _collector(
+        self,
+        paths: dict[str, Path],
+        run_id: str,
+        seconds: float = 0.15,
+        *,
+        finalize_seconds: float = 0.0,
+        hang_finalization: bool = False,
+        exit_code: int = 0,
+    ) -> tuple[str, ...]:
+        command = (
             sys.executable,
             str(FIXTURE),
             "collector",
@@ -43,7 +52,12 @@ class BoundedSupervisorTests(unittest.TestCase):
             str(paths["events"]),
             "--sleep",
             str(seconds),
+            "--finalize-sleep",
+            str(finalize_seconds),
+            "--exit-code",
+            str(exit_code),
         )
+        return command + (("--hang-finalization",) if hang_finalization else ())
 
     def _publisher(self, paths: dict[str, Path], run_id: str, exit_code: int = 0) -> tuple[str, ...]:
         return (
@@ -81,7 +95,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-short-smoke-run-test-natural"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.4,
+                collection_duration_seconds=0.4,
                 collector_command=self._collector(paths, run_id),
                 publisher_command=self._publisher(paths, run_id),
                 metrics_path=paths["metrics"],
@@ -112,7 +126,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-short-smoke-run-test-publisher-fail"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.4,
+                collection_duration_seconds=0.4,
                 collector_command=self._collector(paths, run_id),
                 publisher_command=self._publisher(paths, run_id, exit_code=7),
                 metrics_path=paths["metrics"],
@@ -134,7 +148,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-short-smoke-run-test-early"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.5,
+                collection_duration_seconds=0.5,
                 collector_command=self._collector(paths, run_id, seconds=0.05),
                 metrics_path=paths["metrics"],
                 collector_lifecycle_path=paths["lifecycle"],
@@ -155,7 +169,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-short-smoke-run-test-deadline"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.15,
+                collection_duration_seconds=0.15,
                 collector_command=self._collector(paths, run_id, seconds=0.15),
                 metrics_path=paths["metrics"],
                 collector_lifecycle_path=paths["lifecycle"],
@@ -171,6 +185,98 @@ class BoundedSupervisorTests(unittest.TestCase):
             self.assertFalse(result["forced_timeout"])
             self.assertIsNone(result["received_signal"])
 
+    def test_collection_deadline_allows_controlled_finalization_without_sigterm(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "remediation-normal-finalization"
+            config = SupervisorConfig(
+                run_id=run_id,
+                collection_duration_seconds=0.10,
+                finalization_timeout_seconds=0.30,
+                hard_ceiling_seconds=0.40,
+                collector_command=self._collector(
+                    paths, run_id, seconds=0.10, finalize_seconds=0.08
+                ),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.005,
+                shutdown_grace_seconds=0.05,
+                require_full_duration=True,
+            )
+
+            self.assertEqual(BoundedSupervisor(config).run(), 0)
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            events = paths["events"].read_text(encoding="utf-8")
+            self.assertEqual(result["overall_status"], "PASS")
+            self.assertEqual(result["collector_exit_code"], 0)
+            self.assertIsNone(result["received_signal"])
+            self.assertFalse(result["forced_timeout"])
+            self.assertTrue(result["full_duration_satisfied"])
+            self.assertTrue(result["final_manifest_flush_observed"])
+            self.assertIn("COLLECTING", events)
+            self.assertIn("FINALIZING", events)
+            self.assertIn("COMPLETE", events)
+
+    def test_hung_finalization_hits_outer_hard_ceiling(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "remediation-hung-finalization"
+            config = SupervisorConfig(
+                run_id=run_id,
+                collection_duration_seconds=0.05,
+                finalization_timeout_seconds=0.08,
+                hard_ceiling_seconds=0.13,
+                collector_command=self._collector(
+                    paths, run_id, seconds=0.05, hang_finalization=True
+                ),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.005,
+                shutdown_grace_seconds=0.05,
+                require_full_duration=True,
+            )
+
+            self.assertEqual(BoundedSupervisor(config).run(), 1)
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            self.assertEqual(result["overall_status"], "FAIL")
+            self.assertTrue(result["forced_timeout"])
+            self.assertIsNone(result["received_signal"])
+            self.assertNotEqual(result["collector_exit_code"], 0)
+
+    def test_early_nonzero_collector_failure_returns_before_outer_deadline(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "remediation-early-failure"
+            config = SupervisorConfig(
+                run_id=run_id,
+                collection_duration_seconds=0.50,
+                finalization_timeout_seconds=0.20,
+                hard_ceiling_seconds=0.70,
+                collector_command=self._collector(
+                    paths, run_id, seconds=0.03, exit_code=7
+                ),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.005,
+                shutdown_grace_seconds=0.05,
+                require_full_duration=True,
+            )
+
+            started = time.monotonic()
+            self.assertEqual(BoundedSupervisor(config).run(), 1)
+            elapsed = time.monotonic() - started
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            self.assertLess(elapsed, 0.30)
+            self.assertEqual(result["collector_exit_code"], 7)
+            self.assertEqual(result["overall_status"], "FAIL")
+            self.assertFalse(result["forced_timeout"])
+
     def test_sigint_and_sigterm_reach_collector_and_are_durably_recorded(self) -> None:
         for sent_signal in (signal.SIGINT, signal.SIGTERM):
             with self.subTest(signal=sent_signal), tempfile.TemporaryDirectory() as tmp:
@@ -181,7 +287,7 @@ class BoundedSupervisorTests(unittest.TestCase):
                     str(CLI),
                     "--run-id",
                     run_id,
-                    "--duration-seconds",
+                    "--collection-duration-seconds",
                     "5",
                     "--collector-command-json",
                     json.dumps(self._collector(paths, run_id, seconds=5)),
@@ -220,7 +326,7 @@ class BoundedSupervisorTests(unittest.TestCase):
                 str(CLI),
                 "--run-id",
                 run_id,
-                "--duration-seconds",
+                "--collection-duration-seconds",
                 "0.5",
                 "--collector-command-json",
                 json.dumps(self._collector(paths, run_id, seconds=0.2)),
@@ -254,7 +360,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-72h-soak-test-archive-sched"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.4,
+                collection_duration_seconds=0.4,
                 collector_command=self._collector(paths, run_id),
                 publisher_command=self._publisher(paths, run_id),
                 archive_scheduler_command=self._archive_scheduler(paths, run_id, sleep=0.5),
@@ -271,9 +377,10 @@ class BoundedSupervisorTests(unittest.TestCase):
             events = paths["events"].read_text(encoding="utf-8")
             self.assertEqual(result["overall_status"], "PASS")
             self.assertTrue(result["archive_scheduler_started"])
-            self.assertIn(result["archive_scheduler_exit_code"], (0, -signal.SIGTERM))
+            self.assertEqual(result["archive_scheduler_exit_code"], 0)
             self.assertTrue(result["archive_scheduler_stopped_after_collector"])
             self.assertIn("scheduler-start", events)
+            self.assertIn("scheduler-SIGTERM", events)
 
     def test_supervisor_archive_scheduler_failure_fails_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -281,7 +388,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             run_id = "aws-72h-soak-test-sched-fail"
             config = SupervisorConfig(
                 run_id=run_id,
-                duration_seconds=0.4,
+                collection_duration_seconds=0.4,
                 collector_command=self._collector(paths, run_id),
                 archive_scheduler_command=self._archive_scheduler(paths, run_id, exit_code=7, sleep=0.05),
                 metrics_path=paths["metrics"],

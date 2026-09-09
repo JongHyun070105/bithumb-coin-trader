@@ -13,8 +13,10 @@ class TransientLaunchTests(unittest.TestCase):
                 run_id="aws-short-smoke-run-20260903-ab12cd34",
                 workdir=Path("/opt/bitcoin-trader"),
                 supervisor_command=("/opt/bitcoin-trader/.venv/bin/python", "scripts/run_bounded_short_smoke.py"),
-                supervisor_duration_seconds=2700,
-                hard_ceiling_seconds=2760,
+                collection_duration_seconds=2700,
+                finalization_timeout_seconds=120,
+                supervisor_hard_ceiling_seconds=2820,
+                systemd_runtime_max_seconds=2880,
             )
         )
         rendered = " ".join(command)
@@ -25,7 +27,7 @@ class TransientLaunchTests(unittest.TestCase):
         self.assertIn("--setenv=PYTHONPATH=src", command)
         self.assertIn("--property=Restart=no", command)
         self.assertIn("--property=KillMode=mixed", command)
-        self.assertIn("--property=RuntimeMaxSec=2760s", command)
+        self.assertIn("--property=RuntimeMaxSec=2880s", command)
         self.assertIn("--property=TimeoutStopSec=55s", command)
         self.assertIn("--working-directory=/opt/bitcoin-trader", command)
         self.assertIn("aws-short-smoke-run-20260903-ab12cd34", rendered)
@@ -41,10 +43,26 @@ class TransientLaunchTests(unittest.TestCase):
                         run_id=run_id,
                         workdir=Path("/opt/bitcoin-trader"),
                         supervisor_command=("python", "runner.py"),
-                        supervisor_duration_seconds=duration,
-                        hard_ceiling_seconds=2760,
+                        collection_duration_seconds=duration,
+                        finalization_timeout_seconds=120,
+                        supervisor_hard_ceiling_seconds=2820,
+                        systemd_runtime_max_seconds=2880,
                     )
                 )
+
+    def test_renderer_requires_systemd_deadline_beyond_supervisor_ceiling(self) -> None:
+        with self.assertRaisesRegex(ValueError, "systemd runtime max"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="aws-45m-test",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "runner.py"),
+                    collection_duration_seconds=2700,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=2820,
+                    systemd_runtime_max_seconds=2820,
+                )
+            )
 
 
 if __name__ == "__main__":

@@ -45,16 +45,30 @@ class ShortSmokeRuntimeConfigTests(unittest.TestCase):
             MODULE._write_lifecycle_status(
                 path,
                 run_id="aws-short-smoke-run-test",
+                phase="COMPLETE",
                 final_manifest_flush_observed=True,
                 manifest_count=4,
                 error_type=None,
             )
             payload = json.loads(path.read_text(encoding="utf-8"))
             self.assertEqual(payload["collector_run_id"], "aws-short-smoke-run-test")
+            self.assertEqual(payload["phase"], "COMPLETE")
+            self.assertEqual(payload["schema_version"], 2)
             self.assertTrue(payload["final_manifest_flush_observed"])
             self.assertEqual(payload["manifest_count"], 4)
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_lifecycle_status_rejects_unknown_phase(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "lifecycle phase"):
+            MODULE._write_lifecycle_status(
+                Path(tmp) / "lifecycle.json",
+                run_id="test-run",
+                phase="DONE",
+                final_manifest_flush_observed=False,
+                manifest_count=0,
+                error_type=None,
+            )
 
     def test_sealed_20260904_runtime_config_loads_with_canonical_fingerprint_and_transient_mode(self) -> None:
         seal_path = Path(__file__).resolve().parents[1] / "infra" / "aws" / "seals" / "aws-short-smoke-20260904.runtime.json"

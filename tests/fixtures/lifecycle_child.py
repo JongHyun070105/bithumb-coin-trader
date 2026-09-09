@@ -32,6 +32,8 @@ def main() -> int:
     parser.add_argument("--lifecycle", type=Path)
     parser.add_argument("--events", type=Path, required=True)
     parser.add_argument("--sleep", type=float, default=0.2)
+    parser.add_argument("--finalize-sleep", type=float, default=0.0)
+    parser.add_argument("--hang-finalization", action="store_true")
     parser.add_argument("--exit-code", type=int, default=0)
     args = parser.parse_args()
     if args.mode == "publisher":
@@ -62,6 +64,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
     append(args.events, "collector-start")
+    append(args.events, "COLLECTING")
     atomic_json(
         args.metrics,
         {
@@ -79,6 +82,15 @@ def main() -> int:
         time.sleep(0.01)
     if received:
         append(args.events, signal.Signals(received[0]).name)
+    append(args.events, "FINALIZING")
+    if args.hang_finalization:
+        while not received:
+            time.sleep(0.01)
+        append(args.events, signal.Signals(received[0]).name)
+        return 128 + received[0]
+    finalization_deadline = time.monotonic() + args.finalize_sleep
+    while time.monotonic() < finalization_deadline and not received:
+        time.sleep(0.01)
     append(args.events, "writer-drain")
     atomic_json(
         args.metrics,
@@ -103,6 +115,7 @@ def main() -> int:
         },
     )
     append(args.events, "final-manifest")
+    append(args.events, "COMPLETE")
     return args.exit_code
 
 

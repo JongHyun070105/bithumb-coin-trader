@@ -24,7 +24,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--supervisor-command-json", type=_command, required=True)
-    parser.add_argument("--hard-ceiling-seconds", type=int, default=2760)
+    parser.add_argument("--finalization-timeout-seconds", type=int, default=120)
+    parser.add_argument("--supervisor-hard-ceiling-seconds", type=int, default=2820)
+    parser.add_argument("--systemd-runtime-max-seconds", type=int, default=2880)
     parser.add_argument("--launch", action="store_true")
     args = parser.parse_args(argv)
     command = render_systemd_run(
@@ -32,8 +34,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_id=args.run_id,
             workdir=args.workdir,
             supervisor_command=args.supervisor_command_json,
-            supervisor_duration_seconds=2700,
-            hard_ceiling_seconds=args.hard_ceiling_seconds,
+            collection_duration_seconds=2700,
+            finalization_timeout_seconds=args.finalization_timeout_seconds,
+            supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
+            systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
         )
     )
     if not args.launch:
