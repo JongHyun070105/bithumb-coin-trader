@@ -384,6 +384,7 @@ report = {{
     "cohort": cohort,
     "date": date_str,
     "hour": hour,
+    "inputs": [str(p.relative_to(base_dir)) for p in all_inputs],
     "integrity": scan_result,
     "quarantine": quarantine_result,
     "elapsed_seconds": elapsed,
