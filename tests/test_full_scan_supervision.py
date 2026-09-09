@@ -11,6 +11,8 @@ import sys
 import time
 import pytest
 
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
+
 # Ensure root paths
 ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = ROOT / "src"
@@ -70,7 +72,8 @@ def test_global_concurrency_blocks_second_scan(tmp_path: Path):
     # Launch Hour 05 scanner supervisor
     ok1, msg1 = launch_detached_full_scan(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         expected_owner=current_user_name(),
         runner_mode="detached",
@@ -82,7 +85,8 @@ def test_global_concurrency_blocks_second_scan(tmp_path: Path):
     # Attempt to launch Hour 06 scanner while 05 is running
     ok2, msg2 = launch_detached_full_scan(
         epoch="test-epoch",
-        hour="06",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "06"),
         base_dir=base_dir,
         expected_owner=current_user_name(),
         runner_mode="detached",
@@ -98,7 +102,8 @@ def test_global_concurrency_blocks_second_scan(tmp_path: Path):
     # Now Hour 06 can launch successfully
     ok3, msg3 = launch_detached_full_scan(
         epoch="test-epoch",
-        hour="06",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "06"),
         base_dir=base_dir,
         expected_owner=current_user_name(),
         runner_mode="detached",
@@ -106,7 +111,7 @@ def test_global_concurrency_blocks_second_scan(tmp_path: Path):
     )
     assert ok3 is True
     time.sleep(1.5)
-    assert (receipt_root / "full_scan_06_report.json").exists()
+    assert (receipt_root / "full_scan_2026-09-04_06_report.json").exists()
 
 
 # B. FLOCK CRASH RECOVERY: SIGKILL supervisor -> kernel releases flock -> next orchestration acquires flock and stale metadata harmless
@@ -155,7 +160,8 @@ time.sleep(60)
     create_sample_closed_partition(base_dir, "05")
     ok, msg = launch_detached_full_scan(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         expected_owner=current_user_name(),
         runner_mode="detached",
@@ -163,7 +169,7 @@ time.sleep(60)
     )
     assert ok is True
     time.sleep(1.5)
-    assert (receipt_root / "full_scan_05_report.json").exists()
+    assert (receipt_root / "full_scan_2026-09-04_05_report.json").exists()
 
 
 # C. PID REUSE: Metadata contains PID X, PID X belongs to unrelated process -> identity mismatch detected -> new scan not blocked
@@ -194,7 +200,8 @@ def test_pid_reuse_does_not_block_new_scan(tmp_path: Path):
     create_sample_closed_partition(base_dir, "05")
     ok, msg = launch_detached_full_scan(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         expected_owner=current_user_name(),
         runner_mode="detached",
@@ -202,7 +209,7 @@ def test_pid_reuse_does_not_block_new_scan(tmp_path: Path):
     )
     assert ok is True
     time.sleep(1.5)
-    assert (receipt_root / "full_scan_05_report.json").exists()
+    assert (receipt_root / "full_scan_2026-09-04_05_report.json").exists()
 
 
 # D. TIMEOUT: Scanner fixture sleeps beyond timeout -> supervisor SIGTERM -> grace -> SIGKILL -> TIMEOUT report -> failure metric
@@ -220,12 +227,13 @@ import time
 while True:
     time.sleep(1)
 """
-    log_file = receipt_root / "full_scan_05.log"
-    report_file = receipt_root / "full_scan_05_report.json"
+    log_file = receipt_root / "full_scan_2026-09-04_05.log"
+    report_file = receipt_root / "full_scan_2026-09-04_05_report.json"
 
     ret = run_full_scan_supervisor(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         timeout_seconds=1.0,
         grace_seconds=0.5,
@@ -255,11 +263,12 @@ def test_nonzero_child_writes_fail_report(tmp_path: Path):
 import sys
 sys.exit(1)
 """
-    report_file = receipt_root / "full_scan_05_report.json"
+    report_file = receipt_root / "full_scan_2026-09-04_05_report.json"
 
     ret = run_full_scan_supervisor(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         timeout_seconds=5.0,
         scanner_override_script=failing_scanner_code,
@@ -278,7 +287,7 @@ sys.exit(1)
         now=datetime.now(timezone.utc),
         grace_period=timedelta(seconds=600),
         closed_files=[base_dir / "raw" / "upbit" / "BTC_KRW" / "BTC_KRW_2026-09-04_05.jsonl"],
-        hours_seen=["05"],
+        cohorts_seen=[ArchiveCohortId("2026-09-04", "05")],
     )
     assert metrics["failed_full_scan_jobs"] == 1
     assert metrics["completed_full_scan_jobs"] == 0
@@ -294,13 +303,14 @@ def test_pass_child_increments_completed(tmp_path: Path):
 
     ret = run_full_scan_supervisor(
         epoch="test-epoch",
-        hour="05",
+        run_id="test-run",
+        cohort=ArchiveCohortId("2026-09-04", "05"),
         base_dir=base_dir,
         timeout_seconds=5.0,
     )
     assert ret == 0
 
-    report_file = receipt_root / "full_scan_05_report.json"
+    report_file = receipt_root / "full_scan_2026-09-04_05_report.json"
     assert report_file.exists()
     report = json.loads(report_file.read_text(encoding="utf-8"))
     assert report["integrity"]["totals"]["status"] == "PASS"
@@ -312,11 +322,33 @@ def test_pass_child_increments_completed(tmp_path: Path):
         now=datetime.now(timezone.utc),
         grace_period=timedelta(seconds=600),
         closed_files=[p_file],
-        hours_seen=["05"],
+        cohorts_seen=[ArchiveCohortId("2026-09-04", "05")],
     )
     assert metrics["completed_full_scan_jobs"] == 1
     assert metrics["failed_full_scan_jobs"] == 0
     assert metrics["pending_full_scan_jobs"] == 0
+
+
+def test_same_hour_different_dates_emit_distinct_bound_reports(tmp_path: Path):
+    base_dir = tmp_path / "epoch_data"
+    receipt_root = base_dir / "archive-receipts"
+    receipt_root.mkdir(parents=True, exist_ok=True)
+    cohorts = [ArchiveCohortId("2026-09-04", "05"), ArchiveCohortId("2026-09-05", "05")]
+    for cohort in cohorts:
+        create_sample_closed_partition(base_dir, cohort.hour_str, cohort.date_str)
+        assert run_full_scan_supervisor(
+            epoch="test-epoch",
+            run_id="test-run",
+            cohort=cohort,
+            base_dir=base_dir,
+            timeout_seconds=5.0,
+        ) == 0
+
+    reports = [receipt_root / f"full_scan_{cohort.key}_report.json" for cohort in cohorts]
+    assert all(path.exists() for path in reports)
+    assert [json.loads(path.read_text(encoding="utf-8"))["cohort"] for path in reports] == [
+        cohort.key for cohort in cohorts
+    ]
 
 
 # G. BACKLOG ORDER: multiple pending hours -> oldest first, launches exactly 1
@@ -344,8 +376,8 @@ def test_backlog_ordering_oldest_first(tmp_path: Path):
 
     # Concurrency 1 means only the OLDEST hour (04) should have been launched!
     # Hours 05 and 06 should remain pending!
-    assert "04" in res["scan_results"]
-    assert res["scan_results"]["04"]["success"] is True
+    assert "2026-09-04_04" in res["scan_results"]
+    assert res["scan_results"]["2026-09-04_04"]["success"] is True
     # 05 and 06 should not have been launched concurrently
-    assert res["scan_results"].get("05", {}).get("success", False) is False
-    assert res["scan_results"].get("06", {}).get("success", False) is False
+    assert res["scan_results"].get("2026-09-04_05", {}).get("success", False) is False
+    assert res["scan_results"].get("2026-09-04_06", {}).get("success", False) is False

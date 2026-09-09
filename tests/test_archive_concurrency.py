@@ -7,6 +7,7 @@ from pathlib import Path
 import pwd
 import pytest
 
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from scripts.orchestrate_closed_hour_archive import (
     OrchestratorConcurrencyError,
     compute_backlog_metrics,
@@ -56,13 +57,15 @@ def test_compute_backlog_metrics(tmp_path: Path):
     raw_root.mkdir(parents=True)
     receipt_root.mkdir(parents=True)
 
-    file_05 = raw_root / "BTC_KRW_20260904_05.jsonl"
+    cohort_05 = ArchiveCohortId("2026-09-04", "05")
+    cohort_06 = ArchiveCohortId("2026-09-04", "06")
+    file_05 = raw_root / "BTC_KRW_2026-09-04_05.jsonl"
     file_05.write_text('{"record": 1}\n', encoding="utf-8")
-    file_06 = raw_root / "BTC_KRW_20260904_06.jsonl"
+    file_06 = raw_root / "BTC_KRW_2026-09-04_06.jsonl"
     file_06.write_text('{"record": 2}\n', encoding="utf-8")
 
     # Set file_05 receipt to CLEANUP_ELIGIBLE
-    rec_05 = receipt_root / "BTC_KRW_20260904_05.jsonl.archive-receipt.json"
+    rec_05 = receipt_root / "BTC_KRW_2026-09-04_05.jsonl.archive-receipt.json"
     rec_05.write_text(json.dumps({"cleanup_eligible": True, "state": "CLEANUP_ELIGIBLE"}), encoding="utf-8")
 
     now = datetime.now(timezone.utc)
@@ -75,7 +78,7 @@ def test_compute_backlog_metrics(tmp_path: Path):
         now=now,
         grace_period=grace,
         closed_files=[file_05, file_06],
-        hours_seen=["05", "06"],
+        cohorts_seen=[cohort_05, cohort_06],
     )
 
     # file_05 is done, file_06 is pending
@@ -83,8 +86,8 @@ def test_compute_backlog_metrics(tmp_path: Path):
     assert backlog["pending_full_scan_jobs"] == 2  # neither full_scan report exists
     assert backlog["oldest_pending_age_seconds"] is not None
 
-    # Now create full_scan_05_report.json
-    (receipt_root / "full_scan_05_report.json").write_text("{}", encoding="utf-8")
+    # Now create the canonical cohort-bound full-scan report.
+    (receipt_root / f"full_scan_{cohort_05.key}_report.json").write_text("{}", encoding="utf-8")
 
     backlog2 = compute_backlog_metrics(
         raw_root=raw_root,
@@ -93,7 +96,7 @@ def test_compute_backlog_metrics(tmp_path: Path):
         now=now,
         grace_period=grace,
         closed_files=[file_05, file_06],
-        hours_seen=["05", "06"],
+        cohorts_seen=[cohort_05, cohort_06],
     )
     assert backlog2["pending_full_scan_jobs"] == 1  # 06 still pending
 
@@ -144,11 +147,12 @@ def test_orchestrate_closed_hour_archive_end_to_end(tmp_path: Path):
     assert result["archive_job_failures"] == 0
     assert result["pending_archive_jobs"] == 0
     assert result["pending_full_scan_jobs"] == 0
-    assert hour_str in result["scan_results"]
-    assert result["scan_results"][hour_str]["success"] is True
+    cohort = ArchiveCohortId(date_str, hour_str)
+    assert cohort.key in result["scan_results"]
+    assert result["scan_results"][cohort.key]["success"] is True
 
     # Check that report and backlog files were created
-    assert (receipt_root / f"full_scan_{hour_str}_report.json").exists()
+    assert (receipt_root / f"full_scan_{cohort.key}_report.json").exists()
     assert (receipt_root / "archive_backlog_metrics.json").exists()
 
 
@@ -187,3 +191,48 @@ def test_orchestrate_closed_hour_archive_ownership_fail_closed(tmp_path: Path, m
             file_store_root=tmp_path / "file_store",
             expected_owner=current_user_name(),
         )
+
+
+def test_orchestrator_selects_only_requested_date_hour_cohort(tmp_path: Path):
+    base_dir = tmp_path / "epoch_data"
+    raw_root = base_dir / "raw" / "upbit" / "ticker"
+    raw_root.mkdir(parents=True)
+    paths = {}
+    for date_str in ("2026-09-05", "2026-09-06", "2026-09-07"):
+        path = raw_root / f"BTC_KRW_{date_str}_05.jsonl"
+        timestamp = f"{date_str}T05:00:00+00:00"
+        path.write_text(
+            json.dumps(
+                {
+                    "timestamp": timestamp,
+                    "exchange": "upbit",
+                    "stream": "ticker",
+                    "market": "KRW-BTC",
+                    "exchange_ts": timestamp,
+                    "local_recv_ts": timestamp,
+                    "local_write_ts": timestamp,
+                    "payload": {"trade_price": 1},
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        paths[date_str] = path
+
+    result = orchestrate_closed_hour_archive(
+        epoch="test-epoch",
+        run_id="test-run",
+        base_dir=base_dir,
+        store_type="file",
+        file_store_root=tmp_path / "file-store",
+        expected_owner=current_user_name(),
+        run_full_scan=False,
+        disk_critical_percent=99.0,
+        target_cohort=ArchiveCohortId("2026-09-06", "05"),
+    )
+
+    assert result["cohorts_detected"] == ["2026-09-06_05"]
+    assert result["archived_count"] == 1
+    assert not (base_dir / "archive-receipts" / "upbit" / "ticker" / f"{paths['2026-09-05'].name}.archive-receipt.json").exists()
+    assert (base_dir / "archive-receipts" / "upbit" / "ticker" / f"{paths['2026-09-06'].name}.archive-receipt.json").exists()
+    assert not (base_dir / "archive-receipts" / "upbit" / "ticker" / f"{paths['2026-09-07'].name}.archive-receipt.json").exists()

@@ -39,6 +39,7 @@ from bithumb_coin_trader.pre_soak_archive import (
     is_closed_stable_partition,
     verify_runtime_ownership,
 )
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
 
 
@@ -218,7 +219,7 @@ def compute_backlog_metrics(
     now: datetime,
     grace_period: timedelta,
     closed_files: Sequence[Path],
-    hours_seen: Sequence[str],
+    cohorts_seen: Sequence[ArchiveCohortId],
 ) -> Dict[str, Any]:
     """Calculate archive and full-scan backlog and age metrics."""
     pending_archive_jobs = 0
@@ -255,8 +256,8 @@ def compute_backlog_metrics(
     completed_full_scan_jobs = 0
     failed_full_scan_jobs = 0
 
-    for h in hours_seen:
-        report_file = receipt_root / f"full_scan_{h}_report.json"
+    for cohort in cohorts_seen:
+        report_file = receipt_root / f"full_scan_{cohort.key}_report.json"
         if not report_file.exists():
             pending_full_scan_jobs += 1
         else:
@@ -285,7 +286,8 @@ def compute_backlog_metrics(
 
 def run_full_scan_supervisor(
     epoch: str,
-    hour: str,
+    run_id: str,
+    cohort: ArchiveCohortId,
     base_dir: Path,
     timeout_seconds: float = DEFAULT_SCAN_TIMEOUT_SECONDS,
     grace_seconds: float = SCAN_GRACE_KILL_SECONDS,
@@ -301,8 +303,8 @@ def run_full_scan_supervisor(
 
     lock_file = receipt_root / FULL_SCAN_GLOBAL_LOCK_NAME
     meta_file = receipt_root / FULL_SCAN_METADATA_NAME
-    log_file = receipt_root / f"full_scan_{hour}.log"
-    report_path = receipt_root / f"full_scan_{hour}_report.json"
+    log_file = receipt_root / f"full_scan_{cohort.key}.log"
+    report_path = receipt_root / f"full_scan_{cohort.key}_report.json"
 
     # 1. Acquire exclusive non-blocking kernel flock
     try:
@@ -322,7 +324,10 @@ def run_full_scan_supervisor(
     try:
         meta_data = {
             "pid": os.getpid(),
-            "hour": hour,
+            "run_id": run_id,
+            "cohort": cohort.key,
+            "date": cohort.date_str,
+            "hour": cohort.hour_str,
             "epoch": epoch,
             "start_time": datetime.now(timezone.utc).isoformat(),
             "timeout_seconds": timeout_seconds,
@@ -354,15 +359,18 @@ except ImportError:
     from scripts.audit_raw_integrity_offline import full_scan, _quarantine_summary
 
 epoch = {repr(epoch)}
-hour = {repr(hour)}
+run_id = {repr(run_id)}
+cohort = {repr(cohort.key)}
+date_str = {repr(cohort.date_str)}
+hour = {repr(cohort.hour_str)}
 base_dir = Path({repr(str(base_dir))})
 raw_root = base_dir / "raw"
 compressed_root = base_dir / "compressed"
 quarantine_root = base_dir / "quarantine"
 receipt_root = base_dir / "archive-receipts"
 
-all_inputs = sorted(list(raw_root.glob(f"**/*_{{hour}}.jsonl")) + list(compressed_root.glob(f"**/*_{{hour}}.jsonl.zst")))
-print(f"[{{time.strftime('%X')}}] [PID {{os.getpid()}}] Starting scan of {{len(all_inputs)}} files for hour {{hour}}", flush=True)
+all_inputs = sorted(list(raw_root.glob(f"**/*_{{cohort}}.jsonl")) + list(compressed_root.glob(f"**/*_{{cohort}}.jsonl.zst")))
+print(f"[{{time.strftime('%X')}}] [PID {{os.getpid()}}] Starting scan of {{len(all_inputs)}} files for cohort {{cohort}}", flush=True)
 t0 = time.time()
 scan_result = full_scan(all_inputs)
 elapsed = time.time() - t0
@@ -370,15 +378,18 @@ quarantine_files = list(quarantine_root.glob("**/*.jsonl")) if quarantine_root.e
 quarantine_result = _quarantine_summary(quarantine_files)
 
 report = {{
-    "scan": f"FULL_SCAN_{{hour}}_UTC_RAW_AND_ZSTD_PARTITIONS",
+    "scan": f"FULL_SCAN_{{cohort}}_UTC_RAW_AND_ZSTD_PARTITIONS",
     "epoch": epoch,
+    "run_id": run_id,
+    "cohort": cohort,
+    "date": date_str,
     "hour": hour,
     "integrity": scan_result,
     "quarantine": quarantine_result,
     "elapsed_seconds": elapsed,
     "timestamp": time.time(),
 }}
-report_path = receipt_root / f"full_scan_{{hour}}_report.json"
+report_path = receipt_root / f"full_scan_{{cohort}}_report.json"
 with open(report_path, "w", encoding="utf-8") as f:
     json.dump(report, f, indent=2)
 print(f"[{{time.strftime('%X')}}] Full-scan report saved to {{report_path}}, status={{scan_result['totals']['status']}} in {{elapsed:.2f}}s", flush=True)
@@ -437,9 +448,12 @@ if scan_result["totals"]["status"] != "PASS":
                 child_proc.wait()
 
             terminal_report = {
-                "scan": f"FULL_SCAN_{hour}_UTC_RAW_AND_ZSTD_PARTITIONS",
+                "scan": f"FULL_SCAN_{cohort.key}_UTC_RAW_AND_ZSTD_PARTITIONS",
                 "epoch": epoch,
-                "hour": hour,
+                "run_id": run_id,
+                "cohort": cohort.key,
+                "date": cohort.date_str,
+                "hour": cohort.hour_str,
                 "integrity": {
                     "totals": {
                         "status": "FAIL",
@@ -464,9 +478,12 @@ if scan_result["totals"]["status"] != "PASS":
                     pass
             if needs_report:
                 terminal_report = {
-                    "scan": f"FULL_SCAN_{hour}_UTC_RAW_AND_ZSTD_PARTITIONS",
+                    "scan": f"FULL_SCAN_{cohort.key}_UTC_RAW_AND_ZSTD_PARTITIONS",
                     "epoch": epoch,
-                    "hour": hour,
+                    "run_id": run_id,
+                    "cohort": cohort.key,
+                    "date": cohort.date_str,
+                    "hour": cohort.hour_str,
                     "integrity": {
                         "totals": {
                             "status": "FAIL",
@@ -490,7 +507,8 @@ if scan_result["totals"]["status"] != "PASS":
 
 def launch_detached_full_scan(
     epoch: str,
-    hour: str,
+    run_id: str,
+    cohort: ArchiveCohortId,
     base_dir: Path,
     expected_owner: Optional[str] = "bitcoin-trader",
     runner_mode: str = "auto",
@@ -503,19 +521,20 @@ def launch_detached_full_scan(
     receipt_root = base_dir / "archive-receipts"
     receipt_root.mkdir(parents=True, exist_ok=True)
 
-    raw_files = sorted(raw_root.glob(f"**/*_{hour}.jsonl"))
-    compressed_files = sorted(compressed_root.glob(f"**/*_{hour}.jsonl.zst"))
+    raw_files = sorted(raw_root.glob(f"**/*_{cohort.key}.jsonl"))
+    compressed_files = sorted(compressed_root.glob(f"**/*_{cohort.key}.jsonl.zst"))
 
     if not raw_files and not compressed_files:
-        return False, f"No files found for hour {hour}"
+        return False, f"No files found for cohort {cohort.key}"
 
     # Check if this hour is already successfully verified PASS
-    report_path = receipt_root / f"full_scan_{hour}_report.json"
+    report_path = receipt_root / f"full_scan_{cohort.key}_report.json"
     if report_path.exists():
         try:
             rep = json.loads(report_path.read_text(encoding="utf-8"))
             if rep.get("integrity", {}).get("totals", {}).get("status") == "PASS":
-                return True, f"Full scan for hour {hour} already completed PASS"
+                if rep.get("cohort") == cohort.key:
+                    return True, f"Full scan for cohort {cohort.key} already completed PASS"
         except Exception:
             pass
 
@@ -533,13 +552,14 @@ def launch_detached_full_scan(
     if mode == "direct":
         code = run_full_scan_supervisor(
             epoch=epoch,
-            hour=hour,
+            run_id=run_id,
+            cohort=cohort,
             base_dir=base_dir,
             timeout_seconds=timeout_seconds,
         )
         if code == 0:
-            return True, f"Direct scan for hour {hour} completed PASS"
-        return False, f"Direct scan for hour {hour} failed with code {code}"
+            return True, f"Direct scan for cohort {cohort.key} completed PASS"
+        return False, f"Direct scan for cohort {cohort.key} failed with code {code}"
 
     if mode == "detached":
         supervisor_code = f"""
@@ -552,7 +572,8 @@ except ImportError:
 
 code = run_full_scan_supervisor(
     epoch={repr(epoch)},
-    hour={repr(hour)},
+    run_id={repr(run_id)},
+    cohort=__import__('bithumb_coin_trader.archive_cohort', fromlist=['ArchiveCohortId']).ArchiveCohortId.parse({repr(cohort.key)}),
     base_dir=Path({repr(str(base_dir))}),
     timeout_seconds={timeout_seconds},
 )
@@ -582,7 +603,7 @@ sys.exit(code)
         return True, f"Launched detached background supervisor PID {proc.pid}"
 
     if mode == "systemd":
-        unit_name = f"bitcoin-trader-full-scan-{hour}.service"
+        unit_name = f"bitcoin-trader-full-scan-{cohort.key}.service"
         if is_unit_active(unit_name):
             return False, f"Unit {unit_name} is already active"
 
@@ -591,7 +612,7 @@ sys.exit(code)
             "--no-block",
             "--collect",
             f"--unit={unit_name}",
-            f"--description=Detached full-scan supervisor for hour {hour} ({epoch})",
+            f"--description=Detached full-scan supervisor for cohort {cohort.key} ({epoch})",
             "--service-type=exec",
             f"--uid={expected_owner or 'bitcoin-trader'}",
             "--property=Restart=no",
@@ -612,7 +633,8 @@ except ImportError:
 
 code = run_full_scan_supervisor(
     epoch={repr(epoch)},
-    hour={repr(hour)},
+    run_id={repr(run_id)},
+    cohort=__import__('bithumb_coin_trader.archive_cohort', fromlist=['ArchiveCohortId']).ArchiveCohortId.parse({repr(cohort.key)}),
     base_dir=Path({repr(str(base_dir))}),
     timeout_seconds={timeout_seconds},
 )
@@ -626,7 +648,8 @@ sys.exit(code)
                 # Fallback to detached mode
                 return launch_detached_full_scan(
                     epoch=epoch,
-                    hour=hour,
+                    run_id=run_id,
+                    cohort=cohort,
                     base_dir=base_dir,
                     expected_owner=expected_owner,
                     runner_mode="detached",
@@ -650,7 +673,7 @@ def orchestrate_closed_hour_archive(
     allow_aws_write: bool = False,
     remote_prefix: Optional[str] = None,
     grace_seconds: int = 600,
-    target_hour: Optional[str] = None,
+    target_cohort: Optional[ArchiveCohortId] = None,
     expected_owner: Optional[str] = None,
     scan_runner_mode: str = "auto",
     run_full_scan: bool = True,
@@ -686,11 +709,14 @@ def orchestrate_closed_hour_archive(
         # Discovered closed files
         all_jsonl = sorted(raw_root.glob("**/*.jsonl"))
         closed_files: List[Path] = []
-        hours_detected = set()
+        cohorts_detected: set[ArchiveCohortId] = set()
 
         for p in all_jsonl:
-            # If target_hour is provided, filter
-            if target_hour is not None and not p.name.endswith(f"_{target_hour.zfill(2)}.jsonl"):
+            try:
+                partition_cohort = ArchiveCohortId.from_partition_name(p.name)
+            except ValueError:
+                continue
+            if target_cohort is not None and partition_cohort != target_cohort:
                 continue
             if is_closed_stable_partition(
                 p,
@@ -700,11 +726,7 @@ def orchestrate_closed_hour_archive(
                 active_paths=active_paths,
             ):
                 closed_files.append(p)
-                # extract hour from filename using PARTITION_PATTERN e.g. BTC_KRW_2026-09-04_05.jsonl -> 05
-                from bithumb_coin_trader.pre_soak_archive import PARTITION_PATTERN
-                match = PARTITION_PATTERN.search(p.name)
-                if match:
-                    hours_detected.add(match.group(2))
+                cohorts_detected.add(partition_cohort)
 
         # Initialize archive store & pipeline
         if store_type == "s3":
@@ -788,19 +810,20 @@ def orchestrate_closed_hour_archive(
         # 5. Detached Full-Scan Launch
         scan_results: Dict[str, Any] = {}
         if run_full_scan and not dry_run and failed_count == 0:
-            for h in sorted(hours_detected):
+            for cohort in sorted(cohorts_detected):
                 ok, msg = launch_detached_full_scan(
                     epoch=epoch,
-                    hour=h,
+                    run_id=run_id,
+                    cohort=cohort,
                     base_dir=base_dir,
                     expected_owner=expected_owner,
                     runner_mode=scan_runner_mode,
                     timeout_seconds=scan_timeout_seconds,
                 )
-                scan_results[h] = {"success": ok, "message": msg}
+                scan_results[cohort.key] = {"success": ok, "message": msg}
 
         # 6. Backlog metrics calculation
-        sorted_hours = sorted(hours_detected)
+        sorted_cohorts = sorted(cohorts_detected)
         backlog = compute_backlog_metrics(
             raw_root=raw_root,
             receipt_root=receipt_root,
@@ -808,7 +831,7 @@ def orchestrate_closed_hour_archive(
             now=now,
             grace_period=grace_period,
             closed_files=closed_files,
-            hours_seen=sorted_hours,
+            cohorts_seen=sorted_cohorts,
         )
 
         backlog["archive_job_failures"] = failed_count
@@ -816,7 +839,7 @@ def orchestrate_closed_hour_archive(
         backlog["archived_count"] = archived_count
         backlog["already_verified_count"] = already_verified_count
         backlog["manifests_generated"] = manifests_generated
-        backlog["hours_detected"] = sorted_hours
+        backlog["cohorts_detected"] = [cohort.key for cohort in sorted_cohorts]
         backlog["scan_results"] = scan_results
 
         # Write backlog metrics to receipt_root
@@ -841,7 +864,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--remote-prefix")
     parser.add_argument("--grace-seconds", type=int, default=600)
     parser.add_argument("--disk-critical-percent", type=float, default=90.0)
-    parser.add_argument("--hour", help="Specific closed UTC hour to process (e.g. 05)")
+    parser.add_argument("--cohort", help="Specific closed UTC cohort to process (YYYY-MM-DD_HH)")
     parser.add_argument("--expected-owner", default="bitcoin-trader")
     parser.add_argument("--scan-runner", choices=("auto", "systemd", "detached", "direct", "none"), default="auto")
     parser.add_argument("--no-full-scan", action="store_true")
@@ -872,7 +895,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             allow_aws_write=args.allow_aws_write,
             remote_prefix=args.remote_prefix,
             grace_seconds=args.grace_seconds,
-            target_hour=args.hour,
+            target_cohort=ArchiveCohortId.parse(args.cohort) if args.cohort else None,
             expected_owner=args.expected_owner,
             scan_runner_mode=args.scan_runner,
             run_full_scan=not args.no_full_scan and args.scan_runner != "none",

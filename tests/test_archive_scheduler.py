@@ -24,7 +24,9 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.archive_scheduler import (
     ArchiveSchedulerConfig,
     ClosedHourArchiveScheduler,
@@ -180,12 +182,12 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         # Run first pass
         res1 = scheduler.run_once()
-        self.assertEqual(res1["processed_hour"], "05")
+        self.assertEqual(res1["processed_cohort"], "2026-09-04_05")
         self.assertEqual(res1["status"], "PASS")
 
         # Run second pass immediately: hour 05 is already completed, no pending hours
         res2 = scheduler.run_once()
-        self.assertIsNone(res2["processed_hour"])
+        self.assertIsNone(res2["processed_cohort"])
         self.assertEqual(res2["status"], "IDLE")
 
     def test_scheduler_archive_concurrency_single_instance(self) -> None:
@@ -203,7 +205,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
             # Scheduler should detect lock and safely back off without failing
             res = scheduler.run_once()
             self.assertEqual(res["status"], "LOCKED")
-            self.assertEqual(res["pending_hours"], ["05"])
+            self.assertEqual(res["pending_cohorts"], ["2026-09-04_05"])
 
     def test_scheduler_full_scan_running_leaves_later_hour_pending(self) -> None:
         import fcntl
@@ -257,14 +259,18 @@ class ArchiveSchedulerTests(unittest.TestCase):
         rec_path.write_text(json.dumps({"state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
 
         # But full scan report is FAIL!
-        report_path = self.receipt_root / "full_scan_05_report.json"
-        report_path.write_text(json.dumps({"status": "FAIL", "error": "corrupt record"}), encoding="utf-8")
+        cohort = ArchiveCohortId("2026-09-04", "05")
+        report_path = self.receipt_root / f"full_scan_{cohort.key}_report.json"
+        report_path.write_text(
+            json.dumps({"status": "FAIL", "cohort": cohort.key, "error": "corrupt record"}),
+            encoding="utf-8",
+        )
 
         test_now = datetime(2026, 9, 4, 6, 15, 0, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(run_full_scan=True), now_fn=lambda: test_now)
 
-        self.assertTrue(scheduler.has_hour_failed("05"))
-        self.assertFalse(scheduler.is_hour_completed("05"))
+        self.assertTrue(scheduler.has_cohort_failed(cohort))
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
 
     def test_scheduler_ownership_violation_fail_closed(self) -> None:
         self._create_raw_partition("BTC_KRW", "2026-09-04", "05")
@@ -296,6 +302,60 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertEqual(len(eligible), 0)
         self.assertTrue(p06.exists())
         self.assertFalse((self.receipt_root / f"{p06.name}.archive-receipt.json").exists())
+
+    def test_same_hour_on_later_date_does_not_reopen_completed_cohort(self) -> None:
+        day1 = self._create_raw_partition("BTC_KRW", "2026-09-05", "05")
+        self._write_metrics([])
+        (self.receipt_root / f"{day1.name}.archive-receipt.json").write_text(
+            json.dumps({"state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}),
+            encoding="utf-8",
+        )
+        scheduler = ClosedHourArchiveScheduler(self._config())
+        cohort1 = ArchiveCohortId("2026-09-05", "05")
+
+        self.assertTrue(scheduler.is_cohort_completed(cohort1))
+
+        self._create_raw_partition("BTC_KRW", "2026-09-06", "05")
+
+        self.assertTrue(scheduler.is_cohort_completed(cohort1))
+        self.assertFalse(scheduler.is_cohort_completed(ArchiveCohortId("2026-09-06", "05")))
+
+    def test_three_day_same_hour_selects_oldest_exact_cohort(self) -> None:
+        for date_str in ("2026-09-05", "2026-09-06", "2026-09-07"):
+            self._create_raw_partition("BTC_KRW", date_str, "05")
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 8, 7, 0, tzinfo=timezone.utc),
+        )
+
+        eligible = scheduler.discover_eligible_hours()
+
+        self.assertEqual(
+            [item.cohort.key for item in eligible],
+            ["2026-09-05_05", "2026-09-06_05", "2026-09-07_05"],
+        )
+        with patch(
+            "bithumb_coin_trader.archive_scheduler.orchestrate_closed_hour_archive",
+            return_value={"archive_job_failures": 0},
+        ) as orchestrate:
+            result = scheduler.run_once()
+
+        self.assertEqual(result["processed_cohort"], "2026-09-05_05")
+        self.assertEqual(result["pending_cohorts"], ["2026-09-06_05", "2026-09-07_05"])
+        self.assertEqual(orchestrate.call_args.kwargs["target_cohort"], ArchiveCohortId("2026-09-05", "05"))
+
+    def test_failed_scan_lookup_requires_exact_canonical_cohort(self) -> None:
+        day1 = ArchiveCohortId("2026-09-05", "05")
+        day2 = ArchiveCohortId("2026-09-06", "05")
+        (self.receipt_root / f"full_scan_{day1.key}_report.json").write_text(
+            json.dumps({"status": "FAIL", "cohort": day1.key}),
+            encoding="utf-8",
+        )
+        scheduler = ClosedHourArchiveScheduler(self._config(run_full_scan=True))
+
+        self.assertTrue(scheduler.has_cohort_failed(day1))
+        self.assertFalse(scheduler.has_cohort_failed(day2))
 
 
 if __name__ == "__main__":

@@ -30,6 +30,7 @@ for d in (ROOT, SCRIPTS_DIR):
     if str(d) not in sys.path:
         sys.path.insert(0, str(d))
 
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
     OwnershipViolationError,
@@ -74,10 +75,17 @@ class ArchiveSchedulerConfig:
 
 @dataclass(frozen=True)
 class EligibleHour:
-    date_str: str
-    hour_str: str
+    cohort: ArchiveCohortId
     files: List[Path]
     closed_at: datetime
+
+    @property
+    def date_str(self) -> str:
+        return self.cohort.date_str
+
+    @property
+    def hour_str(self) -> str:
+        return self.cohort.hour_str
 
 
 class ClosedHourArchiveScheduler:
@@ -114,19 +122,28 @@ class ClosedHourArchiveScheduler:
         finally:
             os.close(fd)
 
-    def has_hour_failed(self, hour_str: str) -> bool:
-        report_path = self.config.receipt_root / f"full_scan_{hour_str.zfill(2)}_report.json"
+    def _full_scan_report_path(self, cohort: ArchiveCohortId) -> Path:
+        return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
+
+    def has_cohort_failed(self, cohort: ArchiveCohortId) -> bool:
+        report_path = self._full_scan_report_path(cohort)
         if not report_path.exists():
             return False
         try:
             data = json.loads(report_path.read_text(encoding="utf-8"))
-            return data.get("status") != "PASS"
+            status = data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
+            return data.get("cohort") != cohort.key or status != "PASS"
         except Exception:
             return True
 
-    def is_hour_completed(self, hour_str: str) -> bool:
-        hour_suffix = f"_{hour_str.zfill(2)}.jsonl"
-        matching_files = [p for p in self.config.raw_root.glob("**/*.jsonl") if p.name.endswith(hour_suffix)]
+    def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
+        matching_files = []
+        for path in self.config.raw_root.glob("**/*.jsonl"):
+            try:
+                if ArchiveCohortId.from_partition_name(path.name) == cohort:
+                    matching_files.append(path)
+            except ValueError:
+                continue
         if not matching_files:
             return False
 
@@ -152,12 +169,13 @@ class ClosedHourArchiveScheduler:
                 return False
 
         if self.config.run_full_scan:
-            report_path = self.config.receipt_root / f"full_scan_{hour_str.zfill(2)}_report.json"
+            report_path = self._full_scan_report_path(cohort)
             if not report_path.exists():
                 return False
             try:
                 data = json.loads(report_path.read_text(encoding="utf-8"))
-                if data.get("status") != "PASS":
+                status = data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
+                if data.get("cohort") != cohort.key or status != "PASS":
                     return False
             except Exception:
                 return False
@@ -173,19 +191,18 @@ class ClosedHourArchiveScheduler:
         if self.config.raw_root.exists():
             verify_runtime_ownership((self.config.raw_root,), expected_owner=self.config.expected_owner)
 
-        grouped: Dict[tuple[str, str], List[Path]] = {}
+        grouped: Dict[ArchiveCohortId, List[Path]] = {}
         for p in sorted(self.config.raw_root.glob("**/*.jsonl")):
-            match = PARTITION_PATTERN.search(p.name)
-            if not match:
+            try:
+                cohort = ArchiveCohortId.from_partition_name(p.name)
+            except ValueError:
                 continue
-            date_str = match.group(1)
-            hour_str = match.group(2)
-            grouped.setdefault((date_str, hour_str), []).append(p)
+            grouped.setdefault(cohort, []).append(p)
 
         eligible: List[EligibleHour] = []
-        for (date_str, hour_str), files in grouped.items():
+        for cohort, files in grouped.items():
             # 1. Check if hour is completed
-            if self.is_hour_completed(hour_str):
+            if self.is_cohort_completed(cohort):
                 continue
 
             # 2. Check if currently active (any partition in this hour is in active_paths)
@@ -194,7 +211,9 @@ class ClosedHourArchiveScheduler:
 
             # 3. Check closed timestamp + grace
             try:
-                closed_at = datetime.fromisoformat(f"{date_str}T{hour_str}:00:00+00:00") + timedelta(hours=1)
+                closed_at = datetime.fromisoformat(
+                    f"{cohort.date_str}T{cohort.hour_str}:00:00+00:00"
+                ) + timedelta(hours=1)
             except ValueError:
                 continue
 
@@ -206,36 +225,50 @@ class ClosedHourArchiveScheduler:
             verify_runtime_ownership(tuple(files), expected_owner=self.config.expected_owner)
 
             eligible.append(EligibleHour(
-                date_str=date_str,
-                hour_str=hour_str,
+                cohort=cohort,
                 files=files,
                 closed_at=closed_at,
             ))
 
         # Sort oldest first (chronological order)
-        eligible.sort(key=lambda e: (e.date_str, e.hour_str))
+        eligible.sort(key=lambda e: e.cohort)
         return eligible
 
     def run_once(self, now: Optional[datetime] = None) -> Dict[str, Any]:
+        if self._stop_event.is_set():
+            return {
+                "status": "STOPPED",
+                "processed_cohort": None,
+                "pending_cohorts": [],
+                "timestamp": (now or self._now_fn()).isoformat(),
+            }
         eligible = self.discover_eligible_hours(now=now)
         if not eligible:
             return {
                 "status": "IDLE",
-                "processed_hour": None,
-                "pending_hours": [],
+                "processed_cohort": None,
+                "pending_cohorts": [],
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
 
         target = eligible[0]
-        pending_hours = [e.hour_str for e in eligible]
+        pending_cohorts = [e.cohort.key for e in eligible]
+
+        if self._stop_event.is_set():
+            return {
+                "status": "STOPPED",
+                "processed_cohort": None,
+                "pending_cohorts": pending_cohorts,
+                "timestamp": (now or self._now_fn()).isoformat(),
+            }
 
         # Check concurrency locks: orchestrator or full-scan
         if self.is_orchestrator_running() or (self.config.run_full_scan and self.is_full_scan_running()):
             return {
                 "status": "LOCKED",
-                "processed_hour": None,
-                "target_hour": target.hour_str,
-                "pending_hours": pending_hours,
+                "processed_cohort": None,
+                "target_cohort": target.cohort.key,
+                "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
 
@@ -253,7 +286,7 @@ class ClosedHourArchiveScheduler:
                 allow_aws_write=cfg.allow_aws_write,
                 remote_prefix=cfg.remote_prefix,
                 grace_seconds=cfg.grace_seconds,
-                target_hour=target.hour_str,
+                target_cohort=target.cohort,
                 expected_owner=cfg.expected_owner,
                 scan_runner_mode=cfg.scan_runner_mode,
                 run_full_scan=cfg.run_full_scan,
@@ -264,25 +297,25 @@ class ClosedHourArchiveScheduler:
             status = "PASS" if archive_failures == 0 else "FAIL"
             return {
                 "status": status,
-                "processed_hour": target.hour_str,
-                "pending_hours": [e.hour_str for e in eligible[1:]],
+                "processed_cohort": target.cohort.key,
+                "pending_cohorts": [e.cohort.key for e in eligible[1:]],
                 "backlog": res,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
         except OrchestratorConcurrencyError:
             return {
                 "status": "LOCKED",
-                "processed_hour": None,
-                "target_hour": target.hour_str,
-                "pending_hours": pending_hours,
+                "processed_cohort": None,
+                "target_cohort": target.cohort.key,
+                "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
         except Exception as exc:
             return {
                 "status": "ERROR",
-                "processed_hour": target.hour_str,
+                "processed_cohort": target.cohort.key,
                 "error": str(exc),
-                "pending_hours": pending_hours,
+                "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
 
