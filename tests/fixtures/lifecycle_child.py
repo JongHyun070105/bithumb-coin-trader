@@ -38,7 +38,14 @@ def main() -> int:
     args = parser.parse_args()
     if args.mode == "publisher":
         append(args.events, "publisher-start")
-        time.sleep(args.sleep)
+        def stop_pub(signum: int, _frame: object) -> None:
+            append(args.events, f"publisher-{signal.Signals(signum).name}")
+            raise SystemExit(args.exit_code)
+        signal.signal(signal.SIGINT, stop_pub)
+        signal.signal(signal.SIGTERM, stop_pub)
+        deadline = time.monotonic() + args.sleep
+        while time.monotonic() < deadline:
+            time.sleep(0.01)
         append(args.events, "publisher-stop")
         return args.exit_code
 
