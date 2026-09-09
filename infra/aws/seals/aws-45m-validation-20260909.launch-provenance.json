@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "runtime_code_commit": "4b1c7d409c6fa998b733293873bbd1d5ba064897",
+  "runtime_config_seal_path": "infra/aws/seals/aws-45m-validation-20260909.runtime.json",
+  "runtime_config_seal_sha256": "fa2fcc28f43e2ad3245d671e9a3fc02b2b11e637d831d3cce687ceec619405c9",
+  "runtime_config_fingerprint": "9f5ee627ab6db7e6a4154a0fb830719493bf066ea9cfd2b9d16ae20ee18cc544",
+  "collector_epoch": "aws-45m-val-20260909-0440",
+  "collector_run_id": "aws-45m-val-run-20260909T044000Z",
+  "environment_id": "aws-apne2-research",
+  "duration_seconds": 2700,
+  "archive_prefix": "market-data/temporary/aws-45m-val-20260909-0440",
+  "candidate_boundary_policy_path": "infra/aws/identity/collector-permissions-boundary-20260905-candidate.json",
+  "candidate_boundary_policy_sha256": "a0a3d7f9bf957b710e0a96fa0348ed0067cbfdefbfb724ea8a011bd3b33a42bc",
+  "feed_counts": {
+    "bithumb": 20,
+    "binance": 4,
+    "upbit": 4
+  },
+  "total_feed_count": 76,
+  "cleanup_enabled": false,
+  "private_api_enabled": false,
+  "alpha_enabled": false,
+  "paper_enabled": false,
+  "live_enabled": false,
+  "created_at_utc": "2026-09-09T04:16:00Z"
+}
