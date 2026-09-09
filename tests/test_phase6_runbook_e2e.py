@@ -157,8 +157,10 @@ def _populate_official_shaped_epoch(
     # Archive Receipts for all 76 partitions
     fullscan_inputs: list[str] = []
     for exch, strm, mkt in SoakAuditor72H.get_expected_feed_universe():
-        part_rel = f"raw/exchange={exch}/stream={strm}/market={mkt}/part-{hour_cohort}.zst"
-        fullscan_inputs.append(part_rel)
+        raw_rel = f"raw/exchange={exch}/stream={strm}/market={mkt}/part-{hour_cohort}.jsonl"
+        comp_rel = f"raw/exchange={exch}/stream={strm}/market={mkt}/part-{hour_cohort}.zst"
+        fullscan_inputs.append(raw_rel)
+        fullscan_inputs.append(comp_rel)
         clean_mkt = mkt.replace("/", "_")
         rc_name = f"{exch}_{strm}_{clean_mkt}_{hour_cohort}.archive-receipt.json"
         (receipts_dir / rc_name).write_text(json.dumps({
@@ -169,7 +171,7 @@ def _populate_official_shaped_epoch(
             "exchange": exch,
             "stream": strm,
             "market": mkt,
-            "partition": part_rel,
+            "partition": comp_rel,
             "state": "CLEANUP_ELIGIBLE",
             "status": "PASS",
             "restore_verified": True,

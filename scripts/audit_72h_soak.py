@@ -217,24 +217,36 @@ def validate_archive_evidence_coverage(
     qualifying_feeds: dict[str, dict[tuple[str, str, str], Path]] = {c: {} for c in expected}
     duplicate_feeds: dict[str, list[tuple[tuple[str, str, str], str]]] = {c: [] for c in expected}
     unexpected_feeds: dict[str, list[tuple[tuple[str, str, str], str]]] = {c: [] for c in expected}
+    cohort_identity_failures: dict[str, list[str]] = {c: [] for c in expected}
     invalid_state_receipts: list[str] = []
     receipt_restore_failures: list[str] = []
     receipt_identity_failures: list[str] = []
 
     for path in receipt_files:
+        path_cohort = None
+        hour_match = re.search(r"(\d{4}-?\d{2}-?\d{2}[-_]\d{2}|\d{8}[-_]\d{2})", str(path.name))
+        if hour_match:
+            path_cohort = hour_match.group(1).replace("/", "_")
+
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
             receipt_identity_failures.append(path.name)
+            if path_cohort and path_cohort in expected:
+                cohort_identity_failures[path_cohort].append(path.name)
+            elif len(expected) == 1:
+                cohort_identity_failures[expected[0]].append(path.name)
             continue
         cohort = data.get("cohort")
         if cohort not in expected:
             continue
         if expected_epoch and data.get("collector_epoch") != expected_epoch:
             receipt_identity_failures.append(path.name)
+            cohort_identity_failures[cohort].append(path.name)
             continue
         if expected_run_id and data.get("run_id") != expected_run_id:
             receipt_identity_failures.append(path.name)
+            cohort_identity_failures[cohort].append(path.name)
             continue
 
         state = data.get("state")
@@ -250,11 +262,14 @@ def validate_archive_evidence_coverage(
         feed_info = _extract_receipt_partition(data, path)
         if not feed_info:
             receipt_identity_failures.append(path.name)
+            cohort_identity_failures[cohort].append(path.name)
             continue
 
         exch, strm, mkt, partition_cohort = feed_info
         if partition_cohort != "unknown" and partition_cohort != cohort:
             receipt_identity_failures.append(path.name)
+            if partition_cohort in expected:
+                cohort_identity_failures[partition_cohort].append(path.name)
             continue
 
         feed = (exch, strm, mkt)
@@ -386,7 +401,7 @@ def validate_archive_evidence_coverage(
             qual_count == expected_feed_count
             and not duplicate_feeds[c]
             and not unexpected_feeds[c]
-            and not receipt_identity_failures
+            and not cohort_identity_failures[c]
         ):
             fully_covered_receipt_cohorts.add(c)
         else:
@@ -413,6 +428,10 @@ def validate_archive_evidence_coverage(
         if unexpected_feeds[cohort]:
             blockers.append(
                 f"RECEIPT_CONTAMINATED: Cohort {cohort} has {len(unexpected_feeds[cohort])} unexpected feed receipts"
+            )
+        if cohort_identity_failures[cohort]:
+            blockers.append(
+                f"RECEIPT_CONTAMINATED: Cohort {cohort} has {len(cohort_identity_failures[cohort])} invalid or corrupt receipts"
             )
 
     for item in sorted(receipt_identity_failures):
@@ -454,6 +473,7 @@ def validate_archive_evidence_coverage(
                 ],
                 "duplicates": [f"{e}/{s}/{m}" for (e, s, m), _ in duplicate_feeds[c]],
                 "unexpected": [f"{e}/{s}/{m}" for (e, s, m), _ in unexpected_feeds[c]],
+                "identity_failures": list(cohort_identity_failures[c]),
             }
             for c in expected
         },

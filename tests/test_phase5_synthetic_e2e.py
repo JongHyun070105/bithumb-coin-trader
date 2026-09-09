@@ -283,6 +283,7 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
         # Per-partition archive receipt
         rel_p = str(p_file.relative_to(epoch_dir))
         all_inputs.append(rel_p)
+        all_inputs.append(rel_p + ".zst")
         clean_mkt = mkt.replace("/", "_")
         rc_name = f"{exch}_{strm}_{clean_mkt}_2026-09-04_15.archive-receipt.json"
         rc_data = {

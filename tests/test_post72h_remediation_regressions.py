@@ -236,10 +236,13 @@ class Synthetic72HArchiveOracleTests(unittest.TestCase):
         cls.receipt_files: list[Path] = []
         cls.fullscan_files: list[Path] = []
 
-        # Create all 72 fullscan reports and 72 * 76 = 5472 qualifying receipts
+        # Create all 72 fullscan reports (152 inputs each = 10,944 inputs) and 72 * 76 = 5472 qualifying receipts
         for cohort_str in cls.archive_cohorts:
             inputs = [
                 f"raw/{exch}/{strm}/{mkt}/{mkt}_{cohort_str}.jsonl"
+                for exch, strm, mkt in cls.feeds
+            ] + [
+                f"compressed/{exch}/{strm}/{mkt}/{mkt}_{cohort_str}.jsonl.zst"
                 for exch, strm, mkt in cls.feeds
             ]
             fs_file = cls.receipts_dir / f"full_scan_{cohort_str}_report.json"
@@ -296,7 +299,7 @@ class Synthetic72HArchiveOracleTests(unittest.TestCase):
         cls._temp_dir.cleanup()
 
     def test_72h_shaped_synthetic_archive_oracle(self) -> None:
-        """73 touched raw cohorts, 72 archive-eligible cohorts, 76 feed universe (5,472 receipts)."""
+        """73 touched raw cohorts, 72 archive-eligible cohorts, 76 feed universe (5,472 receipts, 10,944 fullscan inputs)."""
         self.assertEqual(len(self.raw_cohorts), 73)
         self.assertEqual(len(self.archive_cohorts), 72)
         self.assertEqual(self.raw_cohorts[0], "2026-09-05_05")
@@ -308,6 +311,11 @@ class Synthetic72HArchiveOracleTests(unittest.TestCase):
         self.assertEqual(len(self.feeds), 76)
         self.assertEqual(len(self.receipt_files), 72 * 76)
         self.assertEqual(len(self.fullscan_files), 72)
+        total_inputs = sum(
+            len(json.loads(f.read_text(encoding="utf-8"))["inputs"])
+            for f in self.fullscan_files
+        )
+        self.assertEqual(total_inputs, 72 * 152)
 
         coverage = validate_archive_evidence_coverage(
             expected_cohorts=self.archive_cohorts,
@@ -383,15 +391,19 @@ class Synthetic72HArchiveOracleTests(unittest.TestCase):
             any("2026-09-06_12" in b and "bithumb/orderbook/KRW-BTC" in b for b in result["blockers"])
         )
 
-    def test_72h_mutation_incomplete_fullscan(self) -> None:
-        """Adversarial mutation: remove ONE compressed/fullscan input from middle cohort -> must FAIL."""
-        sub_dir = self.epoch_dir / "mutated_scan"
+    def test_72h_mutation_fullscan_one_raw_missing(self) -> None:
+        """Adversarial mutation 1: remove ONE RAW input (75 RAW + 76 COMPRESSED) -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan_raw_missing"
         sub_dir.mkdir(exist_ok=True)
         incomplete_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
-        inputs_75 = [
+        inputs = [
             f"raw/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl"
             for exch, strm, mkt in self.feeds[:75]
+        ] + [
+            f"compressed/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl.zst"
+            for exch, strm, mkt in self.feeds
         ]
+        self.assertEqual(len(inputs), 151)
         incomplete_fs.write_text(
             json.dumps(
                 {
@@ -399,13 +411,178 @@ class Synthetic72HArchiveOracleTests(unittest.TestCase):
                     "epoch": self.epoch_name,
                     "run_id": self.run_id,
                     "status": "PASS",
-                    "inputs": inputs_75,
-                    "integrity": {"totals": {"status": "PASS", "files": len(inputs_75)}},
+                    "inputs": inputs,
+                    "integrity": {"totals": {"status": "PASS", "files": len(inputs)}},
                 }
             ),
             encoding="utf-8",
         )
         mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [incomplete_fs]
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=mutated_scans,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["fullscan_coverage"], 71)
+        self.assertEqual(result["missing_fullscan_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("FULLSCAN_INPUTS_INCOMPLETE" in b and "2026-09-06_12" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_fullscan_one_compressed_missing(self) -> None:
+        """Adversarial mutation 2: remove ONE COMPRESSED input (76 RAW + 75 COMPRESSED) -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan_comp_missing"
+        sub_dir.mkdir(exist_ok=True)
+        incomplete_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
+        inputs = [
+            f"raw/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl"
+            for exch, strm, mkt in self.feeds
+        ] + [
+            f"compressed/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl.zst"
+            for exch, strm, mkt in self.feeds[:75]
+        ]
+        self.assertEqual(len(inputs), 151)
+        incomplete_fs.write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-06_12",
+                    "epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "status": "PASS",
+                    "inputs": inputs,
+                    "integrity": {"totals": {"status": "PASS", "files": len(inputs)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [incomplete_fs]
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=mutated_scans,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["fullscan_coverage"], 71)
+        self.assertEqual(result["missing_fullscan_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("FULLSCAN_INPUTS_INCOMPLETE" in b and "2026-09-06_12" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_fullscan_duplicate_modality_substitution(self) -> None:
+        """Adversarial mutation 3: duplicate COMPRESSED substitution (76 RAW, 75 COMP + 1 dup COMP) -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan_dup_modality"
+        sub_dir.mkdir(exist_ok=True)
+        dup_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
+        raw_inputs = [
+            f"raw/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl"
+            for exch, strm, mkt in self.feeds
+        ]
+        comp_inputs_75 = [
+            f"compressed/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl.zst"
+            for exch, strm, mkt in self.feeds[1:]
+        ]
+        dup_comp = f"compressed/{self.feeds[1][0]}/{self.feeds[1][1]}/{self.feeds[1][2]}/{self.feeds[1][2]}_2026-09-06_12.jsonl.zst"
+        inputs = raw_inputs + comp_inputs_75 + [dup_comp]
+        self.assertEqual(len(inputs), 152)
+        dup_fs.write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-06_12",
+                    "epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "status": "PASS",
+                    "inputs": inputs,
+                    "integrity": {"totals": {"status": "PASS", "files": len(inputs)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [dup_fs]
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=mutated_scans,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["fullscan_coverage"], 71)
+        self.assertEqual(result["missing_fullscan_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("FULLSCAN_INPUTS_INCOMPLETE" in b and "2026-09-06_12" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_fullscan_wrong_date_compressed_substitution(self) -> None:
+        """Adversarial mutation 4: wrong-date COMPRESSED substitution -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan_wrong_date"
+        sub_dir.mkdir(exist_ok=True)
+        wrong_date_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
+        raw_inputs = [
+            f"raw/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl"
+            for exch, strm, mkt in self.feeds
+        ]
+        comp_inputs_75 = [
+            f"compressed/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl.zst"
+            for exch, strm, mkt in self.feeds[1:]
+        ]
+        wrong_date_comp = f"compressed/{self.feeds[0][0]}/{self.feeds[0][1]}/{self.feeds[0][2]}/{self.feeds[0][2]}_2026-09-05_12.jsonl.zst"
+        inputs = raw_inputs + comp_inputs_75 + [wrong_date_comp]
+        self.assertEqual(len(inputs), 152)
+        wrong_date_fs.write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-06_12",
+                    "epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "status": "PASS",
+                    "inputs": inputs,
+                    "integrity": {"totals": {"status": "PASS", "files": len(inputs)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [wrong_date_fs]
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=mutated_scans,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["fullscan_coverage"], 71)
+        self.assertEqual(result["missing_fullscan_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("FULLSCAN_INPUTS_INCOMPLETE" in b and "2026-09-06_12" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_fullscan_count_only_report(self) -> None:
+        """Adversarial mutation 5: count-only report (files=152, but NO inputs) -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan_count_only"
+        sub_dir.mkdir(exist_ok=True)
+        count_only_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
+        count_only_fs.write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-06_12",
+                    "epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "status": "PASS",
+                    "integrity": {"totals": {"status": "PASS", "files": 152}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [count_only_fs]
 
         result = validate_archive_evidence_coverage(
             expected_cohorts=self.archive_cohorts,
