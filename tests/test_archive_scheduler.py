@@ -22,6 +22,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -373,6 +374,84 @@ class ArchiveSchedulerTests(unittest.TestCase):
         )
         scheduler = ClosedHourArchiveScheduler(self._config())
 
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
+
+    def test_stop_wakes_poll_loop_promptly(self) -> None:
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(self._config(poll_interval_seconds=5.0))
+        entered = threading.Event()
+        original = scheduler.run_once
+
+        def observed_run_once(*args, **kwargs):
+            entered.set()
+            return original(*args, **kwargs)
+
+        scheduler.run_once = observed_run_once  # type: ignore[method-assign]
+        thread = threading.Thread(target=scheduler.run_loop)
+        thread.start()
+        self.assertTrue(entered.wait(timeout=1.0))
+
+        started = time.monotonic()
+        scheduler.stop()
+        thread.join(timeout=1.0)
+
+        self.assertFalse(thread.is_alive())
+        self.assertLess(time.monotonic() - started, 0.5)
+
+    def test_stop_requested_during_discovery_prevents_new_cohort_start(self) -> None:
+        partition = self._create_raw_partition("BTC_KRW", "2026-09-05", "05")
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 6, 7, 0, tzinfo=timezone.utc),
+        )
+        eligible = EligibleHour(
+            cohort=ArchiveCohortId("2026-09-05", "05"),
+            files=[partition],
+            closed_at=datetime(2026, 9, 5, 6, 0, tzinfo=timezone.utc),
+        )
+
+        def stop_during_discovery(*_args, **_kwargs):
+            scheduler.stop()
+            return [eligible]
+
+        with patch.object(scheduler, "discover_eligible_hours", side_effect=stop_during_discovery), patch(
+            "bithumb_coin_trader.archive_scheduler.orchestrate_closed_hour_archive"
+        ) as orchestrate:
+            result = scheduler.run_once()
+
+        self.assertEqual(result["status"], "STOPPED")
+        orchestrate.assert_not_called()
+
+    def test_idle_scheduler_stop_exits_cleanly(self) -> None:
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(self._config(poll_interval_seconds=10.0))
+        scheduler.stop()
+        started = time.monotonic()
+        scheduler.run_loop()
+        self.assertLess(time.monotonic() - started, 0.2)
+
+    def test_stop_during_in_progress_operation_does_not_falsely_mark_cohort_complete(self) -> None:
+        partition = self._create_raw_partition("BTC_KRW", "2026-09-05", "05")
+        self._write_metrics([])
+        cohort = ArchiveCohortId("2026-09-05", "05")
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 6, 7, 0, tzinfo=timezone.utc),
+        )
+
+        def interrupt_during_orchestrate(*_args, **_kwargs):
+            scheduler.stop()
+            raise RuntimeError("simulated interruption during archive transaction")
+
+        with patch(
+            "bithumb_coin_trader.archive_scheduler.orchestrate_closed_hour_archive",
+            side_effect=interrupt_during_orchestrate,
+        ):
+            result = scheduler.run_once()
+
+        self.assertEqual(result["status"], "ERROR")
+        self.assertEqual(result["processed_cohort"], "2026-09-05_05")
         self.assertFalse(scheduler.is_cohort_completed(cohort))
 
 
