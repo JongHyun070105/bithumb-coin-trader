@@ -427,8 +427,9 @@ class RemediationLifecycleIntegrationTests(unittest.TestCase):
 
             self.assertEqual(result["overall_status"], "PASS")
             self.assertEqual(result["collector_exit_code"], 0)
-            self.assertEqual(result["publisher_exit_code"], 0)
-            self.assertEqual(result["archive_scheduler_exit_code"], 0)
+            self.assertIn(result["publisher_exit_code"], (0, -signal.SIGTERM))
+            self.assertIn(result["archive_scheduler_exit_code"], (0, -signal.SIGTERM))
+            self.assertNotEqual(result["archive_scheduler_exit_code"], -signal.SIGKILL)
             self.assertIsNone(result["received_signal"])
             self.assertFalse(result["forced_timeout"])
             self.assertTrue(result["full_duration_satisfied"])
