@@ -39,14 +39,14 @@ def test_p3_soak_72h_boundary_oracle_0340_to_0340() -> None:
     fullscan_info = derive_expected_fullscan_cohorts(start_dt, end_dt)
 
     # 1. Raw cohorts
-    assert "20260901-03" in raw_cohorts, "Start-day 03 cohort must exist in raw cohorts"
-    assert "20260904-03" in raw_cohorts, "Final-day 03 cohort must exist in raw cohorts"
+    assert "2026-09-01_03" in raw_cohorts, "Start-day 03 cohort must exist in raw cohorts"
+    assert "2026-09-04_03" in raw_cohorts, "Final-day 03 cohort must exist in raw cohorts"
     assert len(raw_cohorts) == 73, f"Expected exactly 73 raw cohorts (1 initial partial + 71 interior + 1 final partial), got {len(raw_cohorts)}"
 
     # 2. Archive cohorts
-    assert "20260901-03" in archive_cohorts, "Start-day 03 closed at 04:00, grace expired at 04:10, must be archived"
-    assert "20260904-02" in archive_cohorts, "Final interior hour Day 4 02 closed at 03:00, grace at 03:10, must be archived"
-    assert "20260904-03" not in archive_cohorts, "Final-day 03 was active at shutdown (03:40), never closed under scheduler, must NOT require receipt"
+    assert "2026-09-01_03" in archive_cohorts, "Start-day 03 closed at 04:00, grace expired at 04:10, must be archived"
+    assert "2026-09-04_02" in archive_cohorts, "Final interior hour Day 4 02 closed at 03:00, grace at 03:10, must be archived"
+    assert "2026-09-04_03" not in archive_cohorts, "Final-day 03 was active at shutdown (03:40), never closed under scheduler, must NOT require receipt"
     assert len(archive_cohorts) == 72, f"Expected exactly 72 archive cohorts, got {len(archive_cohorts)}"
 
     # 3. Fullscan cohorts
@@ -60,7 +60,7 @@ def test_p3_exact_hour_boundary() -> None:
     end_dt = datetime(2026, 9, 1, 1, 0, 0, tzinfo=timezone.utc)
 
     raw_cohorts = derive_expected_raw_cohorts(start_dt, end_dt)
-    assert raw_cohorts == ["20260901-00"]
+    assert raw_cohorts == ["2026-09-01_00"]
 
     # At 01:00:00, hour 00 closed at 01:00:00, but grace (600s) expires at 01:10:00 > 01:00:00
     # So with grace_seconds=600, it would not have autonomous receipt before 01:00
@@ -69,7 +69,7 @@ def test_p3_exact_hour_boundary() -> None:
 
     # If grace_seconds=0
     archive_cohorts_no_grace = derive_expected_archive_cohorts(start_dt, end_dt, grace_seconds=0)
-    assert archive_cohorts_no_grace == ["20260901-00"]
+    assert archive_cohorts_no_grace == ["2026-09-01_00"]
 
 
 def test_p3_two_hours_cross_boundary() -> None:
@@ -79,11 +79,11 @@ def test_p3_two_hours_cross_boundary() -> None:
 
     raw_cohorts = derive_expected_raw_cohorts(start_dt, end_dt)
     # 00:30 (hour 00), 01:00 (hour 01), 02:30 (hour 02) -> 3 raw cohorts
-    assert raw_cohorts == ["20260901-00", "20260901-01", "20260901-02"]
+    assert raw_cohorts == ["2026-09-01_00", "2026-09-01_01", "2026-09-01_02"]
 
     # Archive:
     # hour 00 closes 01:00, grace 01:10 <= 02:30 -> YES
     # hour 01 closes 02:00, grace 02:10 <= 02:30 -> YES
     # hour 02 closes 03:00, grace 03:10 > 02:30 -> NO
     archive_cohorts = derive_expected_archive_cohorts(start_dt, end_dt, grace_seconds=600)
-    assert archive_cohorts == ["20260901-00", "20260901-01"]
+    assert archive_cohorts == ["2026-09-01_00", "2026-09-01_01"]

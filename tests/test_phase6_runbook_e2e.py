@@ -78,7 +78,7 @@ def _populate_official_shaped_epoch(
     collector_run_id: str = "run_72h_aws_production",
     software_commit: str = "753d7848759d3fdd5e20af7c3f2d08b14fca7cda",
     fingerprint: str = "fp-official-72h",
-    hour_cohort: str = "20260901-00",
+    hour_cohort: str = "2026-09-01_00",
 ) -> None:
     """Populates a synthetic epoch matching all official specifications."""
     raw_dir = epoch_dir / "raw"
@@ -156,15 +156,20 @@ def _populate_official_shaped_epoch(
 
     # Archive Receipt
     (receipts_dir / f"{hour_cohort}.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": hour_cohort,
+        "cohort": hour_cohort,
+        "collector_epoch": collector_epoch,
+        "run_id": collector_run_id,
         "file_count": 76,
         "restore_verified": True,
         "status": "PASS",
     }))
 
     # Full-scan report
-    (receipts_dir / f"full_scan_{hour_cohort.replace('-', '_')}_report.json").write_text(json.dumps({
+    (receipts_dir / f"full_scan_{hour_cohort}_report.json").write_text(json.dumps({
         "scan_id": f"fs-{hour_cohort}",
+        "cohort": hour_cohort,
+        "epoch": collector_epoch,
+        "run_id": collector_run_id,
         "status": "PASS",
         "total_records": 76 * 5,
     }))
@@ -445,7 +450,7 @@ def test_p18_runbook_exact_order(tmp_path: Path) -> None:
     ("missing_feed", "MISSING_REQUIRED_FEED"),
     ("missing_full_hour", "MISSING_EXPECTED_HOUR"),
     ("missing_receipt", "ARCHIVE_RECEIPT_MISSING"),
-    ("missing_fullscan", "FULLSCAN_EVIDENCE_MISSING"),
+    ("missing_fullscan", "FULLSCAN_COHORT_COVERAGE_INCOMPLETE"),
     ("canonical_manifest_changed", "CANONICAL_MANIFEST_HASH_MISMATCH"),
     ("canonical_file_changed", "CANONICAL_PARTITION_HASH_MISMATCH"),
 ])

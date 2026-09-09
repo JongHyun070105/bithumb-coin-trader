@@ -114,8 +114,8 @@ def test_p0_1_missing_required_feed_must_fail_dq(tmp_path: Path) -> None:
     (manifests_dir / "epoch_manifest.json").write_text(json.dumps(manifest_data))
     receipts_dir = epoch_dir / "archive-receipts"
     receipts_dir.mkdir(parents=True)
-    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": "20260901-00",
+    (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+        "cohort": "2026-09-01_00",
         "file_count": 75,
         "restore_verified": True,
         "manifest_sha256": "dummy",
@@ -397,12 +397,12 @@ def test_p1_3_missing_expected_hour_cohort_must_fail(tmp_path: Path) -> None:
             "orderbook_units": [{"bid_price": "95000000", "bid_size": "1.0", "ask_price": "96000000", "ask_size": "1.0"}]
         },
     }
-    (part_dir / "part-20260901-00.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
+    (part_dir / "part-2026-09-01_00.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
 
     receipts_dir = epoch_dir / "archive-receipts"
     receipts_dir.mkdir(parents=True)
-    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": "20260901-00",
+    (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+        "cohort": "2026-09-01_00",
         "file_count": 1,
         "restore_verified": True,
     }))
@@ -410,7 +410,7 @@ def test_p1_3_missing_expected_hour_cohort_must_fail(tmp_path: Path) -> None:
     auditor = SoakAuditor72H(epoch_dir)
     report = auditor.audit()
 
-    # Phase 5 bug: observed_hours only saw {"20260901-00"}, hour 01 was completely invisible!
+    # Phase 5 bug: observed_hours only saw {"2026-09-01_00"}, hour 01 was completely invisible!
     # Phase 6: MUST FAIL with MISSING_EXPECTED_HOUR
     blockers = " ".join(report.get("blockers", []))
     assert report["status"] == "FAIL", f"Expected FAIL for missing hour cohort, got {report['status']}"
@@ -558,23 +558,23 @@ def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
                 "payload": {"price": "1000", "bids": [["1000", "1.0"]], "asks": [["1001", "1.0"]]},
             }
             comp_bytes = cctx.compress(json.dumps(rec).encode("utf-8") + b"\n")
-            (part_dir / "part-20260901-00.zst").write_bytes(comp_bytes)
+            (part_dir / "part-2026-09-01_00.zst").write_bytes(comp_bytes)
             m_dir = manifests_dir / f"exchange={exch}" / f"stream={strm}" / f"market={mkt}"
             m_dir.mkdir(parents=True, exist_ok=True)
-            (m_dir / "manifest_part-20260901-00.json").write_text(json.dumps({
-                "partition_path": f"raw/exchange={exch}/stream={strm}/market={mkt}/part-20260901-00.zst",
-                "file_name": "part-20260901-00.zst",
+            (m_dir / "manifest_part-2026-09-01_00.json").write_text(json.dumps({
+                "partition_path": f"raw/exchange={exch}/stream={strm}/market={mkt}/part-2026-09-01_00.zst",
+                "file_name": "part-2026-09-01_00.zst",
                 "sha256": hashlib.sha256(comp_bytes).hexdigest(),
                 "exchange": exch,
                 "stream": strm,
                 "market": mkt,
-                "hour_cohort": "20260901-00",
+                "hour_cohort": "2026-09-01_00",
                 "record_count": 1,
                 "bytes": len(comp_bytes),
             }))
 
-        (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-            "hour_cohort": "20260901-00",
+        (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+            "cohort": "2026-09-01_00",
             "file_count": feed_count,
             "restore_verified": True,
         }))
@@ -611,7 +611,7 @@ def test_p0_2_feed_universe_stepwise_coverage(tmp_path: Path) -> None:
 # =============================================================================
 
 def test_p1_5_missing_fullscan_report_must_fail(tmp_path: Path) -> None:
-    """P1.5: 72H run (259200s) requires terminal full-scan report; missing it must fail with FULLSCAN_EVIDENCE_MISSING."""
+    """P1.5: 72H run requires exact per-cohort full-scan coverage."""
     epoch_dir = tmp_path / "epoch_72h_no_fullscan"
     raw_dir = epoch_dir / "raw"
     raw_dir.mkdir(parents=True)
@@ -640,8 +640,10 @@ def test_p1_5_missing_fullscan_report_must_fail(tmp_path: Path) -> None:
         }
         (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
 
-    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": "20260901-00",
+    (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+        "cohort": "2026-09-01_00",
+        "collector_epoch": "ep-72h",
+        "run_id": "run-72h",
         "file_count": 76,
         "restore_verified": True,
     }))
@@ -660,7 +662,7 @@ def test_p1_5_missing_fullscan_report_must_fail(tmp_path: Path) -> None:
 
     assert report["status"] == "FAIL"
     blockers = " ".join(report.get("blockers", []))
-    assert "FULLSCAN_EVIDENCE_MISSING" in blockers
+    assert "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in blockers
 
 
 # =============================================================================
@@ -697,8 +699,8 @@ def test_p1_6_restore_verification_failure_must_fail(tmp_path: Path) -> None:
         }
         (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
 
-    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": "20260901-00",
+    (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+        "cohort": "2026-09-01_00",
         "file_count": 76,
         "restore_verified": False,
         "restore_status": "FAILED",
@@ -766,8 +768,8 @@ def test_p7_epoch_manifest_builder_and_completeness(tmp_path: Path) -> None:
         }
         (part_dir / "part-00000.zst").write_bytes(cctx.compress(json.dumps(rec).encode("utf-8") + b"\n"))
 
-    (receipts_dir / "20260901-00.archive-receipt.json").write_text(json.dumps({
-        "hour_cohort": "20260901-00",
+    (receipts_dir / "2026-09-01_00.archive-receipt.json").write_text(json.dumps({
+        "cohort": "2026-09-01_00",
         "file_count": 76,
         "restore_verified": True,
     }))

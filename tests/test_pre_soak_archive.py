@@ -122,6 +122,18 @@ class ArchivePipelineTests(unittest.TestCase):
         self.assertEqual(receipt.raw_sha256, hashlib.sha256(self.raw.read_bytes()).hexdigest())
         self.assertNotEqual(receipt.raw_sha256, receipt.compressed_sha256)
 
+    def test_receipt_binds_canonical_date_hour_cohort(self) -> None:
+        receipt = self._finalize()
+
+        self.assertEqual(receipt.cohort, "2026-09-01_10")
+        persisted = json.loads(self.pipeline.receipt_path(self.raw).read_text(encoding="utf-8"))
+        self.assertEqual(persisted["cohort"], "2026-09-01_10")
+
+        persisted["cohort"] = "2026-09-02_10"
+        self.pipeline.receipt_path(self.raw).write_text(json.dumps(persisted), encoding="utf-8")
+        with self.assertRaisesRegex(ValueError, "provenance does not match"):
+            self._finalize()
+
     def test_explicit_verified_cleanup_removes_only_raw(self) -> None:
         receipt = self._finalize(cleanup_verified=True)
         self.assertEqual(receipt.state, ArchiveState.CLEANED.value)

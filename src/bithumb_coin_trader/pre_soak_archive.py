@@ -20,10 +20,11 @@ from typing import Any, BinaryIO, ContextManager, Dict, Iterator, Optional, Prot
 
 import zstandard
 
+from .archive_cohort import ArchiveCohortId
 from .microstructure_io import CompressedInputError, iter_zstd_decompressed_chunks
 
 
-RECEIPT_SCHEMA_VERSION = 1
+RECEIPT_SCHEMA_VERSION = 2
 PARTITION_PATTERN = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})\.jsonl$")
 MAX_S3_PUT_OBJECT_BYTES = 5 * 1024**3
 
@@ -142,6 +143,7 @@ class ArchiveReceipt:
     run_id: str
     collector_epoch: str
     partition: str
+    cohort: str
     raw_size: Optional[int] = None
     raw_sha256: Optional[str] = None
     raw_record_count: Optional[int] = None
@@ -496,6 +498,7 @@ class ArchivePipeline:
                 run_id=self.run_id,
                 collector_epoch=self.collector_epoch,
                 partition=self._relative_raw(raw_path).as_posix(),
+                cohort=ArchiveCohortId.from_partition_name(raw_path.name).key,
                 compression_level=self.compression_level,
                 remote_key=self.remote_key(raw_path),
             )
@@ -771,6 +774,7 @@ class ArchivePipeline:
             self.run_id,
             self.collector_epoch,
             self._relative_raw(raw_path).as_posix(),
+            ArchiveCohortId.from_partition_name(raw_path.name).key,
             self.remote_key(raw_path),
             self.compression_level,
         )
@@ -779,6 +783,7 @@ class ArchivePipeline:
             receipt.run_id,
             receipt.collector_epoch,
             receipt.partition,
+            receipt.cohort,
             receipt.remote_key,
             receipt.compression_level,
         )

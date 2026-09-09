@@ -63,7 +63,7 @@ def derive_expected_raw_cohorts(start_dt: datetime, end_dt: datetime) -> list[st
     cohorts: list[str] = []
     cur = start_hour
     while cur <= last_hour:
-        cohorts.append(cur.strftime("%Y%m%d-%H"))
+        cohorts.append(cur.strftime("%Y-%m-%d_%H"))
         cur += timedelta(hours=1)
     return cohorts
 
@@ -91,7 +91,7 @@ def derive_expected_archive_cohorts(
         h_end = cur + timedelta(hours=1)
         archive_ready_time = h_end + timedelta(seconds=grace_seconds)
         if archive_ready_time <= end_dt:
-            cohorts.append(cur.strftime("%Y%m%d-%H"))
+            cohorts.append(cur.strftime("%Y-%m-%d_%H"))
             cur += timedelta(hours=1)
         else:
             break
@@ -110,6 +110,110 @@ def derive_expected_fullscan_cohorts(start_dt: datetime, end_dt: datetime) -> di
     return {
         "hourly_fullscan_cohorts": archive_cohorts,
         "terminal_fullscan_required": dur_sec >= 259200,
+    }
+
+
+_CANONICAL_COHORT_RE = re.compile(r"^\d{4}-\d{2}-\d{2}_(?:[01]\d|2[0-3])$")
+_CANONICAL_FULLSCAN_RE = re.compile(
+    r"^full_scan_(\d{4}-\d{2}-\d{2}_(?:[01]\d|2[0-3]))_report\.json$"
+)
+_LEGACY_FULLSCAN_RE = re.compile(r"^full_scan_\d{2}_report\.json$")
+
+
+def _evidence_status(data: dict[str, Any]) -> Any:
+    return data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
+
+
+def validate_archive_evidence_coverage(
+    expected_cohorts: list[str],
+    receipt_files: list[Path],
+    full_scan_reports: list[Path],
+    *,
+    expected_epoch: str | None = None,
+    expected_run_id: str | None = None,
+) -> dict[str, Any]:
+    """Validate exact canonical evidence for every expected archive cohort."""
+    expected = []
+    for cohort in expected_cohorts:
+        if not _CANONICAL_COHORT_RE.fullmatch(cohort):
+            raise ValueError(f"expected archive cohort is not canonical: {cohort}")
+        datetime.strptime(cohort, "%Y-%m-%d_%H")
+        expected.append(cohort)
+
+    receipt_coverage: set[str] = set()
+    receipt_restore_failures: set[str] = set()
+    receipt_identity_failures: list[str] = []
+    for path in receipt_files:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        cohort = data.get("cohort")
+        if cohort not in expected:
+            continue
+        if expected_epoch and data.get("collector_epoch") != expected_epoch:
+            receipt_identity_failures.append(path.name)
+            continue
+        if expected_run_id and data.get("run_id") != expected_run_id:
+            receipt_identity_failures.append(path.name)
+            continue
+        restore_ok = bool(data.get("restore_verified_at")) or data.get("restore_verified") is True
+        if not restore_ok:
+            receipt_restore_failures.add(cohort)
+            continue
+        receipt_coverage.add(cohort)
+
+    fullscan_coverage: set[str] = set()
+    fullscan_identity_failures: list[str] = []
+    legacy_fullscan_artifacts: list[str] = []
+    for path in full_scan_reports:
+        if _LEGACY_FULLSCAN_RE.fullmatch(path.name):
+            legacy_fullscan_artifacts.append(path.name)
+            continue
+        match = _CANONICAL_FULLSCAN_RE.fullmatch(path.name)
+        if not match:
+            continue
+        filename_cohort = match.group(1)
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            fullscan_identity_failures.append(path.name)
+            continue
+        if (
+            filename_cohort not in expected
+            or data.get("cohort") != filename_cohort
+            or _evidence_status(data) != "PASS"
+            or (expected_epoch and data.get("epoch") != expected_epoch)
+            or (expected_run_id and data.get("run_id") != expected_run_id)
+        ):
+            fullscan_identity_failures.append(path.name)
+            continue
+        fullscan_coverage.add(filename_cohort)
+
+    missing_receipts = sorted(set(expected) - receipt_coverage)
+    missing_fullscans = sorted(set(expected) - fullscan_coverage)
+    blockers = [
+        f"ARCHIVE_RECEIPT_MISSING: Missing qualifying archive receipt for cohort {cohort}"
+        for cohort in missing_receipts
+    ]
+    blockers.extend(
+        f"RESTORE_MISMATCH: Cohort {cohort} has no receipt with successful restore verification"
+        for cohort in sorted(receipt_restore_failures)
+    )
+    blockers.extend(
+        f"FULLSCAN_COHORT_COVERAGE_INCOMPLETE: Missing qualifying full-scan for cohort {cohort}"
+        for cohort in missing_fullscans
+    )
+    return {
+        "blockers": blockers,
+        "receipt_coverage": len(receipt_coverage),
+        "fullscan_coverage": len(fullscan_coverage),
+        "missing_receipt_cohorts": missing_receipts,
+        "missing_fullscan_cohorts": missing_fullscans,
+        "receipt_identity_failures": sorted(receipt_identity_failures),
+        "fullscan_identity_failures": sorted(fullscan_identity_failures),
+        "legacy_fullscan_artifacts": sorted(legacy_fullscan_artifacts),
+        "legacy_status": "LEGACY / NON-QUALIFYING" if legacy_fullscan_artifacts else None,
     }
 
 
@@ -383,8 +487,9 @@ class SoakAuditor72H:
         for fs_file in full_scan_reports:
             try:
                 fs_data = json.loads(fs_file.read_text(encoding="utf-8"))
-                if fs_data.get("status") != "PASS":
-                    report["blockers"].append(f"FULL_SCAN_FAIL: Full-scan report {fs_file.name} failed with status {fs_data.get('status')}")
+                status = _evidence_status(fs_data)
+                if status != "PASS":
+                    report["blockers"].append(f"FULL_SCAN_FAIL: Full-scan report {fs_file.name} failed with status {status}")
             except Exception as e:
                 report["blockers"].append(f"FULL_SCAN_FAIL: Unreadable full-scan report {fs_file.name}: {e}")
 
@@ -735,34 +840,42 @@ class SoakAuditor72H:
             if exp_h not in observed_hours and re.sub(r"[-_]", "", exp_h) not in norm_observed:
                 report["blockers"].append(f"MISSING_EXPECTED_HOUR: Expected cohort {exp_h} has no raw partition files")
 
-        # P1.4 & P3: Archive receipt verification for closed cohorts
-        cohorts_for_receipts = expected_archive_cohorts
-        if not cohorts_for_receipts and (len(observed_hours) > 1 or contract_data.get("require_receipts", False)):
-            cohorts_for_receipts = sorted(observed_hours)
+        # P1.4/P1.5/P3: exact per-cohort receipt, restore, and full-scan hard gates.
+        cohorts_for_evidence = expected_archive_cohorts
+        if not cohorts_for_evidence and (
+            contract_data.get("require_receipts", False)
+            or contract_data.get("require_fullscan", False)
+        ):
+            cohorts_for_evidence = sorted(
+                cohort for cohort in observed_hours if _CANONICAL_COHORT_RE.fullmatch(cohort)
+            )
 
-        if cohorts_for_receipts:
-            receipt_cohort_names = set()
-            for rf in receipt_files:
-                try:
-                    rd = json.loads(rf.read_text(encoding="utf-8"))
-                    rc = rd.get("hour_cohort") or rd.get("cohort") or rf.name.split(".")[0]
-                    receipt_cohort_names.add(rc)
-                except Exception:
-                    pass
-            norm_receipt_names = {re.sub(r"[-_]", "", rc) for rc in receipt_cohort_names}
-            for ch in cohorts_for_receipts:
-                norm_ch = re.sub(r"[-_]", "", ch)
-                if (
-                    ch not in receipt_cohort_names
-                    and norm_ch not in norm_receipt_names
-                    and not any(ch in rf.name or norm_ch in re.sub(r"[-_]", "", rf.name) for rf in receipt_files)
-                ):
-                    report["blockers"].append(f"ARCHIVE_RECEIPT_MISSING: Missing archive receipt for cohort {ch}")
+        if cohorts_for_evidence:
+            evidence_coverage = validate_archive_evidence_coverage(
+                cohorts_for_evidence,
+                receipt_files,
+                full_scan_reports,
+                expected_epoch=contract_data.get("collector_epoch") or contract_data.get("epoch"),
+                expected_run_id=contract_data.get("run_id") or contract_data.get("collector_run_id"),
+            )
+            report["archive_evidence_coverage"] = evidence_coverage
+            report["blockers"].extend(evidence_coverage["blockers"])
+            if evidence_coverage["legacy_fullscan_artifacts"]:
+                report["warnings"].append(
+                    "LEGACY / NON-QUALIFYING: hour-only full-scan artifacts cannot satisfy official coverage"
+                )
+        elif contract_data.get("require_receipts", False):
+            report["blockers"].append(
+                "ARCHIVE_RECEIPT_MISSING: Contract requires receipts but no canonical archive cohorts were derived"
+            )
 
-        # P1.5 & P3: Terminal full-scan report requirement
-        if contract_data.get("require_fullscan", False) or fullscan_spec["terminal_fullscan_required"]:
-            if not full_scan_reports:
-                report["blockers"].append("FULLSCAN_EVIDENCE_MISSING: Terminal full-scan report required for authoritative 72H DQ")
+        if (
+            contract_data.get("require_fullscan", False)
+            or fullscan_spec["terminal_fullscan_required"]
+        ) and not cohorts_for_evidence:
+            report["blockers"].append(
+                "FULLSCAN_COHORT_COVERAGE_INCOMPLETE: No canonical expected cohorts were derived"
+            )
 
         report["feed_coverage"] = dict(coverage_matrix)
         report["timestamp_quality"] = {k: v.summary() for k, v in ts_stats_by_feed.items()}

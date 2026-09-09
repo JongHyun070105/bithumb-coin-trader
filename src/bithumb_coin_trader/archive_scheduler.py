@@ -160,6 +160,8 @@ class ClosedHourArchiveScheduler:
                     return False
             try:
                 data = json.loads(rec_path.read_text(encoding="utf-8"))
+                if data.get("cohort") != cohort.key:
+                    return False
                 if not (data.get("cleanup_eligible") or data.get("state") in (
                     ArchiveState.CLEANUP_ELIGIBLE.value,
                     ArchiveState.VERIFIED.value,

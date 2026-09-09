@@ -241,7 +241,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         # Mark receipt as CLEANUP_ELIGIBLE
         rec_path = self.receipt_root / f"{p05.name}.archive-receipt.json"
-        rec_path.write_text(json.dumps({"state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
+        rec_path.write_text(json.dumps({"cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
 
         test_now = datetime(2026, 9, 4, 6, 15, 0, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
@@ -256,7 +256,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         # Partition receipt exists
         rec_path = self.receipt_root / f"{p05.name}.archive-receipt.json"
-        rec_path.write_text(json.dumps({"state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
+        rec_path.write_text(json.dumps({"cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
 
         # But full scan report is FAIL!
         cohort = ArchiveCohortId("2026-09-04", "05")
@@ -307,7 +307,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         day1 = self._create_raw_partition("BTC_KRW", "2026-09-05", "05")
         self._write_metrics([])
         (self.receipt_root / f"{day1.name}.archive-receipt.json").write_text(
-            json.dumps({"state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}),
+            json.dumps({"cohort": "2026-09-05_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}),
             encoding="utf-8",
         )
         scheduler = ClosedHourArchiveScheduler(self._config())
@@ -356,6 +356,24 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         self.assertTrue(scheduler.has_cohort_failed(day1))
         self.assertFalse(scheduler.has_cohort_failed(day2))
+
+    def test_wrong_date_receipt_cannot_complete_same_hour_cohort(self) -> None:
+        cohort = ArchiveCohortId("2026-09-06", "05")
+        partition = self._create_raw_partition("BTC_KRW", cohort.date_str, cohort.hour_str)
+        self._write_metrics([])
+        (self.receipt_root / f"{partition.name}.archive-receipt.json").write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-05_05",
+                    "state": "CLEANUP_ELIGIBLE",
+                    "cleanup_eligible": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        scheduler = ClosedHourArchiveScheduler(self._config())
+
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
 
 
 if __name__ == "__main__":
