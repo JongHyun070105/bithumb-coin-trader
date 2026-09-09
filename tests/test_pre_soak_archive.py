@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import base64
 import fcntl
 import hashlib
+import io
 import json
 from pathlib import Path
 import shutil
@@ -19,6 +20,7 @@ from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
     MemoryArchiveStore,
     RemoteObject,
+    S3ArchiveStore,
     is_closed_stable_partition,
     validate_archive_key,
 )
@@ -37,6 +39,58 @@ class DownloadFailStore(MemoryArchiveStore):
     def open_download(self, key: str):
         raise OSError("injected download failure")
         yield
+
+
+class S3ClientError(Exception):
+    def __init__(self, status: int, code: str, message: str) -> None:
+        super().__init__(message)
+        self.response = {
+            "ResponseMetadata": {"HTTPStatusCode": status},
+            "Error": {"Code": code, "Message": message},
+        }
+
+
+class ObjectOnlyS3Client:
+    """Models Get/Put object access without ListBucket missing-key disclosure."""
+
+    def __init__(self) -> None:
+        self.objects: dict[str, bytes] = {}
+        self.put_requests: list[dict] = []
+        self.head_requests: list[dict] = []
+        self.deny_post_write_head = False
+
+    def put_object(self, **kwargs):
+        key = kwargs["Key"]
+        payload = kwargs["Body"].read()
+        self.put_requests.append({name: value for name, value in kwargs.items() if name != "Body"})
+        if key in self.objects:
+            raise S3ClientError(412, "PreconditionFailed", "immutable object already exists")
+        self.objects[key] = payload
+        return {"VersionId": "created-v1"}
+
+    def head_object(self, **kwargs):
+        self.head_requests.append(kwargs)
+        key = kwargs["Key"]
+        if self.deny_post_write_head or key not in self.objects:
+            raise S3ClientError(403, "AccessDenied", "Forbidden")
+        payload = self.objects[key]
+        return {
+            "ContentLength": len(payload),
+            "ChecksumSHA256": base64.b64encode(hashlib.sha256(payload).digest()).decode("ascii"),
+            "VersionId": "existing-v1",
+        }
+
+    def get_object(self, **kwargs):
+        return {"Body": io.BytesIO(self.objects[kwargs["Key"]])}
+
+
+class RacingObjectOnlyS3Client(ObjectOnlyS3Client):
+    def put_object(self, **kwargs):
+        key = kwargs["Key"]
+        payload = kwargs["Body"].read()
+        self.put_requests.append({name: value for name, value in kwargs.items() if name != "Body"})
+        self.objects[key] = payload
+        raise S3ClientError(409, "ConditionalRequestConflict", "concurrent writer won")
 
 
 class ArchivePipelineTests(unittest.TestCase):
@@ -112,6 +166,77 @@ class ArchivePipelineTests(unittest.TestCase):
             stability_wait_seconds=0,
             **kwargs,
         )
+
+    def _use_object_only_s3(self, client: ObjectOnlyS3Client) -> None:
+        self.pipeline = self._pipeline(S3ArchiveStore("example-bucket", client=client))
+
+    def _seed_remote_from_compressed(self, client: ObjectOnlyS3Client, payload: bytes | None = None) -> tuple[str, bytes]:
+        compressed = self.pipeline._compress(self.raw)
+        final = self.pipeline.compressed_path(self.raw)
+        if compressed != final:
+            compressed.replace(final)
+        expected = final.read_bytes()
+        key = self.pipeline.remote_key(self.raw)
+        client.objects[key] = expected if payload is None else payload
+        return key, expected
+
+    def test_absent_s3_object_without_listbucket_reaches_conditional_upload(self) -> None:
+        client = ObjectOnlyS3Client()
+        self._use_object_only_s3(client)
+
+        receipt = self._finalize()
+
+        self.assertEqual(receipt.state, ArchiveState.CLEANUP_ELIGIBLE.value)
+        self.assertEqual(len(client.put_requests), 1)
+        self.assertEqual(client.put_requests[0]["IfNoneMatch"], "*")
+
+    def test_existing_identical_s3_object_is_reused_after_precondition_failure(self) -> None:
+        client = ObjectOnlyS3Client()
+        self._use_object_only_s3(client)
+        key, expected = self._seed_remote_from_compressed(client)
+
+        receipt = self._finalize()
+
+        self.assertEqual(receipt.state, ArchiveState.CLEANUP_ELIGIBLE.value)
+        self.assertEqual(client.objects[key], expected)
+        self.assertEqual(len(client.put_requests), 1)
+
+    def test_existing_wrong_s3_object_fails_closed_after_precondition_failure(self) -> None:
+        client = ObjectOnlyS3Client()
+        self._use_object_only_s3(client)
+        key, _ = self._seed_remote_from_compressed(client, payload=b"wrong-object")
+
+        with self.assertRaisesRegex(ValueError, "remote object size mismatch"):
+            self._finalize()
+
+        self.assertEqual(client.objects[key], b"wrong-object")
+        self.assertEqual(len(client.put_requests), 1)
+        receipt = self.pipeline._load_receipt(self.pipeline.receipt_path(self.raw))
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt.state, ArchiveState.FAILED.value)
+
+    def test_conditional_s3_write_race_reuses_winner_deterministically(self) -> None:
+        client = RacingObjectOnlyS3Client()
+        self._use_object_only_s3(client)
+
+        receipt = self._finalize()
+
+        self.assertEqual(receipt.state, ArchiveState.CLEANUP_ELIGIBLE.value)
+        self.assertEqual(len(client.put_requests), 1)
+
+    def test_access_denied_on_post_write_head_remains_a_failure(self) -> None:
+        client = ObjectOnlyS3Client()
+        client.deny_post_write_head = True
+        self._use_object_only_s3(client)
+
+        with self.assertRaisesRegex(S3ClientError, "Forbidden"):
+            self._finalize()
+
+        self.assertEqual(len(client.put_requests), 1)
+        receipt = self.pipeline._load_receipt(self.pipeline.receipt_path(self.raw))
+        self.assertIsNotNone(receipt)
+        self.assertEqual(receipt.state, ArchiveState.FAILED.value)
+        self.assertEqual(receipt.failure_stage, ArchiveState.COMPRESSED_VERIFIED.value)
 
     def test_end_to_end_without_cleanup_preserves_raw(self) -> None:
         receipt = self._finalize()

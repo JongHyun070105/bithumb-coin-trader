@@ -185,6 +185,8 @@ class MemoryArchiveStore:
 
     def upload(self, local_path: Path, key: str, checksum_sha256_hex: str) -> RemoteObject:
         validate_archive_key(key)
+        if key in self.objects:
+            return self.head(key)
         data = local_path.read_bytes()
         actual = hashlib.sha256(data).hexdigest()
         if actual != checksum_sha256_hex:
@@ -658,8 +660,6 @@ class ArchivePipeline:
 
     def _upload_or_reuse(self, compressed_path: Path, receipt: ArchiveReceipt) -> RemoteObject:
         assert receipt.remote_key and receipt.compressed_sha256
-        if self.store.exists(receipt.remote_key):
-            return self.store.head(receipt.remote_key)
         return self.store.upload(compressed_path, receipt.remote_key, receipt.compressed_sha256)
 
     def _verify_remote(self, remote: RemoteObject, receipt: ArchiveReceipt) -> None:
