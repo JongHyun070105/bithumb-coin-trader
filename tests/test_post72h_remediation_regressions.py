@@ -194,6 +194,7 @@ class ThreeDaySameHourRegressionTests(unittest.TestCase):
                 full_scan_reports=fullscan_files,
                 expected_epoch="test-3day-epoch",
                 expected_run_id="test-3day-run",
+                expected_feeds=[("bithumb", "orderbook", "KRW-BTC")],
             )
             self.assertEqual(coverage["blockers"], [])
             self.assertEqual(coverage["receipt_coverage"], 9)
@@ -205,133 +206,290 @@ class ThreeDaySameHourRegressionTests(unittest.TestCase):
 class Synthetic72HArchiveOracleTests(unittest.TestCase):
     """Release-blocking synthetic 72H topology archive oracle."""
 
-    def test_72h_shaped_synthetic_archive_oracle(self) -> None:
-        """73 touched raw cohorts, 72 archive-eligible cohorts, 76 feed universe.
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls._temp_dir = tempfile.TemporaryDirectory()
+        cls.epoch_dir = Path(cls._temp_dir.name) / "aws-72h-soak-oracle"
+        cls.raw_dir = cls.epoch_dir / "raw"
+        cls.manifests_dir = cls.epoch_dir / "manifests"
+        cls.compressed_dir = cls.epoch_dir / "compressed"
+        cls.receipts_dir = cls.epoch_dir / "archive-receipts"
 
-        Verifies exact 72 date-hour archive cohorts, date-bound receipts,
-        date-bound fullscan reports, correct final partial boundary,
-        and no cross-date collision.
-        """
-        with tempfile.TemporaryDirectory() as tmp:
-            epoch_dir = Path(tmp) / "aws-72h-soak-oracle"
-            raw_dir = epoch_dir / "raw"
-            manifests_dir = epoch_dir / "manifests"
-            compressed_dir = epoch_dir / "compressed"
-            receipts_dir = epoch_dir / "archive-receipts"
+        for d in (cls.raw_dir, cls.manifests_dir, cls.compressed_dir, cls.receipts_dir):
+            d.mkdir(parents=True, exist_ok=True)
 
-            for d in (raw_dir, manifests_dir, compressed_dir, receipts_dir):
-                d.mkdir(parents=True, exist_ok=True)
+        cls.start_dt = datetime(2026, 9, 5, 5, 40, 0, tzinfo=timezone.utc)
+        cls.end_dt = cls.start_dt + timedelta(seconds=259200)  # 2026-09-08 05:40:00
 
-            start_dt = datetime(2026, 9, 5, 5, 40, 0, tzinfo=timezone.utc)
-            end_dt = start_dt + timedelta(seconds=259200)  # 2026-09-08 05:40:00
+        cls.raw_cohorts = derive_expected_raw_cohorts(cls.start_dt, cls.end_dt)
+        cls.archive_cohorts = derive_expected_archive_cohorts(cls.start_dt, cls.end_dt, grace_seconds=600)
 
-            raw_cohorts = derive_expected_raw_cohorts(start_dt, end_dt)
-            archive_cohorts = derive_expected_archive_cohorts(start_dt, end_dt, grace_seconds=600)
+        cls.feeds = SoakAuditor72H.get_expected_feed_universe()
+        cls.epoch_name = "aws-72h-soak-oracle"
+        cls.run_id = "aws-72h-run-oracle"
 
-            # Mathematical invariant check
-            self.assertEqual(len(raw_cohorts), 73)
-            self.assertEqual(len(archive_cohorts), 72)
-            self.assertEqual(raw_cohorts[0], "2026-09-05_05")
-            self.assertEqual(raw_cohorts[-1], "2026-09-08_05")
-            self.assertEqual(archive_cohorts[0], "2026-09-05_05")
-            self.assertEqual(archive_cohorts[-1], "2026-09-08_04")
-            self.assertNotIn("2026-09-08_05", archive_cohorts)
+        # Final raw file for hour 73 (active partial hour)
+        final_raw = cls.raw_dir / "bithumb" / "orderbook" / "KRW-BTC" / "KRW-BTC_2026-09-08_05.jsonl"
+        final_raw.parent.mkdir(parents=True, exist_ok=True)
+        final_raw.write_text('{"record": 1}\n', encoding="utf-8")
 
-            # Create mock raw partition files for all 73 touched hours across feeds
-            feeds = SoakAuditor72H.get_expected_feed_universe()
-            self.assertEqual(len(feeds), 76)
+        cls.receipt_files: list[Path] = []
+        cls.fullscan_files: list[Path] = []
 
-            epoch_name = "aws-72h-soak-oracle"
-            run_id = "aws-72h-run-oracle"
+        # Create all 72 fullscan reports and 72 * 76 = 5472 qualifying receipts
+        for cohort_str in cls.archive_cohorts:
+            inputs = [
+                f"raw/{exch}/{strm}/{mkt}/{mkt}_{cohort_str}.jsonl"
+                for exch, strm, mkt in cls.feeds
+            ]
+            fs_file = cls.receipts_dir / f"full_scan_{cohort_str}_report.json"
+            fs_file.write_text(
+                json.dumps(
+                    {
+                        "cohort": cohort_str,
+                        "epoch": cls.epoch_name,
+                        "run_id": cls.run_id,
+                        "status": "PASS",
+                        "inputs": inputs,
+                        "integrity": {"totals": {"status": "PASS", "files": len(inputs)}},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            cls.fullscan_files.append(fs_file)
 
-            # Create minimal raw file for the final active partial hour (hour 73)
-            final_raw = raw_dir / "bithumb" / "orderbook" / "KRW-BTC" / "KRW-BTC_2026-09-08_05.jsonl"
-            final_raw.parent.mkdir(parents=True, exist_ok=True)
-            final_raw.write_text('{"record": 1}\n', encoding="utf-8")
-
-            # Create valid receipts and fullscan reports for all 72 eligible cohorts
-            for cohort_str in archive_cohorts:
-                # Raw representation
-                sample_raw = raw_dir / "bithumb" / "orderbook" / "KRW-BTC" / f"KRW-BTC_{cohort_str}.jsonl"
-                sample_raw.parent.mkdir(parents=True, exist_ok=True)
-                sample_raw.write_text('{"record": 1}\n', encoding="utf-8")
-
-                # Partition receipt
-                receipt_file = receipts_dir / f"KRW-BTC_{cohort_str}.jsonl.archive-receipt.json"
-                receipt_file.write_text(
+            for exch, strm, mkt in cls.feeds:
+                rf = cls.receipts_dir / f"{exch}_{strm}_{mkt}_{cohort_str}.jsonl.archive-receipt.json"
+                rf.write_text(
                     json.dumps(
                         {
+                            "schema_version": 1,
                             "cohort": cohort_str,
-                            "collector_epoch": epoch_name,
-                            "run_id": run_id,
+                            "collector_epoch": cls.epoch_name,
+                            "run_id": cls.run_id,
+                            "partition": f"raw/{exch}/{strm}/{mkt}/{mkt}_{cohort_str}.jsonl",
                             "state": "CLEANUP_ELIGIBLE",
-                            "status": "PASS",
                             "restore_verified_at": "2026-09-08T06:00:00+00:00",
                             "restore_verified": True,
                         }
                     ),
                     encoding="utf-8",
                 )
+                cls.receipt_files.append(rf)
 
-                # Fullscan report
-                fs_file = receipts_dir / f"full_scan_{cohort_str}_report.json"
-                fs_file.write_text(
-                    json.dumps(
-                        {
-                            "cohort": cohort_str,
-                            "epoch": epoch_name,
-                            "run_id": run_id,
-                            "status": "PASS",
-                            "integrity": {"totals": {"status": "PASS"}},
-                        }
-                    ),
-                    encoding="utf-8",
-                )
+        contract = {
+            "collector_epoch": cls.epoch_name,
+            "collector_run_id": cls.run_id,
+            "runtime_software_commit": "42c8c4649622b63bac6cbd15219e307bbef7c3d9",
+            "runtime_fingerprint": "fp-synthetic-oracle",
+            "start_time_utc": cls.start_dt.isoformat(),
+            "expected_end_time_utc": cls.end_dt.isoformat(),
+            "duration_seconds": 259200,
+            "feed_universe": 76,
+            "require_receipts": True,
+            "require_fullscan": True,
+        }
+        (cls.epoch_dir / "epoch_contract.json").write_text(json.dumps(contract), encoding="utf-8")
 
-            # Contract
-            contract = {
-                "collector_epoch": epoch_name,
-                "collector_run_id": run_id,
-                "runtime_software_commit": "42c8c4649622b63bac6cbd15219e307bbef7c3d9",
-                "runtime_fingerprint": "fp-synthetic-oracle",
-                "start_time_utc": start_dt.isoformat(),
-                "expected_end_time_utc": end_dt.isoformat(),
-                "duration_seconds": 259200,
-                "feed_universe": 76,
-                "require_receipts": True,
-                "require_fullscan": True,
-            }
-            (epoch_dir / "epoch_contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._temp_dir.cleanup()
 
-            # Validate coverage
-            receipt_files = list(receipts_dir.glob("*.archive-receipt.json"))
-            fullscan_files = list(receipts_dir.glob("full_scan_*_report.json"))
-            coverage = validate_archive_evidence_coverage(
-                expected_cohorts=archive_cohorts,
-                receipt_files=receipt_files,
-                full_scan_reports=fullscan_files,
-                expected_epoch=epoch_name,
-                expected_run_id=run_id,
-            )
+    def test_72h_shaped_synthetic_archive_oracle(self) -> None:
+        """73 touched raw cohorts, 72 archive-eligible cohorts, 76 feed universe (5,472 receipts)."""
+        self.assertEqual(len(self.raw_cohorts), 73)
+        self.assertEqual(len(self.archive_cohorts), 72)
+        self.assertEqual(self.raw_cohorts[0], "2026-09-05_05")
+        self.assertEqual(self.raw_cohorts[-1], "2026-09-08_05")
+        self.assertEqual(self.archive_cohorts[0], "2026-09-05_05")
+        self.assertEqual(self.archive_cohorts[-1], "2026-09-08_04")
+        self.assertNotIn("2026-09-08_05", self.archive_cohorts)
 
-            self.assertEqual(coverage["blockers"], [])
-            self.assertEqual(coverage["receipt_coverage"], 72)
-            self.assertEqual(coverage["fullscan_coverage"], 72)
-            self.assertEqual(coverage["missing_receipt_cohorts"], [])
-            self.assertEqual(coverage["missing_fullscan_cohorts"], [])
+        self.assertEqual(len(self.feeds), 76)
+        self.assertEqual(len(self.receipt_files), 72 * 76)
+        self.assertEqual(len(self.fullscan_files), 72)
 
-            # Adversarial check: missing one middle fullscan must fail
-            missing_scan_coverage = validate_archive_evidence_coverage(
-                expected_cohorts=archive_cohorts,
-                receipt_files=receipt_files,
-                full_scan_reports=[f for f in fullscan_files if "2026-09-06_12" not in f.name],
-                expected_epoch=epoch_name,
-                expected_run_id=run_id,
-            )
-            self.assertIn(
-                "FULLSCAN_COHORT_COVERAGE_INCOMPLETE: Missing qualifying full-scan for cohort 2026-09-06_12",
-                missing_scan_coverage["blockers"],
-            )
+        coverage = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=self.fullscan_files,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(coverage["blockers"], [])
+        self.assertEqual(coverage["receipt_coverage"], 72)
+        self.assertEqual(coverage["fullscan_coverage"], 72)
+        self.assertEqual(coverage["total_qualifying_receipts"], 5472)
+        self.assertEqual(coverage["expected_total_receipts"], 5472)
+        self.assertEqual(coverage["missing_receipt_cohorts"], [])
+        self.assertEqual(coverage["missing_fullscan_cohorts"], [])
+
+    def test_72h_mutation_missing_one_receipt_middle_cohort(self) -> None:
+        """Adversarial mutation: remove ONE receipt from a middle cohort -> must FAIL."""
+        target_name = "bithumb_orderbook_KRW-BTC_2026-09-06_12.jsonl.archive-receipt.json"
+        mutated_receipts = [f for f in self.receipt_files if f.name != target_name]
+        self.assertEqual(len(mutated_receipts), 5471)
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=mutated_receipts,
+            full_scan_reports=self.fullscan_files,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["receipt_coverage"], 71)
+        self.assertEqual(result["missing_receipt_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("2026-09-06_12" in b and "bithumb/orderbook/KRW-BTC" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_duplicate_substitution(self) -> None:
+        """Adversarial mutation: replace omitted feed with duplicate of another feed -> must FAIL."""
+        target_name = "bithumb_orderbook_KRW-BTC_2026-09-06_12.jsonl.archive-receipt.json"
+        mutated_receipts = [f for f in self.receipt_files if f.name != target_name]
+
+        dup_file = self.receipts_dir / "dup_sub_2026-09-06_12.archive-receipt.json"
+        dup_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "cohort": "2026-09-06_12",
+                    "collector_epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "partition": "raw/bithumb/trade/KRW-BTC/KRW-BTC_2026-09-06_12.jsonl",
+                    "state": "CLEANUP_ELIGIBLE",
+                    "restore_verified_at": "2026-09-08T06:00:00+00:00",
+                    "restore_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_receipts.append(dup_file)
+        self.assertEqual(len(mutated_receipts), 5472)
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=mutated_receipts,
+            full_scan_reports=self.fullscan_files,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["receipt_coverage"], 71)
+        self.assertEqual(result["missing_receipt_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("2026-09-06_12" in b and "bithumb/orderbook/KRW-BTC" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_incomplete_fullscan(self) -> None:
+        """Adversarial mutation: remove ONE compressed/fullscan input from middle cohort -> must FAIL."""
+        sub_dir = self.epoch_dir / "mutated_scan"
+        sub_dir.mkdir(exist_ok=True)
+        incomplete_fs = sub_dir / "full_scan_2026-09-06_12_report.json"
+        inputs_75 = [
+            f"raw/{exch}/{strm}/{mkt}/{mkt}_2026-09-06_12.jsonl"
+            for exch, strm, mkt in self.feeds[:75]
+        ]
+        incomplete_fs.write_text(
+            json.dumps(
+                {
+                    "cohort": "2026-09-06_12",
+                    "epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "status": "PASS",
+                    "inputs": inputs_75,
+                    "integrity": {"totals": {"status": "PASS", "files": len(inputs_75)}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_scans = [f for f in self.fullscan_files if "2026-09-06_12" not in f.name] + [incomplete_fs]
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=self.receipt_files,
+            full_scan_reports=mutated_scans,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["fullscan_coverage"], 71)
+        self.assertEqual(result["missing_fullscan_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(
+            any("FULLSCAN_INPUTS_INCOMPLETE" in b and "2026-09-06_12" in b for b in result["blockers"])
+        )
+
+    def test_72h_mutation_non_terminal_receipt_state(self) -> None:
+        """Adversarial mutation: mark one receipt intermediate/non-qualifying -> must FAIL."""
+        target_name = "bithumb_orderbook_KRW-BTC_2026-09-06_12.jsonl.archive-receipt.json"
+        mutated_receipts = [f for f in self.receipt_files if f.name != target_name]
+
+        bad_state_file = self.receipts_dir / "mutated_bad_state.archive-receipt.json"
+        bad_state_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "cohort": "2026-09-06_12",
+                    "collector_epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "partition": "raw/bithumb/orderbook/KRW-BTC/KRW-BTC_2026-09-06_12.jsonl",
+                    "state": "COMPRESSED",
+                    "restore_verified_at": "2026-09-08T06:00:00+00:00",
+                    "restore_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_receipts.append(bad_state_file)
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=mutated_receipts,
+            full_scan_reports=self.fullscan_files,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["receipt_coverage"], 71)
+        self.assertEqual(result["missing_receipt_cohorts"], ["2026-09-06_12"])
+        self.assertTrue(any("RECEIPT_INVALID_STATE" in b and bad_state_file.name in b for b in result["blockers"]))
+
+    def test_72h_mutation_wrong_date_same_hh_substitution(self) -> None:
+        """Adversarial mutation: wrong-date same-HH receipt substitution -> must FAIL."""
+        target_name = "bithumb_orderbook_KRW-BTC_2026-09-06_05.jsonl.archive-receipt.json"
+        mutated_receipts = [f for f in self.receipt_files if f.name != target_name]
+
+        wrong_date_file = self.receipts_dir / "wrong_date_sub.archive-receipt.json"
+        wrong_date_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "cohort": "2026-09-05_05",
+                    "collector_epoch": self.epoch_name,
+                    "run_id": self.run_id,
+                    "partition": "raw/bithumb/orderbook/KRW-BTC/KRW-BTC_2026-09-06_05.jsonl",
+                    "state": "CLEANUP_ELIGIBLE",
+                    "restore_verified_at": "2026-09-08T06:00:00+00:00",
+                    "restore_verified": True,
+                }
+            ),
+            encoding="utf-8",
+        )
+        mutated_receipts.append(wrong_date_file)
+
+        result = validate_archive_evidence_coverage(
+            expected_cohorts=self.archive_cohorts,
+            receipt_files=mutated_receipts,
+            full_scan_reports=self.fullscan_files,
+            expected_epoch=self.epoch_name,
+            expected_run_id=self.run_id,
+        )
+
+        self.assertEqual(result["receipt_coverage"], 71)
+        self.assertEqual(result["missing_receipt_cohorts"], ["2026-09-06_05"])
+        self.assertTrue(any("ARCHIVE_RECEIPT_MISSING" in b and "2026-09-06_05" in b for b in result["blockers"]))
 
 
 class RemediationLifecycleIntegrationTests(unittest.TestCase):
