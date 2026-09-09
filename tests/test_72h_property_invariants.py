@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import pytest
 
+from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.archive_scheduler import (
     ArchiveSchedulerConfig,
     ClosedHourArchiveScheduler,
@@ -52,7 +53,7 @@ def test_property_grace_seconds_boundary(tmp_path: Path):
 
     # Closed hour 2026-09-04 14:00 (closed_at is 15:00:00 UTC)
     closed_at = datetime(2026, 9, 4, 15, 0, 0, tzinfo=timezone.utc)
-    h = EligibleHour(date_str="20260904", hour_str="14", files=[], closed_at=closed_at)
+    h = EligibleHour(cohort=ArchiveCohortId("2026-09-04", "14"), files=[], closed_at=closed_at)
 
     # At 15:09:59 (599s after close) -> must NOT be eligible
     t_599 = datetime(2026, 9, 4, 15, 9, 59, tzinfo=timezone.utc)

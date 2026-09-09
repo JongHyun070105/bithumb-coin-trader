@@ -283,6 +283,8 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
     receipt_data = {
         "cohort": "2026-09-04_15",
         "hour_cohort": "2026-09-04_15",
+        "collector_epoch": "epoch-20260904-15",
+        "run_id": "run-bithumb-01",
         "state": "COMPLETED",
         "status": "PASS",
         "restore_verified": True,
@@ -294,12 +296,15 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
 
     full_scan_data = {
         "scan_id": "fs-20260904-15",
+        "cohort": "2026-09-04_15",
+        "epoch": "epoch-20260904-15",
+        "run_id": "run-bithumb-01",
         "status": "PASS",
         "checked_at": base_dt.isoformat(),
         "integrity": "CLEAN",
     }
     fs_content = json.dumps(full_scan_data)
-    (receipts_dir / "full_scan_20260904_15_report.json").write_text(fs_content, encoding="utf-8")
+    (receipts_dir / "full_scan_2026-09-04_15_report.json").write_text(fs_content, encoding="utf-8")
 
     contract_data = {
         "collector_epoch": "epoch-20260904-15",
