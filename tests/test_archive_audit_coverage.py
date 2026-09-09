@@ -41,6 +41,23 @@ def _write_cohort_receipts(
     return receipts
 
 
+def _write_cohort_fullscan_inputs(
+    cohort: str,
+    feeds: list[tuple[str, str, str]],
+    *,
+    include_raw: bool = True,
+    include_compressed: bool = True,
+) -> list[str]:
+    inputs: list[str] = []
+    if include_raw:
+        for exch, strm, mkt in feeds:
+            inputs.append(f"raw/{exch}/{strm}/{mkt}/{mkt}_{cohort}.jsonl")
+    if include_compressed:
+        for exch, strm, mkt in feeds:
+            inputs.append(f"compressed/{exch}/{strm}/{mkt}/{mkt}_{cohort}.jsonl.zst")
+    return inputs
+
+
 def _write_cohort_fullscan(
     root: Path,
     cohort: str,
@@ -49,26 +66,27 @@ def _write_cohort_fullscan(
     epoch: str = "epoch-v1",
     run_id: str = "run-v1",
     status: str = "PASS",
+    inputs: list[str] | None = None,
+    explicit_inputs: bool = True,
+    files_count: int | None = None,
 ) -> Path:
     report = root / f"full_scan_{cohort}_report.json"
-    inputs = [f"raw/{exch}/{strm}/{mkt}/{mkt}_{cohort}.jsonl" for exch, strm, mkt in feeds]
-    report.write_text(
-        json.dumps(
-            {
-                "cohort": cohort,
-                "epoch": epoch,
-                "run_id": run_id,
-                "inputs": inputs,
-                "integrity": {
-                    "totals": {
-                        "status": status,
-                        "files": len(inputs),
-                    }
-                },
+    if inputs is None:
+        inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=True)
+    payload: dict[str, Any] = {
+        "cohort": cohort,
+        "epoch": epoch,
+        "run_id": run_id,
+        "integrity": {
+            "totals": {
+                "status": status,
+                "files": files_count if files_count is not None else len(inputs),
             }
-        ),
-        encoding="utf-8",
-    )
+        },
+    }
+    if explicit_inputs:
+        payload["inputs"] = inputs
+    report.write_text(json.dumps(payload), encoding="utf-8")
     return report
 
 
@@ -360,4 +378,234 @@ def test_receipt_without_restore_verification_is_hard_failure(tmp_path: Path) ->
     )
 
     assert any("RESTORE_MISMATCH" in item for item in result["blockers"])
+
+
+def test_fullscan_count_only_rejected(tmp_path: Path) -> None:
+    """1. COUNT-ONLY REPORT: status PASS, files=152, but NO explicit inputs -> HARD FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, explicit_inputs=False, files_count=152)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_raw_only_rejected(tmp_path: Path) -> None:
+    """2. RAW-ONLY: 76 RAW, 0 COMPRESSED -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    raw_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=False)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=raw_inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_compressed_only_rejected(tmp_path: Path) -> None:
+    """3. COMPRESSED-ONLY: 0 RAW, 76 COMPRESSED -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    comp_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=False, include_compressed=True)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=comp_inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_one_compressed_missing(tmp_path: Path) -> None:
+    """4. ONE COMPRESSED MISSING: 76 RAW, 75 COMPRESSED -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    raw_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=False)
+    comp_inputs_75 = _write_cohort_fullscan_inputs(cohort, feeds[1:], include_raw=False, include_compressed=True)
+    inputs = sorted(raw_inputs + comp_inputs_75)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_one_raw_missing(tmp_path: Path) -> None:
+    """5. ONE RAW MISSING: 75 RAW, 76 COMPRESSED -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    raw_inputs_75 = _write_cohort_fullscan_inputs(cohort, feeds[1:], include_raw=True, include_compressed=False)
+    comp_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=False, include_compressed=True)
+    inputs = sorted(raw_inputs_75 + comp_inputs)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_complete_152_inputs(tmp_path: Path) -> None:
+    """6. COMPLETE: 76 RAW, 76 COMPRESSED -> PASS."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=True)
+    assert len(inputs) == 152
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 1
+    assert result["blockers"] == []
+
+
+def test_fullscan_duplicate_modality_substitution(tmp_path: Path) -> None:
+    """7. DUPLICATE MODALITY SUBSTITUTION: 76 RAW, 75 COMPRESSED + duplicate compressed -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    raw_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=False)
+    comp_inputs_75 = _write_cohort_fullscan_inputs(cohort, feeds[1:], include_raw=False, include_compressed=True)
+    dup_comp = f"compressed/{feeds[1][0]}/{feeds[1][1]}/{feeds[1][2]}/{feeds[1][2]}_{cohort}.jsonl.zst"
+    inputs = raw_inputs + comp_inputs_75 + [dup_comp]
+    assert len(inputs) == 152
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_fullscan_wrong_date_compressed_substitution(tmp_path: Path) -> None:
+    """8. WRONG-DATE COMPRESSED: 76 RAW, 75 COMPRESSED + 1 compressed from same HH on wrong date -> FAIL."""
+    cohort = "2026-09-05_05"
+    wrong_cohort = "2026-09-04_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    raw_inputs = _write_cohort_fullscan_inputs(cohort, feeds, include_raw=True, include_compressed=False)
+    comp_inputs_75 = _write_cohort_fullscan_inputs(cohort, feeds[1:], include_raw=False, include_compressed=True)
+    wrong_date_comp = f"compressed/{feeds[0][0]}/{feeds[0][1]}/{feeds[0][2]}/{feeds[0][2]}_{wrong_cohort}.jsonl.zst"
+    inputs = raw_inputs + comp_inputs_75 + [wrong_date_comp]
+    assert len(inputs) == 152
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds, inputs=inputs)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["fullscan_coverage"] == 0
+    assert any("FULLSCAN_INPUTS_INCOMPLETE" in item or "FULLSCAN_COHORT_COVERAGE_INCOMPLETE" in item for item in result["blockers"])
+
+
+def test_receipt_duplicate_contamination_rejected(tmp_path: Path) -> None:
+    """76 valid expected receipts + duplicate qualifying receipt -> FAIL (RECEIPT_CONTAMINATED)."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    # Add a 77th receipt which is a duplicate of feeds[0] with a distinct path
+    dup_path = tmp_path / f"dup_{feeds[0][0]}_{feeds[0][1]}_{feeds[0][2]}_{cohort}.archive-receipt.json"
+    dup_partition = f"raw/{feeds[0][0]}/{feeds[0][1]}/{feeds[0][2]}/{feeds[0][2]}_{cohort}.jsonl"
+    dup_path.write_text(
+        json.dumps(
+            {
+                "cohort": cohort,
+                "collector_epoch": "epoch-v1",
+                "run_id": "run-v1",
+                "partition": dup_partition,
+                "state": "CLEANUP_ELIGIBLE",
+                "restore_verified_at": "2026-09-09T00:00:00+00:00",
+                "restore_verified": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipts.append(dup_path)
+    assert len(receipts) == 77
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["receipt_coverage"] == 0
+    assert any("RECEIPT_CONTAMINATED" in item or "ARCHIVE_RECEIPT_MISSING" in item for item in result["blockers"])
+
+
+def test_receipt_unexpected_feed_contamination_rejected(tmp_path: Path) -> None:
+    """76 valid expected receipts + unexpected foreign feed receipt -> FAIL (RECEIPT_CONTAMINATED)."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    # Add a 77th receipt with a foreign exchange/feed
+    foreign_path = tmp_path / f"foreign_kraken_trade_{cohort}.archive-receipt.json"
+    foreign_path.write_text(
+        json.dumps(
+            {
+                "cohort": cohort,
+                "collector_epoch": "epoch-v1",
+                "run_id": "run-v1",
+                "exchange": "kraken",
+                "stream": "trade",
+                "market": "BTC-USD",
+                "partition": f"raw/kraken/trade/BTC-USD/BTC-USD_{cohort}.jsonl",
+                "state": "CLEANUP_ELIGIBLE",
+                "restore_verified_at": "2026-09-09T00:00:00+00:00",
+                "restore_verified": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    receipts.append(foreign_path)
+    assert len(receipts) == 77
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["receipt_coverage"] == 0
+    assert any("RECEIPT_CONTAMINATED" in item or "ARCHIVE_RECEIPT_MISSING" in item for item in result["blockers"])
+
+
+def test_receipt_identity_invalid_contamination_rejected(tmp_path: Path) -> None:
+    """76 valid expected receipts + identity-invalid target-epoch receipt -> FAIL."""
+    cohort = "2026-09-05_05"
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    receipts = _write_cohort_receipts(tmp_path, cohort, feeds)
+    # Add an identity-invalid receipt
+    bad_path = tmp_path / f"corrupt_{cohort}.archive-receipt.json"
+    bad_path.write_text("CORRUPT_NOT_JSON{{{", encoding="utf-8")
+    receipts.append(bad_path)
+    scan = _write_cohort_fullscan(tmp_path, cohort, feeds)
+
+    result = validate_archive_evidence_coverage(
+        [cohort], receipts, [scan], expected_epoch="epoch-v1", expected_run_id="run-v1"
+    )
+
+    assert result["receipt_coverage"] == 0
+    assert any("RECEIPT_CORRUPT" in item or "RECEIPT_IDENTITY_INVALID" in item or "RECEIPT_CONTAMINATED" in item for item in result["blockers"])
 
