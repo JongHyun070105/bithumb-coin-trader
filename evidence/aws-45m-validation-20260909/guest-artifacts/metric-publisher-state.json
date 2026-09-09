@@ -1,0 +1,9 @@
+{
+  "collector_run_id": "aws-45m-val-run-20260909T044000Z",
+  "counters": {
+    "queue_drops": 0,
+    "writer_errors": 0
+  },
+  "published_at": "2026-09-09T05:24:27.175350+00:00",
+  "schema_version": 1
+}

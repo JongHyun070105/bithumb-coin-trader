@@ -1,0 +1,10 @@
+{
+  "collector_run_id": "aws-45m-val-run-20260909T044000Z",
+  "error_type": null,
+  "final_manifest_flush_observed": true,
+  "manifest_count": 152,
+  "phase": "COMPLETE",
+  "process_id": 415560,
+  "schema_version": 2,
+  "written_at": "2026-09-09T05:25:21.495352+00:00"
+}
