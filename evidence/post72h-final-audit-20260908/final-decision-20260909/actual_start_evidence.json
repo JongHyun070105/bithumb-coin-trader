@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "collector_epoch": "aws-72h-soak-20260905-8017b83e",
+  "collector_run_id": "aws-72h-soak-run-20260905T024039Z-8017b83e",
+  "actual_start_time_utc": "2026-09-05T05:40:03.207328+00:00",
+  "start_evidence_type": "PROCESS_EXEC_START",
+  "source": "interactive-guest-20260908T151318Z/phase06_small_artifacts/collector_metrics.json field collector_started_at; source file sha256 5ba0c637e00608a514eec37d1f71b0cd186ecf3c35b5750c0fef34c2636dce9b",
+  "runtime_commit": "9532cebc902856d954bf80b51dbe567b543dc8e2",
+  "runtime_fingerprint": "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b",
+  "captured_at_utc": "2026-09-08T15:13:18Z"
+}

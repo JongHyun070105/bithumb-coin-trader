@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "calculated_at_utc": "2026-09-09T01:07:57Z",
+  "source_evidence_head": "31846b7edbcfc8108e1ecfca792e7c009e1136cb",
+  "source_manifest_sha256": "cde27656a37557a72fd7ef168030b5405bcf5a8e7b8347bb56f07f99860e110f",
+  "actual_start_time_utc": "2026-09-05T05:40:03.207328+00:00",
+  "collector_metrics_written_at_utc": "2026-09-08T05:40:03.236533+00:00",
+  "supervisor_completion_time_utc": "2026-09-08T05:41:33.277630+00:00",
+  "configured_duration_seconds": 259200,
+  "observed_data_duration_seconds": 259200.029205,
+  "supervisor_elapsed_seconds_from_result": 259290.218599,
+  "expected_raw_cohorts": {
+    "count": 73,
+    "first": "20260905-05",
+    "last": "20260908-05"
+  },
+  "expected_archive_cohorts": {
+    "count": 72,
+    "first": "20260905-05",
+    "last": "20260908-04",
+    "grace_seconds": 600
+  },
+  "actual_archive_cohorts": [
+    "20260905-05",
+    "20260906-05",
+    "20260907-05"
+  ],
+  "actual_archive_cohort_count": 3,
+  "missing_archive_cohort_count": 69,
+  "calculation_implementation": "scripts.audit_72h_soak.derive_expected_raw_cohorts and derive_expected_archive_cohorts"
+}
