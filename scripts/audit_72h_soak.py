@@ -301,7 +301,13 @@ def validate_archive_evidence_coverage(
                 })
                 continue
         else:
-            files_scanned = int(data.get("integrity", {}).get("totals", {}).get("files", 0))
+            integrity_obj = data.get("integrity")
+            if isinstance(integrity_obj, dict):
+                files_scanned = int(integrity_obj.get("totals", {}).get("files", 0))
+            elif isinstance(data.get("totals"), dict):
+                files_scanned = int(data.get("totals", {}).get("files", 0))
+            else:
+                files_scanned = int(data.get("files_scanned") or data.get("file_count") or 0)
             if files_scanned < expected_feed_count:
                 fullscan_input_failures.append({
                     "file": path.name,
@@ -692,9 +698,14 @@ class SoakAuditor72H:
         for rf in receipt_files:
             try:
                 rd = json.loads(rf.read_text(encoding="utf-8"))
-                c = rd.get("hour_cohort") or rf.name.split(".")[0]
-                observed_hours.add(c)
-                default_hour = c
+                c = rd.get("hour_cohort") or rd.get("cohort")
+                if not c:
+                    m = _CANONICAL_COHORT_RE.search(rf.name)
+                    if m:
+                        c = m.group(0)
+                if c and _CANONICAL_COHORT_RE.fullmatch(c):
+                    observed_hours.add(c)
+                    default_hour = c
             except Exception:
                 pass
 

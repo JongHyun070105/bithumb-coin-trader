@@ -345,7 +345,11 @@ def build_epoch_manifest(
         try:
             r_data = json.loads(rf.read_text(encoding="utf-8"))
             r_sha = _file_sha256(rf)
-            cohort = r_data.get("hour_cohort") or rf.name.split(".")[0]
+            cohort = r_data.get("hour_cohort") or r_data.get("cohort")
+            if not cohort:
+                from scripts.audit_72h_soak import _CANONICAL_COHORT_RE
+                m = _CANONICAL_COHORT_RE.search(rf.name)
+                cohort = m.group(0) if m else rf.name.split(".")[0]
             receipt_entries.append({
                 "hour_cohort": cohort,
                 "file_name": rf.name,

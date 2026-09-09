@@ -172,6 +172,7 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
     base_mono = 1_000_000_000
 
     expected_universe = SoakAuditor72H.get_expected_feed_universe()
+    all_inputs: list[str] = []
     for idx, (exch, strm, mkt) in enumerate(expected_universe):
         local_recv = base_dt.replace(microsecond=(idx % 1000) * 1000)
         mono_ns = base_mono + idx * 1_000_000
@@ -279,21 +280,29 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
         counts_by_stream[key] = counts_by_stream.get(key, 0) + 1
         storage.generate_partition_manifest(p_file)
 
-    # 4. Valid Archive Receipts and Full Scan Report
-    receipt_data = {
-        "cohort": "2026-09-04_15",
-        "hour_cohort": "2026-09-04_15",
-        "collector_epoch": "epoch-20260904-15",
-        "run_id": "run-bithumb-01",
-        "state": "COMPLETED",
-        "status": "PASS",
-        "restore_verified": True,
-        "restore_status": "PASS",
-        "verified_partitions_count": len(counts_by_stream),
-    }
-    rc_content = json.dumps(receipt_data)
-    (receipts_dir / "2026-09-04_15.archive-receipt.json").write_text(rc_content, encoding="utf-8")
+        # Per-partition archive receipt
+        rel_p = str(p_file.relative_to(epoch_dir))
+        all_inputs.append(rel_p)
+        clean_mkt = mkt.replace("/", "_")
+        rc_name = f"{exch}_{strm}_{clean_mkt}_2026-09-04_15.archive-receipt.json"
+        rc_data = {
+            "cohort": "2026-09-04_15",
+            "hour_cohort": "2026-09-04_15",
+            "collector_epoch": "epoch-20260904-15",
+            "run_id": "run-bithumb-01",
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "partition": rel_p,
+            "state": "CLEANUP_ELIGIBLE",
+            "status": "PASS",
+            "restore_verified": True,
+            "restore_status": "PASS",
+            "verified_partitions_count": 1,
+        }
+        (receipts_dir / rc_name).write_text(json.dumps(rc_data), encoding="utf-8")
 
+    # 4. Valid Full Scan Report covering all 76 partitions
     full_scan_data = {
         "scan_id": "fs-20260904-15",
         "cohort": "2026-09-04_15",
@@ -302,6 +311,7 @@ def _populate_synthetic_epoch(epoch_dir: Path) -> dict[str, int]:
         "status": "PASS",
         "checked_at": base_dt.isoformat(),
         "integrity": "CLEAN",
+        "inputs": sorted(all_inputs),
     }
     fs_content = json.dumps(full_scan_data)
     (receipts_dir / "full_scan_2026-09-04_15_report.json").write_text(fs_content, encoding="utf-8")
@@ -343,7 +353,7 @@ class TestSyntheticEpochEndToEnd:
         assert audit_report["status"] == "DQ_PASS_ELIGIBLE", f"Audit failed: {audit_report.get('blockers')}"
         assert audit_report["summary"]["raw_files_count"] == sum(expected_counts.values())
         assert audit_report["summary"]["manifests_count"] == sum(expected_counts.values())
-        assert audit_report["summary"]["receipts_count"] == 1
+        assert audit_report["summary"]["receipts_count"] == len(SoakAuditor72H.get_expected_feed_universe())
         assert audit_report["summary"]["full_scan_reports_count"] == 1
 
         audit_report_path = tmp_path / "deep_dq_report.json"

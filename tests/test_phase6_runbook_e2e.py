@@ -154,15 +154,28 @@ def _populate_official_shaped_epoch(
         }
         (man_part_dir / f"manifest_part-{hour_cohort}.json").write_text(json.dumps(man_record))
 
-    # Archive Receipt
-    (receipts_dir / f"{hour_cohort}.archive-receipt.json").write_text(json.dumps({
-        "cohort": hour_cohort,
-        "collector_epoch": collector_epoch,
-        "run_id": collector_run_id,
-        "file_count": 76,
-        "restore_verified": True,
-        "status": "PASS",
-    }))
+    # Archive Receipts for all 76 partitions
+    fullscan_inputs: list[str] = []
+    for exch, strm, mkt in SoakAuditor72H.get_expected_feed_universe():
+        part_rel = f"raw/exchange={exch}/stream={strm}/market={mkt}/part-{hour_cohort}.zst"
+        fullscan_inputs.append(part_rel)
+        clean_mkt = mkt.replace("/", "_")
+        rc_name = f"{exch}_{strm}_{clean_mkt}_{hour_cohort}.archive-receipt.json"
+        (receipts_dir / rc_name).write_text(json.dumps({
+            "cohort": hour_cohort,
+            "hour_cohort": hour_cohort,
+            "collector_epoch": collector_epoch,
+            "run_id": collector_run_id,
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "partition": part_rel,
+            "state": "CLEANUP_ELIGIBLE",
+            "status": "PASS",
+            "restore_verified": True,
+            "restore_status": "PASS",
+            "file_count": 1,
+        }), encoding="utf-8")
 
     # Full-scan report
     (receipts_dir / f"full_scan_{hour_cohort}_report.json").write_text(json.dumps({
@@ -172,7 +185,8 @@ def _populate_official_shaped_epoch(
         "run_id": collector_run_id,
         "status": "PASS",
         "total_records": 76 * 5,
-    }))
+        "inputs": fullscan_inputs,
+    }), encoding="utf-8")
 
     # Actual start evidence artifact (P0.1)
     act_evidence = epoch_dir / "actual_start.evidence.json"
