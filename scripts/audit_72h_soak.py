@@ -119,6 +119,51 @@ _CANONICAL_FULLSCAN_RE = re.compile(
 )
 _LEGACY_FULLSCAN_RE = re.compile(r"^full_scan_\d{2}_report\.json$")
 
+QUALIFYING_RECEIPT_STATES = {
+    "CLEANUP_ELIGIBLE",
+    "CLEANED",
+    "RESTORE_VERIFIED",
+}
+
+
+def normalize_feed_identity(exchange: str, stream: str, market: str) -> tuple[str, str, str]:
+    """Normalize feed tuple to canonical casing: Bithumb/Upbit KRW-* uppercase, Binance *usdt lowercase."""
+    exch = str(exchange).lower().strip()
+    strm = str(stream).lower().strip()
+    mkt = str(market).strip()
+    if exch == "binance":
+        mkt = mkt.lower()
+    else:
+        mkt = mkt.upper()
+    return exch, strm, mkt
+
+
+def _extract_receipt_partition(data: dict[str, Any], path: Path) -> tuple[str, str, str, str] | None:
+    """Extract (exchange, stream, market, cohort) from receipt payload or receipt file path."""
+    if data.get("exchange") and data.get("stream") and data.get("market"):
+        exch, strm, mkt = normalize_feed_identity(data["exchange"], data["stream"], data["market"])
+        hour = str(data.get("cohort") or "unknown")
+        return exch, strm, mkt, hour
+
+    partition_raw = data.get("partition")
+    if partition_raw:
+        parsed = parse_partition_path(partition_raw)
+        if parsed:
+            exch, strm, mkt = normalize_feed_identity(parsed[0], parsed[1], parsed[2])
+            return exch, strm, mkt, parsed[3]
+
+    clean_name = path.name
+    if clean_name.endswith(".archive-receipt.json"):
+        clean_name = clean_name[:-len(".archive-receipt.json")]
+    parsed = parse_partition_path(path.parent / clean_name)
+    if not parsed:
+        parsed = parse_partition_path(clean_name)
+    if parsed:
+        exch, strm, mkt = normalize_feed_identity(parsed[0], parsed[1], parsed[2])
+        return exch, strm, mkt, parsed[3]
+
+    return None
+
 
 def _evidence_status(data: dict[str, Any]) -> Any:
     return data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
@@ -131,8 +176,9 @@ def validate_archive_evidence_coverage(
     *,
     expected_epoch: str | None = None,
     expected_run_id: str | None = None,
+    expected_feeds: list[tuple[str, str, str]] | None = None,
 ) -> dict[str, Any]:
-    """Validate exact canonical evidence for every expected archive cohort."""
+    """Validate exact canonical evidence for every expected archive cohort across all feeds."""
     expected = []
     for cohort in expected_cohorts:
         if not _CANONICAL_COHORT_RE.fullmatch(cohort):
@@ -140,13 +186,29 @@ def validate_archive_evidence_coverage(
         datetime.strptime(cohort, "%Y-%m-%d_%H")
         expected.append(cohort)
 
-    receipt_coverage: set[str] = set()
-    receipt_restore_failures: set[str] = set()
+    if expected_feeds is None:
+        raw_universe = SoakAuditor72H.get_expected_feed_universe()
+    else:
+        raw_universe = expected_feeds
+    expected_feed_set: set[tuple[str, str, str]] = {
+        normalize_feed_identity(e, s, m) for e, s, m in raw_universe
+    }
+    expected_feed_count = len(expected_feed_set)
+    if expected_feed_count == 0:
+        raise ValueError("expected feed universe cannot be empty")
+
+    qualifying_feeds: dict[str, dict[tuple[str, str, str], Path]] = {c: {} for c in expected}
+    duplicate_feeds: dict[str, list[tuple[tuple[str, str, str], str]]] = {c: [] for c in expected}
+    unexpected_feeds: dict[str, list[tuple[tuple[str, str, str], str]]] = {c: [] for c in expected}
+    invalid_state_receipts: list[str] = []
+    receipt_restore_failures: list[str] = []
     receipt_identity_failures: list[str] = []
+
     for path in receipt_files:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
         except Exception:
+            receipt_identity_failures.append(path.name)
             continue
         cohort = data.get("cohort")
         if cohort not in expected:
@@ -157,14 +219,40 @@ def validate_archive_evidence_coverage(
         if expected_run_id and data.get("run_id") != expected_run_id:
             receipt_identity_failures.append(path.name)
             continue
+
+        state = data.get("state")
+        if state not in QUALIFYING_RECEIPT_STATES:
+            invalid_state_receipts.append(f"{path.name} (state={state})")
+            continue
+
         restore_ok = bool(data.get("restore_verified_at")) or data.get("restore_verified") is True
         if not restore_ok:
-            receipt_restore_failures.add(cohort)
+            receipt_restore_failures.append(path.name)
             continue
-        receipt_coverage.add(cohort)
+
+        feed_info = _extract_receipt_partition(data, path)
+        if not feed_info:
+            receipt_identity_failures.append(path.name)
+            continue
+
+        exch, strm, mkt, partition_cohort = feed_info
+        if partition_cohort != "unknown" and partition_cohort != cohort:
+            receipt_identity_failures.append(path.name)
+            continue
+
+        feed = (exch, strm, mkt)
+        if feed not in expected_feed_set:
+            unexpected_feeds[cohort].append((feed, path.name))
+            continue
+
+        if feed in qualifying_feeds[cohort]:
+            duplicate_feeds[cohort].append((feed, path.name))
+        else:
+            qualifying_feeds[cohort][feed] = path
 
     fullscan_coverage: set[str] = set()
     fullscan_identity_failures: list[str] = []
+    fullscan_input_failures: list[dict[str, Any]] = []
     legacy_fullscan_artifacts: list[str] = []
     for path in full_scan_reports:
         if _LEGACY_FULLSCAN_RE.fullmatch(path.name):
@@ -188,30 +276,111 @@ def validate_archive_evidence_coverage(
         ):
             fullscan_identity_failures.append(path.name)
             continue
+
+        inputs = data.get("inputs") or data.get("input_files") or data.get("scanned_files")
+        if inputs is not None:
+            scanned_feeds: set[tuple[str, str, str]] = set()
+            wrong_cohort_inputs: list[str] = []
+            for inp in inputs:
+                parsed = parse_partition_path(inp)
+                if parsed:
+                    exch, strm, mkt, inp_cohort = parsed
+                    if inp_cohort != "unknown" and inp_cohort != filename_cohort:
+                        wrong_cohort_inputs.append(str(inp))
+                        continue
+                    scanned_feeds.add(normalize_feed_identity(exch, strm, mkt))
+            missing_scan_feeds = sorted(expected_feed_set - scanned_feeds)
+            if wrong_cohort_inputs or missing_scan_feeds:
+                fullscan_input_failures.append({
+                    "file": path.name,
+                    "cohort": filename_cohort,
+                    "covered": len(scanned_feeds),
+                    "expected": expected_feed_count,
+                    "missing": [f"{e}/{s}/{m}" for e, s, m in missing_scan_feeds],
+                    "wrong_cohort_inputs": wrong_cohort_inputs,
+                })
+                continue
+        else:
+            files_scanned = int(data.get("integrity", {}).get("totals", {}).get("files", 0))
+            if files_scanned < expected_feed_count:
+                fullscan_input_failures.append({
+                    "file": path.name,
+                    "cohort": filename_cohort,
+                    "covered": files_scanned,
+                    "expected": expected_feed_count,
+                    "missing": ["<lacks deterministic inputs and files < expected>"],
+                    "wrong_cohort_inputs": [],
+                })
+                continue
+
         fullscan_coverage.add(filename_cohort)
 
-    missing_receipts = sorted(set(expected) - receipt_coverage)
+    missing_receipt_cohorts: list[str] = []
+    fully_covered_receipt_cohorts: set[str] = set()
+    for c in expected:
+        qual_count = len(qualifying_feeds[c])
+        if qual_count == expected_feed_count:
+            fully_covered_receipt_cohorts.add(c)
+        else:
+            missing_receipt_cohorts.append(c)
+
     missing_fullscans = sorted(set(expected) - fullscan_coverage)
-    blockers = [
-        f"ARCHIVE_RECEIPT_MISSING: Missing qualifying archive receipt for cohort {cohort}"
-        for cohort in missing_receipts
-    ]
-    blockers.extend(
-        f"RESTORE_MISMATCH: Cohort {cohort} has no receipt with successful restore verification"
-        for cohort in sorted(receipt_restore_failures)
-    )
-    blockers.extend(
-        f"FULLSCAN_COHORT_COVERAGE_INCOMPLETE: Missing qualifying full-scan for cohort {cohort}"
-        for cohort in missing_fullscans
-    )
+
+    blockers: list[str] = []
+    for cohort in sorted(missing_receipt_cohorts):
+        missing_list = [
+            f"{e}/{s}/{m}"
+            for e, s, m in sorted(expected_feed_set - set(qualifying_feeds[cohort].keys()))
+        ]
+        qual_count = len(qualifying_feeds[cohort])
+        blockers.append(
+            f"ARCHIVE_RECEIPT_MISSING: Cohort {cohort} missing {len(missing_list)}/{expected_feed_count} "
+            f"expected partition receipts (qualifying {qual_count}/{expected_feed_count}): {missing_list[:3]}"
+        )
+
+    for item in sorted(invalid_state_receipts):
+        blockers.append(f"RECEIPT_INVALID_STATE: Archive receipt {item} is not in terminal verified state")
+
+    for item in sorted(receipt_restore_failures):
+        blockers.append(f"RESTORE_MISMATCH: Archive receipt {item} lacks valid restore verification")
+
+    for cohort in missing_fullscans:
+        blockers.append(f"FULLSCAN_COHORT_COVERAGE_INCOMPLETE: Missing qualifying full-scan for cohort {cohort}")
+
+    for item in fullscan_input_failures:
+        blockers.append(
+            f"FULLSCAN_INPUTS_INCOMPLETE: Full-scan report {item['file']} for cohort {item['cohort']} "
+            f"covers only {item['covered']}/{item['expected']} feeds (missing {item['missing'][:3]})"
+        )
+
+    total_qualifying = sum(len(q) for q in qualifying_feeds.values())
     return {
         "blockers": blockers,
-        "receipt_coverage": len(receipt_coverage),
+        "receipt_coverage": len(fully_covered_receipt_cohorts),
         "fullscan_coverage": len(fullscan_coverage),
-        "missing_receipt_cohorts": missing_receipts,
-        "missing_fullscan_cohorts": missing_fullscans,
+        "total_qualifying_receipts": total_qualifying,
+        "expected_total_receipts": len(expected) * expected_feed_count,
+        "expected_partition_count": expected_feed_count,
+        "missing_receipt_cohorts": sorted(missing_receipt_cohorts),
+        "missing_fullscan_cohorts": sorted(missing_fullscans),
+        "per_cohort_receipt_diagnostics": {
+            c: {
+                "expected": expected_feed_count,
+                "qualifying": len(qualifying_feeds[c]),
+                "missing": [
+                    f"{e}/{s}/{m}"
+                    for e, s, m in sorted(expected_feed_set - set(qualifying_feeds[c].keys()))
+                ],
+                "duplicates": [f"{e}/{s}/{m}" for (e, s, m), _ in duplicate_feeds[c]],
+                "unexpected": [f"{e}/{s}/{m}" for (e, s, m), _ in unexpected_feeds[c]],
+            }
+            for c in expected
+        },
+        "invalid_state_receipts": sorted(invalid_state_receipts),
+        "receipt_restore_failures": sorted(receipt_restore_failures),
         "receipt_identity_failures": sorted(receipt_identity_failures),
         "fullscan_identity_failures": sorted(fullscan_identity_failures),
+        "fullscan_input_failures": fullscan_input_failures,
         "legacy_fullscan_artifacts": sorted(legacy_fullscan_artifacts),
         "legacy_status": "LEGACY / NON-QUALIFYING" if legacy_fullscan_artifacts else None,
     }
