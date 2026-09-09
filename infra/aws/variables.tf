@@ -105,6 +105,17 @@ variable "temporary_archive_class" {
   default     = "temporary"
 }
 
+variable "collector_archive_namespace" {
+  description = "Stable temporary archive namespace prefix for fresh validation epochs. The trailing hyphen is required."
+  type        = string
+  default     = "aws-validation-"
+
+  validation {
+    condition     = can(regex("^[a-z0-9][a-z0-9-]*-$", var.collector_archive_namespace))
+    error_message = "collector_archive_namespace must be lowercase alphanumeric/hyphen and end with a hyphen."
+  }
+}
+
 variable "enable_archive_lifecycle" {
   description = "Enable non-destructive canonical storage-class transitions after review."
   type        = bool

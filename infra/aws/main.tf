@@ -31,13 +31,14 @@ data "aws_ami" "amazon_linux_2023" {
 }
 
 locals {
-  selected_availability_zone = coalesce(var.availability_zone, data.aws_availability_zones.available.names[0])
-  selected_ami_id            = coalesce(var.ami_id_override, try(data.aws_ami.amazon_linux_2023[0].id, null))
-  archive_bucket_name        = coalesce(var.archive_bucket_name, "${var.project_name}-${var.environment_id}-${var.region}-${data.aws_caller_identity.current.account_id}")
-  collector_boundary_arn     = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/bitcoin-trader-collector-boundary"
-  archive_epoch_root         = var.collector_epoch == null ? "pending-epoch" : var.collector_epoch
-  canonical_archive_prefix   = "${var.archive_prefix}/${var.canonical_archive_class}/${local.archive_epoch_root}"
-  temporary_archive_prefix   = "${var.archive_prefix}/${var.temporary_archive_class}/${local.archive_epoch_root}"
+  selected_availability_zone  = coalesce(var.availability_zone, data.aws_availability_zones.available.names[0])
+  selected_ami_id             = coalesce(var.ami_id_override, try(data.aws_ami.amazon_linux_2023[0].id, null))
+  archive_bucket_name         = coalesce(var.archive_bucket_name, "${var.project_name}-${var.environment_id}-${var.region}-${data.aws_caller_identity.current.account_id}")
+  collector_boundary_arn      = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:policy/bitcoin-trader-collector-boundary"
+  archive_epoch_root          = var.collector_epoch == null ? "pending-epoch" : var.collector_epoch
+  canonical_archive_prefix    = "${var.archive_prefix}/${var.canonical_archive_class}/${local.archive_epoch_root}"
+  temporary_archive_prefix    = "${var.archive_prefix}/${var.temporary_archive_class}/${local.archive_epoch_root}"
+  temporary_archive_namespace = "${var.archive_prefix}/${var.temporary_archive_class}/${var.collector_archive_namespace}"
 
   disk_thresholds = {
     warning = {
@@ -332,31 +333,10 @@ resource "aws_iam_role_policy" "collector_ssm_agent" {
 
 data "aws_iam_policy_document" "collector" {
   statement {
-    sid       = "ListEpochArchive"
-    actions   = ["s3:ListBucket"]
-    resources = [aws_s3_bucket.archive.arn]
-
-    condition {
-      test     = "StringLike"
-      variable = "s3:prefix"
-      values = [
-        "${local.canonical_archive_prefix}/*",
-        "${local.temporary_archive_prefix}/*",
-      ]
-    }
-  }
-
-  statement {
-    sid = "ReadWriteEpochArchive"
-    actions = [
-      "s3:AbortMultipartUpload",
-      "s3:GetObject",
-      "s3:ListMultipartUploadParts",
-      "s3:PutObject",
-    ]
+    sid     = "ReadWriteValidationArchive"
+    actions = ["s3:GetObject", "s3:PutObject"]
     resources = [
-      "${aws_s3_bucket.archive.arn}/${local.canonical_archive_prefix}/*",
-      "${aws_s3_bucket.archive.arn}/${local.temporary_archive_prefix}/*",
+      "${aws_s3_bucket.archive.arn}/${local.temporary_archive_namespace}*/*",
     ]
   }
 
