@@ -27,6 +27,7 @@ from .microstructure_io import CompressedInputError, iter_zstd_decompressed_chun
 RECEIPT_SCHEMA_VERSION = 2
 PARTITION_PATTERN = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})\.jsonl$")
 MAX_S3_PUT_OBJECT_BYTES = 5 * 1024**3
+MAX_S3_CONDITIONAL_PUT_ATTEMPTS = 3
 
 
 class ArchiveState(str, Enum):
@@ -307,24 +308,28 @@ class S3ArchiveStore:
         size = local_path.stat().st_size
         if size > MAX_S3_PUT_OBJECT_BYTES:
             raise ValueError("partition exceeds fail-closed single PutObject limit")
-        try:
-            with local_path.open("rb") as handle:
-                self.client.put_object(
-                    Bucket=self.bucket,
-                    Key=key,
-                    Body=handle,
-                    ContentLength=size,
-                    ChecksumSHA256=_hex_to_base64(checksum_sha256_hex),
-                    IfNoneMatch="*",
-                )
-        except Exception as exc:
-            response = getattr(exc, "response", {})
-            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            code = response.get("Error", {}).get("Code")
-            if status not in {409, 412} and code not in {"ConditionalRequestConflict", "PreconditionFailed"}:
-                raise
-            # Another worker won the immutable-key race. The caller's normal
-            # size/checksum verification decides whether it is the same object.
+        for attempt in range(MAX_S3_CONDITIONAL_PUT_ATTEMPTS):
+            try:
+                with local_path.open("rb") as handle:
+                    self.client.put_object(
+                        Bucket=self.bucket,
+                        Key=key,
+                        Body=handle,
+                        ContentLength=size,
+                        ChecksumSHA256=_hex_to_base64(checksum_sha256_hex),
+                        IfNoneMatch="*",
+                    )
+                break
+            except Exception as exc:
+                response = getattr(exc, "response", {})
+                status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                code = response.get("Error", {}).get("Code")
+                if status == 412 or code == "PreconditionFailed":
+                    break
+                if status != 409 and code != "ConditionalRequestConflict":
+                    raise
+                if attempt + 1 == MAX_S3_CONDITIONAL_PUT_ATTEMPTS:
+                    raise
         return self.head(key)
 
     def head(self, key: str) -> RemoteObject:

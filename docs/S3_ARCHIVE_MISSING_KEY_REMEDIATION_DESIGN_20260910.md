@@ -20,12 +20,13 @@ This would allow S3 to reveal absence as 404 and would preserve the current pipe
 
 ## Option B: use conditional PutObject as create-or-reuse
 
-`S3ArchiveStore.upload()` already sends `IfNoneMatch="*"`. It accepts only the documented conflict outcomes (HTTP 409/412 or `ConditionalRequestConflict`/`PreconditionFailed`) as evidence that another immutable writer won; every other error is re-raised. It always follows the write or accepted conflict with `HeadObject(ChecksumMode="ENABLED")`.
+`S3ArchiveStore.upload()` sends `IfNoneMatch="*"`. A 412 `PreconditionFailed` establishes that a current object prevented the conditional write, so it proceeds to authoritative `HeadObject(ChecksumMode="ENABLED")` for normal verification/reuse. A 409 `ConditionalRequestConflict` does not establish current object existence and is retried as another conditional `PutObject`. Every other error is re-raised.
 
 - Least privilege: preserves only object-level `s3:GetObject` and `s3:PutObject`.
 - Race safety: stronger than the probe because S3 evaluates the write precondition atomically. There is no separate existence decision to race.
 - Immutable-key semantics: a present object is never overwritten by the S3 adapter.
-- Existing-object reuse: 409/412 is followed by authoritative `HeadObject`; the pipeline then accepts only exact size and SHA-256 equality.
+- Existing-object reuse: 412 is followed by authoritative `HeadObject`; the pipeline then accepts only exact size and SHA-256 equality.
+- Conditional conflicts: 409 is retried with a newly opened local stream and the same content length, SHA-256 checksum, and `IfNoneMatch="*"`. The retry bound is three total conditional-PUT attempts. Exhaustion re-raises the conflict without using `HeadObject` to fabricate reuse.
 - Wrong-object rejection: `_verify_remote()` fails closed on size mismatch, unavailable checksum, or checksum mismatch.
 - Error observability: real authorization failures from `PutObject` or the required post-write/post-conflict `HeadObject` propagate and are recorded at the last successful receipt state.
 - AWS permissions: `s3:PutObject` authorizes the conditional creation; `s3:GetObject` authorizes both `HeadObject` verification and streamed restore. `s3:ListBucket` is unnecessary.
@@ -38,7 +39,7 @@ The production change is limited to making `_upload_or_reuse()` invoke the store
 
 The `ArchiveStore.upload()` implementations must continue to honor create-or-reuse behavior:
 
-- S3: immutable conditional `PutObject`, accepted race conflict, authoritative `HeadObject`.
+- S3: immutable conditional `PutObject`; bounded retry after 409; authoritative `HeadObject` after success or 412 only.
 - File: reuse an existing destination and return its metadata.
 - Memory: must reuse an existing key rather than overwrite it so deterministic tests model the same archive-store contract.
 
@@ -46,7 +47,7 @@ No IAM or Terraform change is part of this remediation.
 
 ## Required regression proof
 
-Before production changes, tests must fail against the current preflight behavior for an absent S3 object whose missing-key `HeadObject` would be 403 while conditional `PutObject` is allowed. Additional tests must prove identical-object reuse, wrong-object rejection, conditional-write race handling, and propagation of access denial from the authoritative post-write `HeadObject`.
+Before production changes, tests must fail against the current preflight behavior for an absent S3 object whose missing-key `HeadObject` would be 403 while conditional `PutObject` is allowed. Additional tests must prove identical-object reuse, wrong-object rejection, 409-to-success retry with a fresh stream, repeated-409 exhaustion, 409-to-412 convergence, non-retryable error propagation, and propagation of access denial from the authoritative post-write `HeadObject`.
 
 ## NO_EPOCH_MANIFEST classification
 
@@ -75,6 +76,18 @@ GREEN after the minimal change:
 - Archive store and pipeline tests: 34 passed.
 - Archive, scheduler, fullscan, policy, and evidence-chain target set: 165 passed.
 - Full Python suite: 1007 passed, 2 skipped, 133 subtests passed.
+
+Independent review then identified that 409 and 412 had been treated as equivalent. Follow-up strict TDD produced the expected RED result before the retry implementation:
+
+- `409 -> success`, repeated 409, and `409 -> 412`: 3 failed because the first 409 was followed by `HeadObject` instead of another conditional `PutObject`.
+- The test double created no object on 409, exposing the no-`ListBucket` failure mode rather than masking it.
+
+GREEN after the review remediation:
+
+- S3 adapter plus archive pipeline: 39 passed.
+- `test_pre_soak_archive.py`: 31 passed.
+- Archive, scheduler, fullscan, policy, and remediation target set: 204 passed, 5 subtests passed.
+- Full Python suite: 1012 passed, 2 skipped, 133 subtests passed.
 
 Static and live read-only checks:
 

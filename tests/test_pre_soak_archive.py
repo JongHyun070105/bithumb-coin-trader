@@ -89,8 +89,10 @@ class RacingObjectOnlyS3Client(ObjectOnlyS3Client):
         key = kwargs["Key"]
         payload = kwargs["Body"].read()
         self.put_requests.append({name: value for name, value in kwargs.items() if name != "Body"})
+        if len(self.put_requests) == 1:
+            raise S3ClientError(409, "ConditionalRequestConflict", "concurrent delete conflict")
         self.objects[key] = payload
-        raise S3ClientError(409, "ConditionalRequestConflict", "concurrent writer won")
+        raise S3ClientError(412, "PreconditionFailed", "concurrent writer won")
 
 
 class ArchivePipelineTests(unittest.TestCase):
@@ -222,7 +224,7 @@ class ArchivePipelineTests(unittest.TestCase):
         receipt = self._finalize()
 
         self.assertEqual(receipt.state, ArchiveState.CLEANUP_ELIGIBLE.value)
-        self.assertEqual(len(client.put_requests), 1)
+        self.assertEqual(len(client.put_requests), 2)
 
     def test_access_denied_on_post_write_head_remains_a_failure(self) -> None:
         client = ObjectOnlyS3Client()
