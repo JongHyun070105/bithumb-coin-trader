@@ -20,7 +20,7 @@ This would allow S3 to reveal absence as 404 and would preserve the current pipe
 
 ## Option B: use conditional PutObject as create-or-reuse
 
-`S3ArchiveStore.upload()` sends `IfNoneMatch="*"`. A 412 `PreconditionFailed` establishes that a current object prevented the conditional write, so it proceeds to authoritative `HeadObject(ChecksumMode="ENABLED")` for normal verification/reuse. A 409 `ConditionalRequestConflict` does not establish current object existence and is retried as another conditional `PutObject`. Every other error is re-raised.
+`S3ArchiveStore.upload()` sends `IfNoneMatch="*"`. Only the exact response pair HTTP 412 plus `Error.Code=PreconditionFailed` establishes that a current object prevented the conditional write, so it proceeds to authoritative `HeadObject(ChecksumMode="ENABLED")` for normal verification/reuse. Only the exact pair HTTP 409 plus `Error.Code=ConditionalRequestConflict` is retried as another conditional `PutObject`. A status-only or code-only match is insufficient; every incomplete, malformed, or mismatched response pair is re-raised fail-closed without retry or `HeadObject`.
 
 - Least privilege: preserves only object-level `s3:GetObject` and `s3:PutObject`.
 - Race safety: stronger than the probe because S3 evaluates the write precondition atomically. There is no separate existence decision to race.
@@ -88,6 +88,23 @@ GREEN after the review remediation:
 - `test_pre_soak_archive.py`: 31 passed.
 - Archive, scheduler, fullscan, policy, and remediation target set: 204 passed, 5 subtests passed.
 - Full Python suite: 1012 passed, 2 skipped, 133 subtests passed.
+
+A second independent review identified that the implementation matched status and error code independently. Exact-pair regression tests produced the expected RED result before correction:
+
+- 409/`AccessDenied` and 500/`ConditionalRequestConflict` each made three PUT attempts instead of one.
+- 412/`AccessDenied` and 500/`PreconditionFailed` were incorrectly converted into verified reuse.
+- An exact 409 followed by 500/`ConditionalRequestConflict` continued to a third PUT instead of stopping at the second response.
+
+The minimal correction compares the complete `(HTTPStatusCode, Error.Code)` tuple. Only `(409, ConditionalRequestConflict)` retries and only `(412, PreconditionFailed)` verifies/reuses; every other pair propagates immediately.
+
+GREEN after exact-pair correction:
+
+- Exact-pair matrix and positive-path selection: 9 passed.
+- S3 adapter boundary tests: 13 passed.
+- `test_pre_soak_archive.py`: 31 passed.
+- Archive, scheduler, fullscan, policy, and remediation target set: 209 passed, 5 subtests passed.
+- Full Python suite: 1017 passed, 2 skipped, 133 subtests passed.
+- `compileall` and `git diff --check`: PASS.
 
 Static and live read-only checks:
 

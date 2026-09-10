@@ -324,9 +324,10 @@ class S3ArchiveStore:
                 response = getattr(exc, "response", {})
                 status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
                 code = response.get("Error", {}).get("Code")
-                if status == 412 or code == "PreconditionFailed":
+                error_pair = (status, code)
+                if error_pair == (412, "PreconditionFailed"):
                     break
-                if status != 409 and code != "ConditionalRequestConflict":
+                if error_pair != (409, "ConditionalRequestConflict"):
                     raise
                 if attempt + 1 == MAX_S3_CONDITIONAL_PUT_ATTEMPTS:
                     raise

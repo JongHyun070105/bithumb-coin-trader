@@ -55,7 +55,7 @@ class RacingS3Client(FakeS3Client):
 
 
 class ScriptedConditionalS3Client(FakeS3Client):
-    def __init__(self, outcomes: list[str]) -> None:
+    def __init__(self, outcomes: list[str | tuple[int, str]]) -> None:
         super().__init__()
         self.outcomes = outcomes
         self.body_handles = []
@@ -65,6 +65,9 @@ class ScriptedConditionalS3Client(FakeS3Client):
         body = kwargs["Body"].read()
         self.put_requests.append({key: value for key, value in kwargs.items() if key != "Body"})
         outcome = self.outcomes[len(self.put_requests) - 1]
+        if isinstance(outcome, tuple):
+            status, code = outcome
+            raise S3ClientError(status, code, f"{status}/{code}")
         if outcome == "409":
             raise S3ClientError(409, "ConditionalRequestConflict", "concurrent delete conflict")
         if outcome == "412":
@@ -82,6 +85,10 @@ class S3ArchiveStoreTests(unittest.TestCase):
         path = Path(tmp) / "fixture.zst"
         path.write_bytes(b"same-immutable-object")
         return path, hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def _assert_error_pair(self, error: S3ClientError, status: int, code: str) -> None:
+        self.assertEqual(error.response["ResponseMetadata"]["HTTPStatusCode"], status)
+        self.assertEqual(error.response["Error"]["Code"], code)
 
     def test_full_object_sha256_and_stream_restore_contract(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -196,6 +203,80 @@ class S3ArchiveStoreTests(unittest.TestCase):
                 store.upload(path, "prefix/fixture.jsonl.zst", checksum)
 
             self.assertEqual(len(client.put_requests), 1)
+            self.assertEqual(client.head_requests, [])
+
+    def test_409_access_denied_pair_propagates_without_retry_or_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, checksum = self._fixture(tmp)
+            mismatch = (409, "AccessDenied")
+            client = ScriptedConditionalS3Client([mismatch, mismatch, mismatch])
+            store = S3ArchiveStore("example-bucket", client=client)
+
+            with self.assertRaises(S3ClientError) as raised:
+                store.upload(path, "prefix/fixture.jsonl.zst", checksum)
+
+            self._assert_error_pair(raised.exception, *mismatch)
+            self.assertEqual(len(client.put_requests), 1)
+            self.assertEqual(client.head_requests, [])
+
+    def test_500_conditional_conflict_code_propagates_without_retry_or_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, checksum = self._fixture(tmp)
+            mismatch = (500, "ConditionalRequestConflict")
+            client = ScriptedConditionalS3Client([mismatch, mismatch, mismatch])
+            store = S3ArchiveStore("example-bucket", client=client)
+
+            with self.assertRaises(S3ClientError) as raised:
+                store.upload(path, "prefix/fixture.jsonl.zst", checksum)
+
+            self._assert_error_pair(raised.exception, *mismatch)
+            self.assertEqual(len(client.put_requests), 1)
+            self.assertEqual(client.head_requests, [])
+
+    def test_412_access_denied_pair_propagates_without_reuse_or_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, checksum = self._fixture(tmp)
+            key = "prefix/fixture.jsonl.zst"
+            mismatch = (412, "AccessDenied")
+            client = ScriptedConditionalS3Client([mismatch])
+            client.objects[key] = path.read_bytes()
+            store = S3ArchiveStore("example-bucket", client=client)
+
+            with self.assertRaises(S3ClientError) as raised:
+                store.upload(path, key, checksum)
+
+            self._assert_error_pair(raised.exception, *mismatch)
+            self.assertEqual(len(client.put_requests), 1)
+            self.assertEqual(client.head_requests, [])
+
+    def test_500_precondition_failed_code_propagates_without_reuse_or_head(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, checksum = self._fixture(tmp)
+            key = "prefix/fixture.jsonl.zst"
+            mismatch = (500, "PreconditionFailed")
+            client = ScriptedConditionalS3Client([mismatch])
+            client.objects[key] = path.read_bytes()
+            store = S3ArchiveStore("example-bucket", client=client)
+
+            with self.assertRaises(S3ClientError) as raised:
+                store.upload(path, key, checksum)
+
+            self._assert_error_pair(raised.exception, *mismatch)
+            self.assertEqual(len(client.put_requests), 1)
+            self.assertEqual(client.head_requests, [])
+
+    def test_exact_409_then_mismatched_conflict_code_stops_on_second_put(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path, checksum = self._fixture(tmp)
+            mismatch = (500, "ConditionalRequestConflict")
+            client = ScriptedConditionalS3Client(["409", mismatch, mismatch])
+            store = S3ArchiveStore("example-bucket", client=client)
+
+            with self.assertRaises(S3ClientError) as raised:
+                store.upload(path, "prefix/fixture.jsonl.zst", checksum)
+
+            self._assert_error_pair(raised.exception, *mismatch)
+            self.assertEqual(len(client.put_requests), 2)
             self.assertEqual(client.head_requests, [])
 
 
