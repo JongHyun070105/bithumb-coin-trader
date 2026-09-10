@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -27,6 +28,7 @@ from .microstructure_io import CompressedInputError, iter_zstd_decompressed_chun
 RECEIPT_SCHEMA_VERSION = 2
 PARTITION_PATTERN = re.compile(r"_(\d{4}-\d{2}-\d{2})_(\d{2})\.jsonl$")
 MAX_S3_PUT_OBJECT_BYTES = 5 * 1024**3
+MAX_S3_CONDITIONAL_PUT_ATTEMPTS = 3
 
 
 class ArchiveState(str, Enum):
@@ -185,6 +187,8 @@ class MemoryArchiveStore:
 
     def upload(self, local_path: Path, key: str, checksum_sha256_hex: str) -> RemoteObject:
         validate_archive_key(key)
+        if key in self.objects:
+            return self.head(key)
         data = local_path.read_bytes()
         actual = hashlib.sha256(data).hexdigest()
         if actual != checksum_sha256_hex:
@@ -305,24 +309,35 @@ class S3ArchiveStore:
         size = local_path.stat().st_size
         if size > MAX_S3_PUT_OBJECT_BYTES:
             raise ValueError("partition exceeds fail-closed single PutObject limit")
-        try:
-            with local_path.open("rb") as handle:
-                self.client.put_object(
-                    Bucket=self.bucket,
-                    Key=key,
-                    Body=handle,
-                    ContentLength=size,
-                    ChecksumSHA256=_hex_to_base64(checksum_sha256_hex),
-                    IfNoneMatch="*",
-                )
-        except Exception as exc:
-            response = getattr(exc, "response", {})
-            status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            code = response.get("Error", {}).get("Code")
-            if status not in {409, 412} and code not in {"ConditionalRequestConflict", "PreconditionFailed"}:
-                raise
-            # Another worker won the immutable-key race. The caller's normal
-            # size/checksum verification decides whether it is the same object.
+        for attempt in range(MAX_S3_CONDITIONAL_PUT_ATTEMPTS):
+            try:
+                with local_path.open("rb") as handle:
+                    self.client.put_object(
+                        Bucket=self.bucket,
+                        Key=key,
+                        Body=handle,
+                        ContentLength=size,
+                        ChecksumSHA256=_hex_to_base64(checksum_sha256_hex),
+                        IfNoneMatch="*",
+                    )
+                break
+            except Exception as exc:
+                response = getattr(exc, "response", None)
+                if not isinstance(response, Mapping):
+                    raise
+                metadata = response.get("ResponseMetadata")
+                error = response.get("Error")
+                if not isinstance(metadata, Mapping) or not isinstance(error, Mapping):
+                    raise
+                status = metadata.get("HTTPStatusCode")
+                code = error.get("Code")
+                error_pair = (status, code)
+                if error_pair == (412, "PreconditionFailed"):
+                    break
+                if error_pair != (409, "ConditionalRequestConflict"):
+                    raise
+                if attempt + 1 == MAX_S3_CONDITIONAL_PUT_ATTEMPTS:
+                    raise
         return self.head(key)
 
     def head(self, key: str) -> RemoteObject:
@@ -658,8 +673,6 @@ class ArchivePipeline:
 
     def _upload_or_reuse(self, compressed_path: Path, receipt: ArchiveReceipt) -> RemoteObject:
         assert receipt.remote_key and receipt.compressed_sha256
-        if self.store.exists(receipt.remote_key):
-            return self.store.head(receipt.remote_key)
         return self.store.upload(compressed_path, receipt.remote_key, receipt.compressed_sha256)
 
     def _verify_remote(self, remote: RemoteObject, receipt: ArchiveReceipt) -> None:

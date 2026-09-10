@@ -52,3 +52,9 @@ Before applying, preserve the current inline policy JSON and current boundary ve
 4. Create a fresh seal, epoch, run ID, evidence path, and launch provenance.
 5. Run one unattended 45m validation. Do not touch the historical failed run.
 6. Independently review the fresh evidence. Start no 30h run unless every 45m gate passes.
+
+## Future validation diagnostic and post-run guard
+
+During an official unattended validation, diagnostics against the active epoch and S3 namespace must be read-only. `PutObject`, `DeleteObject`, manual archive, receipt rewriting, and test writes under the active prefix are prohibited. If a write diagnostic is ever separately authorized, it must use a distinct diagnostic namespace that can never qualify as validation evidence.
+
+After natural process completion, derive eligibility from actual timestamps and inspect archive terminal evidence first. A run with failed receipts or missing required fullscan remains FAIL; do not create artifacts to requalify it. For a potentially qualifying run, preserve actual-start evidence, compose the official epoch contract, run `build_epoch_manifest.py --strict`, and only then run `audit_72h_soak.py` bound to that sealed root. `epoch_manifest.json` is a post-run evidence artifact, not a collector-runtime output.
