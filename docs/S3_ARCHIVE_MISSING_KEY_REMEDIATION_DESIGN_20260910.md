@@ -106,6 +106,19 @@ GREEN after exact-pair correction:
 - Full Python suite: 1017 passed, 2 skipped, 133 subtests passed.
 - `compileall` and `git diff --check`: PASS.
 
+A third independent review identified that malformed exception-response containers could replace the original S3 error with `AttributeError` while the adapter inspected nested `.get()` values. Strict TDD covered `response=None`, an empty response mapping, null and non-mapping metadata/error payloads, missing status/code fields, and exact 409 followed by malformed response. The implementation now validates each response layer as a mapping and uses bare `raise` for every malformed or incomplete structure, preserving the original exception object and traceback.
+
+GREEN after malformed-response correction:
+
+- Malformed-response matrix: 9 passed, 6 subtests passed.
+- Exact-pair and positive-path selection: 9 passed.
+- S3 adapter boundary tests: 22 passed, 6 subtests passed.
+- `test_pre_soak_archive.py`: 31 passed.
+- Archive, scheduler, fullscan, policy, and remediation target set: 218 passed, 11 subtests passed.
+- Full Python suite: 1026 passed, 2 skipped, 139 subtests passed.
+- Pyright on the two changed test files: 0 errors, 0 warnings, 0 information messages. A combined production/test invocation still reports six pre-existing production diagnostics unrelated to this correction.
+- `compileall` and `git diff --check`: PASS.
+
 Static and live read-only checks:
 
 - Terraform format and validation: PASS.

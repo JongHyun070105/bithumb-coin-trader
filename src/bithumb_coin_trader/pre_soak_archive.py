@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -321,9 +322,15 @@ class S3ArchiveStore:
                     )
                 break
             except Exception as exc:
-                response = getattr(exc, "response", {})
-                status = response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-                code = response.get("Error", {}).get("Code")
+                response = getattr(exc, "response", None)
+                if not isinstance(response, Mapping):
+                    raise
+                metadata = response.get("ResponseMetadata")
+                error = response.get("Error")
+                if not isinstance(metadata, Mapping) or not isinstance(error, Mapping):
+                    raise
+                status = metadata.get("HTTPStatusCode")
+                code = error.get("Code")
                 error_pair = (status, code)
                 if error_pair == (412, "PreconditionFailed"):
                     break

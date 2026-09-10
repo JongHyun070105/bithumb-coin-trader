@@ -214,7 +214,7 @@ class ArchivePipelineTests(unittest.TestCase):
         self.assertEqual(client.objects[key], b"wrong-object")
         self.assertEqual(len(client.put_requests), 1)
         receipt = self.pipeline._load_receipt(self.pipeline.receipt_path(self.raw))
-        self.assertIsNotNone(receipt)
+        assert receipt is not None
         self.assertEqual(receipt.state, ArchiveState.FAILED.value)
 
     def test_conditional_s3_write_race_reuses_winner_deterministically(self) -> None:
@@ -236,7 +236,7 @@ class ArchivePipelineTests(unittest.TestCase):
 
         self.assertEqual(len(client.put_requests), 1)
         receipt = self.pipeline._load_receipt(self.pipeline.receipt_path(self.raw))
-        self.assertIsNotNone(receipt)
+        assert receipt is not None
         self.assertEqual(receipt.state, ArchiveState.FAILED.value)
         self.assertEqual(receipt.failure_stage, ArchiveState.COMPRESSED_VERIFIED.value)
 
