@@ -532,7 +532,9 @@ class TimestampStats:
 def parse_partition_path(rel_path: str | Path, manifest_meta: dict[str, Any] | None = None) -> tuple[str, str, str, str] | None:
     """Extract (exchange, stream, market, hour) from partition path and manifest metadata."""
     p = Path(rel_path)
-    hour_match = re.search(r"(\d{4}-?\d{2}-?\d{2}[-_]\d{2}|\d{8}[-_]\d{2})", str(rel_path))
+    hour_match = re.search(r"(\d{4}-?\d{2}-?\d{2}[-_]\d{2}|\b\d{8}[-_]\d{2}\b)", p.name)
+    if not hour_match:
+        hour_match = re.search(r"(\d{4}-?\d{2}-?\d{2}[-_]\d{2}|\b\d{8}[-_]\d{2}\b)", str(rel_path))
     hour = hour_match.group(1).replace("/", "_") if hour_match else "unknown"
 
     if manifest_meta:

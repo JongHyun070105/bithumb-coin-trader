@@ -1,0 +1,9 @@
+{
+  "collector_run_id": "aws-validation-45m-run-20260911T104000Z-1976f0f",
+  "counters": {
+    "queue_drops": 0,
+    "writer_errors": 0
+  },
+  "published_at": "2026-09-11T15:24:26.727381+00:00",
+  "schema_version": 1
+}

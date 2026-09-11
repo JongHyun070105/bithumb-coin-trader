@@ -1,0 +1,12 @@
+{
+  "pid": 532434,
+  "run_id": "aws-validation-45m-run-20260911T104000Z-1976f0f",
+  "cohort": "2026-09-11_14",
+  "date": "2026-09-11",
+  "hour": "14",
+  "epoch": "aws-validation-45m-20260911-1976f0f",
+  "start_time": "2026-09-11T15:13:14.182750+00:00",
+  "timeout_seconds": 1800.0,
+  "status": "RUNNING",
+  "process_start_time": "90160453"
+}

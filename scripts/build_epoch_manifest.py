@@ -355,7 +355,7 @@ def build_epoch_manifest(
                 "file_name": rf.name,
                 "receipt_sha256": r_sha,
                 "status": r_data.get("status") or r_data.get("state") or "UNKNOWN",
-                "restore_verified": bool(r_data.get("restore_verified")),
+                "restore_verified": bool(r_data.get("restore_verified") or r_data.get("restore_verified_at")),
                 "file_count": r_data.get("file_count", 0),
             })
         except Exception as e:
@@ -375,8 +375,8 @@ def build_epoch_manifest(
             fullscan_entries.append({
                 "file_name": fs.name,
                 "fullscan_sha256": fs_sha,
-                "status": fs_data.get("status", "UNKNOWN"),
-                "total_records": fs_data.get("total_records", 0),
+                "status": fs_data.get("status") or fs_data.get("integrity", {}).get("totals", {}).get("status") or "UNKNOWN",
+                "total_records": fs_data.get("total_records") or fs_data.get("integrity", {}).get("totals", {}).get("records") or 0,
             })
         except Exception as e:
             if strict:
@@ -402,7 +402,9 @@ def build_epoch_manifest(
     feed_universe = SoakAuditor72H.get_expected_feed_universe()
 
     cohorts_to_check = expected_raw_cohorts or sorted(found_feeds_by_cohort.keys())
-    for ch in cohorts_to_check:
+    # Closed cohorts require full 76-feed universe.
+    closed_cohorts = expected_archive_cohorts or cohorts_to_check
+    for ch in closed_cohorts:
         ch_feeds = found_feeds_by_cohort.get(ch, set())
         for exch, strm, mkt in feed_universe:
             k = f"{exch}/{mkt}/{strm}"
@@ -420,7 +422,7 @@ def build_epoch_manifest(
         for ch in archive_cohorts_to_check:
             norm_ch = re.sub(r"[-_]", "", ch)
             has_receipt = any(
-                (r["hour_cohort"] == ch or re.sub(r"[-_]", "", r["hour_cohort"]) == norm_ch or norm_ch in re.sub(r"[-_]", "", r["file_name"]))
+                (r["hour_cohort"] == ch or re.sub(r"[-_]", "", str(r["hour_cohort"])) == norm_ch or norm_ch in re.sub(r"[-_]", "", r["file_name"]))
                 and r["restore_verified"]
                 for r in receipt_entries
             )
