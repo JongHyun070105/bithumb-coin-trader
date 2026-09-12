@@ -19,22 +19,62 @@ def _command(value: str) -> tuple[str, ...]:
     return tuple(parsed)
 
 
+def _extract_supervisor_duration(supervisor_command: Sequence[str]) -> int | None:
+    for idx, token in enumerate(supervisor_command):
+        if token in ("--collection-duration-seconds", "--duration"):
+            if idx + 1 >= len(supervisor_command):
+                raise ValueError(f"missing value for supervisor command flag: {token}")
+            raw = supervisor_command[idx + 1]
+            try:
+                val = float(raw)
+            except ValueError as err:
+                raise ValueError(f"invalid supervisor command duration: {raw!r}") from err
+            if not val.is_integer():
+                raise ValueError(f"supervisor command duration must be integer: {raw!r}")
+            return int(val)
+        for prefix in ("--collection-duration-seconds=", "--duration="):
+            if token.startswith(prefix):
+                raw = token[len(prefix):]
+                try:
+                    val = float(raw)
+                except ValueError as err:
+                    raise ValueError(f"invalid supervisor command duration: {raw!r}") from err
+                if not val.is_integer():
+                    raise ValueError(f"supervisor command duration must be integer: {raw!r}")
+                return int(val)
+    return None
+
+
+def _validate_cross_layer_duration(
+    launcher_duration: int,
+    supervisor_command: Sequence[str],
+) -> None:
+    supervisor_duration = _extract_supervisor_duration(supervisor_command)
+    if supervisor_duration is not None and supervisor_duration != launcher_duration:
+        raise ValueError(
+            f"collection duration mismatch: launcher declared {launcher_duration}s "
+            f"but supervisor command specifies {supervisor_duration}s"
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--workdir", type=Path, required=True)
     parser.add_argument("--supervisor-command-json", type=_command, required=True)
+    parser.add_argument("--collection-duration-seconds", type=int, default=2700)
     parser.add_argument("--finalization-timeout-seconds", type=int, default=120)
     parser.add_argument("--supervisor-hard-ceiling-seconds", type=int, default=2820)
     parser.add_argument("--systemd-runtime-max-seconds", type=int, default=2880)
     parser.add_argument("--launch", action="store_true")
     args = parser.parse_args(argv)
+    _validate_cross_layer_duration(args.collection_duration_seconds, args.supervisor_command_json)
     command = render_systemd_run(
         TransientLaunchConfig(
             run_id=args.run_id,
             workdir=args.workdir,
             supervisor_command=args.supervisor_command_json,
-            collection_duration_seconds=2700,
+            collection_duration_seconds=args.collection_duration_seconds,
             finalization_timeout_seconds=args.finalization_timeout_seconds,
             supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
