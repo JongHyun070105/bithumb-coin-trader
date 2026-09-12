@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "collector_epoch": "aws-validation-45m-20260911-1976f0f",
+  "collector_run_id": "aws-validation-45m-run-20260911T104000Z-1976f0f",
+  "actual_start_time_utc": "2026-09-11T14:40:03.079392+00:00",
+  "start_evidence_type": "PROCESS_EXEC_START",
+  "source": "systemd ActiveEnterTimestamp=Fri 2026-09-11 14:40:03 UTC; result.json started_at 2026-09-11T14:40:03.079392+00:00; collector_metrics.json collector_started_at 2026-09-11T14:40:03.233966+00:00",
+  "runtime_commit": "1976f0f33b0ee1e1483b485c9cb2945fc3bb6f28",
+  "runtime_fingerprint": "51694e7537fcbec5337d880ff5e75961fe9883559b39d7c6da83714a7da78cb4",
+  "captured_at_utc": "2026-09-11T15:25:25Z"
+}

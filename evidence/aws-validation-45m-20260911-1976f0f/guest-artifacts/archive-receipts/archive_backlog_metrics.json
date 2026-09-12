@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-09-11T15:10:04.129688+00:00",
+  "pending_archive_jobs": 0,
+  "pending_full_scan_jobs": 1,
+  "completed_full_scan_jobs": 0,
+  "failed_full_scan_jobs": 0,
+  "running_full_scan_jobs": 1,
+  "oldest_pending_age_seconds": null,
+  "archive_job_failures": 0,
+  "archive_errors": [],
+  "archived_count": 76,
+  "already_verified_count": 0,
+  "manifests_generated": 76,
+  "cohorts_detected": [
+    "2026-09-11_14"
+  ],
+  "scan_results": {
+    "2026-09-11_14": {
+      "success": true,
+      "message": "Launched detached background supervisor PID 532434"
+    }
+  }
+}

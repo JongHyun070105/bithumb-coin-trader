@@ -1,0 +1,91 @@
+{
+  "active_partition_files": [],
+  "collector_config_fingerprint": "51694e7537fcbec5337d880ff5e75961fe9883559b39d7c6da83714a7da78cb4",
+  "collector_epoch": "aws-validation-45m-20260911-1976f0f",
+  "collector_git_commit": "1976f0f33b0ee1e1483b485c9cb2945fc3bb6f28",
+  "collector_run_id": "aws-validation-45m-run-20260911T104000Z-1976f0f",
+  "collector_started_at": "2026-09-11T14:40:03.233966+00:00",
+  "environment_id": "aws-apne2-research",
+  "exchanges": {
+    "binance": {
+      "current_connection_uptime_seconds": 2700.01,
+      "disconnect_count": 0,
+      "exchange": "binance",
+      "kb_per_sec": 84.11,
+      "last_reconnect_reason": "",
+      "malformed_quarantined": 0,
+      "msg_per_sec": 242.61,
+      "queue_backpressure_events": 0,
+      "queue_dropped_events": 0,
+      "reconnect_count": 0,
+      "seconds_since_last_connection_event": 0.05,
+      "stream_counts": {
+        "orderbook": 103526,
+        "ticker": 0,
+        "trade": 551545
+      },
+      "total_bytes": 232554758,
+      "total_messages": 655071,
+      "trade_duplicates": 0,
+      "trade_sequence_gaps": 0,
+      "uptime_seconds": 2700.05,
+      "writer_errors": 0
+    },
+    "bithumb": {
+      "current_connection_uptime_seconds": 2700.04,
+      "disconnect_count": 0,
+      "exchange": "bithumb",
+      "kb_per_sec": 114.84,
+      "last_reconnect_reason": "",
+      "malformed_quarantined": 0,
+      "msg_per_sec": 90.02,
+      "queue_backpressure_events": 0,
+      "queue_dropped_events": 0,
+      "reconnect_count": 0,
+      "seconds_since_last_connection_event": 0.02,
+      "stream_counts": {
+        "orderbook": 228807,
+        "ticker": 5728,
+        "trade": 8533
+      },
+      "total_bytes": 317513761,
+      "total_messages": 243068,
+      "trade_duplicates": 0,
+      "trade_sequence_gaps": 0,
+      "uptime_seconds": 2700.05,
+      "writer_errors": 0
+    },
+    "upbit": {
+      "current_connection_uptime_seconds": 2700.01,
+      "disconnect_count": 0,
+      "exchange": "upbit",
+      "kb_per_sec": 91.81,
+      "last_reconnect_reason": "",
+      "malformed_quarantined": 0,
+      "msg_per_sec": 37.08,
+      "queue_backpressure_events": 0,
+      "queue_dropped_events": 0,
+      "reconnect_count": 0,
+      "seconds_since_last_connection_event": 0.02,
+      "stream_counts": {
+        "orderbook": 85597,
+        "ticker": 0,
+        "trade": 14531
+      },
+      "total_bytes": 253853768,
+      "total_messages": 100128,
+      "trade_duplicates": 0,
+      "trade_sequence_gaps": 0,
+      "uptime_seconds": 2700.05,
+      "writer_errors": 0
+    }
+  },
+  "fatal_writer_error_type": null,
+  "process_id": 530572,
+  "queue_maxsize": 50000,
+  "queue_size": 0,
+  "schema_version": 1,
+  "unpersisted_event_count": 0,
+  "writer_fail_closed": false,
+  "written_at": "2026-09-11T15:25:03.280838+00:00"
+}

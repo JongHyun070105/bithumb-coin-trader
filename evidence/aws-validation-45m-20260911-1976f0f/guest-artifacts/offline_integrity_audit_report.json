@@ -1,0 +1,28 @@
+{
+  "scan": "FULL_SCAN_ALL_DISCOVERED_RAW_AND_ZSTD_PARTITIONS",
+  "epoch": "aws-validation-45m-20260911-1976f0f",
+  "total_inputs": 226,
+  "integrity": {
+    "totals": {
+      "files": 226,
+      "logical_bytes": 1634567776,
+      "records": 1485205,
+      "valid_records": 1485205,
+      "invalid_json": 0,
+      "schema_mismatch": 0,
+      "missing_required_fields": 0,
+      "non_finite_numeric": 0,
+      "malformed_timestamps": 0,
+      "unknown_market": 0,
+      "scan_failures": 0,
+      "compressed_files": 76,
+      "status": "PASS"
+    },
+    "failures": []
+  },
+  "quarantine": {
+    "records": 0,
+    "reasons": {},
+    "malformed": 0
+  }
+}
