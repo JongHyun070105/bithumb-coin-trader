@@ -79,8 +79,8 @@ class TransientLaunchConfig:
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if not SAFE_RUN_ID.fullmatch(config.run_id):
         raise ValueError("run_id must be a safe identifier")
-    if config.collection_duration_seconds not in (2700, 7200, 259200):
-        raise ValueError("production supervisor duration must be exactly 2700, 7200, or 259200 seconds")
+    if config.collection_duration_seconds not in (2700, 7200, 108000, 259200):
+        raise ValueError("production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds")
     if config.supervisor_hard_ceiling_seconds < (
         config.collection_duration_seconds + config.finalization_timeout_seconds
     ):
@@ -91,6 +91,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         raise ValueError("workdir must be absolute and supervisor_command must be non-empty")
     if config.collection_duration_seconds == 259200:
         prefix = "bitcoin-trader-72h-soak"
+    elif config.collection_duration_seconds == 108000:
+        prefix = "bitcoin-trader-30h"
     elif config.collection_duration_seconds == 7200:
         prefix = "bitcoin-trader-120m"
     else:
