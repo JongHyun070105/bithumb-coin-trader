@@ -19,11 +19,14 @@ def _command(value: str) -> tuple[str, ...]:
     return tuple(parsed)
 
 
-def _extract_supervisor_duration(supervisor_command: Sequence[str]) -> int | None:
-    for idx, token in enumerate(supervisor_command):
-        if token in ("--collection-duration-seconds", "--duration"):
+def _extract_supervisor_duration(supervisor_command: Sequence[str]) -> int:
+    durations: list[int] = []
+    idx = 0
+    while idx < len(supervisor_command):
+        token = supervisor_command[idx]
+        if token == "--collection-duration-seconds":
             if idx + 1 >= len(supervisor_command):
-                raise ValueError(f"missing value for supervisor command flag: {token}")
+                raise ValueError("missing value for supervisor command flag: --collection-duration-seconds")
             raw = supervisor_command[idx + 1]
             try:
                 val = float(raw)
@@ -31,18 +34,29 @@ def _extract_supervisor_duration(supervisor_command: Sequence[str]) -> int | Non
                 raise ValueError(f"invalid supervisor command duration: {raw!r}") from err
             if not val.is_integer():
                 raise ValueError(f"supervisor command duration must be integer: {raw!r}")
-            return int(val)
-        for prefix in ("--collection-duration-seconds=", "--duration="):
-            if token.startswith(prefix):
-                raw = token[len(prefix):]
-                try:
-                    val = float(raw)
-                except ValueError as err:
-                    raise ValueError(f"invalid supervisor command duration: {raw!r}") from err
-                if not val.is_integer():
-                    raise ValueError(f"supervisor command duration must be integer: {raw!r}")
-                return int(val)
-    return None
+            durations.append(int(val))
+            idx += 2
+            continue
+        if token.startswith("--collection-duration-seconds="):
+            raw = token[len("--collection-duration-seconds=") :]
+            if not raw:
+                raise ValueError("missing value for supervisor command flag: --collection-duration-seconds=")
+            try:
+                val = float(raw)
+            except ValueError as err:
+                raise ValueError(f"invalid supervisor command duration: {raw!r}") from err
+            if not val.is_integer():
+                raise ValueError(f"supervisor command duration must be integer: {raw!r}")
+            durations.append(int(val))
+            idx += 1
+            continue
+        idx += 1
+
+    if len(durations) == 0:
+        raise ValueError("supervisor command must declare exactly one collection duration")
+    if len(durations) > 1:
+        raise ValueError("duplicate supervisor collection duration")
+    return durations[0]
 
 
 def _validate_cross_layer_duration(
@@ -50,7 +64,7 @@ def _validate_cross_layer_duration(
     supervisor_command: Sequence[str],
 ) -> None:
     supervisor_duration = _extract_supervisor_duration(supervisor_command)
-    if supervisor_duration is not None and supervisor_duration != launcher_duration:
+    if supervisor_duration != launcher_duration:
         raise ValueError(
             f"collection duration mismatch: launcher declared {launcher_duration}s "
             f"but supervisor command specifies {supervisor_duration}s"
