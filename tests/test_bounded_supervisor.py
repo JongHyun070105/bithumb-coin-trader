@@ -59,7 +59,14 @@ class BoundedSupervisorTests(unittest.TestCase):
         )
         return command + (("--hang-finalization",) if hang_finalization else ())
 
-    def _publisher(self, paths: dict[str, Path], run_id: str, exit_code: int = 0) -> tuple[str, ...]:
+    def _publisher(
+        self,
+        paths: dict[str, Path],
+        run_id: str,
+        exit_code: int = 0,
+        *,
+        sleep: float = 0.02,
+    ) -> tuple[str, ...]:
         return (
             sys.executable,
             str(FIXTURE),
@@ -69,7 +76,7 @@ class BoundedSupervisorTests(unittest.TestCase):
             "--events",
             str(paths["events"]),
             "--sleep",
-            "0.02",
+            str(sleep),
             "--exit-code",
             str(exit_code),
         )
@@ -97,7 +104,10 @@ class BoundedSupervisorTests(unittest.TestCase):
                 run_id=run_id,
                 collection_duration_seconds=0.4,
                 collector_command=self._collector(paths, run_id),
-                publisher_command=self._publisher(paths, run_id),
+                # This test exercises supervisor-owned shutdown. Keep the
+                # publisher alive longer than the 0.15s collector lifetime so
+                # scheduler timing cannot select the natural-exit branch.
+                publisher_command=self._publisher(paths, run_id, sleep=1.0),
                 metrics_path=paths["metrics"],
                 collector_lifecycle_path=paths["lifecycle"],
                 result_path=paths["result"],
@@ -119,6 +129,36 @@ class BoundedSupervisorTests(unittest.TestCase):
             self.assertIn("final-metrics", events)
             self.assertIn("final-manifest", events)
             self.assertIn("publisher-start", events)
+
+    def test_natural_publisher_exit_before_collector_is_valid(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = self._paths(Path(tmp))
+            run_id = "aws-short-smoke-run-test-publisher-natural-exit"
+            config = SupervisorConfig(
+                run_id=run_id,
+                collection_duration_seconds=0.5,
+                collector_command=self._collector(paths, run_id, seconds=0.5),
+                publisher_command=self._publisher(paths, run_id, sleep=0.0),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.005,
+                publisher_interval_seconds=10.0,
+                shutdown_grace_seconds=0.2,
+            )
+
+            self.assertEqual(BoundedSupervisor(config).run(), 0)
+            result = json.loads(paths["result"].read_text(encoding="utf-8"))
+            events = paths["events"].read_text(encoding="utf-8")
+            self.assertEqual(result["overall_status"], "PASS")
+            self.assertEqual(result["collector_exit_code"], 0)
+            self.assertTrue(result["publisher_started"])
+            self.assertEqual(result["publisher_exit_code"], 0)
+            self.assertFalse(result["publisher_stopped_after_collector"])
+            self.assertTrue(result["final_metrics_valid"])
+            self.assertTrue(result["final_manifest_flush_observed"])
+            self.assertIn("publisher-stop", events)
 
     def test_publisher_failure_is_visible_and_fails_overall_result(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
