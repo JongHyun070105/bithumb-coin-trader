@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "evidence_kind": "systemd-transient-actual-start-evidence",
+  "collector_epoch": "aws-validation-30h-20260912-6576f63",
+  "collector_run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+  "runtime_code_commit": "6576f632b3f44eb68645bad4304665c0ea87512d",
+  "runtime_git_tree": "5a936a1b3a48f66e938cbe234a853ec7d8c6b027",
+  "runtime_config_fingerprint": "d330923d6c5d57a1399317b315fcbcabcd512624db6c1dd1f4a5420a6089fecf",
+  "v2_preparation_commit": "0aa7ae073b3e14dfdbc53db3e98c5215ef8fbf4b",
+  "authorization_commit": "27d9a0811236341835d8d8e9cfce4dc7c91f3f4e",
+  "authorization_evidence_path": "evidence/aws-validation-30h-20260912-6576f63/launch-authorization.json",
+  "systemd_unit": "bitcoin-trader-30h-aws-validation-30h-run-20260912T103507Z-6576f63.service",
+  "main_pid": 574966,
+  "actual_start_time_utc": "2026-09-12T11:24:51Z",
+  "observed_pre_launch_utc": "2026-09-12T11:24:51Z",
+  "observed_post_launch_utc": "2026-09-12T11:24:51Z",
+  "systemd_start_timestamp": "Sat 2026-09-12 11:24:51 UTC",
+  "systemd_until_timestamp": "Sun 2026-09-13 17:31:31 UTC",
+  "launch_exit_code": 0,
+  "timing_contract": {
+    "collection_duration_seconds": 108000,
+    "finalization_timeout_seconds": 180,
+    "supervisor_hard_ceiling_seconds": 108300,
+    "systemd_runtime_max_seconds": 108400
+  },
+  "scientific_status": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  }
+}
