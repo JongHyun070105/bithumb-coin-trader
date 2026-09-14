@@ -447,5 +447,7 @@ class RawMicrostructureStorage:
                 candidate.resolve().relative_to(base_resolved)
             except (ValueError, FileNotFoundError) as exc:
                 raise FinalizationEvidenceError("PATH_ESCAPE") from exc
+            raise FinalizationEvidenceError("SYMLINK_REJECTED")
 
         return candidate
+

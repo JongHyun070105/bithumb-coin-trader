@@ -449,3 +449,197 @@ def test_finalize_pending_dirty_tail_only(tmp_path: Path) -> None:
     assert entry_dirty.state is FinalizationState.RECOMPUTED
     assert entry_dirty.manifest_relative_path is not None
     assert entry_dirty.source_record_count == 1
+
+
+def test_resolve_raw_path_escape_rejected(tmp_path: Path) -> None:
+    storage = RawMicrostructureStorage(base_dir=tmp_path / "raw")
+    with pytest.raises((FinalizationEvidenceError, ValueError)) as exc_info:
+        storage.resolve_raw("../../etc/passwd")
+    if isinstance(exc_info.value, FinalizationEvidenceError):
+        assert exc_info.value.reason_code == "PATH_ESCAPE"
+
+    with pytest.raises((FinalizationEvidenceError, ValueError)) as exc_info:
+        storage.resolve_raw("/absolute/path")
+    if isinstance(exc_info.value, FinalizationEvidenceError):
+        assert exc_info.value.reason_code == "PATH_ESCAPE"
+
+
+def test_resolve_raw_symlink_rejected(tmp_path: Path) -> None:
+    raw_dir = tmp_path / "raw"
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Symlink pointing outside base_dir
+    outside_file = outside_dir / "secret.jsonl"
+    outside_file.write_text("secret\n")
+    outside_symlink = raw_dir / "outside_link.jsonl"
+    outside_symlink.symlink_to(outside_file)
+
+    storage = RawMicrostructureStorage(base_dir=raw_dir)
+    with pytest.raises(FinalizationEvidenceError) as exc_info:
+        storage.resolve_raw("outside_link.jsonl")
+    assert exc_info.value.reason_code in ("PATH_ESCAPE", "SYMLINK_REJECTED")
+
+    # 2. Symlink pointing inside base_dir
+    real_file = raw_dir / "real.jsonl"
+    real_file.write_text("payload\n")
+    inside_symlink = raw_dir / "inside_link.jsonl"
+    inside_symlink.symlink_to(real_file)
+
+    with pytest.raises(FinalizationEvidenceError) as exc_info:
+        storage.resolve_raw("inside_link.jsonl")
+    assert exc_info.value.reason_code in ("SYMLINK_REJECTED", "PATH_ESCAPE")
+
+
+def test_corrupt_receipt_marks_failed_without_recomputing(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    receipt_root = tmp_path / "receipts"
+    progress_root = tmp_path / "progress"
+
+    raw_root.mkdir(parents=True, exist_ok=True)
+    receipt_root.mkdir(parents=True, exist_ok=True)
+    progress_root.mkdir(parents=True, exist_ok=True)
+
+    storage = RawMicrostructureStorage(base_dir=raw_root)
+    store = FinalizationProgressStore(progress_root)
+
+    raw_rel = "2026-09-14/bithumb/trade/bithumb_trade_krw-btc_2026-09-14_11.jsonl"
+    raw_file = raw_root / raw_rel
+    raw_file.parent.mkdir(parents=True, exist_ok=True)
+    raw_file.write_text("should_not_be_read\n")
+
+    # Write corrupt JSON receipt
+    receipt_file = receipt_root / f"{raw_file.name}.archive-receipt.json"
+    receipt_file.write_text("{ corrupt json here !!!")
+
+    ident = make_identity(cohort="2026-09-14_11", raw_rel=raw_rel)
+    store.register_pending(ident)
+
+    finalizer = IncrementalManifestFinalizer(store, storage, receipt_root)
+
+    # Track open calls to raw_file to prove it was never opened
+    raw_opened = False
+    original_open = Path.open
+
+    def guarded_open(self: Path, *args, **kwargs):
+        nonlocal raw_opened
+        if self.resolve() == raw_file.resolve():
+            raw_opened = True
+            raise AssertionError(f"RAW file {raw_file} was opened!")
+        return original_open(self, *args, **kwargs)
+
+    with patch.object(Path, "open", guarded_open):
+        summary = finalizer.finalize_pending()
+
+    assert not raw_opened
+    assert summary.reused_count == 0
+    assert summary.recomputed_count == 0
+    assert summary.failed_count == 1
+    assert summary.pending_count == 0
+
+    entry = store.get_entry(ident.entry_id)
+    assert entry.state is FinalizationState.FAILED
+    assert entry.failure_reason_code == "CORRUPT_ARCHIVE_RECEIPT"
+
+
+def test_receipt_source_path_mismatch_fails_closed(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    receipt_root = tmp_path / "receipts"
+    progress_root = tmp_path / "progress"
+
+    raw_root.mkdir(parents=True, exist_ok=True)
+    receipt_root.mkdir(parents=True, exist_ok=True)
+    progress_root.mkdir(parents=True, exist_ok=True)
+
+    storage = RawMicrostructureStorage(base_dir=raw_root)
+    store = FinalizationProgressStore(progress_root)
+
+    raw_rel = "2026-09-14/bithumb/trade/bithumb_trade_krw-btc_2026-09-14_11.jsonl"
+    raw_file = raw_root / raw_rel
+    raw_file.parent.mkdir(parents=True, exist_ok=True)
+    raw_file.write_text("content\n")
+
+    manifest_file = storage.manifest_dir / f"manifest_{raw_file.stem}.json"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    import hashlib
+    content_bytes = raw_file.read_bytes()
+    manifest_data = {
+        "partition_path": str(raw_file.relative_to(raw_root.parent.parent)),
+        "sha256": hashlib.sha256(content_bytes).hexdigest(),
+        "bytes": len(content_bytes),
+        "record_count": 1,
+    }
+    manifest_file.write_text(json.dumps(manifest_data), encoding="utf-8")
+    manifest_sha256 = hashlib.sha256(manifest_file.read_bytes()).hexdigest()
+
+    # Receipt with mismatched partition
+    receipt_file = receipt_root / f"{raw_file.name}.archive-receipt.json"
+    receipt_dict = {
+        "schema_version": 2,
+        "state": "ARCHIVED",
+        "environment_id": "aws-v3",
+        "run_id": "run-001",
+        "collector_epoch": "epoch-001",
+        "partition": "2026-09-14/binance/depth/wrong_stream.jsonl",
+        "cohort": "2026-09-14_11",
+        "exchange": "bithumb",
+        "stream": "trade",
+        "market": "KRW-BTC",
+        "feed_identity": "bithumb:trade:KRW-BTC",
+        "raw_size": len(content_bytes),
+        "raw_sha256": hashlib.sha256(content_bytes).hexdigest(),
+        "raw_record_count": 1,
+        "manifest_relative_path": str(manifest_file.relative_to(storage.manifest_dir.parent)),
+        "manifest_file_sha256": manifest_sha256,
+        "artifact_kind": "RAW_DATA",
+    }
+    receipt_file.write_text(json.dumps(receipt_dict), encoding="utf-8")
+
+    ident = make_identity(cohort="2026-09-14_11", raw_rel=raw_rel)
+    store.register_pending(ident)
+
+    finalizer = IncrementalManifestFinalizer(store, storage, receipt_root)
+    summary = finalizer.finalize_pending()
+
+    assert summary.failed_count == 1
+    assert summary.reused_count == 0
+    entry = store.get_entry(ident.entry_id)
+    assert entry.state is FinalizationState.FAILED
+    assert entry.failure_reason_code == "RECEIPT_SOURCE_PATH_MISMATCH"
+
+
+def test_mark_complete_transaction_safety(tmp_path: Path) -> None:
+    progress_dir = tmp_path / "finalization-progress"
+    store = FinalizationProgressStore(progress_dir)
+    ident = make_identity()
+    store.register_pending(ident)
+    store.mark_recomputed(ident.entry_id, make_binding())
+
+    # Summary is IN_PROGRESS with 0 pending and 0 failed
+    summary = store.summary()
+    assert summary.pending_count == 0
+    assert summary.failed_count == 0
+    gen_before = summary.generation
+
+    # mark_complete transitions to COMPLETE
+    completed_summary = store.mark_complete()
+    assert completed_summary.state == "COMPLETE"
+
+    # Generation in summary.json and pending.json must match
+    summary_file = progress_dir / "summary.json"
+    pending_file = progress_dir / "pending.json"
+    s_data = json.loads(summary_file.read_text(encoding="utf-8"))
+    p_data = json.loads(pending_file.read_text(encoding="utf-8"))
+
+    assert s_data["generation"] == p_data["generation"]
+    assert s_data["state"] == "COMPLETE"
+    assert s_data["generation"] == gen_before
+
+    # Reconcile safely succeeds without unexplained generation jump
+    recovered = FinalizationProgressStore(progress_dir)
+    rec_summary = recovered.reconcile()
+    assert rec_summary.state == "COMPLETE"
+    assert rec_summary.generation == gen_before
+
+

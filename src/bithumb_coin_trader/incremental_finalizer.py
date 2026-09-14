@@ -713,14 +713,11 @@ class FinalizationProgressStore:
             self._reconcile_locked()
             summary_dict = json.loads(self.summary_file.read_text(encoding="utf-8"))
             if summary_dict["pending_count"] == 0 and summary_dict["failed_count"] == 0:
-                summary_dict["state"] = "COMPLETE"
-                new_gen = summary_dict["generation"] + 1
-                summary_dict["generation"] = new_gen
-                pending_dict = json.loads(self.pending_file.read_text(encoding="utf-8"))
-                pending_dict["generation"] = new_gen
-                _atomic_json(self.pending_file, pending_dict)
-                _atomic_json(self.summary_file, summary_dict)
+                if summary_dict.get("state") != "COMPLETE":
+                    summary_dict["state"] = "COMPLETE"
+                    _atomic_json(self.summary_file, summary_dict)
             return FinalizationSummary.from_dict(summary_dict)
+
 
     def complete_if_terminal(self) -> FinalizationSummary:
         return self.mark_complete()
@@ -769,30 +766,37 @@ class IncrementalManifestFinalizer:
             clean_rel = clean_rel[4:]
         elif clean_rel.startswith("/raw/"):
             clean_rel = clean_rel[5:]
-        raw_name = Path(clean_rel).name
+        elif clean_rel.startswith("data/microstructure/raw/"):
+            clean_rel = clean_rel[len("data/microstructure/raw/"):]
 
-        candidates = [
-            self.receipt_root / Path(clean_rel).parent / f"{raw_name}.archive-receipt.json",
+        raw_name = Path(raw_rel).name
+        clean_path = Path(clean_rel)
+        cohort = entry.identity.cohort
+
+        candidates: list[Path] = [
+            self.receipt_root / f"{raw_rel}.archive-receipt.json",
+            self.receipt_root / f"{clean_rel}.archive-receipt.json",
             self.receipt_root / f"{raw_name}.archive-receipt.json",
+            self.receipt_root / cohort / f"{raw_name}.archive-receipt.json",
             self.receipt_root / Path(raw_rel).parent / f"{raw_name}.archive-receipt.json",
+            self.receipt_root / clean_path.parent / f"{raw_name}.archive-receipt.json",
         ]
 
+        seen: set[Path] = set()
         for cand in candidates:
+            if cand in seen:
+                continue
+            seen.add(cand)
             if cand.exists() and cand.is_file():
                 try:
                     data = json.loads(cand.read_text(encoding="utf-8"))
+                    if not isinstance(data, dict):
+                        raise FinalizationEvidenceError("CORRUPT_ARCHIVE_RECEIPT")
                     return cand, data
-                except Exception:
-                    return cand, None
-
-        matches = list(self.receipt_root.glob(f"**/{raw_name}.archive-receipt.json"))
-        if matches:
-            cand = matches[0]
-            try:
-                data = json.loads(cand.read_text(encoding="utf-8"))
-                return cand, data
-            except Exception:
-                return cand, None
+                except FinalizationEvidenceError:
+                    raise
+                except Exception as exc:
+                    raise FinalizationEvidenceError("CORRUPT_ARCHIVE_RECEIPT") from exc
 
         return None, None
 
@@ -802,6 +806,26 @@ class IncrementalManifestFinalizer:
         receipt_file: Path,
         receipt: dict[str, Any],
     ) -> ArtifactBinding:
+        # Check source relative path / partition
+        receipt_source = (
+            receipt.get("source_relative_path")
+            or receipt.get("raw_relative_path")
+            or receipt.get("partition")
+        )
+        if receipt_source is not None and str(receipt_source).strip():
+            norm_receipt = Path(str(receipt_source)).as_posix().lstrip("/")
+            norm_entry = Path(entry.identity.raw_relative_path).as_posix().lstrip("/")
+
+            def _clean(p: str) -> str:
+                if p.startswith("raw/"):
+                    return p[4:]
+                if p.startswith("data/microstructure/raw/"):
+                    return p[len("data/microstructure/raw/"):]
+                return p
+
+            if norm_receipt != norm_entry and _clean(norm_receipt) != _clean(norm_entry):
+                raise FinalizationEvidenceError("RECEIPT_SOURCE_PATH_MISMATCH")
+
         # Check epoch & run_id
         receipt_epoch = receipt.get("collector_epoch")
         receipt_run = receipt.get("collector_run_id") or receipt.get("run_id")
