@@ -13,6 +13,7 @@ from bithumb_coin_trader.evidence_hashing import (
 )
 from bithumb_coin_trader.actual_start_evidence import (
     ActualStartIdentity,
+    EVIDENCE_KIND,
     NormalizedActualStartEvidence,
     normalize_actual_start_evidence,
 )
@@ -56,7 +57,7 @@ def test_exact_v2_legacy_fixture_normalizes() -> None:
     assert normalized.source == payload["systemd_unit"]
     assert normalized.captured_at_utc == "2026-09-12T11:24:51Z"
     assert normalized.schema_version == 1
-    assert normalized.evidence_kind == "systemd-transient-actual-start-evidence"
+    assert normalized.evidence_kind == EVIDENCE_KIND
 
 
 @pytest.mark.parametrize("field,value,reason", [
@@ -76,12 +77,46 @@ def test_legacy_mutations_fail_closed(field: str, value: object, reason: str) ->
         normalize_actual_start_evidence(payload, expected_identity(payload))
 
 
+@pytest.mark.parametrize("field,value", [
+    ("collector_epoch", "wrong-epoch"),
+    ("collector_run_id", "wrong-run"),
+    ("runtime_code_commit", "wrong-commit"),
+    ("runtime_config_fingerprint", "wrong-fp"),
+])
+def test_legacy_v1_identity_mismatch(field: str, value: str) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload[field] = value
+    with pytest.raises(ValueError, match="ACTUAL_START_"):
+        # Use the original fixture's correct identity, so only the mutated field causes a mismatch
+        orig = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        normalize_actual_start_evidence(payload, expected_identity(orig))
+
+
+def test_legacy_v1_bad_captured_at_timestamp() -> None:
+    """observed_post_launch_utc with non-zero offset must raise ACTUAL_START_TIMESTAMP_NOT_UTC."""
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    payload["observed_post_launch_utc"] = "2026-09-12T20:24:51+09:00"  # non-zero offset
+    with pytest.raises(ValueError, match="ACTUAL_START_TIMESTAMP_NOT_UTC"):
+        normalize_actual_start_evidence(payload, expected_identity(payload))
+
+
+def test_file_sha256_known_content(tmp_path: Path) -> None:
+    import hashlib
+    content = b"hello world"
+    f = tmp_path / "test.bin"
+    f.write_bytes(content)
+    expected = hashlib.sha256(content).hexdigest()
+    assert file_sha256(f) == expected
+    # Also accepts str path
+    assert file_sha256(str(f)) == expected
+
+
 # ── Canonical v2 schema ───────────────────────────────────────────────────
 
 def test_canonical_v2_normalizes() -> None:
     payload = {
         "schema_version": 2,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
         "collector_epoch": "epoch-test",
         "collector_run_id": "run-test",
         "runtime_commit": "aabbcc",
@@ -111,7 +146,7 @@ def test_canonical_v2_normalizes() -> None:
 def test_canonical_v2_identity_mismatch(field: str, value: str) -> None:
     payload = {
         "schema_version": 2,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
         "collector_epoch": "epoch-test",
         "collector_run_id": "run-test",
         "runtime_commit": "aabbcc",
@@ -140,7 +175,7 @@ def test_canonical_v2_identity_mismatch(field: str, value: str) -> None:
 def test_canonical_v2_bad_timestamps(ts: object) -> None:
     payload = {
         "schema_version": 2,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
         "collector_epoch": "epoch-test",
         "collector_run_id": "run-test",
         "runtime_commit": "aabbcc",
@@ -162,7 +197,7 @@ def test_canonical_v2_bad_timestamps(ts: object) -> None:
 def test_unsupported_schema_version() -> None:
     payload = {
         "schema_version": 99,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
     }
     identity = ActualStartIdentity(
         collector_epoch="e", collector_run_id="r", runtime_commit="c", runtime_config_fingerprint="f"
@@ -193,7 +228,7 @@ def test_wrong_evidence_kind() -> None:
 def test_canonical_v2_missing_required_key(drop_key: str) -> None:
     payload = {
         "schema_version": 2,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
         "collector_epoch": "epoch-test",
         "collector_run_id": "run-test",
         "runtime_commit": "aabbcc",
@@ -234,7 +269,7 @@ def test_canonical_v2_with_legacy_alias_fails() -> None:
     """
     payload = {
         "schema_version": 2,
-        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "evidence_kind": EVIDENCE_KIND,
         "collector_epoch": "epoch-test",
         "collector_run_id": "run-test",
         "runtime_commit": "aabbcc",

@@ -11,8 +11,6 @@ try:
         file_sha256,
     )
 except ModuleNotFoundError:
-    # fallback for direct script invocation without installed package
-    import hashlib
     from collections.abc import Collection, Mapping
 
     def canonical_json_bytes(value: Mapping, excluded: Collection = ()) -> bytes:

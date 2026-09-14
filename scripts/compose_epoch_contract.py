@@ -9,18 +9,16 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
-import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any
 
 
 try:
-    from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+    from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256
 except ModuleNotFoundError:
-    from evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+    from evidence_contract import canonical_sha256, file_sha256 as _file_sha256
 
 from bithumb_coin_trader.actual_start_evidence import (
     ActualStartIdentity,
