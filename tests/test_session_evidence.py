@@ -143,3 +143,24 @@ def test_feed_identity_canonical_normalization() -> None:
     assert binance_feed.stream == "trade"
     assert binance_feed.market == "btcusdt"
     assert binance_feed.canonical == "binance/trade/btcusdt"
+
+
+def test_heartbeats_sorted_in_segment() -> None:
+    tracker = SessionEvidenceTracker(epoch="epoch", run_id="run")
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    sid = tracker.open_session("bithumb", [feed.canonical], "2026-09-14T12:00:00Z")
+
+    # Record heartbeats out of chronological order
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:30Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:10Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:20Z")
+
+    segments = tracker.segments_for(feed, "2026-09-14T12:00:00Z", "2026-09-14T12:00:40Z")
+    assert len(segments) == 1
+    # Gaps with sorted heartbeats (10, 20, 30):
+    # (12:00:10 - 12:00:00) = 10s
+    # (12:00:20 - 12:00:10) = 10s
+    # (12:00:30 - 12:00:20) = 10s
+    # (12:00:40 - 12:00:30) = 10s
+    # Max gap should be 10.0, NOT 30.0!
+    assert segments[0].maximum_heartbeat_gap_seconds == 10.0

@@ -14,8 +14,10 @@ from bithumb_coin_trader.feed_hour_coverage import (
     FeedHourCoverageTracker,
     FrozenFeedHourObservation,
     load_feed_hour_coverage,
+    load_frozen_journal,
     materialize_feed_hour_coverage,
     save_feed_hour_coverage,
+    save_frozen_journal,
 )
 from bithumb_coin_trader.session_evidence import (
     FeedIdentity,
@@ -448,3 +450,31 @@ def test_coverage_save_already_coverage_dir(tmp_path: Path) -> None:
     cov_dir = tmp_path / "coverage"
     saved_path = save_feed_hour_coverage(coverage, cov_dir)
     assert saved_path == cov_dir / "2026-09-14_12" / "bithumb" / "orderbook" / "KRW-BTC.coverage.json"
+
+
+def test_frozen_journal_save_and_load_roundtrip(tmp_path: Path) -> None:
+    obs1 = _make_observation(feed=FeedIdentity("bithumb", "orderbook", "KRW-BTC"), event_count=100)
+    obs2 = _make_observation(feed=FeedIdentity("bithumb", "trade", "KRW-BTC"), event_count=50)
+    observations = [obs1, obs2]
+
+    journal_dir = tmp_path / "coverage" / "journals"
+    out_path = save_frozen_journal(observations, journal_dir)
+
+    assert out_path.exists()
+    assert out_path.name == "journal_2026-09-14_12.json"
+    assert (out_path.stat().st_mode & 0o777) == 0o600
+
+    loaded = load_frozen_journal(out_path)
+    assert len(loaded) == 2
+    assert loaded[0].feed == obs1.feed
+    assert loaded[0].cohort_utc == obs1.cohort_utc
+    assert loaded[0].event_count == 100
+    assert loaded[0].session_segments == obs1.session_segments
+    assert loaded[0].health == obs1.health
+    assert loaded[1].feed == obs2.feed
+    assert loaded[1].event_count == 50
+
+
+def test_frozen_journal_empty_raises(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot save empty observations"):
+        save_frozen_journal([], tmp_path / "coverage" / "journals")

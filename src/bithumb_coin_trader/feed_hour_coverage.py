@@ -24,8 +24,10 @@ __all__ = [
     "FeedHourCoverageTracker",
     "FrozenFeedHourObservation",
     "load_feed_hour_coverage",
+    "load_frozen_journal",
     "materialize_feed_hour_coverage",
     "save_feed_hour_coverage",
+    "save_frozen_journal",
 ]
 
 
@@ -614,3 +616,115 @@ class FeedHourCoverageTracker:
                     )
                 )
         return tuple(observations)
+
+
+def save_frozen_journal(
+    observations: Sequence[FrozenFeedHourObservation],
+    journal_dir: Path,
+) -> Path:
+    """Atomically persist frozen observations for a cohort as JSON (mode 0o600)."""
+    if not observations:
+        raise ValueError("cannot save empty observations")
+    cohort = observations[0].cohort_utc
+    journal_dir = Path(journal_dir)
+    journal_dir.mkdir(parents=True, exist_ok=True)
+    out_path = journal_dir / f"journal_{cohort}.json"
+    payload = {
+        "schema_version": 1,
+        "cohort_utc": cohort,
+        "slot_count": len(observations),
+        "created_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "observations": [asdict(obs) for obs in observations],
+    }
+    tmp_path = out_path.with_suffix(".json.tmp")
+    data = json.dumps(payload, indent=2, sort_keys=True)
+    fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(str(tmp_path), str(out_path))
+        dir_fd = os.open(str(journal_dir), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+    return out_path
+
+
+def load_frozen_journal(path: Path) -> tuple[FrozenFeedHourObservation, ...]:
+    """Load and reconstruct FrozenFeedHourObservation tuple from journal file."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("schema_version") != 1:
+        raise ValueError(f"UNSUPPORTED_JOURNAL_SCHEMA: {data.get('schema_version')}")
+    results: list[FrozenFeedHourObservation] = []
+    for raw in data.get("observations", []):
+        raw_feed = raw["feed"]
+        if isinstance(raw_feed, dict):
+            feed = FeedIdentity(
+                exchange=raw_feed["exchange"],
+                stream=raw_feed["stream"],
+                market=raw_feed["market"],
+            )
+        elif isinstance(raw_feed, str):
+            parts = raw_feed.split("/")
+            feed = FeedIdentity(exchange=parts[0], stream=parts[1], market=parts[2])
+        else:
+            feed = raw_feed
+
+        segments = tuple(
+            SessionSegment(
+                exchange=s["exchange"],
+                session_id=s["session_id"],
+                connected_at_utc=s["connected_at_utc"],
+                disconnected_at_utc=s.get("disconnected_at_utc"),
+                requested_feeds=tuple(s.get("requested_feeds", s.get("requested_subscriptions", ()))),
+                requested_subscription_sha256=s.get("requested_subscription_sha256", s.get("requested_hash", "")),
+                confirmation_method=s.get("confirmation_method"),
+                confirmed_at_utc=s.get("confirmed_at_utc"),
+                confirmed_feeds=tuple(s.get("confirmed_feeds", s.get("confirmed_subscriptions", ()))),
+                confirmed_subscription_sha256=s.get("confirmed_subscription_sha256", s.get("confirmed_hash")),
+                response_evidence_sha256=s.get("response_evidence_sha256"),
+                heartbeat_observations_utc=tuple(s.get("heartbeat_observations_utc", s.get("heartbeat_observations", ()))),
+                maximum_heartbeat_gap_seconds=s.get("maximum_heartbeat_gap_seconds", s.get("max_heartbeat_gap_seconds")),
+                disconnect_reason=s.get("disconnect_reason"),
+                reconnect_successor_id=s.get("reconnect_successor_id"),
+                collector_epoch=s["collector_epoch"],
+                collector_run_id=s["collector_run_id"],
+            )
+            for s in raw["session_segments"]
+        )
+        h = raw["health"]
+        health = WriterHealthSnapshot(
+            writer_error_count=h.get("writer_error_count", 0),
+            queue_dropped_events=h.get("queue_dropped_events", 0),
+            unpersisted_event_count=h.get("unpersisted_event_count", 0),
+            fatal_writer_error_type=h.get("fatal_writer_error_type") or (h.get("fatal_writer_error") if isinstance(h.get("fatal_writer_error"), str) else None),
+        )
+        results.append(
+            FrozenFeedHourObservation(
+                feed=feed,
+                cohort_utc=raw["cohort_utc"],
+                interval_start_utc=raw["interval_start_utc"],
+                interval_end_utc=raw["interval_end_utc"],
+                cohort_qualification=raw["cohort_qualification"],
+                observation_start_utc=raw["observation_start_utc"],
+                observation_end_utc=raw["observation_end_utc"],
+                event_count=raw["event_count"],
+                first_event_timestamp=raw.get("first_event_timestamp"),
+                last_event_timestamp=raw.get("last_event_timestamp"),
+                session_segments=segments,
+                disconnect_count=raw["disconnect_count"],
+                reconnect_count=raw["reconnect_count"],
+                health=health,
+                progress_entry_id=raw.get("progress_entry_id"),
+            )
+        )
+    return tuple(results)

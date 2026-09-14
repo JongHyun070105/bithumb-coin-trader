@@ -30,8 +30,7 @@ from bithumb_coin_trader.feed_hour_coverage import (
     FeedHourCoverage,
     FeedHourCoverageTracker,
     FrozenFeedHourObservation,
-    materialize_feed_hour_coverage,
-    save_feed_hour_coverage,
+    save_frozen_journal,
 )
 from bithumb_coin_trader.incremental_finalizer import (
     ArtifactBinding,
@@ -298,7 +297,14 @@ class MultiExchangeMicrostructureCollector:
         )
         self._registered_partition_entry_ids: set[str] = set()
         self._current_writer_cohort: str | None = None
-        self._bithumb_confirmed_by_session: dict[str, set[str]] = {}
+        self.journals_dir = self.storage.base_dir.parent / "coverage" / "journals"
+        self._frozen_observations: list[FrozenFeedHourObservation] = []
+        self._bithumb_confirmed_feeds: dict[str, set[str]] = {}
+        self._bithumb_expected_feeds: set[str] = set(
+            FeedIdentity("bithumb", stream, mkt).canonical
+            for mkt in self.bithumb_markets
+            for stream in ("orderbook", "trade", "ticker")
+        )
 
     async def _enqueue(
         self,
@@ -419,7 +425,10 @@ class MultiExchangeMicrostructureCollector:
         if self._current_writer_cohort is not None and cohort_utc != self._current_writer_cohort:
             boundary_dt = write_ts.replace(minute=0, second=0, microsecond=0)
             health = self._get_writer_health_snapshot()
-            self.coverage_tracker.freeze_completed(boundary_dt, self.session_evidence, health)
+            obs_seq = self.coverage_tracker.freeze_completed(boundary_dt, self.session_evidence, health)
+            if obs_seq:
+                save_frozen_journal(obs_seq, self.journals_dir)
+                self._frozen_observations.extend(obs_seq)
             self.finalizer.finalize_pending()
 
         self._current_writer_cohort = cohort_utc
@@ -535,13 +544,18 @@ class MultiExchangeMicrostructureCollector:
         market: str,
         data: Mapping[str, Any] | None = None,
     ) -> None:
-        feed_str = normalize_feed_str(f"bithumb/{stream}/{market}")
-        confirmed_set = self._bithumb_confirmed_by_session.setdefault(session_id, set())
-        confirmed_set.add(feed_str)
+        feed_str = f"bithumb/{stream.lower()}/{market.upper()}"
+        if feed_str not in self._bithumb_expected_feeds:
+            return
+        if session_id not in self._bithumb_confirmed_feeds:
+            self._bithumb_confirmed_feeds[session_id] = set()
+        if feed_str in self._bithumb_confirmed_feeds[session_id]:
+            return
+        self._bithumb_confirmed_feeds[session_id].add(feed_str)
         now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
         self.session_evidence.confirm(
             session_id=session_id,
-            confirmed=sorted(confirmed_set),
+            confirmed=sorted(self._bithumb_confirmed_feeds[session_id]),
             method="STREAM_SNAPSHOT",
             confirmed_at_utc=now_utc,
             response=data,
@@ -555,9 +569,45 @@ class MultiExchangeMicrostructureCollector:
     ) -> None:
         req = binance_list_subscriptions_request(request_id)
         await ws.send(json.dumps(req))
-        msg = await asyncio.wait_for(ws.recv(), timeout=10.0)
-        raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
-        data = json.loads(raw_bytes.decode("utf-8"))
+
+        start_time = time.monotonic()
+        timeout = 10.0
+        confirmed_data: dict[str, Any] | None = None
+
+        while (time.monotonic() - start_time) < timeout:
+            remaining = max(0.1, timeout - (time.monotonic() - start_time))
+            msg = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
+            try:
+                data = json.loads(raw_bytes.decode("utf-8"))
+            except Exception:
+                continue
+
+            if isinstance(data, dict) and (
+                data.get("id") == request_id
+                or ("result" in data and "stream" not in data and "e" not in data)
+            ):
+                confirmed_data = data
+                break
+
+            # Interim market data frame
+            try:
+                stream_name, sym, d, exch_ts = parse_binance_message(raw_bytes)
+                recv_ts = self._utc_now()
+                recv_monotonic_ns = time.monotonic_ns()
+                self.session_evidence.record_heartbeat(
+                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                )
+                await self._enqueue(
+                    "binance", stream_name, sym, d, recv_ts, exch_ts, recv_monotonic_ns
+                )
+            except Exception:
+                pass
+
+        if confirmed_data is None:
+            raise TimeoutError("Binance subscription confirmation timed out")
+
+        data = confirmed_data
         if not isinstance(data, dict):
             raise ValueError("SUBSCRIPTION_SET_MISMATCH")
 
@@ -598,20 +648,75 @@ class MultiExchangeMicrostructureCollector:
     ) -> None:
         req = upbit_list_subscriptions_request(ticket)
         await ws.send(json.dumps(req))
-        msg = await asyncio.wait_for(ws.recv(), timeout=10.0)
-        raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
-        data = json.loads(raw_bytes.decode("utf-8"))
-        confirmed_feeds: list[str] = []
-        for mkt in self.upbit_markets:
-            confirmed_feeds.append(f"upbit/orderbook/{mkt.upper()}")
-            confirmed_feeds.append(f"upbit/trade/{mkt.upper()}")
+
+        start_time = time.monotonic()
+        timeout = 10.0
+        confirmed_data: dict[str, Any] | None = None
+
+        while (time.monotonic() - start_time) < timeout:
+            remaining = max(0.1, timeout - (time.monotonic() - start_time))
+            msg = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
+            try:
+                data = json.loads(raw_bytes.decode("utf-8"))
+            except Exception:
+                continue
+
+            if isinstance(data, dict) and (
+                data.get("ticket") == ticket
+                or data.get("method") == "LIST_SUBSCRIPTIONS"
+                or data.get("type") == "LIST_SUBSCRIPTIONS"
+                or ("result" in data and data.get("type") not in ("trade", "orderbook", "ticker"))
+            ):
+                confirmed_data = data
+                break
+
+            # Interim market data frame
+            try:
+                stream, market, d, exch_ts = parse_upbit_message(raw_bytes)
+                recv_ts = self._utc_now()
+                recv_monotonic_ns = time.monotonic_ns()
+                self.session_evidence.record_heartbeat(
+                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                )
+                await self._enqueue(
+                    "upbit", stream, market, d, recv_ts, exch_ts, recv_monotonic_ns
+                )
+            except Exception:
+                pass
+
+        if confirmed_data is None:
+            raise TimeoutError("Upbit subscription confirmation timed out")
+
+        data = confirmed_data
+        result_items = data.get("result")
+        if not isinstance(result_items, list):
+            raise ValueError("SUBSCRIPTION_SET_MISMATCH: Upbit result is not a list")
+
+        returned_feeds: set[str] = set()
+        for item in result_items:
+            if isinstance(item, dict):
+                st = item.get("type", "").lower()
+                codes = item.get("codes", [])
+                if isinstance(codes, list):
+                    for c in codes:
+                        returned_feeds.add(f"upbit/{st}/{c.upper()}")
+
+        expected_feeds = set(
+            f"upbit/{st}/{mkt.upper()}"
+            for mkt in self.upbit_markets
+            for st in ("orderbook", "trade")
+        )
+        if returned_feeds != expected_feeds:
+            raise ValueError("SUBSCRIPTION_SET_MISMATCH")
+
         now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
         self.session_evidence.confirm(
             session_id=session_id,
-            confirmed=confirmed_feeds,
+            confirmed=sorted(expected_feeds),
             method="LIST_SUBSCRIPTIONS",
             confirmed_at_utc=now_utc,
-            response=data if isinstance(data, dict) else {"result": data},
+            response=data,
         )
 
     async def _heartbeat_loop(self, ws: Any, exchange: str, session_id: str) -> None:
@@ -695,6 +800,9 @@ class MultiExchangeMicrostructureCollector:
                                 m.last_reconnect_reason = "connection_stale_30s"
                                 m.disconnect_count += 1
                                 m.reconnect_count += 1
+                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                if session_id is not None:
+                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
                                 break
 
                             recv_ts = self._utc_now()
@@ -789,6 +897,9 @@ class MultiExchangeMicrostructureCollector:
                                 m.last_reconnect_reason = "connection_stale_30s"
                                 m.disconnect_count += 1
                                 m.reconnect_count += 1
+                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                if session_id is not None:
+                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
                                 break
 
                             recv_ts = self._utc_now()
@@ -885,6 +996,9 @@ class MultiExchangeMicrostructureCollector:
                                 m.last_reconnect_reason = "connection_stale_30s"
                                 m.disconnect_count += 1
                                 m.reconnect_count += 1
+                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                if session_id is not None:
+                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
                                 break
 
                             recv_ts = self._utc_now()
@@ -985,7 +1099,14 @@ class MultiExchangeMicrostructureCollector:
             # Freeze shutdown tails and finalize pending
             try:
                 health = self._get_writer_health_snapshot()
-                self.coverage_tracker.freeze_shutdown(self._utc_now(), self.session_evidence, health)
+                obs_seq = self.coverage_tracker.freeze_shutdown(self._utc_now(), self.session_evidence, health)
+                if obs_seq:
+                    by_cohort: dict[str, list[FrozenFeedHourObservation]] = {}
+                    for obs in obs_seq:
+                        by_cohort.setdefault(obs.cohort_utc, []).append(obs)
+                    for c_obs in by_cohort.values():
+                        save_frozen_journal(c_obs, self.journals_dir)
+                    self._frozen_observations.extend(obs_seq)
                 self.finalizer.finalize_pending()
             except Exception as exc:
                 logger.error("Error during shutdown tail freeze/finalization: %s", exc)
@@ -1002,8 +1123,18 @@ class MultiExchangeMicrostructureCollector:
 
     def finalize_all(self) -> FinalizationSummary:
         health = self._get_writer_health_snapshot()
-        self.coverage_tracker.freeze_shutdown(self._utc_now(), self.session_evidence, health)
+        obs_seq = self.coverage_tracker.freeze_shutdown(self._utc_now(), self.session_evidence, health)
+        if obs_seq:
+            by_cohort: dict[str, list[FrozenFeedHourObservation]] = {}
+            for obs in obs_seq:
+                by_cohort.setdefault(obs.cohort_utc, []).append(obs)
+            for c_obs in by_cohort.values():
+                save_frozen_journal(c_obs, self.journals_dir)
+            self._frozen_observations.extend(obs_seq)
         return self.finalizer.finalize_pending()
+
+    def get_frozen_observations(self) -> tuple[FrozenFeedHourObservation, ...]:
+        return tuple(self._frozen_observations)
 
     def generate_all_manifests(self) -> list[dict[str, Any]]:
         self.finalize_all()

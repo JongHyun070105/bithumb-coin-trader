@@ -60,6 +60,10 @@ class FeedIdentity:
     def canonical(self) -> str:
         return f"{self.exchange}/{self.stream}/{self.market}"
 
+    @property
+    def canonical_str(self) -> str:
+        return self.canonical
+
 
 @dataclass(frozen=True)
 class HeartbeatPolicy:
@@ -176,6 +180,7 @@ class _MutableSession:
                 start_dt = datetime.fromisoformat(interval_start_utc.replace("Z", "+00:00"))
                 end_dt = datetime.fromisoformat(interval_end_utc.replace("Z", "+00:00"))
                 dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_in_interval]
+                dts.sort()
                 gaps = [(dts[0] - start_dt).total_seconds()]
                 for i in range(len(dts) - 1):
                     gaps.append((dts[i + 1] - dts[i]).total_seconds())
@@ -189,6 +194,7 @@ class _MutableSession:
             if len(hb_tuples) >= 2:
                 gaps: list[float] = []
                 dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_tuples]
+                dts.sort()
                 for i in range(len(dts) - 1):
                     gaps.append((dts[i + 1] - dts[i]).total_seconds())
                 if gaps:
