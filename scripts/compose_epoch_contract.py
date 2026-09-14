@@ -22,30 +22,10 @@ try:
 except ModuleNotFoundError:
     from evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
 
-
-def validate_actual_start(data, epoch, run_id, commit, fingerprint):
-    if not isinstance(data, dict) or data.get("schema_version") != 1:
-        raise ValueError("INVALID_ACTUAL_START_SCHEMA")
-    for field, expected, code in (
-        ("collector_epoch", epoch, "EPOCH"),
-        ("collector_run_id", run_id, "RUN_ID"),
-        ("runtime_commit", commit, "RUNTIME_COMMIT"),
-        ("runtime_fingerprint", fingerprint, "RUNTIME_FINGERPRINT"),
-    ):
-        if data.get(field) != expected:
-            raise ValueError("ACTUAL_START_" + code + "_MISMATCH")
-    if data.get("start_evidence_type") not in {"SYSTEMD_SERVICE_START", "PROCESS_EXEC_START", "FIRST_RAW_RECORD"}:
-        raise ValueError("INVALID_ACTUAL_START_EVIDENCE_TYPE")
-    if not isinstance(data.get("source"), str) or not data["source"].strip():
-        raise ValueError("INVALID_ACTUAL_START_SOURCE")
-    for key in ("actual_start_time_utc", "captured_at_utc"):
-        try:
-            dt = datetime.fromisoformat(data[key].replace("Z", "+00:00"))
-            if dt.utcoffset() is None:
-                raise ValueError("timezone required")
-        except (KeyError, TypeError, AttributeError, ValueError) as exc:
-            raise ValueError("INVALID_ACTUAL_START_TIMESTAMP: " + key) from exc
-    return datetime.fromisoformat(data["actual_start_time_utc"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+from bithumb_coin_trader.actual_start_evidence import (
+    ActualStartIdentity,
+    normalize_actual_start_evidence,
+)
 
 
 def compose_epoch_contract(
@@ -113,11 +93,15 @@ def compose_epoch_contract(
         if not actual_start_evidence_path.exists():
             raise FileNotFoundError(f"ACTUAL_START_EVIDENCE_MISSING: Evidence file not found: {actual_start_evidence_path}")
         start_evidence_sha = _file_sha256(actual_start_evidence_path)
-        try:
-            ev_data = json.loads(actual_start_evidence_path.read_text(encoding="utf-8"))
-            actual_start_str = validate_actual_start(ev_data, collector_epoch, collector_run_id, runtime_commit, runtime_fingerprint)
-        except Exception as e:
-            raise ValueError(f"CORRUPT_ACTUAL_START_EVIDENCE: {e}")
+        ev_data = json.loads(actual_start_evidence_path.read_text(encoding="utf-8"))
+        expected = ActualStartIdentity(
+            collector_epoch=collector_epoch,
+            collector_run_id=collector_run_id,
+            runtime_commit=runtime_commit,
+            runtime_config_fingerprint=runtime_fingerprint,
+        )
+        normalized = normalize_actual_start_evidence(ev_data, expected)
+        actual_start_str = normalized.actual_start_time_utc
     elif synthetic_actual_start_time_utc:
         if strict:
             raise ValueError("ACTUAL_START_EVIDENCE_MISSING: synthetic timestamp forbidden in official mode")

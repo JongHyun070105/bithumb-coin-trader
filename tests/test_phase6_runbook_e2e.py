@@ -193,10 +193,15 @@ def _populate_official_shaped_epoch(
     # Actual start evidence artifact (P0.1)
     act_evidence = epoch_dir / "actual_start.evidence.json"
     act_evidence.write_text(json.dumps({
+        "schema_version": 2,
+        "evidence_kind": "systemd-transient-actual-start-evidence",
         "collector_epoch": collector_epoch,
         "collector_run_id": collector_run_id,
-        "actual_start_time_utc": "2026-09-01T00:00:00+00:00",
-        "evidence_type": "unit_start_log",
+        "runtime_commit": "will-be-patched",
+        "runtime_config_fingerprint": "will-be-patched",
+        "source": "synthetic-unit-test",
+        "captured_at_utc": "2026-09-01T00:00:01Z",
+        "actual_start_time_utc": "2026-09-01T00:00:00Z",
     }, indent=2))
     act_sha = hashlib.sha256(act_evidence.read_bytes()).hexdigest()
 
@@ -246,9 +251,10 @@ def _populate_official_shaped_epoch(
     seal.update(schema_version=1, feeds={"bithumb_markets": EXPECTED_BITHUMB_20, "binance_symbols": EXPECTED_BINANCE_4, "upbit_markets": EXPECTED_UPBIT_4})
     seal_path.write_text(json.dumps(seal, indent=2))
     actual = json.loads(act_evidence.read_text())
-    actual.update(schema_version=1, runtime_commit=software_commit, runtime_fingerprint=fingerprint,
-                  start_evidence_type="PROCESS_EXEC_START", source="synthetic-unit-test",
-                  captured_at_utc="2026-09-01T00:00:01Z")
+    actual.update(
+        runtime_commit=software_commit,
+        runtime_config_fingerprint=fingerprint,
+    )
     act_evidence.write_text(json.dumps(actual, indent=2))
     compose_epoch_contract(seal_path, epoch_dir / "launch-provenance.json", epoch_dir / "epoch_contract.json", act_evidence)
 

@@ -19,14 +19,24 @@ def bundle(tmp_path):
         src = ROOT / 'infra/aws/seals' / ('aws-72h-soak-20260905.' + name)
         (tmp_path / target).write_bytes(src.read_bytes())
     prov = json.loads((tmp_path / 'launch-provenance.json').read_text())
-    ev = dict(schema_version=1, collector_epoch=prov['collector_epoch'], collector_run_id=prov['collector_run_id'], runtime_commit=prov['runtime_code_commit'], runtime_fingerprint=prov['runtime_config_fingerprint'], actual_start_time_utc='2020-01-01T00:00:00Z', start_evidence_type='PROCESS_EXEC_START', source='synthetic-test', captured_at_utc='2020-01-01T00:00:01Z')
+    ev = dict(
+        schema_version=2,
+        evidence_kind="systemd-transient-actual-start-evidence",
+        collector_epoch=prov['collector_epoch'],
+        collector_run_id=prov['collector_run_id'],
+        runtime_commit=prov['runtime_code_commit'],
+        runtime_config_fingerprint=prov['runtime_config_fingerprint'],
+        actual_start_time_utc='2020-01-01T00:00:00Z',
+        source='synthetic-test',
+        captured_at_utc='2020-01-01T00:00:01Z'
+    )
     (tmp_path / 'actual.json').write_text(json.dumps(ev))
     return ev
 
 def compose(p):
     return compose_epoch_contract(p/'runtime_seal.json', p/'launch-provenance.json', p/'epoch_contract.json', p/'actual.json')
 
-@pytest.mark.parametrize('field,code', [('collector_epoch','EPOCH'),('collector_run_id','RUN_ID'),('runtime_commit','RUNTIME_COMMIT'),('runtime_fingerprint','RUNTIME_FINGERPRINT')])
+@pytest.mark.parametrize('field,code', [('collector_epoch','COLLECTOR_EPOCH'),('collector_run_id','COLLECTOR_RUN_ID'),('runtime_commit','RUNTIME_COMMIT'),('runtime_config_fingerprint','RUNTIME_CONFIG_FINGERPRINT')])
 def test_wrong_actual_identity(tmp_path, field, code):
     ev = bundle(tmp_path); ev[field] = 'wrong'
     (tmp_path/'actual.json').write_text(json.dumps(ev))
@@ -73,7 +83,7 @@ def test_tampered_contract(tmp_path, mutation):
 def test_invalid_start_time(tmp_path, value):
     ev = bundle(tmp_path); ev['actual_start_time_utc'] = value
     (tmp_path/'actual.json').write_text(json.dumps(ev))
-    with pytest.raises(ValueError, match='INVALID_ACTUAL_START_TIMESTAMP'):
+    with pytest.raises(ValueError, match='ACTUAL_START_TIMESTAMP_NOT_UTC'):
         compose(tmp_path)
 
 def test_contract_byte_whitespace(tmp_path):
