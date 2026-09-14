@@ -791,5 +791,104 @@ class FakeWebSocket:
         await self.close()
 
 
+class StaleStreamSessionCloseTests(unittest.TestCase):
+    """I1: stale-stream 30s timeout must close the session for Binance and Upbit too."""
+
+    def test_binance_stale_stream_closes_session(self) -> None:
+        """Binance loop: 30s recv timeout must close the session with 'connection_stale_30s'."""
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    binance_symbols=["btcusdt"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_upbit=False,
+                )
+                # Binance calls _confirm_binance_subscriptions first (sends LIST_SUBSCRIPTIONS,
+                # then loops on ws.recv until it sees the response).  We must supply the
+                # confirmation response before raising TimeoutError on the data recv.
+                confirm_response = json.dumps(
+                    {"result": ["btcusdt@trade", "btcusdt@depth20@100ms"], "id": 1}
+                ).encode()
+                recv_call: list[int] = [0]
+
+                fake_ws = FakeWebSocket()
+
+                async def binance_recv() -> str | bytes:
+                    recv_call[0] += 1
+                    if recv_call[0] == 1:
+                        # First call: return the subscription confirmation
+                        return confirm_response
+                    # Subsequent call: simulate 30s stale stream
+                    collector.is_running = False
+                    raise asyncio.TimeoutError()
+
+                fake_ws.recv = binance_recv  # type: ignore[method-assign]
+
+                with patch("websockets.connect", return_value=fake_ws):
+                    collector.is_running = True
+                    await collector._binance_loop()
+
+                sessions = list(collector.session_evidence._sessions.values())
+                self.assertGreaterEqual(len(sessions), 1)
+                stale = next(
+                    (s for s in sessions if s.disconnect_reason == "connection_stale_30s"),
+                    None,
+                )
+                self.assertIsNotNone(stale, "No session closed with 'connection_stale_30s'")
+                assert stale is not None
+                self.assertIsNotNone(stale.disconnected_at_utc)
+
+        asyncio.run(exercise())
+
+    def test_upbit_stale_stream_closes_session(self) -> None:
+        """Upbit loop: 30s recv timeout must close the session with 'connection_stale_30s'."""
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    upbit_markets=["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                )
+                # Upbit calls _confirm_upbit_subscriptions (sends LIST_SUBSCRIPTIONS ticket frame,
+                # then loops on ws.recv until it sees the response with matching feeds).
+                confirm_response = json.dumps(
+                    {"result": [{"type": "orderbook", "codes": ["KRW-BTC"]},
+                                {"type": "trade", "codes": ["KRW-BTC"]}]}
+                ).encode()
+                recv_call: list[int] = [0]
+
+                fake_ws = FakeWebSocket()
+
+                async def upbit_recv() -> str | bytes:
+                    recv_call[0] += 1
+                    if recv_call[0] == 1:
+                        return confirm_response
+                    collector.is_running = False
+                    raise asyncio.TimeoutError()
+
+                fake_ws.recv = upbit_recv  # type: ignore[method-assign]
+
+                with patch("websockets.connect", return_value=fake_ws):
+                    collector.is_running = True
+                    await collector._upbit_loop()
+
+                sessions = list(collector.session_evidence._sessions.values())
+                self.assertGreaterEqual(len(sessions), 1)
+                stale = next(
+                    (s for s in sessions if s.disconnect_reason == "connection_stale_30s"),
+                    None,
+                )
+                self.assertIsNotNone(stale, "No session closed with 'connection_stale_30s'")
+                assert stale is not None
+                self.assertIsNotNone(stale.disconnected_at_utc)
+
+        asyncio.run(exercise())
+
+
+
+
 if __name__ == "__main__":
     unittest.main()
+

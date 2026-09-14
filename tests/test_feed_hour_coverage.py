@@ -293,7 +293,8 @@ def test_coverage_tampered_hash_fails_load(tmp_path: Path) -> None:
 
 def test_writer_clock_regression_raises() -> None:
     feed = _make_feed()
-    tracker = FeedHourCoverageTracker([feed])
+    actual_start = datetime(2026, 9, 14, 11, 0, 0, tzinfo=timezone.utc)
+    tracker = FeedHourCoverageTracker([feed], actual_start_utc=actual_start)
     ts1 = datetime(2026, 9, 14, 12, 5, 0, tzinfo=timezone.utc)
     ts0 = datetime(2026, 9, 14, 12, 4, 0, tzinfo=timezone.utc)
 
