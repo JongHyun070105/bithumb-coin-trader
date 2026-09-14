@@ -88,8 +88,8 @@ None found. Plan is implementable as written.
 | Task 5: Collector Confirmation, Heartbeats, Writer Fences | ✅ COMPLETE | `b831358` → test fixes `1275085`, `2c5e81e` |
 | Task 6: Generic Immutable Archive + Receipt v3 | ✅ COMPLETE | `f483f32` → fixes `133592a` |
 | Task 7: Ordered Closed-Hour Finalization + Scheduler | ✅ COMPLETE | `cdcf903` → fixes `44fb553` |
-| Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ⏳ IN PROGRESS | — |
-| Task 9: Bounded Scale + Cross-Layer Gate | ⬜ PENDING | — |
+| Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ✅ COMPLETE | `7cd88a3` → fixes `4bee252` |
+| Task 9: Bounded Scale + Cross-Layer Gate | ⏳ IN PROGRESS | — |
 | Task 10: Full Verification + Independent Review | ⬜ PENDING | — |
 
 ---
@@ -117,6 +117,9 @@ None found. Plan is implementable as written.
 - **Task 7** (Commits `cdcf903`, `44fb553`):
   - Spec Compliance: PASS (ClosedSlotResult, ClosedHourFinalizer strictly enforcing manifest_raw -> archive_raw -> verify_raw_restore -> materialize_data_present -> archive_coverage -> verify_coverage_restore, zero-event skips RAW, 76 sealed feed universe validation, journal-driven scheduler discovery without 600s grace for V3)
   - Code Quality: APPROVED (C1 unified ARCHIVE_ORCHESTRATOR_LOCK_NAME; C2 fixed is_cohort_completed and has_cohort_failed for failed cohorts with test; I1 atomic write for cohort reports and metrics; I2 narrowed _find_raw_path fallback glob to match exchange and stream; M1 cleaned unused imports; 315 tests pass; 0 pyright errors/warnings)
+- **Task 8** (Commits `7cd88a3`, `4bee252`):
+  - Spec Compliance: PASS (V3 Contract Schema 2 OFFICIAL_30H_V3_COVERAGE_CONTRACT with 30 strictly-next candidate cohorts, 111600s window, 76 slots/cohort, canonical hash; validate_v3_coverage_evidence with state-dependent audit: DATA_PRESENT requires RAW manifest/receipt/restore/fullscan equality and scientific records count vs VERIFIED_ZERO_EVENT requires 0 records and no RAW, rejects duplicate/foreign/missing/unexpected slots; build_epoch_manifest V3 30x76 coverage index; backward-compatible Schema 1 dispatch)
+  - Code Quality: APPROVED (M1 populated coverage_slots in validate_v3_coverage_evidence return value for report hourly_cohorts diagnostics; 416 regression tests pass; 0 pyright errors/warnings)
 
 
 ---
