@@ -1230,7 +1230,7 @@ def test_slow_cost_depends_only_on_dirty_tail(tmp_path: Path) -> None:
 
 Expected: scale helpers/report absent.
 
-The script runs at least five repetitions per history, records samples and p50/p95/p99 plus all counters, writes an explicit output, and exits nonzero unless all histories have identical dirty work and zero historical reads.
+The script runs at least five repetitions per history, records samples and p50/p95/p99 plus all counters, writes its explicit output only to this plan's SDD workspace, and exits nonzero unless all histories have identical dirty work and zero historical reads.
 
 - [ ] **Step 3: Run focused V3 matrix**
 
@@ -1243,11 +1243,11 @@ Expected: all pass.
 - [ ] **Step 4: Produce local deterministic scale evidence**
 
 ~~~bash
-/Users/macintosh/Documents/ChatGPT/bitcoin-trader/.venv/bin/python scripts/benchmark_incremental_finalization.py --repetitions 7 --output test-results/aws-30h-v3-finalization-scale.json
-/Users/macintosh/Documents/ChatGPT/bitcoin-trader/.venv/bin/python -m json.tool test-results/aws-30h-v3-finalization-scale.json >/dev/null
+/Users/macintosh/Documents/ChatGPT/bitcoin-trader/.venv/bin/python scripts/benchmark_incremental_finalization.py --repetitions 7 --output .superpowers/sdd/2026-09-14-aws-30h-v3-remediation/aws-30h-v3-finalization-scale.json
+/Users/macintosh/Documents/ChatGPT/bitcoin-trader/.venv/bin/python -m json.tool .superpowers/sdd/2026-09-14-aws-30h-v3-remediation/aws-30h-v3-finalization-scale.json >/dev/null
 ~~~
 
-Expected: `PASS` and zero historical reads at 1/10/30. Record p95/p99; change no timeout here.
+Expected: `PASS` and zero historical reads at 1/10/30. Record p95/p99 in `.superpowers/sdd/2026-09-14-aws-30h-v3-remediation/aws-30h-v3-finalization-scale.json`; change no timeout here. The benchmark neither reads nor writes `test-results/`.
 
 - [ ] **Step 5: Run cross-layer tests and commit**
 
@@ -1258,7 +1258,7 @@ git add scripts/benchmark_incremental_finalization.py tests/test_incremental_fin
 git commit -m "test: prove bounded V3 finalization"
 ~~~
 
-Expected: green; generated `test-results` remains untracked/user-owned.
+Expected: green; the benchmark report remains only in this plan's git-ignored SDD workspace. Existing user-owned `test-results/` is not read, written, moved, deleted, staged, or committed.
 
 ---
 
