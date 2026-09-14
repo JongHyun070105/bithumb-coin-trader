@@ -26,6 +26,7 @@ import threading
 import time
 import unittest
 from unittest.mock import patch
+from typing import Any
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.archive_scheduler import (
@@ -34,6 +35,15 @@ from bithumb_coin_trader.archive_scheduler import (
     EligibleHour,
 )
 from bithumb_coin_trader.bounded_supervisor import BoundedSupervisor, SupervisorConfig
+from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
+from bithumb_coin_trader.feed_hour_coverage import (
+    FrozenFeedHourObservation,
+    save_frozen_journal,
+)
+from bithumb_coin_trader.session_evidence import (
+    SessionSegment,
+    WriterHealthSnapshot,
+)
 
 
 def current_user_name() -> str:
@@ -78,7 +88,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.metrics_path.write_text(json.dumps(payload), encoding="utf-8")
 
     def _config(self, **kwargs) -> ArchiveSchedulerConfig:
-        defaults = dict(
+        defaults: dict[str, Any] = dict(
             epoch=self.epoch,
             run_id=self.run_id,
             base_dir=self.base_dir,
@@ -453,6 +463,119 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertEqual(result["status"], "ERROR")
         self.assertEqual(result["processed_cohort"], "2026-09-05_05")
         self.assertFalse(scheduler.is_cohort_completed(cohort))
+
+    def _create_v3_frozen_journal(self, date_str: str, hour_str: str) -> Path:
+        journals_dir = self.base_dir / "coverage" / "journals"
+        journals_dir.mkdir(parents=True, exist_ok=True)
+        cohort_key = f"{date_str}_{hour_str}"
+        observations = []
+        interval_start = f"{date_str}T{hour_str}:00:00Z"
+        dt_start = datetime.fromisoformat(f"{date_str}T{hour_str}:00:00+00:00")
+        dt_end = dt_start + timedelta(hours=1)
+        interval_end = dt_end.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        for feed in SEALED_FEED_UNIVERSE:
+            hb_list = [
+                datetime.fromtimestamp(dt_start.timestamp() + s, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                for s in range(0, 3601, 10)
+            ]
+            seg = SessionSegment(
+                exchange=feed.exchange,
+                session_id="sess-001",
+                connected_at_utc=f"{date_str}T00:00:00Z",
+                disconnected_at_utc=None,
+                requested_feeds=(feed.canonical,),
+                requested_subscription_sha256="req-hash",
+                confirmation_method="LIST_SUBSCRIPTIONS",
+                confirmed_at_utc=f"{date_str}T00:01:00Z",
+                confirmed_feeds=(feed.canonical,),
+                confirmed_subscription_sha256="conf-hash",
+                response_evidence_sha256="resp-hash",
+                heartbeat_observations_utc=tuple(hb_list),
+                maximum_heartbeat_gap_seconds=10.0,
+                disconnect_reason=None,
+                reconnect_successor_id=None,
+                collector_epoch=self.epoch,
+                collector_run_id=self.run_id,
+            )
+            obs = FrozenFeedHourObservation(
+                feed=feed,
+                cohort_utc=cohort_key,
+                interval_start_utc=interval_start,
+                interval_end_utc=interval_end,
+                cohort_qualification="QUALIFYING_FULL_HOUR",
+                observation_start_utc=interval_start,
+                observation_end_utc=interval_end,
+                event_count=0,
+                first_event_timestamp=None,
+                last_event_timestamp=None,
+                session_segments=(seg,),
+                disconnect_count=0,
+                reconnect_count=0,
+                health=WriterHealthSnapshot(),
+            )
+            observations.append(obs)
+        return save_frozen_journal(observations, journals_dir)
+
+    def test_scheduler_v3_journal_driven_discovery_no_grace_needed(self) -> None:
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        self._write_metrics([])
+
+        # Hour 05 closed at 06:00:00 UTC. Test time is 06:00:05 UTC (only 5s after closure, < 600s).
+        # In V3, writer fence is closed so no 600-second grace is required!
+        test_now = datetime(2026, 9, 4, 6, 0, 5, tzinfo=timezone.utc)
+        scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
+
+        eligible = scheduler.discover_eligible_hours()
+        self.assertEqual(len(eligible), 1)
+        self.assertEqual(eligible[0].date_str, "2026-09-04")
+        self.assertEqual(eligible[0].hour_str, "05")
+
+    def test_scheduler_v3_active_cohort_excluded(self) -> None:
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        active_partition = self.raw_root / "bithumb" / "orderbook" / "BTC_KRW_2026-09-04_05.jsonl"
+        active_partition.parent.mkdir(parents=True, exist_ok=True)
+        active_partition.write_text("{}", encoding="utf-8")
+        self._write_metrics([str(active_partition)])
+
+        test_now = datetime(2026, 9, 4, 7, 0, 0, tzinfo=timezone.utc)
+        scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
+
+        eligible = scheduler.discover_eligible_hours()
+        self.assertEqual(len(eligible), 0)
+
+    def test_scheduler_v3_dry_run_lists_actions(self) -> None:
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        self._write_metrics([])
+
+        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        scheduler = ClosedHourArchiveScheduler(self._config(dry_run=True), now_fn=lambda: test_now)
+
+        result = scheduler.run_once()
+        self.assertEqual(result["status"], "PASS")
+        backlog = result["backlog"]
+        self.assertEqual(backlog["status"], "DRY_RUN")
+        self.assertTrue(backlog["dry_run"])
+        self.assertEqual(len(backlog["actions"]), 76)
+        # Receipts not written
+        self.assertFalse((self.receipt_root / "cohort_2026-09-04_05_finalized.json").exists())
+
+    def test_scheduler_v3_completion_and_idempotency(self) -> None:
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        self._write_metrics([])
+
+        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
+
+        res1 = scheduler.run_once()
+        self.assertEqual(res1["status"], "PASS")
+        self.assertEqual(res1["processed_cohort"], "2026-09-04_05")
+        self.assertTrue(scheduler.is_cohort_completed(ArchiveCohortId("2026-09-04", "05")))
+
+        # Second run: cohort is already complete, scheduler is IDLE
+        res2 = scheduler.run_once()
+        self.assertEqual(res2["status"], "IDLE")
+        self.assertIsNone(res2["processed_cohort"])
 
 
 if __name__ == "__main__":

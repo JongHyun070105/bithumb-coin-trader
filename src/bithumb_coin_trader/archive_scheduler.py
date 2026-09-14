@@ -31,6 +31,7 @@ for d in (ROOT, SCRIPTS_DIR):
         sys.path.insert(0, str(d))
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
+from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
 from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
     OwnershipViolationError,
@@ -137,6 +138,44 @@ class ClosedHourArchiveScheduler:
             return True
 
     def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
+        # V3 check: if frozen journal exists
+        journal_file = self.config.base_dir / "coverage" / "journals" / f"journal_{cohort.key}.json"
+        if journal_file.exists():
+            report_path = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
+            if report_path.exists():
+                try:
+                    data = json.loads(report_path.read_text(encoding="utf-8"))
+                    if data.get("cohort") == cohort.key and data.get("status") == "PASS":
+                        return True
+                except Exception:
+                    pass
+            # Check coverage receipts directly
+            cov_receipt_dir = self.config.receipt_root / "coverage"
+            if cov_receipt_dir.exists():
+                all_found = True
+                for feed in SEALED_FEED_UNIVERSE:
+                    rec_file = (
+                        cov_receipt_dir
+                        / cohort.key
+                        / feed.exchange
+                        / feed.stream
+                        / f"{feed.market}.coverage.json.archive-receipt.json"
+                    )
+                    if not rec_file.exists():
+                        all_found = False
+                        break
+                    try:
+                        rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
+                        if not rec_data.get("restore_verified_at"):
+                            all_found = False
+                            break
+                    except Exception:
+                        all_found = False
+                        break
+                if all_found:
+                    return True
+            return False
+
         matching_files = []
         for path in self.config.raw_root.glob("**/*.jsonl"):
             try:
@@ -164,7 +203,7 @@ class ClosedHourArchiveScheduler:
                     return False
                 if not (data.get("cleanup_eligible") or data.get("state") in (
                     ArchiveState.CLEANUP_ELIGIBLE.value,
-                    ArchiveState.VERIFIED.value,
+                    ArchiveState.RESTORE_VERIFIED.value,
                 )):
                     return False
             except Exception:
@@ -189,7 +228,65 @@ class ClosedHourArchiveScheduler:
         active_paths = load_active_paths(self.config.metrics_path, self.config.raw_root)
         active_set = {p.resolve() for p in active_paths}
 
-        # Verify ownership of raw root
+        journals_dir = self.config.base_dir / "coverage" / "journals"
+        v3_journals = sorted(journals_dir.glob("journal_*.json")) if journals_dir.exists() else []
+
+        if v3_journals:
+            # V3 journal-driven discovery
+            active_cohort_keys = set()
+            for p in active_paths:
+                try:
+                    active_cohort_keys.add(ArchiveCohortId.from_partition_name(p.name).key)
+                except ValueError:
+                    pass
+
+            eligible: List[EligibleHour] = []
+            for jf in v3_journals:
+                cohort_key = jf.stem.replace("journal_", "")
+                try:
+                    d_str, h_str = cohort_key.split("_")
+                    cohort = ArchiveCohortId(d_str, h_str)
+                except ValueError:
+                    continue
+
+                if self.is_cohort_completed(cohort):
+                    continue
+
+                # Active check: skip if currently active cohort
+                if cohort.key in active_cohort_keys:
+                    continue
+
+                # In V3, writer fence is closed and active paths empty, so no 600-second grace is needed.
+                verify_runtime_ownership((jf,), expected_owner=self.config.expected_owner)
+
+                matching_files = []
+                for p in self.config.raw_root.glob("**/*.jsonl"):
+                    try:
+                        if ArchiveCohortId.from_partition_name(p.name) == cohort:
+                            matching_files.append(p)
+                    except ValueError:
+                        continue
+
+                if matching_files:
+                    verify_runtime_ownership(tuple(matching_files), expected_owner=self.config.expected_owner)
+
+                try:
+                    closed_at = datetime.fromisoformat(
+                        f"{cohort.date_str}T{cohort.hour_str}:00:00+00:00"
+                    ) + timedelta(hours=1)
+                except ValueError:
+                    continue
+
+                eligible.append(EligibleHour(
+                    cohort=cohort,
+                    files=matching_files,
+                    closed_at=closed_at,
+                ))
+
+            eligible.sort(key=lambda e: e.cohort)
+            return eligible
+
+        # Legacy RAW discovery
         if self.config.raw_root.exists():
             verify_runtime_ownership((self.config.raw_root,), expected_owner=self.config.expected_owner)
 
@@ -201,7 +298,7 @@ class ClosedHourArchiveScheduler:
                 continue
             grouped.setdefault(cohort, []).append(p)
 
-        eligible: List[EligibleHour] = []
+        eligible = []
         for cohort, files in grouped.items():
             # 1. Check if hour is completed
             if self.is_cohort_completed(cohort):
