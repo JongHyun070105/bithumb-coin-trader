@@ -169,6 +169,25 @@ class ObservationParserTests(unittest.TestCase):
         assert isinstance(orderbook, OrderbookObservation)
         self.assertEqual(orderbook.levels[0].bid_size, Decimal("0.3"))
 
+    def test_parses_public_orderbook_snapshot_stream_type(self) -> None:
+        orderbook = parse_observation(
+            {
+                "type": "orderbook",
+                "code": "KRW-BTC",
+                "timestamp": 1725927377931000,
+                "stream_type": "SNAPSHOT",
+                "orderbook_units": [
+                    {
+                        "ask_price": 151000000,
+                        "bid_price": 150900000,
+                        "ask_size": "0.2",
+                        "bid_size": "0.3",
+                    }
+                ],
+            }
+        ).observation
+        self.assertIsInstance(orderbook, OrderbookObservation)
+
     def test_private_order_is_observation_with_reconciliation_hint(self) -> None:
         event = parse_observation(
             {

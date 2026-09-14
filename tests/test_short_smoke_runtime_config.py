@@ -56,8 +56,40 @@ class ShortSmokeRuntimeConfigTests(unittest.TestCase):
             self.assertEqual(payload["schema_version"], 2)
             self.assertTrue(payload["final_manifest_flush_observed"])
             self.assertEqual(payload["manifest_count"], 4)
+            self.assertEqual(payload["historical_raw_files_opened"], 0)
+            self.assertEqual(payload["historical_raw_bytes_read"], 0)
+            self.assertEqual(payload["current_raw_files_opened"], 0)
+            self.assertEqual(payload["current_raw_bytes_read"], 0)
+            self.assertEqual(payload["reused_manifest_count"], 0)
+            self.assertEqual(payload["generated_manifest_count"], 0)
             self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
             self.assertFalse(path.with_suffix(".json.tmp").exists())
+
+    def test_lifecycle_status_persists_finalization_counters(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "run" / "collector-lifecycle.json"
+            MODULE._write_lifecycle_status(
+                path,
+                run_id="aws-short-smoke-run-test",
+                phase="COMPLETE",
+                final_manifest_flush_observed=True,
+                manifest_count=10,
+                error_type=None,
+                historical_raw_files_opened=0,
+                historical_raw_bytes_read=0,
+                current_raw_files_opened=3,
+                current_raw_bytes_read=15000,
+                reused_manifest_count=7,
+                generated_manifest_count=3,
+            )
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["manifest_count"], 10)
+            self.assertEqual(payload["historical_raw_files_opened"], 0)
+            self.assertEqual(payload["historical_raw_bytes_read"], 0)
+            self.assertEqual(payload["current_raw_files_opened"], 3)
+            self.assertEqual(payload["current_raw_bytes_read"], 15000)
+            self.assertEqual(payload["reused_manifest_count"], 7)
+            self.assertEqual(payload["generated_manifest_count"], 3)
 
     def test_lifecycle_status_rejects_unknown_phase(self) -> None:
         with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, "lifecycle phase"):

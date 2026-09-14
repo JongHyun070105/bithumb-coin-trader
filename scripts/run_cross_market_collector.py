@@ -14,6 +14,7 @@ from collections.abc import Sequence
 
 from bithumb_coin_trader.cross_market_collector import MultiExchangeMicrostructureCollector
 from bithumb_coin_trader.dynamic_universe import TOP_UNIVERSE_CANDIDATES
+from bithumb_coin_trader.incremental_finalizer import FinalizationState, FinalizationSummary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -69,7 +70,7 @@ async def _run(args: argparse.Namespace) -> None:
         collector_error = error
         raise
     finally:
-        print("Flushing final manifests...")
+        print("Flushing final manifests with IncrementalManifestFinalizer...")
         if args.lifecycle_status_path is not None:
             _write_lifecycle_status(
                 args.lifecycle_status_path,
@@ -79,24 +80,56 @@ async def _run(args: argparse.Namespace) -> None:
                 manifest_count=0,
                 error_type=type(collector_error).__name__ if collector_error is not None else None,
             )
-        manifests: list[dict[str, object]] = []
+        summary: FinalizationSummary | None = None
         flush_observed = False
         flush_error: BaseException | None = None
         try:
-            manifests = collector.generate_all_manifests()
-            flush_observed = True
-            print(f"Generated {len(manifests)} partition manifests.")
+            summary = collector.finalize_all()
+            print(
+                f"Finalization summary: state={summary.state}, "
+                f"reused={summary.reused_count}, recomputed={summary.recomputed_count}, "
+                f"pending={summary.pending_count}, failed={summary.failed_count}"
+            )
+            if (
+                summary.state == "COMPLETE"
+                and summary.pending_count == 0
+                and summary.failed_count == 0
+                and collector_error is None
+            ):
+                flush_observed = True
         except BaseException as error:
             flush_error = error
             raise
         finally:
             if args.lifecycle_status_path is not None:
+                reused_count = summary.reused_count if summary is not None else 0
+                generated_count = summary.recomputed_count if summary is not None else 0
+                total_manifests = reused_count + generated_count
+                hist_files = summary.historical_raw_files_opened if summary is not None else 0
+                hist_bytes = summary.historical_raw_bytes_read if summary is not None else 0
+                curr_files = summary.recomputed_count if summary is not None else 0
+                curr_bytes = 0
+                if summary is not None and collector.finalizer_store is not None:
+                    try:
+                        for entry_file in collector.finalizer_store.entries_dir.glob("*.json"):
+                            entry_dict = json.loads(entry_file.read_text(encoding="utf-8"))
+                            if entry_dict.get("state") == FinalizationState.RECOMPUTED.value:
+                                curr_bytes += int(entry_dict.get("source_size") or 0)
+                    except Exception:
+                        pass
+
                 _write_lifecycle_status(
                     args.lifecycle_status_path,
                     run_id=args.run_id,
-                    phase="COMPLETE" if flush_observed and collector_error is None else "FINALIZING",
+                    phase="COMPLETE" if flush_observed else "FINALIZING",
                     final_manifest_flush_observed=flush_observed,
-                    manifest_count=len(manifests),
+                    manifest_count=total_manifests,
+                    historical_raw_files_opened=hist_files,
+                    historical_raw_bytes_read=hist_bytes,
+                    current_raw_files_opened=curr_files,
+                    current_raw_bytes_read=curr_bytes,
+                    reused_manifest_count=reused_count,
+                    generated_manifest_count=generated_count,
                     error_type=(
                         type(flush_error).__name__
                         if flush_error is not None
@@ -113,6 +146,12 @@ def _write_lifecycle_status(
     final_manifest_flush_observed: bool,
     manifest_count: int,
     error_type: str | None,
+    historical_raw_files_opened: int = 0,
+    historical_raw_bytes_read: int = 0,
+    current_raw_files_opened: int = 0,
+    current_raw_bytes_read: int = 0,
+    reused_manifest_count: int = 0,
+    generated_manifest_count: int = 0,
 ) -> None:
     if phase not in {"COLLECTING", "FINALIZING", "COMPLETE"}:
         raise ValueError("lifecycle phase must be COLLECTING, FINALIZING, or COMPLETE")
@@ -125,6 +164,12 @@ def _write_lifecycle_status(
         "process_id": os.getpid(),
         "final_manifest_flush_observed": final_manifest_flush_observed,
         "manifest_count": manifest_count,
+        "historical_raw_files_opened": historical_raw_files_opened,
+        "historical_raw_bytes_read": historical_raw_bytes_read,
+        "current_raw_files_opened": current_raw_files_opened,
+        "current_raw_bytes_read": current_raw_bytes_read,
+        "reused_manifest_count": reused_manifest_count,
+        "generated_manifest_count": generated_manifest_count,
         "error_type": error_type,
     }
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
