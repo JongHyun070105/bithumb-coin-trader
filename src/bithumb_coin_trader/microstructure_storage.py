@@ -450,4 +450,3 @@ class RawMicrostructureStorage:
             raise FinalizationEvidenceError("SYMLINK_REJECTED")
 
         return candidate
-

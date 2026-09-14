@@ -639,5 +639,3 @@ def test_mark_complete_transaction_safety(tmp_path: Path) -> None:
     rec_summary = recovered.reconcile()
     assert rec_summary.state == "COMPLETE"
     assert rec_summary.generation == gen_before
-
-

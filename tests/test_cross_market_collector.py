@@ -886,9 +886,5 @@ class StaleStreamSessionCloseTests(unittest.TestCase):
 
         asyncio.run(exercise())
 
-
-
-
 if __name__ == "__main__":
     unittest.main()
-
