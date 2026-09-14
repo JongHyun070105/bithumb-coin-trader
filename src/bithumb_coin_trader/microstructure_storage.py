@@ -16,7 +16,7 @@ import json
 import logging
 import random
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 RAW_BASE_DIR = ROOT / "data" / "microstructure" / "raw"

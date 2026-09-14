@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Callable
 from unittest.mock import patch
 import pytest
 
@@ -19,7 +18,6 @@ from bithumb_coin_trader.incremental_finalizer import (
     IncrementalManifestFinalizer,
 )
 from bithumb_coin_trader.microstructure_storage import (
-    PartitionManifest,
     RawMicrostructureStorage,
 )
 

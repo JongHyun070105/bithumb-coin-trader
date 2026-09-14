@@ -9,6 +9,7 @@ Enforces:
 from __future__ import annotations
 
 from contextlib import contextmanager
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -20,7 +21,6 @@ import time
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from bithumb_coin_trader.evidence_hashing import (
-    canonical_json_bytes,
     canonical_sha256,
     file_sha256,
 )
@@ -261,7 +261,7 @@ class FinalizationProgressStore:
         self.entries_dir.mkdir(parents=True, exist_ok=True)
 
     @contextmanager
-    def _lock(self):
+    def _lock(self) -> Iterator[None]:
         self.root.mkdir(parents=True, exist_ok=True)
         self.entries_dir.mkdir(parents=True, exist_ok=True)
         fd = os.open(str(self.lock_file), os.O_RDWR | os.O_CREAT, 0o600)
@@ -740,6 +740,7 @@ class FinalizationProgressStore:
 
     def get_entry(self, entry_id: str) -> FinalizationEntry:
         with self._lock():
+            self._reconcile_locked()
             efile = self.entries_dir / f"{entry_id}.json"
             if not efile.exists():
                 raise FinalizationEvidenceError("ENTRY_NOT_FOUND")
