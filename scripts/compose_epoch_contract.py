@@ -24,6 +24,11 @@ from bithumb_coin_trader.actual_start_evidence import (
     ActualStartIdentity,
     normalize_actual_start_evidence,
 )
+from bithumb_coin_trader.qualification_schedule import (
+    build_qualification_schedule,
+    format_utc,
+    parse_utc,
+)
 
 
 def compose_epoch_contract(
@@ -33,6 +38,7 @@ def compose_epoch_contract(
     actual_start_evidence_path: Path | None = None,
     synthetic_actual_start_time_utc: str | None = None,
     strict: bool = True,
+    schema_version: int | None = None,
 ) -> dict[str, Any]:
     if not runtime_seal_path.exists():
         raise FileNotFoundError(f"Runtime seal not found: {runtime_seal_path}")
@@ -128,6 +134,96 @@ def compose_epoch_contract(
     if len(feed_universe) != 76 and strict:
         raise ValueError(f"FEED_UNIVERSE_MISMATCH: Expected 76 feeds, got {len(feed_universe)}")
 
+    target_schema = schema_version
+    if target_schema is None:
+        if (
+            launch_prov.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+            or runtime_seal.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+            or launch_prov.get("schema_version") == 2
+            or runtime_seal.get("schema_version") == 2
+            or launch_prov.get("duration_seconds") == 111600
+            or launch_prov.get("maximum_collection_window_seconds") == 111600
+        ):
+            target_schema = 2
+        else:
+            target_schema = 1
+
+    if target_schema == 2:
+        if launch_prov.get("duration_seconds") == 108000:
+            raise ValueError(
+                "V3_DERIVED_108000_END_FORBIDDEN: Fixed 108000s duration is forbidden in V3 qualification schedule"
+            )
+
+        req_hours = launch_prov.get("required_qualifying_full_hours", 30)
+        max_window = launch_prov.get("maximum_collection_window_seconds", 111600)
+        if req_hours != 30:
+            raise ValueError(f"V3_QUALIFICATION_HOURS_INVALID: Expected 30 qualifying hours, got {req_hours}")
+        if max_window != 111600:
+            raise ValueError(f"V3_QUALIFICATION_WINDOW_INVALID: Expected 111600s max window, got {max_window}")
+
+        sealed_heartbeat_policy = runtime_seal.get("heartbeat_policy")
+        if not sealed_heartbeat_policy:
+            sealed_heartbeat_policy = {
+                "heartbeat_probe_interval_seconds": 10,
+                "heartbeat_timeout_seconds": 10,
+                "max_allowed_heartbeat_gap_seconds": {
+                    "bithumb": 30,
+                    "binance": 30,
+                    "upbit": 30,
+                },
+            }
+        gaps = sealed_heartbeat_policy.get("max_allowed_heartbeat_gap_seconds", {})
+        for ex in ("bithumb", "binance", "upbit"):
+            if ex not in gaps or not isinstance(gaps[ex], (int, float)) or gaps[ex] <= 0:
+                raise ValueError(f"INVALID_HEARTBEAT_POLICY: Missing or invalid gap threshold for {ex}")
+
+        if actual_start_str.endswith("Z") or actual_start_str.endswith("+00:00"):
+            actual_utc = parse_utc(actual_start_str)
+        else:
+            actual_utc = datetime.fromisoformat(actual_start_str)
+            if actual_utc.tzinfo is None:
+                actual_utc = actual_utc.replace(tzinfo=timezone.utc)
+
+        schedule = build_qualification_schedule(actual_utc, 0.0, req_hours, max_window)
+
+        v3_contract: dict[str, Any] = {
+            "schema_version": 2,
+            "contract_type": "OFFICIAL_30H_V3_COVERAGE_CONTRACT",
+            "collector_epoch": collector_epoch,
+            "collector_run_id": collector_run_id,
+            "actual_start_time_utc": format_utc(actual_utc),
+            "qualification_start_utc": schedule.qualification_start_utc,
+            "qualification_end_utc": schedule.collection_stop_utc,
+            "required_qualifying_full_hours": 30,
+            "maximum_collection_window_seconds": 111600,
+            "candidate_cohorts": list(schedule.candidate_cohorts),
+            "expected_coverage_slots_per_cohort": 76,
+            "heartbeat_policy": sealed_heartbeat_policy,
+            "feed_universe": feed_universe,
+            "require_coverage_receipts": True,
+            "require_state_dependent_fullscan": True,
+            "runtime_software_commit": runtime_commit,
+            "runtime_fingerprint": runtime_fingerprint,
+            "environment_id": launch_prov.get("environment_id", "aws-apne2-research"),
+            "raw_schema_version": runtime_seal.get("raw_schema_version", 4),
+            "runtime_seal_path": str(runtime_seal_path),
+            "runtime_seal_sha256": seal_sha,
+            "launch_provenance_path": str(launch_provenance_path),
+            "launch_provenance_sha256": prov_sha,
+            "actual_start_evidence_path": str(actual_start_evidence_path) if actual_start_evidence_path else "",
+            "actual_start_evidence_file_sha256": start_evidence_sha,
+            "feed_count": len(feed_universe),
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        v3_contract["contract_sha256"] = canonical_sha256(v3_contract)
+
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(v3_contract, indent=2), encoding="utf-8")
+            print(f"Wrote epoch contract to {output_path} (contract_sha256={v3_contract['contract_sha256'][:16]})")
+
+        return v3_contract
+
     contract: dict[str, Any] = {
         "schema_version": 1,
         "contract_type": "OFFICIAL_72H_SOAK_CONTRACT",
@@ -173,6 +269,7 @@ def main() -> int:
     parser.add_argument("--synthetic-actual-start", type=str, default=None, help="Synthetic actual start ISO timestamp")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output epoch_contract.json path")
     parser.add_argument("--strict", action="store_true", default=True, help="Enforce strict contract checks")
+    parser.add_argument("--schema-version", type=int, default=None, choices=[1, 2], help="Contract schema version")
 
     args = parser.parse_args()
     try:
@@ -183,6 +280,7 @@ def main() -> int:
             actual_start_evidence_path=args.actual_start_evidence,
             synthetic_actual_start_time_utc=args.synthetic_actual_start,
             strict=args.strict,
+            schema_version=args.schema_version,
         )
         return 0
     except Exception as e:

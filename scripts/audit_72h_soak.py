@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
@@ -25,6 +26,16 @@ from pathlib import Path
 import re
 import sys
 from typing import Any
+
+try:
+    from bithumb_coin_trader.evidence_hashing import canonical_sha256, file_sha256
+except ModuleNotFoundError:
+    try:
+        from scripts.evidence_contract import canonical_sha256, file_sha256
+    except ModuleNotFoundError:
+        from evidence_contract import canonical_sha256, file_sha256
+
+_file_sha256 = file_sha256
 
 try:
     import zstandard
@@ -488,6 +499,398 @@ def validate_archive_evidence_coverage(
     }
 
 
+def validate_v3_coverage_evidence(
+    contract: Mapping[str, Any],
+    coverage_files: Sequence[Path],
+    receipt_files: Sequence[Path],
+    full_scan_reports: Sequence[Path] = (),
+    manifest_files: Sequence[Path] = (),
+    raw_files: Sequence[Path] = (),
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Audit exact V3 coverage slots per candidate cohort enforcing state-dependent rules."""
+    candidate_cohorts = list(contract.get("candidate_cohorts", []))
+    required_qualifying_full_hours = contract.get("required_qualifying_full_hours", len(candidate_cohorts))
+    heartbeat_policy = contract.get("heartbeat_policy", {})
+    thresholds = heartbeat_policy.get(
+        "max_allowed_heartbeat_gap_seconds",
+        {"bithumb": 30, "binance": 30, "upbit": 30},
+    )
+
+    feed_universe_raw = contract.get("feed_universe")
+    if feed_universe_raw:
+        expected_feeds = [
+            normalize_feed_identity(f["exchange"], f["stream"], f["market"])
+            for f in feed_universe_raw
+        ]
+    else:
+        expected_feeds = [
+            normalize_feed_identity(e, s, m)
+            for e, s, m in SoakAuditor72H.get_expected_feed_universe()
+        ]
+    expected_feed_set: set[tuple[str, str, str]] = set(expected_feeds)
+    expected_slots_per_cohort = len(expected_feed_set)
+
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if not candidate_cohorts:
+        blockers.append("NO_CANDIDATE_COHORTS: Contract defines no candidate cohorts")
+
+    cov_receipts: dict[tuple[str, str, str, str], list[tuple[dict[str, Any], Path]]] = {}
+    raw_receipts: dict[tuple[str, str, str, str], list[tuple[dict[str, Any], Path]]] = {}
+
+    for rf in receipt_files:
+        try:
+            r_data = json.loads(rf.read_text(encoding="utf-8"))
+        except Exception as e:
+            blockers.append(f"RECEIPT_CORRUPT: Failed reading receipt {rf.name}: {e}")
+            continue
+
+        kind = r_data.get("artifact_kind")
+        is_coverage = (
+            kind == "COVERAGE_EVIDENCE"
+            or ".coverage." in rf.name
+            or ".coverage." in str(r_data.get("source_path", ""))
+        )
+        r_cohort = r_data.get("cohort") or r_data.get("hour_cohort")
+        if not r_cohort:
+            m = _CANONICAL_COHORT_RE.search(rf.name)
+            r_cohort = m.group(0) if m else "unknown"
+
+        r_exch = r_data.get("exchange")
+        r_strm = r_data.get("stream")
+        r_mkt = r_data.get("market")
+        if not (r_exch and r_strm and r_mkt):
+            feed_info = _extract_receipt_partition(r_data, rf)
+            if feed_info:
+                if not r_exch:
+                    r_exch = feed_info[0]
+                if not r_strm:
+                    r_strm = feed_info[1]
+                if not r_mkt:
+                    r_mkt = feed_info[2]
+                if not r_cohort or r_cohort == "unknown":
+                    r_cohort = feed_info[3]
+
+        if not (r_exch and r_strm and r_mkt):
+            blockers.append(f"RECEIPT_IDENTITY_INVALID: Receipt {rf.name} missing exchange/stream/market")
+            continue
+
+        norm_feed = normalize_feed_identity(r_exch, r_strm, r_mkt)
+        slot_key = (r_cohort, *norm_feed)
+
+        if is_coverage:
+            cov_receipts.setdefault(slot_key, []).append((r_data, rf))
+        else:
+            raw_receipts.setdefault(slot_key, []).append((r_data, rf))
+
+    fullscan_passed_slots: set[tuple[str, str, str, str]] = set()
+    for fs_p in full_scan_reports:
+        try:
+            fs_data = json.loads(fs_p.read_text(encoding="utf-8"))
+        except Exception as e:
+            blockers.append(f"FULLSCAN_REPORT_CORRUPT: {fs_p.name}: {e}")
+            continue
+        status = _evidence_status(fs_data)
+        fs_cohort = fs_data.get("cohort")
+        if not fs_cohort:
+            m = _CANONICAL_FULLSCAN_RE.match(fs_p.name)
+            if m:
+                fs_cohort = m.group(1)
+        if status != "PASS":
+            continue
+        inputs = fs_data.get("inputs") or fs_data.get("input_files") or []
+        for inp in inputs:
+            parsed = parse_partition_path(inp)
+            if parsed:
+                e, s, m, c = parsed
+                norm_f = normalize_feed_identity(e, s, m)
+                target_c = c if c != "unknown" else fs_cohort
+                if target_c:
+                    fullscan_passed_slots.add((target_c, *norm_f))
+
+    slot_coverage: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    slot_coverage_files: dict[tuple[str, str, str, str], Path] = {}
+
+    for cf in coverage_files:
+        try:
+            c_data = json.loads(cf.read_text(encoding="utf-8"))
+        except Exception as e:
+            blockers.append(f"COVERAGE_FILE_CORRUPT: {cf.name}: {e}")
+            continue
+
+        claimed_sha = c_data.get("evidence_sha256")
+        if not claimed_sha:
+            blockers.append(f"COVERAGE_HASH_MISMATCH: {cf.name} missing evidence_sha256")
+        else:
+            actual_sha = canonical_sha256(c_data, excluded=("evidence_sha256",))
+            if actual_sha != claimed_sha:
+                blockers.append(
+                    f"COVERAGE_HASH_MISMATCH: {cf.name} actual '{actual_sha}' != claimed '{claimed_sha}'"
+                )
+
+        c_cohort = c_data.get("cohort_utc")
+        c_exch = c_data.get("exchange", "")
+        c_strm = c_data.get("stream", "")
+        c_mkt = c_data.get("market", "")
+        if not (c_cohort and c_exch and c_strm and c_mkt):
+            blockers.append(f"COVERAGE_IDENTITY_INVALID: {cf.name} missing slot coordinates")
+            continue
+
+        norm_feed = normalize_feed_identity(c_exch, c_strm, c_mkt)
+        slot_key = (c_cohort, *norm_feed)
+
+        if c_cohort not in candidate_cohorts:
+            blockers.append(
+                f"COHORT_UNEXPECTED: {cf.name} has cohort {c_cohort} not in candidate cohorts; replacement cohorts forbidden"
+            )
+            continue
+
+        if norm_feed not in expected_feed_set:
+            blockers.append(f"SLOT_FOREIGN: {cf.name} feed {norm_feed} is not in sealed feed universe")
+            continue
+
+        if slot_key in slot_coverage:
+            blockers.append(
+                f"SLOT_DUPLICATE: multiple coverage files for slot {slot_key} ({cf.name} and {slot_coverage_files[slot_key].name})"
+            )
+            continue
+
+        slot_coverage[slot_key] = c_data
+        slot_coverage_files[slot_key] = cf
+
+    scientific_record_count = 0
+    data_present_count = 0
+    verified_zero_count = 0
+    failed_slots_count = 0
+    per_cohort_diagnostics: dict[str, dict[str, Any]] = {}
+    qualifying_cohorts: list[str] = []
+    failing_cohorts: list[str] = []
+
+    for cohort in candidate_cohorts:
+        cohort_present = 0
+        cohort_zero = 0
+        cohort_failed = 0
+        cohort_blockers: list[str] = []
+
+        def add_slot_blocker(code: str, detail: str) -> None:
+            msg = f"{code}: {detail}"
+            blockers.append(msg)
+            blockers.append(code)
+            cohort_blockers.append(msg)
+            cohort_blockers.append(code)
+
+        for feed in sorted(expected_feed_set):
+            slot_key = (cohort, *feed)
+            slot_tag = f"{cohort}:{feed[0]}/{feed[1]}/{feed[2]}"
+
+            if slot_key not in slot_coverage:
+                cohort_failed += 1
+                failed_slots_count += 1
+                add_slot_blocker("SLOT_MISSING", f"missing coverage evidence for slot {slot_tag}")
+                continue
+
+            c_data = slot_coverage[slot_key]
+            cf_path = slot_coverage_files[slot_key]
+            cf_sha = _file_sha256(cf_path)
+
+            slot_has_failure = False
+
+            cov_rcpts = cov_receipts.get(slot_key, [])
+            if not cov_rcpts:
+                slot_has_failure = True
+                add_slot_blocker("COVERAGE_RECEIPT_MISSING", f"slot {slot_tag} has no coverage archive receipt")
+            elif len(cov_rcpts) > 1:
+                slot_has_failure = True
+                add_slot_blocker("COVERAGE_RECEIPT_DUPLICATE", f"slot {slot_tag} has {len(cov_rcpts)} coverage receipts")
+            else:
+                r_data, r_path = cov_rcpts[0]
+                if r_data.get("state") not in QUALIFYING_RECEIPT_STATES:
+                    slot_has_failure = True
+                    add_slot_blocker("COVERAGE_RECEIPT_INVALID_STATE", f"slot {slot_tag} receipt state is '{r_data.get('state')}'")
+                restore_ok = bool(r_data.get("restore_verified_at")) or (r_data.get("restore_verified") is True)
+                if not restore_ok:
+                    slot_has_failure = True
+                    add_slot_blocker("COVERAGE_RECEIPT_RESTORE_MISMATCH", f"slot {slot_tag} coverage receipt lacks restore verification")
+                rcpt_src_sha = r_data.get("source_sha256") or r_data.get("raw_sha256")
+                if rcpt_src_sha and rcpt_src_sha != cf_sha:
+                    slot_has_failure = True
+                    add_slot_blocker("COVERAGE_RECEIPT_HASH_MISMATCH", f"slot {slot_tag} receipt sha '{rcpt_src_sha}' != file sha '{cf_sha}'")
+
+            if c_data.get("cohort_qualification") != "QUALIFYING_FULL_HOUR":
+                slot_has_failure = True
+                add_slot_blocker("COHORT_NOT_QUALIFYING", f"slot {slot_tag} qualification={c_data.get('cohort_qualification')}")
+
+            if (
+                c_data.get("writer_error_count", 0) > 0
+                or c_data.get("queue_dropped_events", 0) > 0
+                or c_data.get("unpersisted_event_count", 0) > 0
+                or c_data.get("fatal_writer_error_type") is not None
+            ):
+                slot_has_failure = True
+                add_slot_blocker("WRITER_HEALTH_DEGRADED", f"slot {slot_tag} writer errors or queue drops")
+
+            segments = c_data.get("session_segments", [])
+            if not segments:
+                slot_has_failure = True
+                add_slot_blocker("NO_SESSION_SEGMENTS", f"slot {slot_tag} has no session segments")
+            else:
+                interval_start = c_data.get("interval_start_utc", "")
+                interval_end = c_data.get("interval_end_utc", "")
+                for seg in segments:
+                    conf_at = seg.get("confirmed_at_utc")
+                    if not conf_at:
+                        slot_has_failure = True
+                        add_slot_blocker("SUBSCRIPTION_NOT_CONFIRMED", f"slot {slot_tag} missing confirmation")
+                    elif interval_start and conf_at > interval_start:
+                        slot_has_failure = True
+                        add_slot_blocker("SUBSCRIPTION_NOT_CONFIRMED_BEFORE_INTERVAL", f"slot {slot_tag} confirmed at {conf_at} > interval start {interval_start}")
+
+                max_allowed = thresholds.get(feed[0], 30)
+                gap_breached = False
+                for seg in segments:
+                    seg_gap = seg.get("maximum_heartbeat_gap_seconds")
+                    if seg_gap is not None and seg_gap > max_allowed:
+                        gap_breached = True
+                    hb_obs = seg.get("heartbeat_observations_utc", [])
+                    if hb_obs and interval_start and interval_end:
+                        try:
+                            s_dt = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
+                            e_dt = datetime.fromisoformat(interval_end.replace("Z", "+00:00"))
+                            f_hb = datetime.fromisoformat(hb_obs[0].replace("Z", "+00:00"))
+                            l_hb = datetime.fromisoformat(hb_obs[-1].replace("Z", "+00:00"))
+                            if (f_hb - s_dt).total_seconds() > max_allowed or (e_dt - l_hb).total_seconds() > max_allowed:
+                                gap_breached = True
+                        except Exception:
+                            pass
+                if gap_breached:
+                    slot_has_failure = True
+                    add_slot_blocker("HEARTBEAT_GAP_EXCEEDED", f"slot {slot_tag} heartbeat gap exceeds sealed threshold {max_allowed}s")
+
+            if c_data.get("disconnect_count", 0) > 0 or c_data.get("reconnect_count", 0) > 0:
+                slot_has_failure = True
+                add_slot_blocker("COLLECTION_GAP", f"slot {slot_tag} disconnects={c_data.get('disconnect_count')}, reconnects={c_data.get('reconnect_count')}")
+
+            if c_data.get("failure_reason_codes"):
+                slot_has_failure = True
+                add_slot_blocker("SLOT_FAILED", f"slot {slot_tag} recorded failure reasons: {c_data.get('failure_reason_codes')}")
+
+            state = c_data.get("coverage_state")
+            event_count = c_data.get("event_count", 0)
+
+            if state == "DATA_PRESENT":
+                if event_count <= 0:
+                    slot_has_failure = True
+                    add_slot_blocker("INVALID_EVENT_COUNT", f"slot {slot_tag} DATA_PRESENT but event_count={event_count}")
+
+                binding = c_data.get("data_artifact_binding")
+                if not binding:
+                    slot_has_failure = True
+                    add_slot_blocker("DATA_BINDING_MISSING", f"slot {slot_tag} DATA_PRESENT but missing data_artifact_binding")
+                else:
+                    m_rec = binding.get("manifest_record_count")
+                    r_rec = binding.get("receipt_source_record_count")
+                    if not (event_count == m_rec == r_rec):
+                        slot_has_failure = True
+                        add_slot_blocker("RECORD_COUNT_MISMATCH", f"slot {slot_tag} event_count={event_count} != manifest={m_rec} != receipt={r_rec}")
+
+                    raw_rcpts = raw_receipts.get(slot_key, [])
+                    if not raw_rcpts:
+                        slot_has_failure = True
+                        add_slot_blocker("RAW_RECEIPT_MISSING", f"slot {slot_tag} missing RAW receipt")
+                    else:
+                        raw_rdata, raw_rp = raw_rcpts[0]
+                        if not (raw_rdata.get("restore_verified_at") or raw_rdata.get("restore_verified")):
+                            slot_has_failure = True
+                            add_slot_blocker("RAW_RESTORE_MISMATCH", f"slot {slot_tag} RAW receipt lacks restore verification")
+                        if raw_rdata.get("source_record_count") != event_count:
+                            slot_has_failure = True
+                            add_slot_blocker("RECORD_COUNT_MISMATCH", f"slot {slot_tag} RAW receipt source_record_count={raw_rdata.get('source_record_count')} != event_count={event_count}")
+
+                    if contract.get("require_state_dependent_fullscan", True):
+                        if slot_key not in fullscan_passed_slots:
+                            slot_has_failure = True
+                            add_slot_blocker("FULLSCAN_SLOT_MISSING", f"slot {slot_tag} DATA_PRESENT but not covered by passing fullscan report")
+
+                if slot_has_failure:
+                    cohort_failed += 1
+                    failed_slots_count += 1
+                else:
+                    cohort_present += 1
+                    data_present_count += 1
+                    scientific_record_count += event_count
+
+            elif state == "VERIFIED_ZERO_EVENT":
+                if event_count != 0:
+                    slot_has_failure = True
+                    add_slot_blocker("INVALID_ZERO_EVENT_COUNT", f"slot {slot_tag} zero event but event_count={event_count}")
+                if c_data.get("first_event_timestamp") is not None or c_data.get("last_event_timestamp") is not None:
+                    slot_has_failure = True
+                    add_slot_blocker("INVALID_ZERO_EVENT_TIMESTAMPS", f"slot {slot_tag} zero event has non-null timestamps")
+                if c_data.get("data_artifact_binding") is not None:
+                    slot_has_failure = True
+                    add_slot_blocker("UNEXPECTED_DATA_BINDING_FOR_ZERO_EVENT", f"slot {slot_tag} zero event has data binding")
+                if raw_receipts.get(slot_key):
+                    slot_has_failure = True
+                    add_slot_blocker("RAW_DATA_PRESENT_FOR_ZERO_EVENT", f"slot {slot_tag} zero event has raw receipt")
+
+                if slot_has_failure:
+                    cohort_failed += 1
+                    failed_slots_count += 1
+                else:
+                    cohort_zero += 1
+                    verified_zero_count += 1
+
+            else:
+                slot_has_failure = True
+                cohort_failed += 1
+                failed_slots_count += 1
+                add_slot_blocker("SLOT_FAILED", f"slot {slot_tag} state is '{state}'")
+
+        cohort_qualifies = (
+            cohort_failed == 0
+            and (cohort_present + cohort_zero) == expected_slots_per_cohort
+            and len(cohort_blockers) == 0
+        )
+        if cohort_qualifies:
+            qualifying_cohorts.append(cohort)
+        else:
+            failing_cohorts.append(cohort)
+
+        per_cohort_diagnostics[cohort] = {
+            "present_slots": cohort_present,
+            "zero_slots": cohort_zero,
+            "failed_slots": cohort_failed,
+            "total_slots": cohort_present + cohort_zero + cohort_failed,
+            "qualifies": cohort_qualifies,
+            "blockers": cohort_blockers,
+        }
+
+    overall_pass = (
+        len(failing_cohorts) == 0
+        and len(qualifying_cohorts) >= required_qualifying_full_hours
+        and len(blockers) == 0
+        and failed_slots_count == 0
+    )
+    overall_status = "PASS" if overall_pass else "FAIL"
+
+    return {
+        "status": overall_status,
+        "blockers": sorted(set(blockers)),
+        "warnings": sorted(set(warnings)),
+        "scientific_record_count": scientific_record_count,
+        "total_coverage_slots": data_present_count + verified_zero_count + failed_slots_count,
+        "expected_coverage_slots": len(candidate_cohorts) * expected_slots_per_cohort,
+        "data_present_slots": data_present_count,
+        "verified_zero_slots": verified_zero_count,
+        "failed_slots": failed_slots_count,
+        "qualifying_cohorts": qualifying_cohorts,
+        "failing_cohorts": failing_cohorts,
+        "per_cohort_diagnostics": per_cohort_diagnostics,
+    }
+
+
 @dataclass
 class TimestampStats:
     total_records: int = 0
@@ -689,9 +1092,16 @@ class SoakAuditor72H:
         receipt_files = sorted(set(receipt_files))
         full_scan_reports = sorted(set(full_scan_reports))
 
+        coverage_files = []
+        coverage_dir = self.epoch_dir / "coverage"
+        if coverage_dir.exists():
+            coverage_files.extend(list(coverage_dir.glob("**/*.coverage.json")))
+        coverage_files = sorted(set(coverage_files))
+
         report["summary"]["raw_files_count"] = len(raw_files)
         report["summary"]["manifests_count"] = len(manifest_files)
         report["summary"]["receipts_count"] = len(receipt_files)
+        report["summary"]["coverage_files_count"] = len(coverage_files)
         report["summary"]["full_scan_reports_count"] = len(full_scan_reports)
 
         # P1.1 & P1.3: Run Contract & Epoch Root Verification
@@ -1067,29 +1477,34 @@ class SoakAuditor72H:
                     except Exception:
                         pass
 
-        # P0.6 & P0.1: 76-feed expected universe coverage
-        expected_universe = self.get_expected_feed_universe()
-        for hour in sorted(observed_hours):
-            hour_report: dict[str, str] = {}
-            for exch, strm, mkt in expected_universe:
-                cell_k = f"{hour}/{exch}/{mkt}/{strm}"
-                if cell_k not in coverage_matrix:
-                    alt_upper = f"{hour}/{exch}/{mkt.upper()}/{strm}"
-                    alt_lower = f"{hour}/{exch}/{mkt.lower()}/{strm}"
-                    if alt_upper in coverage_matrix:
-                        cell_k = alt_upper
-                    elif alt_lower in coverage_matrix:
-                        cell_k = alt_lower
-                if cell_k in coverage_matrix:
-                    hour_report[f"{exch}/{mkt}/{strm}"] = coverage_matrix[cell_k]["state"]
-                else:
-                    hour_report[f"{exch}/{mkt}/{strm}"] = "MISSING"
-                    # P0.1: Missing required feed is a hard blocker for DQ_PASS_ELIGIBLE
-                    report["warnings"].append(f"MISSING_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
-                    report["blockers"].append(f"MISSING_REQUIRED_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
-            report["hourly_cohorts"][hour] = hour_report
-        # Expected Hour Cohorts Verification
+        is_v3 = (
+            contract_data.get("schema_version") == 2
+            or contract_data.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+        )
+        if not is_v3:
+            # P0.6 & P0.1: 76-feed expected universe coverage (legacy RAW matrix)
+            expected_universe = self.get_expected_feed_universe()
+            for hour in sorted(observed_hours):
+                hour_report: dict[str, str] = {}
+                for exch, strm, mkt in expected_universe:
+                    cell_k = f"{hour}/{exch}/{mkt}/{strm}"
+                    if cell_k not in coverage_matrix:
+                        alt_upper = f"{hour}/{exch}/{mkt.upper()}/{strm}"
+                        alt_lower = f"{hour}/{exch}/{mkt.lower()}/{strm}"
+                        if alt_upper in coverage_matrix:
+                            cell_k = alt_upper
+                        elif alt_lower in coverage_matrix:
+                            cell_k = alt_lower
+                    if cell_k in coverage_matrix:
+                        hour_report[f"{exch}/{mkt}/{strm}"] = coverage_matrix[cell_k]["state"]
+                    else:
+                        hour_report[f"{exch}/{mkt}/{strm}"] = "MISSING"
+                        # P0.1: Missing required feed is a hard blocker for DQ_PASS_ELIGIBLE
+                        report["warnings"].append(f"MISSING_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
+                        report["blockers"].append(f"MISSING_REQUIRED_FEED: Feed {exch}/{mkt}/{strm} missing in hour {hour}")
+                report["hourly_cohorts"][hour] = hour_report
 
+        # Expected Hour Cohorts Verification
         expected_raw_cohorts: list[str] = []
         expected_archive_cohorts: list[str] = []
         fullscan_spec: dict[str, Any] = {"hourly_fullscan_cohorts": [], "terminal_fullscan_required": False}
@@ -1104,7 +1519,7 @@ class SoakAuditor72H:
                     if end_str:
                         end_dt = datetime.fromisoformat(end_str)
                     else:
-                        end_dt = start_dt + timedelta(seconds=dur_sec)
+                        end_dt = start_dt + timedelta(seconds=float(dur_sec or 0))
 
                     expected_raw_cohorts = derive_expected_raw_cohorts(start_dt, end_dt)
                     expected_archive_cohorts = derive_expected_archive_cohorts(start_dt, end_dt, grace_seconds=600)
@@ -1112,48 +1527,71 @@ class SoakAuditor72H:
                 except Exception as e:
                     report["warnings"].append(f"Could not compute expected cohorts: {e}")
 
-        # P1.3 & P3: Verify that every expected hour cohort was observed
-        norm_observed = {re.sub(r"[-_]", "", h) for h in observed_hours}
-        for exp_h in expected_raw_cohorts:
-            if exp_h not in observed_hours and re.sub(r"[-_]", "", exp_h) not in norm_observed:
-                report["blockers"].append(f"MISSING_EXPECTED_HOUR: Expected cohort {exp_h} has no raw partition files")
-
-        # P1.4/P1.5/P3: exact per-cohort receipt, restore, and full-scan hard gates.
-        cohorts_for_evidence = expected_archive_cohorts
-        if not cohorts_for_evidence and (
-            contract_data.get("require_receipts", False)
-            or contract_data.get("require_fullscan", False)
-        ):
-            cohorts_for_evidence = sorted(
-                cohort for cohort in observed_hours if _CANONICAL_COHORT_RE.fullmatch(cohort)
-            )
-
-        if cohorts_for_evidence:
-            evidence_coverage = validate_archive_evidence_coverage(
-                cohorts_for_evidence,
-                receipt_files,
-                full_scan_reports,
-                expected_epoch=contract_data.get("collector_epoch") or contract_data.get("epoch"),
-                expected_run_id=contract_data.get("run_id") or contract_data.get("collector_run_id"),
+        # Dispatch on contract schema_version
+        if is_v3:
+            evidence_coverage = validate_v3_coverage_evidence(
+                contract=contract_data,
+                coverage_files=coverage_files,
+                receipt_files=receipt_files,
+                full_scan_reports=full_scan_reports,
+                manifest_files=manifest_files,
+                raw_files=raw_files,
             )
             report["archive_evidence_coverage"] = evidence_coverage
+            report["v3_coverage_evidence"] = evidence_coverage
             report["blockers"].extend(evidence_coverage["blockers"])
-            if evidence_coverage["legacy_fullscan_artifacts"]:
-                report["warnings"].append(
-                    "LEGACY / NON-QUALIFYING: hour-only full-scan artifacts cannot satisfy official coverage"
-                )
-        elif contract_data.get("require_receipts", False):
-            report["blockers"].append(
-                "ARCHIVE_RECEIPT_MISSING: Contract requires receipts but no canonical archive cohorts were derived"
-            )
+            report["scientific_record_count"] = evidence_coverage.get("scientific_record_count", 0)
+            if evidence_coverage.get("status") != "PASS":
+                report["status"] = "FAIL"
+            for slot in evidence_coverage.get("coverage_slots", []):
+                ch = slot.get("cohort_utc", "unknown")
+                feed_k = f"{slot.get('exchange')}/{slot.get('market')}/{slot.get('stream')}"
+                if ch not in report["hourly_cohorts"]:
+                    report["hourly_cohorts"][ch] = {}
+                report["hourly_cohorts"][ch][feed_k] = slot.get("coverage_state", "UNKNOWN")
+        else:
+            # P1.3 & P3: Verify that every expected hour cohort was observed
+            norm_observed = {re.sub(r"[-_]", "", h) for h in observed_hours}
+            for exp_h in expected_raw_cohorts:
+                if exp_h not in observed_hours and re.sub(r"[-_]", "", exp_h) not in norm_observed:
+                    report["blockers"].append(f"MISSING_EXPECTED_HOUR: Expected cohort {exp_h} has no raw partition files")
 
-        if (
-            contract_data.get("require_fullscan", False)
-            or fullscan_spec["terminal_fullscan_required"]
-        ) and not cohorts_for_evidence:
-            report["blockers"].append(
-                "FULLSCAN_COHORT_COVERAGE_INCOMPLETE: No canonical expected cohorts were derived"
-            )
+            # P1.4/P1.5/P3: exact per-cohort receipt, restore, and full-scan hard gates.
+            cohorts_for_evidence = expected_archive_cohorts
+            if not cohorts_for_evidence and (
+                contract_data.get("require_receipts", False)
+                or contract_data.get("require_fullscan", False)
+            ):
+                cohorts_for_evidence = sorted(
+                    cohort for cohort in observed_hours if _CANONICAL_COHORT_RE.fullmatch(cohort)
+                )
+
+            if cohorts_for_evidence:
+                evidence_coverage = validate_archive_evidence_coverage(
+                    cohorts_for_evidence,
+                    receipt_files,
+                    full_scan_reports,
+                    expected_epoch=contract_data.get("collector_epoch") or contract_data.get("epoch"),
+                    expected_run_id=contract_data.get("run_id") or contract_data.get("collector_run_id"),
+                )
+                report["archive_evidence_coverage"] = evidence_coverage
+                report["blockers"].extend(evidence_coverage["blockers"])
+                if evidence_coverage["legacy_fullscan_artifacts"]:
+                    report["warnings"].append(
+                        "LEGACY / NON-QUALIFYING: hour-only full-scan artifacts cannot satisfy official coverage"
+                    )
+            elif contract_data.get("require_receipts", False):
+                report["blockers"].append(
+                    "ARCHIVE_RECEIPT_MISSING: Contract requires receipts but no canonical archive cohorts were derived"
+                )
+
+            if (
+                contract_data.get("require_fullscan", False)
+                or fullscan_spec["terminal_fullscan_required"]
+            ) and not cohorts_for_evidence:
+                report["blockers"].append(
+                    "FULLSCAN_COHORT_COVERAGE_INCOMPLETE: No canonical expected cohorts were derived"
+                )
 
         report["feed_coverage"] = dict(coverage_matrix)
         report["timestamp_quality"] = {k: v.summary() for k, v in ts_stats_by_feed.items()}

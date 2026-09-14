@@ -36,6 +36,8 @@ try:
         derive_expected_raw_cohorts,
         derive_expected_archive_cohorts,
         derive_expected_fullscan_cohorts,
+        _extract_receipt_partition,
+        _CANONICAL_COHORT_RE,
     )
 except ModuleNotFoundError:
     from audit_72h_soak import (
@@ -48,6 +50,8 @@ except ModuleNotFoundError:
         derive_expected_raw_cohorts,
         derive_expected_archive_cohorts,
         derive_expected_fullscan_cohorts,
+        _extract_receipt_partition,
+        _CANONICAL_COHORT_RE,
     )
 
 
@@ -198,7 +202,16 @@ def build_epoch_manifest(
     expected_raw_cohorts: list[str] = []
     expected_archive_cohorts: list[str] = []
     fullscan_spec: dict[str, Any] = {"hourly_fullscan_cohorts": [], "terminal_fullscan_required": False}
-    if start_time_utc and (expected_end_time_utc or duration_seconds):
+    candidate_cohorts: list[str] = []
+    is_v3 = (
+        contract_data.get("schema_version") == 2
+        or contract_data.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+    )
+    if is_v3:
+        candidate_cohorts = list(contract_data.get("candidate_cohorts", []))
+        expected_raw_cohorts = candidate_cohorts
+        expected_archive_cohorts = candidate_cohorts
+    elif start_time_utc and (expected_end_time_utc or duration_seconds):
         try:
             start_dt = datetime.fromisoformat(start_time_utc)
             if expected_end_time_utc:
@@ -347,9 +360,22 @@ def build_epoch_manifest(
             r_sha = _file_sha256(rf)
             cohort = r_data.get("hour_cohort") or r_data.get("cohort")
             if not cohort:
-                from scripts.audit_72h_soak import _CANONICAL_COHORT_RE
                 m = _CANONICAL_COHORT_RE.search(rf.name)
                 cohort = m.group(0) if m else rf.name.split(".")[0]
+
+            kind = r_data.get("artifact_kind")
+            exch = r_data.get("exchange")
+            strm = r_data.get("stream")
+            mkt = r_data.get("market")
+            if not (exch and strm and mkt):
+                part_info = _extract_receipt_partition(r_data, rf)
+                if part_info:
+                    exch = exch or part_info[0]
+                    strm = strm or part_info[1]
+                    mkt = mkt or part_info[2]
+                    if not cohort or cohort == "unknown":
+                        cohort = part_info[3]
+
             receipt_entries.append({
                 "hour_cohort": cohort,
                 "file_name": rf.name,
@@ -357,11 +383,74 @@ def build_epoch_manifest(
                 "status": r_data.get("status") or r_data.get("state") or "UNKNOWN",
                 "restore_verified": bool(r_data.get("restore_verified") or r_data.get("restore_verified_at")),
                 "file_count": r_data.get("file_count", 0),
+                "artifact_kind": kind,
+                "exchange": exch,
+                "stream": strm,
+                "market": mkt,
             })
         except Exception as e:
             if strict:
                 raise ValueError(f"CORRUPT_RECEIPT: {rf.name}: {e}")
-    receipt_entries.sort(key=lambda x: x["hour_cohort"])
+    receipt_entries.sort(key=lambda x: (x["hour_cohort"], x["file_name"]))
+
+    # 4.5 Discover coverage files
+    cov_dir = epoch_dir / "coverage"
+    cov_files: list[Path] = []
+    if cov_dir.exists():
+        cov_files = sorted(set(cov_dir.glob("**/*.coverage.json")))
+
+    coverage_entries: list[dict[str, Any]] = []
+    coverage_slot_map: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    data_present_count = 0
+    verified_zero_count = 0
+    failed_count = 0
+
+    for cf in cov_files:
+        try:
+            cov_data = json.loads(cf.read_text(encoding="utf-8"))
+        except Exception as e:
+            if strict:
+                raise ValueError(f"CORRUPT_COVERAGE_FILE: {cf.name}: {e}")
+            continue
+
+        c_cohort = cov_data.get("cohort_utc")
+        c_exch = cov_data.get("exchange")
+        c_strm = cov_data.get("stream")
+        c_mkt = cov_data.get("market")
+        if not (c_cohort and c_exch and c_strm and c_mkt):
+            if strict:
+                raise ValueError(f"MALFORMED_COVERAGE_FILE: {cf.name} missing cohort/exchange/stream/market")
+            continue
+
+        norm_key = (str(c_cohort), str(c_exch).lower(), str(c_strm).lower(), str(c_mkt).lower())
+        if norm_key in coverage_slot_map:
+            if strict:
+                raise ValueError(f"DUPLICATE_COVERAGE_SLOT: Duplicate coverage slot found: {norm_key}")
+
+        state = cov_data.get("coverage_state", "UNKNOWN")
+        if state == "DATA_PRESENT":
+            data_present_count += 1
+        elif state == "VERIFIED_ZERO_EVENT":
+            verified_zero_count += 1
+        else:
+            failed_count += 1
+
+        entry = {
+            "cohort_utc": c_cohort,
+            "exchange": c_exch,
+            "stream": c_strm,
+            "market": c_mkt,
+            "coverage_state": state,
+            "event_count": cov_data.get("event_count", 0),
+            "coverage_path": str(cf.relative_to(epoch_dir)),
+            "coverage_file_sha256": _file_sha256(cf),
+            "evidence_sha256": cov_data.get("evidence_sha256", ""),
+            "data_artifact_binding": cov_data.get("data_artifact_binding"),
+        }
+        coverage_entries.append(entry)
+        coverage_slot_map[norm_key] = entry
+
+    coverage_entries.sort(key=lambda x: (x["cohort_utc"], x["exchange"], x["market"], x["stream"]))
 
     # 5. Discover full scan reports
     fullscan_entries: list[dict[str, Any]] = []
@@ -389,58 +478,111 @@ def build_epoch_manifest(
     launch_source = Path(contract_data["launch_provenance_path"]) if contract_data.get("launch_provenance_path") else launch_prov_p
     runtime_seal_sha = file_sha256(seal_source) if seal_source and seal_source.exists() else ""
     launch_prov_sha = file_sha256(launch_source) if launch_source and launch_source.exists() else ""
-    if contract_data.get("contract_type") == "OFFICIAL_72H_SOAK_CONTRACT":
+    if contract_data.get("contract_type") in ("OFFICIAL_72H_SOAK_CONTRACT", "OFFICIAL_30H_V3_COVERAGE_CONTRACT"):
         for field, digest in (("runtime_seal_sha256", runtime_seal_sha), ("launch_provenance_sha256", launch_prov_sha)):
-            if not digest or contract_data.get(field) != digest:
-                raise ValueError("CONTRACT_FILE_HASH_MISMATCH: " + field)
-        actual_path = Path(contract_data.get("actual_start_evidence_path", ""))
-        if not actual_path.is_file() or file_sha256(actual_path) != contract_data.get("actual_start_evidence_file_sha256"):
-            raise ValueError("ACTUAL_START_EVIDENCE_MISSING: exact start evidence bytes required")
+            if contract_data.get(field) or strict or mode == "official":
+                if not digest or contract_data.get(field) != digest:
+                    raise ValueError("CONTRACT_FILE_HASH_MISMATCH: " + field)
+        actual_path_str = contract_data.get("actual_start_evidence_path", "")
+        if actual_path_str or contract_data.get("actual_start_evidence_file_sha256") or strict or mode == "official":
+            actual_path = Path(actual_path_str)
+            if not actual_path.is_file() or file_sha256(actual_path) != contract_data.get("actual_start_evidence_file_sha256"):
+                raise ValueError("ACTUAL_START_EVIDENCE_MISSING: exact start evidence bytes required")
 
     # 7. Check completeness against 76-feed universe and cohorts
     missing_items: list[str] = []
     feed_universe = SoakAuditor72H.get_expected_feed_universe()
+    if contract_data.get("feed_universe"):
+        feed_universe = [
+            (f["exchange"], f["stream"], f["market"])
+            for f in contract_data["feed_universe"]
+        ]
 
-    cohorts_to_check = expected_raw_cohorts or sorted(found_feeds_by_cohort.keys())
-    # Closed cohorts require full 76-feed universe.
-    closed_cohorts = expected_archive_cohorts or cohorts_to_check
-    for ch in closed_cohorts:
-        ch_feeds = found_feeds_by_cohort.get(ch, set())
-        for exch, strm, mkt in feed_universe:
-            k = f"{exch}/{mkt}/{strm}"
-            alt_upper = f"{exch}/{mkt.upper()}/{strm}"
-            alt_lower = f"{exch}/{mkt.lower()}/{strm}"
-            if k not in ch_feeds and alt_upper not in ch_feeds and alt_lower not in ch_feeds:
-                missing_items.append(f"MISSING_FEED:{ch}:{k}")
+    if is_v3:
+        # V3 candidate cohort and slot validation
+        for ch in candidate_cohorts:
+            for exch, strm, mkt in feed_universe:
+                slot_k = (ch, exch.lower(), strm.lower(), mkt.lower())
+                if slot_k not in coverage_slot_map:
+                    missing_items.append(f"MISSING_COVERAGE_SLOT:{ch}:{exch}/{strm}/{mkt}")
+                else:
+                    cov_entry = coverage_slot_map[slot_k]
+                    if cov_entry["coverage_state"] == "FAILED":
+                        missing_items.append(f"FAILED_COVERAGE_SLOT:{ch}:{exch}/{strm}/{mkt}")
 
-    # Check receipt for expected archive cohorts
-    archive_cohorts_to_check = expected_archive_cohorts
-    if not archive_cohorts_to_check and (len(cohorts_to_check) > 1 or contract_data.get("require_receipts", False)):
-        archive_cohorts_to_check = cohorts_to_check
+        cov_receipt_keys: set[tuple[str, str, str, str]] = set()
+        raw_receipt_keys: set[tuple[str, str, str, str]] = set()
+        for r in receipt_entries:
+            if r.get("restore_verified"):
+                ch = r.get("hour_cohort")
+                ex = r.get("exchange")
+                st = r.get("stream")
+                mk = r.get("market")
+                if ch and ex and st and mk:
+                    k = (ch, str(ex).lower(), str(st).lower(), str(mk).lower())
+                    if r.get("artifact_kind") == "COVERAGE_EVIDENCE" or ".coverage." in r.get("file_name", ""):
+                        cov_receipt_keys.add(k)
+                    else:
+                        raw_receipt_keys.add(k)
 
-    if archive_cohorts_to_check:
-        for ch in archive_cohorts_to_check:
-            norm_ch = re.sub(r"[-_]", "", ch)
-            has_receipt = any(
-                (r["hour_cohort"] == ch or re.sub(r"[-_]", "", str(r["hour_cohort"])) == norm_ch or norm_ch in re.sub(r"[-_]", "", r["file_name"]))
-                and r["restore_verified"]
-                for r in receipt_entries
-            )
-            if not has_receipt:
-                missing_items.append(f"MISSING_RECEIPT:{ch}")
+        for ch in candidate_cohorts:
+            for exch, strm, mkt in feed_universe:
+                slot_k = (ch, exch.lower(), strm.lower(), mkt.lower())
+                if slot_k in coverage_slot_map:
+                    cov_entry = coverage_slot_map[slot_k]
+                    if slot_k not in cov_receipt_keys:
+                        missing_items.append(f"MISSING_COVERAGE_RECEIPT:{ch}:{exch}/{strm}/{mkt}")
+                    if cov_entry["coverage_state"] == "DATA_PRESENT":
+                        if slot_k not in raw_receipt_keys:
+                            missing_items.append(f"MISSING_RAW_RECEIPT:{ch}:{exch}/{strm}/{mkt}")
 
-    if contract_data.get("require_fullscan", False) or fullscan_spec["terminal_fullscan_required"]:
-        if not fullscan_entries or not any(fs["status"] == "PASS" for fs in fullscan_entries):
-            missing_items.append("MISSING_FULLSCAN_REPORT")
+        if contract_data.get("require_state_dependent_fullscan", False) or contract_data.get("require_fullscan", False):
+            if not fullscan_entries or not any(fs["status"] == "PASS" for fs in fullscan_entries):
+                missing_items.append("MISSING_FULLSCAN_REPORT")
+
+        is_complete = len(missing_items) == 0 and len(coverage_entries) > 0
+    else:
+        cohorts_to_check = expected_raw_cohorts or sorted(found_feeds_by_cohort.keys())
+        # Closed cohorts require full 76-feed universe.
+        closed_cohorts = expected_archive_cohorts or cohorts_to_check
+        for ch in closed_cohorts:
+            ch_feeds = found_feeds_by_cohort.get(ch, set())
+            for exch, strm, mkt in feed_universe:
+                k = f"{exch}/{mkt}/{strm}"
+                alt_upper = f"{exch}/{mkt.upper()}/{strm}"
+                alt_lower = f"{exch}/{mkt.lower()}/{strm}"
+                if k not in ch_feeds and alt_upper not in ch_feeds and alt_lower not in ch_feeds:
+                    missing_items.append(f"MISSING_FEED:{ch}:{k}")
+
+        # Check receipt for expected archive cohorts
+        archive_cohorts_to_check = expected_archive_cohorts
+        if not archive_cohorts_to_check and (len(cohorts_to_check) > 1 or contract_data.get("require_receipts", False)):
+            archive_cohorts_to_check = cohorts_to_check
+
+        if archive_cohorts_to_check:
+            for ch in archive_cohorts_to_check:
+                norm_ch = re.sub(r"[-_]", "", ch)
+                has_receipt = any(
+                    (r["hour_cohort"] == ch or re.sub(r"[-_]", "", str(r["hour_cohort"])) == norm_ch or norm_ch in re.sub(r"[-_]", "", r["file_name"]))
+                    and r["restore_verified"]
+                    for r in receipt_entries
+                )
+                if not has_receipt:
+                    missing_items.append(f"MISSING_RECEIPT:{ch}")
+
+        if contract_data.get("require_fullscan", False) or fullscan_spec["terminal_fullscan_required"]:
+            if not fullscan_entries or not any(fs["status"] == "PASS" for fs in fullscan_entries):
+                missing_items.append("MISSING_FULLSCAN_REPORT")
+
+        is_complete = len(missing_items) == 0 and len(partition_entries) > 0
 
     if mode == "official" and not launch_prov_sha:
         missing_items.append("MISSING_LAUNCH_PROVENANCE")
 
-    is_complete = len(missing_items) == 0 and len(partition_entries) > 0
     status = "SEALED_COMPLETE" if is_complete else "INCOMPLETE"
 
     manifest_dict: dict[str, Any] = {
-        "schema_version": "2.1.0",
+        "schema_version": "3.0.0" if is_v3 else "2.1.0",
         "collector_epoch": collector_epoch,
         "collector_run_id": collector_run_id,
         "runtime_commit": runtime_commit,
@@ -452,10 +594,10 @@ def build_epoch_manifest(
         "status": status,
         "sealed_complete": is_complete,
         "missing_items": missing_items,
-        "expected_hour_cohorts": expected_raw_cohorts,
-        "expected_archive_cohorts": expected_archive_cohorts,
+        "expected_hour_cohorts": candidate_cohorts if is_v3 else expected_raw_cohorts,
+        "expected_archive_cohorts": candidate_cohorts if is_v3 else expected_archive_cohorts,
         "contract_sha256": contract_data.get("contract_sha256", ""),
-        "contract_file_sha256": file_sha256(contract_path) if contract_data else "",
+        "contract_file_sha256": file_sha256(contract_path) if contract_data and contract_path else "",
         "runtime_seal_sha256": runtime_seal_sha,
         "launch_provenance_sha256": launch_prov_sha,
         "partitions_count": len(partition_entries),
@@ -465,6 +607,13 @@ def build_epoch_manifest(
         "fullscan_reports": fullscan_entries,
         "partitions": partition_entries,
     }
+    if is_v3:
+        manifest_dict["candidate_cohorts"] = candidate_cohorts
+        manifest_dict["coverage_slots_count"] = len(coverage_entries)
+        manifest_dict["data_present_count"] = data_present_count
+        manifest_dict["verified_zero_count"] = verified_zero_count
+        manifest_dict["failed_count"] = failed_count
+        manifest_dict["coverage_index"] = coverage_entries
 
     # Compute deterministic root SHA256
     canonical_json = json.dumps(manifest_dict, sort_keys=True, separators=(",", ":"))

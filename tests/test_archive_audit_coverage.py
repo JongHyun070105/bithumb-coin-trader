@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 import pytest
 
-from scripts.audit_72h_soak import SoakAuditor72H, validate_archive_evidence_coverage
+from scripts.audit_72h_soak import (
+    SoakAuditor72H,
+    validate_archive_evidence_coverage,
+    validate_v3_coverage_evidence,
+)
 
 
 def _write_cohort_receipts(
@@ -609,3 +614,589 @@ def test_receipt_identity_invalid_contamination_rejected(tmp_path: Path) -> None
     assert result["receipt_coverage"] == 0
     assert any("RECEIPT_CORRUPT" in item or "RECEIPT_IDENTITY_INVALID" in item or "RECEIPT_CONTAMINATED" in item for item in result["blockers"])
 
+
+# ---------------------------------------------------------------------------
+# V3 Coverage Exact-Slot Tests
+# ---------------------------------------------------------------------------
+
+from bithumb_coin_trader.evidence_hashing import (
+    canonical_sha256 as _canonical_sha256,
+    file_sha256 as _cov_file_sha256,
+)
+
+
+def v3_bundle(
+    root: Path,
+    present: int,
+    zero: int,
+    failed: int,
+    *,
+    cohort: str = "2026-09-14_12",
+    confirmation_utc: str = "2026-09-14T11:51:00Z",
+    heartbeat_gap: float = 10.0,
+    disconnect_count: int = 0,
+    reconnect_count: int = 0,
+    writer_error_count: int = 0,
+    cohort_qualification: str = "QUALIFYING_FULL_HOUR",
+    count_mismatch: bool = False,
+    include_raw_for_zero: bool = False,
+    candidate_cohorts: list[str] | None = None,
+) -> dict[str, Any]:
+    feeds = SoakAuditor72H.get_expected_feed_universe()
+    if candidate_cohorts is None:
+        candidate_cohorts = [cohort]
+
+    feed_universe = [
+        {"exchange": e, "stream": s, "market": m}
+        for e, s, m in feeds
+    ]
+
+    contract: dict[str, Any] = {
+        "schema_version": 2,
+        "contract_type": "OFFICIAL_30H_V3_COVERAGE_CONTRACT",
+        "collector_epoch": "epoch-v3",
+        "collector_run_id": "run-v3",
+        "actual_start_time_utc": "2026-09-14T11:55:00Z",
+        "qualification_start_utc": "2026-09-14T12:00:00Z",
+        "qualification_end_utc": "2026-09-14T13:00:00Z",
+        "required_qualifying_full_hours": len(candidate_cohorts),
+        "maximum_collection_window_seconds": 111600,
+        "candidate_cohorts": candidate_cohorts,
+        "expected_coverage_slots_per_cohort": 76,
+        "heartbeat_policy": {
+            "heartbeat_probe_interval_seconds": 10,
+            "heartbeat_timeout_seconds": 10,
+            "max_allowed_heartbeat_gap_seconds": {
+                "bithumb": 30,
+                "binance": 30,
+                "upbit": 30,
+            },
+        },
+        "feed_universe": feed_universe,
+        "require_coverage_receipts": True,
+        "require_state_dependent_fullscan": True,
+    }
+    contract["contract_sha256"] = _canonical_sha256(contract)
+
+    cov_dir = root / "coverage" / cohort
+    rcpt_dir = root / "archive-receipts"
+    raw_dir = root / "raw"
+    man_dir = root / "manifests"
+
+    cov_dir.mkdir(parents=True, exist_ok=True)
+    rcpt_dir.mkdir(parents=True, exist_ok=True)
+    raw_dir.mkdir(parents=True, exist_ok=True)
+    man_dir.mkdir(parents=True, exist_ok=True)
+
+    coverage_files: list[Path] = []
+    receipt_files: list[Path] = []
+    full_scan_reports: list[Path] = []
+    scanned_inputs: list[str] = []
+
+    # 1. Present slots
+    for i in range(present):
+        exch, strm, mkt = feeds[i]
+        raw_p = raw_dir / exch / strm / mkt / f"{mkt}_{cohort}.jsonl"
+        raw_p.parent.mkdir(parents=True, exist_ok=True)
+        raw_p.write_text('{"event": "trade", "price": 100}\n' * 10, encoding="utf-8")
+        raw_sha = _cov_file_sha256(raw_p)
+        raw_size = raw_p.stat().st_size
+
+        man_p = man_dir / exch / strm / mkt / f"manifest_{mkt}_{cohort}.json"
+        man_p.parent.mkdir(parents=True, exist_ok=True)
+        man_data = {
+            "partition_path": str(raw_p.relative_to(root)),
+            "sha256": raw_sha,
+            "record_count": 10,
+            "bytes": raw_size,
+        }
+        man_p.write_text(json.dumps(man_data), encoding="utf-8")
+        man_sha = _cov_file_sha256(man_p)
+
+        raw_rcpt_p = rcpt_dir / exch / strm / mkt / f"{mkt}_{cohort}.jsonl.archive-receipt.json"
+        raw_rcpt_p.parent.mkdir(parents=True, exist_ok=True)
+        raw_rcpt_data = {
+            "schema_version": 3,
+            "artifact_kind": "RAW_DATA",
+            "cohort": cohort,
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "source_path": str(raw_p.relative_to(root)),
+            "source_size": raw_size,
+            "source_sha256": raw_sha,
+            "source_record_count": 10,
+            "manifest_path": str(man_p.relative_to(root)),
+            "manifest_sha256": man_sha,
+            "state": "CLEANUP_ELIGIBLE",
+            "restore_verified_at": "2026-09-14T13:05:00Z",
+            "collector_epoch": "epoch-v3",
+            "run_id": "run-v3",
+        }
+        raw_rcpt_p.write_text(json.dumps(raw_rcpt_data), encoding="utf-8")
+        raw_rcpt_sha = _cov_file_sha256(raw_rcpt_p)
+        receipt_files.append(raw_rcpt_p)
+
+        scanned_inputs.append(str(raw_p.relative_to(root)))
+
+        binding_record_count = 10 if not count_mismatch else 15
+        cov_p = cov_dir / exch / strm / f"{mkt}.coverage.json"
+        cov_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_data: dict[str, Any] = {
+            "schema_version": 1,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "environment_id": "aws-apne2-research",
+            "collector_epoch": "epoch-v3",
+            "collector_run_id": "run-v3",
+            "runtime_commit": "unknown",
+            "runtime_config_fingerprint": "unknown",
+            "cohort_utc": cohort,
+            "interval_start_utc": "2026-09-14T12:00:00Z",
+            "interval_end_utc": "2026-09-14T13:00:00Z",
+            "cohort_qualification": cohort_qualification,
+            "observation_start_utc": "2026-09-14T12:00:00Z",
+            "observation_end_utc": "2026-09-14T13:00:00Z",
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "feed_identity": f"{exch}/{strm}/{mkt}",
+            "configured": True,
+            "coverage_state": "DATA_PRESENT",
+            "event_count": 10,
+            "first_event_timestamp": "2026-09-14T12:05:00Z",
+            "last_event_timestamp": "2026-09-14T12:55:00Z",
+            "session_segments": [
+                {
+                    "exchange": exch,
+                    "session_id": f"sess-{i}",
+                    "connected_at_utc": "2026-09-14T11:50:00Z",
+                    "disconnected_at_utc": None,
+                    "requested_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "requested_subscription_sha256": "h1",
+                    "confirmation_method": "LIST_SUBSCRIPTIONS",
+                    "confirmed_at_utc": confirmation_utc,
+                    "confirmed_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "confirmed_subscription_sha256": "h2",
+                    "response_evidence_sha256": "h3",
+                    "heartbeat_observations_utc": [
+                        "2026-09-14T12:00:00Z",
+                        "2026-09-14T12:30:00Z",
+                        "2026-09-14T13:00:00Z",
+                    ],
+                    "maximum_heartbeat_gap_seconds": heartbeat_gap,
+                    "disconnect_reason": None,
+                    "reconnect_successor_id": None,
+                    "collector_epoch": "epoch-v3",
+                    "collector_run_id": "run-v3",
+                }
+            ],
+            "disconnect_count": disconnect_count,
+            "reconnect_count": reconnect_count,
+            "writer_error_count": writer_error_count,
+            "queue_dropped_events": 0,
+            "unpersisted_event_count": 0,
+            "fatal_writer_error_type": None,
+            "data_artifact_binding": {
+                "raw_relative_path": str(raw_p.relative_to(root)),
+                "raw_size": raw_size,
+                "raw_sha256": raw_sha,
+                "manifest_relative_path": str(man_p.relative_to(root)),
+                "manifest_file_sha256": man_sha,
+                "manifest_record_count": 10,
+                "receipt_relative_path": str(raw_rcpt_p.relative_to(root)),
+                "receipt_file_sha256": raw_rcpt_sha,
+                "receipt_source_record_count": binding_record_count,
+            },
+            "failure_reason_codes": [],
+            "closed_at_utc": "2026-09-14T13:00:05Z",
+        }
+        cov_data["evidence_sha256"] = _canonical_sha256(cov_data, excluded=("evidence_sha256",))
+        cov_p.write_text(json.dumps(cov_data, indent=2), encoding="utf-8")
+        coverage_files.append(cov_p)
+
+        cov_rcpt_p = rcpt_dir / "coverage" / cohort / exch / strm / f"{mkt}.coverage.json.archive-receipt.json"
+        cov_rcpt_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_rcpt_data = {
+            "schema_version": 3,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "cohort": cohort,
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "source_path": str(cov_p.relative_to(root)),
+            "source_size": cov_p.stat().st_size,
+            "source_sha256": _cov_file_sha256(cov_p),
+            "source_record_count": None,
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "state": "CLEANUP_ELIGIBLE",
+            "restore_verified_at": "2026-09-14T13:05:00Z",
+            "collector_epoch": "epoch-v3",
+            "run_id": "run-v3",
+        }
+        cov_rcpt_p.write_text(json.dumps(cov_rcpt_data), encoding="utf-8")
+        receipt_files.append(cov_rcpt_p)
+
+    # 2. Zero slots
+    for i in range(present, present + zero):
+        exch, strm, mkt = feeds[i]
+        cov_p = cov_dir / exch / strm / f"{mkt}.coverage.json"
+        cov_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_data = {
+            "schema_version": 1,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "environment_id": "aws-apne2-research",
+            "collector_epoch": "epoch-v3",
+            "collector_run_id": "run-v3",
+            "runtime_commit": "unknown",
+            "runtime_config_fingerprint": "unknown",
+            "cohort_utc": cohort,
+            "interval_start_utc": "2026-09-14T12:00:00Z",
+            "interval_end_utc": "2026-09-14T13:00:00Z",
+            "cohort_qualification": cohort_qualification,
+            "observation_start_utc": "2026-09-14T12:00:00Z",
+            "observation_end_utc": "2026-09-14T13:00:00Z",
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "feed_identity": f"{exch}/{strm}/{mkt}",
+            "configured": True,
+            "coverage_state": "VERIFIED_ZERO_EVENT",
+            "event_count": 0,
+            "first_event_timestamp": None,
+            "last_event_timestamp": None,
+            "session_segments": [
+                {
+                    "exchange": exch,
+                    "session_id": f"sess-{i}",
+                    "connected_at_utc": "2026-09-14T11:50:00Z",
+                    "disconnected_at_utc": None,
+                    "requested_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "requested_subscription_sha256": "h1",
+                    "confirmation_method": "LIST_SUBSCRIPTIONS",
+                    "confirmed_at_utc": confirmation_utc,
+                    "confirmed_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "confirmed_subscription_sha256": "h2",
+                    "response_evidence_sha256": "h3",
+                    "heartbeat_observations_utc": [
+                        "2026-09-14T12:00:00Z",
+                        "2026-09-14T12:30:00Z",
+                        "2026-09-14T13:00:00Z",
+                    ],
+                    "maximum_heartbeat_gap_seconds": heartbeat_gap,
+                    "disconnect_reason": None,
+                    "reconnect_successor_id": None,
+                    "collector_epoch": "epoch-v3",
+                    "collector_run_id": "run-v3",
+                }
+            ],
+            "disconnect_count": disconnect_count,
+            "reconnect_count": reconnect_count,
+            "writer_error_count": writer_error_count,
+            "queue_dropped_events": 0,
+            "unpersisted_event_count": 0,
+            "fatal_writer_error_type": None,
+            "data_artifact_binding": None,
+            "failure_reason_codes": [],
+            "closed_at_utc": "2026-09-14T13:00:05Z",
+        }
+        if include_raw_for_zero:
+            cov_data["data_artifact_binding"] = {
+                "raw_relative_path": "dummy",
+                "raw_size": 10,
+                "raw_sha256": "dummy",
+                "manifest_relative_path": "dummy",
+                "manifest_file_sha256": "dummy",
+                "manifest_record_count": 0,
+                "receipt_relative_path": "dummy",
+                "receipt_file_sha256": "dummy",
+                "receipt_source_record_count": 0,
+            }
+        cov_data["evidence_sha256"] = _canonical_sha256(cov_data, excluded=("evidence_sha256",))
+        cov_p.write_text(json.dumps(cov_data, indent=2), encoding="utf-8")
+        coverage_files.append(cov_p)
+
+        cov_rcpt_p = rcpt_dir / "coverage" / cohort / exch / strm / f"{mkt}.coverage.json.archive-receipt.json"
+        cov_rcpt_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_rcpt_data = {
+            "schema_version": 3,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "cohort": cohort,
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "source_path": str(cov_p.relative_to(root)),
+            "source_size": cov_p.stat().st_size,
+            "source_sha256": _cov_file_sha256(cov_p),
+            "source_record_count": None,
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "state": "CLEANUP_ELIGIBLE",
+            "restore_verified_at": "2026-09-14T13:05:00Z",
+            "collector_epoch": "epoch-v3",
+            "run_id": "run-v3",
+        }
+        cov_rcpt_p.write_text(json.dumps(cov_rcpt_data), encoding="utf-8")
+        receipt_files.append(cov_rcpt_p)
+
+    # 3. Failed slots
+    for i in range(present + zero, present + zero + failed):
+        exch, strm, mkt = feeds[i]
+        cov_p = cov_dir / exch / strm / f"{mkt}.coverage.json"
+        cov_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_data = {
+            "schema_version": 1,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "environment_id": "aws-apne2-research",
+            "collector_epoch": "epoch-v3",
+            "collector_run_id": "run-v3",
+            "runtime_commit": "unknown",
+            "runtime_config_fingerprint": "unknown",
+            "cohort_utc": cohort,
+            "interval_start_utc": "2026-09-14T12:00:00Z",
+            "interval_end_utc": "2026-09-14T13:00:00Z",
+            "cohort_qualification": cohort_qualification,
+            "observation_start_utc": "2026-09-14T12:00:00Z",
+            "observation_end_utc": "2026-09-14T13:00:00Z",
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "feed_identity": f"{exch}/{strm}/{mkt}",
+            "configured": True,
+            "coverage_state": "FAILED",
+            "event_count": 0,
+            "first_event_timestamp": None,
+            "last_event_timestamp": None,
+            "session_segments": [
+                {
+                    "exchange": exch,
+                    "session_id": f"sess-{i}",
+                    "connected_at_utc": "2026-09-14T11:50:00Z",
+                    "disconnected_at_utc": None,
+                    "requested_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "requested_subscription_sha256": "h1",
+                    "confirmation_method": "LIST_SUBSCRIPTIONS",
+                    "confirmed_at_utc": confirmation_utc,
+                    "confirmed_feeds": [f"{exch}/{strm}/{mkt}"],
+                    "confirmed_subscription_sha256": "h2",
+                    "response_evidence_sha256": "h3",
+                    "heartbeat_observations_utc": [
+                        "2026-09-14T12:00:00Z",
+                        "2026-09-14T12:30:00Z",
+                        "2026-09-14T13:00:00Z",
+                    ],
+                    "maximum_heartbeat_gap_seconds": heartbeat_gap,
+                    "disconnect_reason": None,
+                    "reconnect_successor_id": None,
+                    "collector_epoch": "epoch-v3",
+                    "collector_run_id": "run-v3",
+                }
+            ],
+            "disconnect_count": disconnect_count,
+            "reconnect_count": reconnect_count,
+            "writer_error_count": 1,
+            "queue_dropped_events": 0,
+            "unpersisted_event_count": 0,
+            "fatal_writer_error_type": None,
+            "data_artifact_binding": None,
+            "failure_reason_codes": ["WRITER_HEALTH_DEGRADED"],
+            "closed_at_utc": "2026-09-14T13:00:05Z",
+        }
+        cov_data["evidence_sha256"] = _canonical_sha256(cov_data, excluded=("evidence_sha256",))
+        cov_p.write_text(json.dumps(cov_data, indent=2), encoding="utf-8")
+        coverage_files.append(cov_p)
+
+        cov_rcpt_p = rcpt_dir / "coverage" / cohort / exch / strm / f"{mkt}.coverage.json.archive-receipt.json"
+        cov_rcpt_p.parent.mkdir(parents=True, exist_ok=True)
+        cov_rcpt_data = {
+            "schema_version": 3,
+            "artifact_kind": "COVERAGE_EVIDENCE",
+            "cohort": cohort,
+            "exchange": exch,
+            "stream": strm,
+            "market": mkt,
+            "source_path": str(cov_p.relative_to(root)),
+            "source_size": cov_p.stat().st_size,
+            "source_sha256": _cov_file_sha256(cov_p),
+            "source_record_count": None,
+            "manifest_path": None,
+            "manifest_sha256": None,
+            "state": "CLEANUP_ELIGIBLE",
+            "restore_verified_at": "2026-09-14T13:05:00Z",
+            "collector_epoch": "epoch-v3",
+            "run_id": "run-v3",
+        }
+        cov_rcpt_p.write_text(json.dumps(cov_rcpt_data), encoding="utf-8")
+        receipt_files.append(cov_rcpt_p)
+
+    # 4. State-dependent fullscan report
+    if present > 0:
+        fs_p = rcpt_dir / f"full_scan_{cohort}_report.json"
+        fs_data = {
+            "cohort": cohort,
+            "epoch": "epoch-v3",
+            "run_id": "run-v3",
+            "status": "PASS",
+            "inputs": scanned_inputs,
+            "integrity": {
+                "totals": {
+                    "status": "PASS",
+                    "files": len(scanned_inputs),
+                    "records": present * 10,
+                }
+            },
+        }
+        fs_p.write_text(json.dumps(fs_data), encoding="utf-8")
+        full_scan_reports.append(fs_p)
+
+    return {
+        "contract": contract,
+        "coverage_files": coverage_files,
+        "receipt_files": receipt_files,
+        "full_scan_reports": full_scan_reports,
+    }
+
+
+def one_positive_bundle(tmp_path: Path, confirmation: str = "2026-09-14T11:51:00Z") -> dict[str, Any]:
+    return v3_bundle(tmp_path, present=76, zero=0, failed=0, confirmation_utc=confirmation)
+
+
+def one_zero_bundle(tmp_path: Path) -> dict[str, Any]:
+    return v3_bundle(tmp_path, present=0, zero=76, failed=0)
+
+
+@pytest.mark.parametrize(
+    "present,zero,failed,status",
+    [
+        (76, 0, 0, "PASS"),
+        (74, 2, 0, "PASS"),
+        (74, 1, 0, "FAIL"),
+        (75, 0, 1, "FAIL"),
+    ],
+)
+def test_verdict_uses_coverage_slots(present: int, zero: int, failed: int, status: str, tmp_path: Path) -> None:
+    result = validate_v3_coverage_evidence(**v3_bundle(tmp_path, present, zero, failed))
+    assert result["status"] == status
+
+
+def test_positive_data_still_requires_early_subscription(tmp_path: Path) -> None:
+    result = validate_v3_coverage_evidence(
+        **one_positive_bundle(tmp_path, confirmation="2026-09-14T12:00:01Z")
+    )
+    assert "SUBSCRIPTION_NOT_CONFIRMED_BEFORE_INTERVAL" in result["blockers"]
+
+
+def test_zero_does_not_add_market_records(tmp_path: Path) -> None:
+    result = validate_v3_coverage_evidence(**one_zero_bundle(tmp_path))
+    assert result["scientific_record_count"] == 0
+
+
+def test_foreign_slot_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    foreign_p = tmp_path / "coverage" / "2026-09-14_12" / "kraken" / "trade" / "BTC-USD.coverage.json"
+    foreign_p.parent.mkdir(parents=True, exist_ok=True)
+    cov_data = {
+        "schema_version": 1,
+        "artifact_kind": "COVERAGE_EVIDENCE",
+        "cohort_utc": "2026-09-14_12",
+        "exchange": "kraken",
+        "stream": "trade",
+        "market": "BTC-USD",
+        "coverage_state": "DATA_PRESENT",
+        "event_count": 5,
+        "interval_start_utc": "2026-09-14T12:00:00Z",
+        "interval_end_utc": "2026-09-14T13:00:00Z",
+        "cohort_qualification": "QUALIFYING_FULL_HOUR",
+        "session_segments": [],
+    }
+    cov_data["evidence_sha256"] = _canonical_sha256(cov_data, excluded=("evidence_sha256",))
+    foreign_p.write_text(json.dumps(cov_data), encoding="utf-8")
+    bundle["coverage_files"].append(foreign_p)
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("SLOT_FOREIGN" in b for b in result["blockers"])
+
+
+def test_duplicate_slot_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    dup_p = tmp_path / "coverage" / "dup.coverage.json"
+    dup_p.write_bytes(bundle["coverage_files"][0].read_bytes())
+    bundle["coverage_files"].append(dup_p)
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("SLOT_DUPLICATE" in b for b in result["blockers"])
+
+
+def test_missing_slot_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    bundle["coverage_files"].pop()
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("SLOT_MISSING" in b for b in result["blockers"])
+
+
+def test_coverage_receipt_missing_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    cov_receipts = [r for r in bundle["receipt_files"] if ".coverage." in r.name]
+    cov_receipts[0].unlink()
+    bundle["receipt_files"].remove(cov_receipts[0])
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("COVERAGE_RECEIPT_MISSING" in b for b in result["blockers"])
+
+
+def test_coverage_receipt_unverified_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    cov_receipts = [r for r in bundle["receipt_files"] if ".coverage." in r.name]
+    data = json.loads(cov_receipts[0].read_text(encoding="utf-8"))
+    data["restore_verified_at"] = None
+    data["restore_verified"] = False
+    cov_receipts[0].write_text(json.dumps(data), encoding="utf-8")
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("COVERAGE_RECEIPT_RESTORE_MISMATCH" in b for b in result["blockers"])
+
+
+def test_coverage_hash_tampered_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    cov_file = bundle["coverage_files"][0]
+    data = json.loads(cov_file.read_text(encoding="utf-8"))
+    data["event_count"] = 999
+    cov_file.write_text(json.dumps(data), encoding="utf-8")
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("COVERAGE_HASH_MISMATCH" in b for b in result["blockers"])
+
+
+def test_positive_count_mismatch_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0, count_mismatch=True)
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("RECORD_COUNT_MISMATCH" in b for b in result["blockers"])
+
+
+def test_zero_with_raw_binding_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 0, 76, 0, include_raw_for_zero=True)
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("UNEXPECTED_DATA_BINDING_FOR_ZERO_EVENT" in b for b in result["blockers"])
+
+
+def test_heartbeat_gap_boundary_enforced(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0, heartbeat_gap=31.0)
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("HEARTBEAT_GAP_EXCEEDED" in b for b in result["blockers"])
+
+
+def test_no_replacement_cohort_allowed(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0, cohort="2026-09-14_13", candidate_cohorts=["2026-09-14_12"])
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("COHORT_UNEXPECTED" in b for b in result["blockers"])
