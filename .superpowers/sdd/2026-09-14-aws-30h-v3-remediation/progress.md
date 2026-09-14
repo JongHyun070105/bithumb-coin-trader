@@ -89,8 +89,8 @@ None found. Plan is implementable as written.
 | Task 6: Generic Immutable Archive + Receipt v3 | ✅ COMPLETE | `f483f32` → fixes `133592a` |
 | Task 7: Ordered Closed-Hour Finalization + Scheduler | ✅ COMPLETE | `cdcf903` → fixes `44fb553` |
 | Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ✅ COMPLETE | `7cd88a3` → fixes `4bee252` |
-| Task 9: Bounded Scale + Cross-Layer Gate | ⏳ IN PROGRESS | — |
-| Task 10: Full Verification + Independent Review | ⬜ PENDING | — |
+| Task 9: Bounded Scale + Cross-Layer Gate | ✅ COMPLETE | `e913d20` |
+| Task 10: Full Verification + Independent Review | ⏳ IN PROGRESS | — |
 
 ---
 
@@ -120,6 +120,9 @@ None found. Plan is implementable as written.
 - **Task 8** (Commits `7cd88a3`, `4bee252`):
   - Spec Compliance: PASS (V3 Contract Schema 2 OFFICIAL_30H_V3_COVERAGE_CONTRACT with 30 strictly-next candidate cohorts, 111600s window, 76 slots/cohort, canonical hash; validate_v3_coverage_evidence with state-dependent audit: DATA_PRESENT requires RAW manifest/receipt/restore/fullscan equality and scientific records count vs VERIFIED_ZERO_EVENT requires 0 records and no RAW, rejects duplicate/foreign/missing/unexpected slots; build_epoch_manifest V3 30x76 coverage index; backward-compatible Schema 1 dispatch)
   - Code Quality: APPROVED (M1 populated coverage_slots in validate_v3_coverage_evidence return value for report hourly_cohorts diagnostics; 416 regression tests pass; 0 pyright errors/warnings)
+- **Task 9** (Commit `e913d20`):
+  - Spec Compliance: PASS (test_only_identical_dirty_tail_is_opened proves 0 historical raw files opened and 0 bytes read across 1, 10, 30 cohorts; test_slow_cost_depends_only_on_dirty_tail verifies bounded runtime variance < 0.10s; benchmark_incremental_finalization 7 reps generated valid JSON scale evidence; test-results/ untouched)
+  - Code Quality: APPROVED (80 cross-layer and scale tests pass; 0 pyright errors/warnings)
 
 
 ---
