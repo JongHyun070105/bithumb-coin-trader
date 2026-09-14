@@ -694,6 +694,12 @@ def test_raw_v3_requires_manifest_path(tmp_path: Path) -> None:
         pipeline(tmp_path).finalize_artifact(raw_artifact(tmp_path, manifest_path=None))
 
 
+def test_raw_v3_requires_record_count(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="raw record count is required"):
+        pipeline(tmp_path).finalize_artifact(raw_artifact(tmp_path, source_record_count=None))
+
+
+
 def test_coverage_v3_has_no_record_count(tmp_path: Path) -> None:
     receipt = pipeline(tmp_path).finalize_artifact(coverage_artifact(tmp_path))
     assert receipt.artifact_kind == "COVERAGE_EVIDENCE"

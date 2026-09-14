@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
-from dataclasses import InitVar, asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 import base64
@@ -820,6 +820,7 @@ class ArchivePipeline:
                 remote_key=remote_key,
             )
             self._assert_receipt_identity_v3(receipt, artifact)
+            temp_compressed_path: Optional[Path] = None
             try:
                 self._verify_source(artifact, receipt)
                 self._write_receipt(receipt_path, receipt)
@@ -854,6 +855,8 @@ class ArchivePipeline:
                     self._cleanup_artifact(artifact.source_path, receipt_path, receipt)
                 return receipt
             except Exception as exc:
+                if temp_compressed_path is not None and temp_compressed_path != compressed_path:
+                    _safe_unlink(temp_compressed_path)
                 failed_stage = receipt.state
                 receipt.state = ArchiveState.FAILED.value
                 receipt.failure_stage = failed_stage
