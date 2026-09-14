@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "authorization_kind": "human-operator-30h-launch-authorization",
+  "human_authorized": true,
+  "authorization_timestamp_utc": "2026-09-12T11:23:04Z",
+  "v2_preparation_commit": "0aa7ae073b3e14dfdbc53db3e98c5215ef8fbf4b",
+  "runtime_code_commit": "6576f632b3f44eb68645bad4304665c0ea87512d",
+  "runtime_git_tree": "5a936a1b3a48f66e938cbe234a853ec7d8c6b027",
+  "collector_epoch": "aws-validation-30h-20260912-6576f63",
+  "collector_run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+  "runtime_config_fingerprint": "d330923d6c5d57a1399317b315fcbcabcd512624db6c1dd1f4a5420a6089fecf",
+  "runtime_config_seal_path": "infra/aws/seals/aws-validation-30h-20260912-6576f63.runtime.json",
+  "runtime_config_seal_sha256": "bec086f8f587ee3c8261f91ebd3c535145f7c61dfe4cd250c29c382d086b8ff1",
+  "launch_command_path": "infra/aws/seals/aws-validation-30h-20260912-6576f63.launch-command.json",
+  "launch_command_sha256": "3e2184e000be0310e38a712df93ce9cd3914e4f55bc2455493804b574066f41f",
+  "launch_provenance_path": "infra/aws/seals/aws-validation-30h-20260912-6576f63.launch-provenance.json",
+  "launch_provenance_sha256": "2ff4efe7843e433941b517d31dd067698e409657001aa5007dd9ebc2aa691419",
+  "launch_wrapper_path": "infra/aws/seals/aws-validation-30h-20260912-6576f63.launch-wrapper.sh",
+  "launch_wrapper_sha256": "125087ddccb9870f731a1fd67297efe49402f64b744fb6763028df5db38e6931",
+  "actual_start_time_utc": null,
+  "execution_target": {
+    "instance_id": "i-008bc503c1136349f",
+    "runtime_service_uid": "bitcoin-trader",
+    "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-validation-30h-20260912-6576f63",
+    "launcher_invocation": "sudo /var/lib/bitcoin-trader/launch-artifacts/aws-validation-30h-20260912-6576f63/launch.sh --launch"
+  },
+  "scientific_status": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  }
+}
