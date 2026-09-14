@@ -305,7 +305,10 @@ def test_writer_clock_regression_raises() -> None:
 def test_tracker_freeze_completed_and_shutdown() -> None:
     feed1 = _make_feed("bithumb", "orderbook", "KRW-BTC")
     feed2 = _make_feed("upbit", "ticker", "KRW-BTC")
-    tracker = FeedHourCoverageTracker([feed1, feed2])
+    # actual_start_utc must be set to a time BEFORE the 12:00 cohort boundary
+    # so that the 12:00 cohort is NOT mistaken for the opening partial hour.
+    actual_start = datetime(2026, 9, 14, 11, 0, 0, tzinfo=timezone.utc)
+    tracker = FeedHourCoverageTracker([feed1, feed2], actual_start_utc=actual_start)
 
     sessions = SessionEvidenceTracker("epoch-1", "run-1")
     s1 = sessions.open_session("bithumb", [feed1.canonical], "2026-09-14T11:50:00Z")
