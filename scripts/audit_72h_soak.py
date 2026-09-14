@@ -664,6 +664,7 @@ def validate_v3_coverage_evidence(
     data_present_count = 0
     verified_zero_count = 0
     failed_slots_count = 0
+    coverage_slots: list[dict[str, Any]] = []
     per_cohort_diagnostics: dict[str, dict[str, Any]] = {}
     qualifying_cohorts: list[str] = []
     failing_cohorts: list[str] = []
@@ -848,6 +849,16 @@ def validate_v3_coverage_evidence(
                 failed_slots_count += 1
                 add_slot_blocker("SLOT_FAILED", f"slot {slot_tag} state is '{state}'")
 
+            exch, strm, mkt = feed
+            coverage_slots.append({
+                "cohort_utc": cohort,
+                "exchange": exch,
+                "market": mkt,
+                "stream": strm,
+                "coverage_state": state,
+                "event_count": event_count,
+            })
+
         cohort_qualifies = (
             cohort_failed == 0
             and (cohort_present + cohort_zero) == expected_slots_per_cohort
@@ -888,6 +899,7 @@ def validate_v3_coverage_evidence(
         "qualifying_cohorts": qualifying_cohorts,
         "failing_cohorts": failing_cohorts,
         "per_cohort_diagnostics": per_cohort_diagnostics,
+        "coverage_slots": coverage_slots,
     }
 
 
