@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from bithumb_coin_trader.session_evidence import (
     FeedIdentity,
-    HeartbeatPolicy,
     SessionEvidenceTracker,
-    SessionSegment,
-    WriterHealthSnapshot,
 )
 
 
