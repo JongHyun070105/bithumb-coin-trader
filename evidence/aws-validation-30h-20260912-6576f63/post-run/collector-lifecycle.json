@@ -1,0 +1,10 @@
+{
+  "collector_run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+  "error_type": null,
+  "final_manifest_flush_observed": false,
+  "manifest_count": 0,
+  "phase": "FINALIZING",
+  "process_id": 574967,
+  "schema_version": 2,
+  "written_at": "2026-09-13T17:24:52.227846+00:00"
+}

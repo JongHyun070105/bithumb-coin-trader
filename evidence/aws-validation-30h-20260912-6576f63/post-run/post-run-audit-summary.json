@@ -1,0 +1,215 @@
+{
+  "schema_version": 1,
+  "captured_at_utc": "2026-09-14T04:14:22Z",
+  "evidence_mode": "independent_read_only_post_run_audit",
+  "identity": {
+    "runtime_commit": "6576f632b3f44eb68645bad4304665c0ea87512d",
+    "runtime_git_tree": "5a936a1b3a48f66e938cbe234a853ec7d8c6b027",
+    "collector_epoch": "aws-validation-30h-20260912-6576f63",
+    "collector_run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+    "config_fingerprint": "d330923d6c5d57a1399317b315fcbcabcd512624db6c1dd1f4a5420a6089fecf",
+    "actual_start_utc": "2026-09-12T11:24:51Z",
+    "actual_end_utc": "2026-09-13T17:29:52.284325+00:00"
+  },
+  "source_artifacts": {
+    "result.json": {
+      "size_bytes": 912,
+      "sha256": "15035448ad742bb08e192e61e9ca0bba871b4b2a6184a71e40e48e04ce4c77d3"
+    },
+    "collector-lifecycle.json": {
+      "size_bytes": 287,
+      "sha256": "fe674dcc5054ed251158bc07166862c8989a01dd5ee21176675909c5892012ac"
+    },
+    "collector_metrics.json": {
+      "size_bytes": 2825,
+      "sha256": "05958ccb04af0e7fe37b2211b83fa1caa83c2708cb3b879c3b97bee16ff69b73"
+    },
+    "supervisor.log": {
+      "size_bytes": 270194,
+      "sha256": "897052defdd86a806a2ecbfb4a25f74ca2ee87b482499c3262c763a5dcf7fb02",
+      "committed_to_git": false
+    }
+  },
+  "guest_state": {
+    "runtime_worktree_head": "6576f632b3f44eb68645bad4304665c0ea87512d",
+    "runtime_worktree_clean": true,
+    "matching_processes_after_completion": 0,
+    "run_root_bytes": 23176503335,
+    "filesystem_total_bytes": 214668652544,
+    "filesystem_used_bytes": 104461058048,
+    "filesystem_available_bytes": 110207594496,
+    "filesystem_used_percent": 49
+  },
+  "systemd": {
+    "unit": "bitcoin-trader-30h-aws-validation-30h-run-20260912T103507Z-6576f63.service",
+    "unit_garbage_collected": true,
+    "journal_event_count": 5,
+    "starting_events": 1,
+    "started_events": 1,
+    "main_process_exit_events": 1,
+    "failed_result_events": 1,
+    "restart_events": 0,
+    "started_timestamp": "2026-09-12T11:24:51.951302+00:00",
+    "main_process_exit_timestamp": "2026-09-13T17:29:52.301536+00:00",
+    "main_process_exit_status": "1/FAILURE"
+  },
+  "process_contract": {
+    "collection_duration_seconds": 108000.0,
+    "elapsed_seconds": 108300.277294,
+    "collector_exit_code": -15,
+    "received_signal": null,
+    "forced_timeout": true,
+    "full_duration_satisfied": true,
+    "final_metrics_valid": true,
+    "final_manifest_flush_observed": false,
+    "lifecycle_phase": "FINALIZING",
+    "lifecycle_manifest_count": 0,
+    "overall_status": "FAIL",
+    "verdict": "FAIL"
+  },
+  "final_metrics": {
+    "configured_feed_count": 76,
+    "configured_feeds_by_exchange": {
+      "bithumb": 60,
+      "binance": 8,
+      "upbit": 8
+    },
+    "total_messages": 14545571,
+    "writer_errors": 0,
+    "queue_dropped_events": 0,
+    "queue_backpressure_events": 0,
+    "unpersisted_event_count": 0,
+    "fatal_writer_error_type": null,
+    "malformed_quarantined": 0,
+    "disconnect_count": 0,
+    "reconnect_count": 0,
+    "active_partition_files": []
+  },
+  "cohorts": {
+    "touched_count": 31,
+    "touched_range": [
+      "2026-09-12_11",
+      "2026-09-13_17"
+    ],
+    "qualifying_count": 30,
+    "qualifying_range": [
+      "2026-09-12_11",
+      "2026-09-13_16"
+    ],
+    "qualifying_exact_coverage_count": 27,
+    "raw_file_count": 2346,
+    "raw_bytes": 22605908385,
+    "partition_manifest_file_count": 2322,
+    "missing_partition_manifest_count": 24,
+    "qualifying_missing_feed_count": 8,
+    "touched_missing_feed_count": 10,
+    "missing_feeds": [
+      {
+        "cohort": "2026-09-12_17",
+        "qualifying": true,
+        "feeds": [
+          "bithumb/ticker/KRW-MANA",
+          "bithumb/trade/KRW-MANA"
+        ]
+      },
+      {
+        "cohort": "2026-09-12_18",
+        "qualifying": true,
+        "feeds": [
+          "bithumb/ticker/KRW-AXS",
+          "bithumb/trade/KRW-AXS",
+          "bithumb/ticker/KRW-MANA",
+          "bithumb/trade/KRW-MANA"
+        ]
+      },
+      {
+        "cohort": "2026-09-12_19",
+        "qualifying": true,
+        "feeds": [
+          "bithumb/ticker/KRW-MANA",
+          "bithumb/trade/KRW-MANA"
+        ]
+      },
+      {
+        "cohort": "2026-09-13_17",
+        "qualifying": false,
+        "feeds": [
+          "bithumb/ticker/KRW-MANA",
+          "bithumb/trade/KRW-MANA"
+        ]
+      }
+    ]
+  },
+  "archive": {
+    "terminal_receipt_count": 2272,
+    "receipt_state_counts": {
+      "CLEANUP_ELIGIBLE": 2272
+    },
+    "receipt_failure_count": 0,
+    "restore_verified_count": 2272,
+    "restore_missing_count_among_present_receipts": 0,
+    "compressed_local_file_count": 2272,
+    "remote_object_count": 2272,
+    "remote_total_bytes": 561782912,
+    "remote_zero_byte_count": 0,
+    "remote_unique_key_count": 2272,
+    "remote_unexpected_extension_count": 0,
+    "remote_earliest_last_modified": "2026-09-12T12:11:50+00:00",
+    "remote_latest_last_modified": "2026-09-13T17:13:41+00:00",
+    "expected_qualifying_receipt_count": 2280,
+    "expected_qualifying_remote_object_count": 2280,
+    "coverage_verdict": "FAIL"
+  },
+  "fullscan": {
+    "report_count": 30,
+    "input_reference_count": 4544,
+    "expected_input_reference_count": 4560,
+    "record_count_including_raw_and_compressed": 28591468,
+    "valid_record_count": 28591468,
+    "invalid_json_count": 0,
+    "schema_mismatch_count": 0,
+    "missing_required_field_count": 0,
+    "non_finite_numeric_count": 0,
+    "malformed_timestamp_count": 0,
+    "unknown_market_count": 0,
+    "scan_failure_count": 0,
+    "quarantine_file_count": 0,
+    "per_present_input_integrity": "PASS",
+    "root_exact_coverage": "FAIL"
+  },
+  "audit_tooling": {
+    "epoch_contract_composer_exit_code": 2,
+    "epoch_contract_composer_error": "CORRUPT_ACTUAL_START_EVIDENCE: ACTUAL_START_RUNTIME_COMMIT_MISMATCH",
+    "epoch_manifest_builder_error": "NO_RUN_CONTRACT: Run contract required for epoch manifest build",
+    "strict_auditor_verdict": "FAIL",
+    "epoch_manifest_verdict": "FAIL"
+  },
+  "change_audit": {
+    "manual_s3_repair_writes_observed": 0,
+    "manual_contamination_verdict": "NONE_WITHIN_AVAILABLE_EVIDENCE",
+    "cloudtrail_lookup": "NOT_VERIFIABLE_ACCESS_DENIED",
+    "iam_mutations_performed_by_this_audit": 0,
+    "terraform_mutations_performed_by_this_audit": 0,
+    "terraform_state_lineage": "5e8ff4b0-1d32-ed2e-9ed0-a9e68d3f3ccf",
+    "terraform_state_serial": 51,
+    "terraform_state_resource_count": 27,
+    "terraform_state_sha256": "e18132996254ba66f493fac9a0348016ed204bdfedf09f98a78fc916a8715a8a",
+    "terraform_state_modified_before_run": true
+  },
+  "verdicts": {
+    "context_recovery": "PASS",
+    "process": "FAIL",
+    "archive": "FAIL",
+    "data_quality": "FAIL",
+    "evidence_contract": "FAIL",
+    "overall": "FAIL",
+    "infra_validation_closed": false,
+    "ready_for_24x7_research": false
+  },
+  "scientific_state": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  }
+}
