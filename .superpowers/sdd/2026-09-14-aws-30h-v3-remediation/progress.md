@@ -86,8 +86,8 @@ None found. Plan is implementable as written.
 | Task 3: Durable Incremental Finalization + WAL | ✅ COMPLETE | `cd269fb` |
 | Task 4: Owning Sessions + Feed-Hour Coverage | ✅ COMPLETE | `a256bb6` |
 | Task 5: Collector Confirmation, Heartbeats, Writer Fences | ✅ COMPLETE | `b831358` → test fixes `1275085`, `2c5e81e` |
-| Task 6: Generic Immutable Archive + Receipt v3 | ⏳ IN PROGRESS | — |
-| Task 7: Ordered Closed-Hour Finalization + Scheduler | ⬜ PENDING | — |
+| Task 6: Generic Immutable Archive + Receipt v3 | ✅ COMPLETE | `f483f32` → fixes `133592a` |
+| Task 7: Ordered Closed-Hour Finalization + Scheduler | ⏳ IN PROGRESS | — |
 | Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ⬜ PENDING | — |
 | Task 9: Bounded Scale + Cross-Layer Gate | ⬜ PENDING | — |
 | Task 10: Full Verification + Independent Review | ⬜ PENDING | — |
@@ -111,6 +111,9 @@ None found. Plan is implementable as written.
 - **Task 5** (Commits `b831358`, `1275085`, `2c5e81e`):
   - Spec Compliance: PASS (C1 per-session Bithumb confirmation set + idempotent guard; C2 frozen journal persistence via save_frozen_journal/load_frozen_journal; I1 Upbit SUBSCRIPTION_SET_MISMATCH; I2 stale stream close_session in all 3 loops; I3 recv confirmation loops; M1 heartbeat sort)
   - Code Quality: APPROVED (I1 Binance+Upbit stale-stream tests added; M1 explicit actual_start_utc in test_writer_clock_regression_raises; all 99 tests pass; 0 pyright errors/warnings)
+- **Task 6** (Commits `f483f32`, `133592a`):
+  - Spec Compliance: PASS (ArtifactKind, ImmutableArtifact frozen dataclass, ArchiveReceiptV3, adapt_legacy_v2_receipt memory-only adapter preserving disk bytes, finalize_artifact with kind-specific validation: RAW manifest binding & count vs COVERAGE_EVIDENCE canonical hash & forbid record count, shared compression/upload/remote/restore verification, legacy finalize compatibility wrapper)
+  - Code Quality: APPROVED (I1 temp_compressed_path cleanup on exception in finalize_artifact; M1 removed unused InitVar; M2 added test_raw_v3_requires_record_count negative test; all 86 archive tests pass; 0 pyright errors/warnings)
 
 
 ---
