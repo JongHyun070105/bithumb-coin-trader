@@ -67,6 +67,11 @@ class PartitionManifest:
     collector_version: str = "v9.1.0-quarantine-hardened"
     git_commit: str = "HEAD"
     schema_version: int = 4
+    environment_id: str | None = None
+    collector_epoch: str | None = None
+    collector_run_id: str | None = None
+    cohort: str | None = None
+    feed_identity: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -168,7 +173,12 @@ class RawMicrostructureStorage:
             f.write(line)
         return q_file
 
-    def generate_partition_manifest(self, file_path: Path) -> PartitionManifest:
+    def generate_partition_manifest(
+        self,
+        file_path: Path,
+        *,
+        identity: Any | None = None,
+    ) -> PartitionManifest:
         if not file_path.exists():
             raise FileNotFoundError(f"Partition file does not exist: {file_path}")
 
@@ -335,8 +345,21 @@ class RawMicrostructureStorage:
         else:
             p50 = p95 = p99 = lat_max = 0.0
 
+        if count == 0 and identity is not None:
+            exchange = exchange or getattr(identity, "exchange", "")
+            stream = stream or getattr(identity, "stream", "")
+            market = market or getattr(identity, "market", "")
+
+        try:
+            partition_path = str(file_path.relative_to(self.base_dir.parent.parent))
+        except ValueError:
+            try:
+                partition_path = str(file_path.relative_to(self.base_dir.parent))
+            except ValueError:
+                partition_path = str(file_path)
+
         manifest = PartitionManifest(
-            partition_path=str(file_path.relative_to(self.base_dir.parent.parent)),
+            partition_path=partition_path,
             exchange=exchange,
             stream=stream,
             market=market,
@@ -373,6 +396,12 @@ class RawMicrostructureStorage:
             latency_sample_count=len(latencies_ms),
             latency_metric_semantics="local_receive_minus_exchange_labelled_timestamp_not_network_latency",
             git_commit=self.git_commit,
+            schema_version=5 if identity is not None else 4,
+            environment_id=getattr(identity, "environment_id", None) if identity is not None else None,
+            collector_epoch=getattr(identity, "collector_epoch", None) if identity is not None else None,
+            collector_run_id=getattr(identity, "collector_run_id", None) if identity is not None else None,
+            cohort=getattr(identity, "cohort", None) if identity is not None else None,
+            feed_identity=getattr(identity, "feed_identity", None) if identity is not None else None,
         )
 
         manifest_file = self.manifest_dir / f"manifest_{file_path.stem}.json"
@@ -383,3 +412,40 @@ class RawMicrostructureStorage:
         temporary_manifest.replace(manifest_file)
 
         return manifest
+
+    def resolve_raw(self, relative_path: str) -> Path:
+        """Resolves relative_path within self.base_dir, rejecting escaping paths and escaping symlinks."""
+        from bithumb_coin_trader.incremental_finalizer import FinalizationEvidenceError
+
+        clean_rel = relative_path
+        if clean_rel.startswith("raw/"):
+            clean_rel = clean_rel[4:]
+        elif clean_rel.startswith("/raw/"):
+            clean_rel = clean_rel[5:]
+        elif clean_rel.startswith("data/microstructure/raw/"):
+            clean_rel = clean_rel[len("data/microstructure/raw/"):]
+
+        candidate = self.base_dir / relative_path
+        if not candidate.exists() and (self.base_dir / clean_rel).exists():
+            candidate = self.base_dir / clean_rel
+        elif not candidate.exists() and relative_path.startswith("raw/"):
+            candidate = self.base_dir / clean_rel
+
+        base_resolved = self.base_dir.resolve()
+        try:
+            target = candidate.resolve(strict=False)
+        except Exception as exc:
+            raise FinalizationEvidenceError("PATH_ESCAPE") from exc
+
+        try:
+            target.relative_to(base_resolved)
+        except ValueError as exc:
+            raise FinalizationEvidenceError("PATH_ESCAPE") from exc
+
+        if candidate.is_symlink():
+            try:
+                candidate.resolve().relative_to(base_resolved)
+            except (ValueError, FileNotFoundError) as exc:
+                raise FinalizationEvidenceError("PATH_ESCAPE") from exc
+
+        return candidate
