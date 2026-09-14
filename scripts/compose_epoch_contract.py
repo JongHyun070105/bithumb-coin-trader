@@ -14,6 +14,12 @@ from pathlib import Path
 import sys
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT / "src"
+SCRIPTS_DIR = ROOT / "scripts"
+for d in (ROOT, SRC_DIR, SCRIPTS_DIR):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
 
 try:
     from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256
