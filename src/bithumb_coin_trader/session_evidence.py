@@ -169,15 +169,30 @@ class _MutableSession:
         interval_start_utc: str | None = None,
         interval_end_utc: str | None = None,
     ) -> SessionSegment:
-        hb_tuples = tuple(self.heartbeat_observations_utc)
-        max_gap: float | None = None
-        if len(hb_tuples) >= 2:
-            gaps: list[float] = []
-            dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_tuples]
-            for i in range(len(dts) - 1):
-                gaps.append((dts[i + 1] - dts[i]).total_seconds())
-            if gaps:
-                max_gap = max(gaps)
+        if interval_start_utc is not None and interval_end_utc is not None:
+            hb_in_interval = [h for h in self.heartbeat_observations_utc if interval_start_utc <= h <= interval_end_utc]
+            hb_tuples = tuple(hb_in_interval)
+            if hb_in_interval:
+                start_dt = datetime.fromisoformat(interval_start_utc.replace("Z", "+00:00"))
+                end_dt = datetime.fromisoformat(interval_end_utc.replace("Z", "+00:00"))
+                dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_in_interval]
+                gaps = [(dts[0] - start_dt).total_seconds()]
+                for i in range(len(dts) - 1):
+                    gaps.append((dts[i + 1] - dts[i]).total_seconds())
+                gaps.append((end_dt - dts[-1]).total_seconds())
+                max_gap: float | None = max(gaps)
+            else:
+                max_gap = None
+        else:
+            hb_tuples = tuple(self.heartbeat_observations_utc)
+            max_gap = None
+            if len(hb_tuples) >= 2:
+                gaps: list[float] = []
+                dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_tuples]
+                for i in range(len(dts) - 1):
+                    gaps.append((dts[i + 1] - dts[i]).total_seconds())
+                if gaps:
+                    max_gap = max(gaps)
 
         return SessionSegment(
             exchange=self.exchange,

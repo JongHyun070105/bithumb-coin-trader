@@ -214,6 +214,9 @@ def materialize_feed_hour_coverage(
         if data_binding is not None:
             coverage_state = "FAILED"
             failure_reasons.append("UNEXPECTED_DATA_BINDING_FOR_ZERO_EVENT")
+        elif observation.first_event_timestamp is not None or observation.last_event_timestamp is not None:
+            coverage_state = "FAILED"
+            failure_reasons.append("INVALID_ZERO_EVENT_TIMESTAMPS")
         elif observation.cohort_qualification == "TOUCHED_PARTIAL":
             coverage_state = "FAILED"
             failure_reasons.append("ZERO_EVENT_FORBIDDEN_FOR_PARTIAL_COHORT")
@@ -278,7 +281,10 @@ def _fsync_dir(dir_path: Path) -> None:
 
 
 def save_feed_hour_coverage(coverage: FeedHourCoverage, base_dir: Path) -> Path:
-    target_dir = base_dir / coverage.cohort_utc / coverage.exchange / coverage.stream
+    if base_dir.name != "coverage" and not str(base_dir).endswith("/coverage"):
+        target_dir = base_dir / "coverage" / coverage.cohort_utc / coverage.exchange / coverage.stream
+    else:
+        target_dir = base_dir / coverage.cohort_utc / coverage.exchange / coverage.stream
     target_dir.mkdir(parents=True, exist_ok=True)
     target_path = target_dir / f"{coverage.market}.coverage.json"
     tmp_path = target_dir / f".{target_path.name}.{os.getpid()}.{time.time_ns()}.tmp"
@@ -396,18 +402,29 @@ def load_feed_hour_coverage(path: Path) -> FeedHourCoverage:
 class FeedHourCoverageTracker:
     def __init__(
         self,
-        feeds: Sequence[FeedIdentity] = (),
+        feeds: Sequence[FeedIdentity] | datetime = (),
         epoch: str = "",
         run_id: str = "",
+        actual_start_utc: datetime | None = None,
     ) -> None:
+        if isinstance(feeds, datetime):
+            actual_start_utc = feeds
+            feeds = ()
         self.configured_feeds: tuple[FeedIdentity, ...] = tuple(feeds)
         self.epoch = epoch
         self.run_id = run_id
+        if actual_start_utc is None:
+            self.actual_start_utc = datetime.now(timezone.utc)
+        elif actual_start_utc.tzinfo is None:
+            self.actual_start_utc = actual_start_utc.replace(tzinfo=timezone.utc)
+        else:
+            self.actual_start_utc = actual_start_utc.astimezone(timezone.utc)
+
         self._last_write_ts: datetime | None = None
         self._cohort_feed_stats: dict[tuple[str, FeedIdentity], dict[str, Any]] = {}
         self._active_cohorts: set[str] = set()
         self._frozen_cohorts: set[str] = set()
-        self._all_seen_feeds: set[FeedIdentity] = set(feeds)
+        self._all_seen_feeds: set[FeedIdentity] = set(self.configured_feeds)
 
     def record_persisted_event(
         self,
@@ -416,10 +433,13 @@ class FeedHourCoverageTracker:
     ) -> None:
         if self._last_write_ts is not None and local_write_ts < self._last_write_ts:
             raise ValueError("WRITER_CLOCK_REGRESSION")
-        self._last_write_ts = local_write_ts
 
         hour_dt = local_write_ts.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0)
         cohort_utc = hour_dt.strftime("%Y-%m-%d_%H")
+        if cohort_utc in self._frozen_cohorts:
+            raise ValueError(f"COHORT_ALREADY_FROZEN: {cohort_utc}")
+
+        self._last_write_ts = local_write_ts
         ts_str = local_write_ts.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
         self._active_cohorts.add(cohort_utc)
@@ -457,13 +477,30 @@ class FeedHourCoverageTracker:
 
         self._frozen_cohorts.add(cohort_utc)
 
+        opening_start = self.actual_start_utc.replace(minute=0, second=0, microsecond=0)
+        if start_utc_clean == opening_start:
+            cohort_qualification = "TOUCHED_PARTIAL"
+            observation_start_utc = self.actual_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+        else:
+            cohort_qualification = "QUALIFYING_FULL_HOUR"
+            observation_start_utc = interval_start_utc
+
         feeds_to_freeze = list(self.configured_feeds) if self.configured_feeds else sorted(self._all_seen_feeds)
         observations: list[FrozenFeedHourObservation] = []
 
         for feed in feeds_to_freeze:
             segments = session_tracker.segments_for(feed, interval_start_utc, interval_end_utc)
-            disc_count = sum(1 for s in segments if s.disconnected_at_utc is not None)
-            rec_count = sum(1 for s in segments if s.reconnect_successor_id is not None)
+            disc_count = sum(
+                1 for s in segments
+                if s.disconnected_at_utc is not None
+                and interval_start_utc <= s.disconnected_at_utc < interval_end_utc
+            )
+            rec_count = sum(
+                1 for s in segments
+                if s.reconnect_successor_id is not None
+                and s.disconnected_at_utc is not None
+                and interval_start_utc <= s.disconnected_at_utc < interval_end_utc
+            )
 
             stats = self._cohort_feed_stats.get((cohort_utc, feed))
             if stats is not None:
@@ -481,8 +518,8 @@ class FeedHourCoverageTracker:
                     cohort_utc=cohort_utc,
                     interval_start_utc=interval_start_utc,
                     interval_end_utc=interval_end_utc,
-                    cohort_qualification="QUALIFYING_FULL_HOUR",
-                    observation_start_utc=interval_start_utc,
+                    cohort_qualification=cohort_qualification,
+                    observation_start_utc=observation_start_utc,
                     observation_end_utc=interval_end_utc,
                     event_count=ev_count,
                     first_event_timestamp=first_ts,
@@ -512,6 +549,8 @@ class FeedHourCoverageTracker:
         observations: list[FrozenFeedHourObservation] = []
         feeds_to_freeze = list(self.configured_feeds) if self.configured_feeds else sorted(self._all_seen_feeds)
 
+        opening_start = self.actual_start_utc.replace(minute=0, second=0, microsecond=0)
+
         for c_utc in cohorts:
             self._frozen_cohorts.add(c_utc)
             c_dt = datetime.strptime(c_utc, "%Y-%m-%d_%H").replace(tzinfo=timezone.utc)
@@ -520,13 +559,31 @@ class FeedHourCoverageTracker:
             interval_end_utc = c_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             is_full = (end_clean >= c_end_dt)
-            qualification = "QUALIFYING_FULL_HOUR" if is_full else "TOUCHED_PARTIAL"
             obs_end = interval_end_utc if is_full else end_clean.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+            if c_dt == opening_start:
+                cohort_qualification = "TOUCHED_PARTIAL"
+                obs_start = self.actual_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            elif is_full:
+                cohort_qualification = "QUALIFYING_FULL_HOUR"
+                obs_start = interval_start_utc
+            else:
+                cohort_qualification = "TOUCHED_PARTIAL"
+                obs_start = interval_start_utc
 
             for feed in feeds_to_freeze:
                 segments = session_tracker.segments_for(feed, interval_start_utc, interval_end_utc)
-                disc_count = sum(1 for s in segments if s.disconnected_at_utc is not None)
-                rec_count = sum(1 for s in segments if s.reconnect_successor_id is not None)
+                disc_count = sum(
+                    1 for s in segments
+                    if s.disconnected_at_utc is not None
+                    and interval_start_utc <= s.disconnected_at_utc < interval_end_utc
+                )
+                rec_count = sum(
+                    1 for s in segments
+                    if s.reconnect_successor_id is not None
+                    and s.disconnected_at_utc is not None
+                    and interval_start_utc <= s.disconnected_at_utc < interval_end_utc
+                )
 
                 stats = self._cohort_feed_stats.get((c_utc, feed))
                 if stats is not None:
@@ -544,8 +601,8 @@ class FeedHourCoverageTracker:
                         cohort_utc=c_utc,
                         interval_start_utc=interval_start_utc,
                         interval_end_utc=interval_end_utc,
-                        cohort_qualification=qualification,
-                        observation_start_utc=interval_start_utc,
+                        cohort_qualification=cohort_qualification,
+                        observation_start_utc=obs_start,
                         observation_end_utc=obs_end,
                         event_count=ev_count,
                         first_event_timestamp=first_ts,

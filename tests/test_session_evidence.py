@@ -72,13 +72,38 @@ def test_heartbeat_observation_recording() -> None:
     tracker.record_heartbeat(sid, "2026-09-14T12:00:20Z")
     tracker.record_heartbeat(sid, "2026-09-14T12:00:30Z")
 
-    segments = tracker.segments_for(feed, "2026-09-14T12:00:00Z", "2026-09-14T13:00:00Z")
+    segments = tracker.segments_for(feed, "2026-09-14T12:00:00Z", "2026-09-14T12:00:40Z")
     assert len(segments) == 1
     assert segments[0].heartbeat_observations_utc == (
         "2026-09-14T12:00:10Z",
         "2026-09-14T12:00:20Z",
         "2026-09-14T12:00:30Z",
     )
+    assert segments[0].maximum_heartbeat_gap_seconds == 10.0
+
+
+def test_heartbeat_scoping_and_interval_edge_gaps() -> None:
+    tracker = SessionEvidenceTracker(epoch="epoch", run_id="run")
+    feed = FeedIdentity("binance", "trade", "btcusdt")
+    sid = tracker.open_session("binance", [feed.canonical], "2026-09-14T11:50:00Z")
+    tracker.confirm(sid, [feed.canonical], "LIST_SUBSCRIPTIONS", "2026-09-14T11:51:00Z", None)
+
+    # Record heartbeats before, during, and after interval
+    tracker.record_heartbeat(sid, "2026-09-14T11:59:00Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:10Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:20Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:30Z")
+    tracker.record_heartbeat(sid, "2026-09-14T13:05:00Z")
+
+    segments = tracker.segments_for(feed, "2026-09-14T12:00:00Z", "2026-09-14T12:00:40Z")
+    assert len(segments) == 1
+    # Only in-interval heartbeats should be retained
+    assert segments[0].heartbeat_observations_utc == (
+        "2026-09-14T12:00:10Z",
+        "2026-09-14T12:00:20Z",
+        "2026-09-14T12:00:30Z",
+    )
+    # Gaps: (12:00:10 - 12:00:00)=10, (12:00:20 - 12:00:10)=10, (12:00:30 - 12:00:20)=10, (12:00:40 - 12:00:30)=10
     assert segments[0].maximum_heartbeat_gap_seconds == 10.0
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -267,7 +268,7 @@ def test_coverage_save_and_load_roundtrip(tmp_path: Path) -> None:
 
     saved_path = save_feed_hour_coverage(coverage, tmp_path)
     assert saved_path.exists()
-    assert saved_path == tmp_path / "2026-09-14_12" / "bithumb" / "orderbook" / "KRW-BTC.coverage.json"
+    assert saved_path == tmp_path / "coverage" / "2026-09-14_12" / "bithumb" / "orderbook" / "KRW-BTC.coverage.json"
 
     loaded = load_feed_hour_coverage(saved_path)
     assert loaded == coverage
@@ -340,3 +341,110 @@ def test_tracker_freeze_completed_and_shutdown() -> None:
     for p in partial_frozen:
         assert p.cohort_qualification == "TOUCHED_PARTIAL"
         assert p.observation_end_utc == "2026-09-14T13:15:00Z"
+
+
+def test_ending_heartbeat_gap_exceeded_fails() -> None:
+    f = _make_feed()
+    # Heartbeats end at 12:59:25Z -> gap to 13:00:00Z is 35s > 30s
+    hb_list = []
+    base = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
+    # Every 10s up to 3565s (12:59:25)
+    for sec in range(0, 3566, 10):
+        ts = datetime.fromtimestamp(base.timestamp() + sec, tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        hb_list.append(ts)
+
+    seg = _make_segment(f, heartbeats=tuple(hb_list))
+    obs = _make_observation(event_count=10, session_segments=(seg,))
+    res = materialize_feed_hour_coverage(obs, _make_policy(max_gap=30), _make_binding(10))
+    assert res.coverage_state == "FAILED"
+    assert "HEARTBEAT_GAP_EXCEEDED" in res.failure_reason_codes
+
+
+def test_late_confirmation_fails() -> None:
+    f = _make_feed()
+    seg = _make_segment(f)
+    # Session confirmed at 12:05:00Z (after interval_start_utc 12:00:00Z)
+    seg_late = replace(seg, confirmed_at_utc="2026-09-14T12:05:00Z")
+    obs = _make_observation(event_count=10, session_segments=(seg_late,))
+    res = materialize_feed_hour_coverage(obs, _make_policy(), _make_binding(10))
+    assert res.coverage_state == "FAILED"
+    assert "LATE_CONFIRMATION" in res.failure_reason_codes
+
+
+def test_verified_zero_event_rejects_non_null_timestamps() -> None:
+    obs = _make_observation(event_count=0)
+    # Corrupt zero-event observation with non-null timestamp
+    corrupt_obs = replace(obs, first_event_timestamp="2026-09-14T12:05:00Z")
+    res = materialize_feed_hour_coverage(corrupt_obs, _make_policy(), None)
+    assert res.coverage_state == "FAILED"
+    assert "INVALID_ZERO_EVENT_TIMESTAMPS" in res.failure_reason_codes
+
+    corrupt_obs2 = replace(obs, last_event_timestamp="2026-09-14T12:55:00Z")
+    res2 = materialize_feed_hour_coverage(corrupt_obs2, _make_policy(), None)
+    assert res2.coverage_state == "FAILED"
+    assert "INVALID_ZERO_EVENT_TIMESTAMPS" in res2.failure_reason_codes
+
+
+def test_record_persisted_event_rejects_frozen_cohort() -> None:
+    feed = _make_feed()
+    tracker = FeedHourCoverageTracker([feed], actual_start_utc=datetime(2026, 9, 14, 11, 0, 0, tzinfo=timezone.utc))
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+    tracker.record_persisted_event(feed, datetime(2026, 9, 14, 12, 10, 0, tzinfo=timezone.utc))
+
+    boundary = datetime(2026, 9, 14, 13, 0, 0, tzinfo=timezone.utc)
+    tracker.freeze_completed(boundary, sessions, WriterHealthSnapshot())
+
+    # Attempt write to already frozen cohort 2026-09-14_12
+    with pytest.raises(ValueError, match="COHORT_ALREADY_FROZEN: 2026-09-14_12"):
+        tracker.record_persisted_event(feed, datetime(2026, 9, 14, 12, 30, 0, tzinfo=timezone.utc))
+
+
+def test_disconnect_count_scoped_to_cohort_interval() -> None:
+    feed = _make_feed()
+    tracker = FeedHourCoverageTracker([feed], actual_start_utc=datetime(2026, 9, 14, 11, 0, 0, tzinfo=timezone.utc))
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+
+    sid = sessions.open_session(feed.exchange, [feed.canonical], "2026-09-14T11:50:00Z")
+    sessions.confirm(sid, [feed.canonical], "LIST_SUBSCRIPTIONS", "2026-09-14T11:51:00Z", None)
+    sessions.record_heartbeat(sid, "2026-09-14T12:00:00Z")
+    sessions.record_heartbeat(sid, "2026-09-14T13:00:00Z")
+    # Disconnect occurs in hour 13, not hour 12
+    sessions.close_session(sid, "2026-09-14T13:10:00Z", "conn_reset")
+
+    # Freeze hour 12 (12:00:00Z to 13:00:00Z)
+    obs_12 = tracker.freeze_completed(datetime(2026, 9, 14, 13, 0, 0, tzinfo=timezone.utc), sessions, WriterHealthSnapshot())
+    assert obs_12[0].disconnect_count == 0
+    assert obs_12[0].reconnect_count == 0
+
+    # Freeze hour 13 (13:00:00Z to 14:00:00Z)
+    obs_13 = tracker.freeze_completed(datetime(2026, 9, 14, 14, 0, 0, tzinfo=timezone.utc), sessions, WriterHealthSnapshot())
+    assert obs_13[0].disconnect_count == 1
+    assert obs_13[0].reconnect_count == 0
+
+
+def test_opening_cohort_marked_touched_partial() -> None:
+    feed = _make_feed()
+    # Actual start is 12:00:00 (exact hour boundary)
+    tracker = FeedHourCoverageTracker([feed], actual_start_utc=datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc))
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+    sid = sessions.open_session(feed.exchange, [feed.canonical], "2026-09-14T12:00:00Z")
+    sessions.confirm(sid, [feed.canonical], "LIST_SUBSCRIPTIONS", "2026-09-14T12:00:01Z", None)
+
+    # Freeze completed hour 12 (12:00 to 13:00)
+    obs_12 = tracker.freeze_completed(datetime(2026, 9, 14, 13, 0, 0, tzinfo=timezone.utc), sessions, WriterHealthSnapshot())
+    assert obs_12[0].cohort_qualification == "TOUCHED_PARTIAL"
+    assert obs_12[0].observation_start_utc == "2026-09-14T12:00:00Z"
+
+    # Freeze completed hour 13 (13:00 to 14:00)
+    obs_13 = tracker.freeze_completed(datetime(2026, 9, 14, 14, 0, 0, tzinfo=timezone.utc), sessions, WriterHealthSnapshot())
+    assert obs_13[0].cohort_qualification == "QUALIFYING_FULL_HOUR"
+    assert obs_13[0].observation_start_utc == "2026-09-14T13:00:00Z"
+
+
+def test_coverage_save_already_coverage_dir(tmp_path: Path) -> None:
+    obs = _make_observation(event_count=10)
+    coverage = materialize_feed_hour_coverage(obs, _make_policy(), _make_binding(10))
+
+    cov_dir = tmp_path / "coverage"
+    saved_path = save_feed_hour_coverage(coverage, cov_dir)
+    assert saved_path == cov_dir / "2026-09-14_12" / "bithumb" / "orderbook" / "KRW-BTC.coverage.json"
