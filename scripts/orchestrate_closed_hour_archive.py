@@ -48,10 +48,36 @@ from bithumb_coin_trader.session_evidence import HeartbeatPolicy
 
 
 # Global full-scan kernel flock and metadata constants
+ARCHIVE_ORCHESTRATOR_LOCK_NAME = ".archive_orchestrator.lock"
 FULL_SCAN_GLOBAL_LOCK_NAME = ".full_scan_runner.lock"
 FULL_SCAN_METADATA_NAME = ".full_scan_runner.json"
 DEFAULT_SCAN_TIMEOUT_SECONDS = 1800.0
 SCAN_GRACE_KILL_SECONDS = 5.0
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    data = json.dumps(payload, indent=2) + "\n"
+    try:
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp_path), str(path))
+        parent_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def is_global_full_scan_running(receipt_root: Path) -> bool:
@@ -468,7 +494,7 @@ if scan_result["totals"]["status"] != "PASS":
                 "timeout_seconds": timeout_seconds,
                 "timestamp": time.time(),
             }
-            report_path.write_text(json.dumps(terminal_report, indent=2), encoding="utf-8")
+            _atomic_write_json(report_path, terminal_report)
             return 124
 
         exit_code = child_proc.returncode
@@ -498,7 +524,7 @@ if scan_result["totals"]["status"] != "PASS":
                     "returncode": exit_code,
                     "timestamp": time.time(),
                 }
-                report_path.write_text(json.dumps(terminal_report, indent=2), encoding="utf-8")
+                _atomic_write_json(report_path, terminal_report)
         return exit_code
 
     finally:
@@ -692,7 +718,6 @@ def orchestrate_closed_hour_archive(
     compressed_root = base_dir / "compressed"
     receipt_root = base_dir / "archive-receipts"
     metrics_path = base_dir / "collector_metrics.json"
-    quarantine_root = base_dir / "quarantine"
 
     # 1. Ownership Preflight - Fail-Closed
     # Ensure all directories exist and are owned by expected_owner
@@ -704,7 +729,7 @@ def orchestrate_closed_hour_archive(
     )
 
     # 2. Concurrency Lock - Single orchestrator instance
-    lock_file = receipt_root / ".archive_orchestrator.lock"
+    lock_file = receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
 
     with orchestrator_lock(lock_file, expected_owner=expected_owner):
         now = datetime.now(timezone.utc)
@@ -852,7 +877,7 @@ def orchestrate_closed_hour_archive(
                 "failed_feeds": [r.coverage.feed_identity for r in failed_slots],
                 "finalized_at_utc": datetime.now(timezone.utc).isoformat(),
             }
-            cohort_report_path.write_text(json.dumps(report_payload, indent=2), encoding="utf-8")
+            _atomic_write_json(cohort_report_path, report_payload)
 
             scan_results: Dict[str, Any] = {}
             if run_full_scan and failures == 0:
@@ -1024,7 +1049,7 @@ def orchestrate_closed_hour_archive(
         # Write backlog metrics to receipt_root
         metrics_file = receipt_root / "archive_backlog_metrics.json"
         if not dry_run:
-            metrics_file.write_text(json.dumps(backlog, indent=2), encoding="utf-8")
+            _atomic_write_json(metrics_file, backlog)
 
         return backlog
 

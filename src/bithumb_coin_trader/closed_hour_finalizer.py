@@ -26,9 +26,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 import json
-import os
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +47,6 @@ from bithumb_coin_trader.incremental_finalizer import (
     ArtifactBinding,
     FinalizationIdentity,
     FinalizationProgressStore,
-    FinalizationState,
 )
 from bithumb_coin_trader.microstructure_storage import (
     PartitionManifest,
@@ -57,7 +55,6 @@ from bithumb_coin_trader.microstructure_storage import (
 from bithumb_coin_trader.pre_soak_archive import (
     ArchivePipeline,
     ArchiveReceiptV3,
-    ArchiveState,
     ArtifactKind,
     ImmutableArtifact,
 )
@@ -267,7 +264,14 @@ class ClosedHourFinalizer:
         if cand.exists():
             return cand, entry_id
 
+        exch_lower = observation.feed.exchange.lower()
+        stream_lower = observation.feed.stream.lower()
         for p in self.raw_archive.raw_root.glob("**/*.jsonl"):
+            parts_lower = [part.lower() for part in p.parts]
+            if exch_lower not in parts_lower and not p.name.lower().startswith(f"{exch_lower}_"):
+                continue
+            if stream_lower not in parts_lower and f"_{stream_lower}_" not in p.name.lower():
+                continue
             if observation.feed.market in p.name and observation.cohort_utc in p.name:
                 return p, entry_id
             if f"{dt_str}_{hour_str}" in p.name and (

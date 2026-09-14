@@ -18,8 +18,6 @@ import json
 import os
 from pathlib import Path
 import pwd
-import signal
-import subprocess
 import sys
 import tempfile
 import threading
@@ -34,7 +32,6 @@ from bithumb_coin_trader.archive_scheduler import (
     ClosedHourArchiveScheduler,
     EligibleHour,
 )
-from bithumb_coin_trader.bounded_supervisor import BoundedSupervisor, SupervisorConfig
 from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
 from bithumb_coin_trader.feed_hour_coverage import (
     FrozenFeedHourObservation,
@@ -209,14 +206,38 @@ class ArchiveSchedulerTests(unittest.TestCase):
         scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
 
         # Hold orchestrator lock externally
-        from scripts.orchestrate_closed_hour_archive import orchestrator_lock
-        lock_path = self.receipt_root / ".orchestrator.lock"
+        from scripts.orchestrate_closed_hour_archive import (
+            ARCHIVE_ORCHESTRATOR_LOCK_NAME,
+            orchestrator_lock,
+        )
+        lock_path = self.receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
 
         with orchestrator_lock(lock_path, expected_owner=current_user_name()):
             # Scheduler should detect lock and safely back off without failing
             res = scheduler.run_once()
             self.assertEqual(res["status"], "LOCKED")
             self.assertEqual(res["pending_cohorts"], ["2026-09-04_05"])
+
+    def test_cohort_with_failure_is_reported_failed_and_not_completed(self) -> None:
+        cohort = ArchiveCohortId("2026-09-04", "05")
+        report_path = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        report_path.write_text(
+            json.dumps({
+                "status": "FAIL",
+                "cohort": cohort.key,
+                "total_slots": 76,
+                "failed_count": 1,
+                "failed_feeds": ["bithumb/orderbook/KRW-BTC"],
+            }),
+            encoding="utf-8",
+        )
+        # Even if coverage receipt directory exists with receipts, the cohort report FAIL takes precedence
+        cov_dir = self.receipt_root / "coverage" / cohort.key
+        cov_dir.mkdir(parents=True, exist_ok=True)
+
+        scheduler = ClosedHourArchiveScheduler(self._config())
+        self.assertTrue(scheduler.has_cohort_failed(cohort))
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
 
     def test_scheduler_full_scan_running_leaves_later_hour_pending(self) -> None:
         import fcntl

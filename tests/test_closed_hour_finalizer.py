@@ -13,7 +13,6 @@ Enforces:
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import datetime, timezone
 import json
 import os
@@ -21,16 +20,11 @@ from pathlib import Path
 import pwd
 import pytest
 
-from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import (
     SEALED_FEED_UNIVERSE,
     ClosedHourFinalizer,
-    ClosedSlotResult,
-    evaluate_common_gate,
 )
 from bithumb_coin_trader.feed_hour_coverage import (
-    DataArtifactBinding,
-    FeedHourCoverage,
     FrozenFeedHourObservation,
     save_frozen_journal,
 )

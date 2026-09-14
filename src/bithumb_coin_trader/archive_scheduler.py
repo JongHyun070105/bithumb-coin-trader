@@ -17,12 +17,9 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import re
-import signal
 import sys
 import threading
-import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -34,17 +31,14 @@ from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
 from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
-    OwnershipViolationError,
-    PARTITION_PATTERN,
     verify_runtime_ownership,
 )
 from scripts.orchestrate_closed_hour_archive import (
-    FULL_SCAN_GLOBAL_LOCK_NAME,
+    ARCHIVE_ORCHESTRATOR_LOCK_NAME,
     OrchestratorConcurrencyError,
     is_global_full_scan_running,
     load_active_paths,
     orchestrate_closed_hour_archive,
-    orchestrator_lock,
 )
 
 
@@ -106,7 +100,7 @@ class ClosedHourArchiveScheduler:
         return is_global_full_scan_running(self.config.receipt_root)
 
     def is_orchestrator_running(self) -> bool:
-        lock_file = self.config.receipt_root / ".orchestrator.lock"
+        lock_file = self.config.receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
         if not lock_file.exists():
             return False
         try:
@@ -127,6 +121,15 @@ class ClosedHourArchiveScheduler:
         return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
 
     def has_cohort_failed(self, cohort: ArchiveCohortId) -> bool:
+        cohort_report = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        if cohort_report.exists():
+            try:
+                data = json.loads(cohort_report.read_text(encoding="utf-8"))
+                if data.get("cohort") == cohort.key and data.get("status") != "PASS":
+                    return True
+            except Exception:
+                return True
+
         report_path = self._full_scan_report_path(cohort)
         if not report_path.exists():
             return False
@@ -145,10 +148,10 @@ class ClosedHourArchiveScheduler:
             if report_path.exists():
                 try:
                     data = json.loads(report_path.read_text(encoding="utf-8"))
-                    if data.get("cohort") == cohort.key and data.get("status") == "PASS":
-                        return True
+                    if data.get("cohort") == cohort.key:
+                        return data.get("status") == "PASS"
                 except Exception:
-                    pass
+                    return False
             # Check coverage receipts directly
             cov_receipt_dir = self.config.receipt_root / "coverage"
             if cov_receipt_dir.exists():
@@ -166,9 +169,22 @@ class ClosedHourArchiveScheduler:
                         break
                     try:
                         rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
-                        if not rec_data.get("restore_verified_at"):
+                        if not rec_data.get("restore_verified_at") or rec_data.get("state") == ArchiveState.FAILED.value:
                             all_found = False
                             break
+                        cov_file = (
+                            self.config.base_dir
+                            / "coverage"
+                            / cohort.key
+                            / feed.exchange
+                            / feed.stream
+                            / f"{feed.market}.coverage.json"
+                        )
+                        if cov_file.exists():
+                            cov_data = json.loads(cov_file.read_text(encoding="utf-8"))
+                            if cov_data.get("coverage_state") == "FAILED":
+                                all_found = False
+                                break
                     except Exception:
                         all_found = False
                         break
