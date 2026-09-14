@@ -85,8 +85,8 @@ None found. Plan is implementable as written.
 | Task 2: Strictly-Next Schedule + Monotonic Stop | ✅ COMPLETE | `ae2427f` |
 | Task 3: Durable Incremental Finalization + WAL | ✅ COMPLETE | `cd269fb` |
 | Task 4: Owning Sessions + Feed-Hour Coverage | ✅ COMPLETE | `a256bb6` |
-| Task 5: Collector Confirmation, Heartbeats, Writer Fences | ⏳ IN PROGRESS | — |
-| Task 6: Generic Immutable Archive + Receipt v3 | ⬜ PENDING | — |
+| Task 5: Collector Confirmation, Heartbeats, Writer Fences | ✅ COMPLETE | `b831358` → test fixes `1275085`, `2c5e81e` |
+| Task 6: Generic Immutable Archive + Receipt v3 | ⏳ IN PROGRESS | — |
 | Task 7: Ordered Closed-Hour Finalization + Scheduler | ⬜ PENDING | — |
 | Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ⬜ PENDING | — |
 | Task 9: Bounded Scale + Cross-Layer Gate | ⬜ PENDING | — |
@@ -108,6 +108,9 @@ None found. Plan is implementable as written.
 - **Task 4** (Commit `a256bb6`):
   - Spec Compliance: PASS (after interval scoping of disconnects/heartbeats, TOUCHED_PARTIAL opening hour, null timestamp enforcement for verified zero events)
   - Code Quality: APPROVED (after unused import cleanups in feed_hour_coverage.py and test_session_evidence.py)
+- **Task 5** (Commits `b831358`, `1275085`, `2c5e81e`):
+  - Spec Compliance: PASS (C1 per-session Bithumb confirmation set + idempotent guard; C2 frozen journal persistence via save_frozen_journal/load_frozen_journal; I1 Upbit SUBSCRIPTION_SET_MISMATCH; I2 stale stream close_session in all 3 loops; I3 recv confirmation loops; M1 heartbeat sort)
+  - Code Quality: APPROVED (I1 Binance+Upbit stale-stream tests added; M1 explicit actual_start_utc in test_writer_clock_regression_raises; all 99 tests pass; 0 pyright errors/warnings)
 
 
 ---
