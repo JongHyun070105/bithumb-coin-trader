@@ -350,10 +350,11 @@ retroactively.
 V3 uses full-hour qualification. A cohort is qualifying only when the run's
 actual observation interval covers the complete UTC interval
 `[hour_start, hour_end)` and the collector was eligible to observe the sealed
-universe throughout that interval. The first UTC hour containing actual start
-and the last UTC hour containing actual stop are
-`TOUCHED_PARTIAL` unless actual start equals the hour boundary and actual stop
-is at or after the closing boundary.
+universe throughout that interval. The UTC hour containing actual start is
+always `TOUCHED_PARTIAL`, including when the process starts exactly on the hour,
+because writer readiness and all 76 subscription confirmations occur after
+process start. An abnormal stop inside an hour also makes that ending hour
+`TOUCHED_PARTIAL`; the normal planned stop is an exact UTC boundary.
 
 For example, a run starting at `11:24` cannot qualify the `11:00` cohort. Its
 first possible qualifying cohort starts at `12:00`. Opening and ending partial
@@ -376,22 +377,36 @@ partial slot remains diagnostic and non-qualifying rather than claiming a
 full-hour zero event.
 
 To make “30H” mean 30 qualifying full UTC hours rather than merely 30 elapsed
-hours, V3 seals this deterministic schedule:
+hours, V3 seals this deterministic schedule. `strictly_next_utc_hour()` always
+advances by one hour when its input is already on a boundary:
 
 ```text
-qualification_start_utc = actual_start_utc if exactly on a UTC-hour boundary
-                          else next UTC-hour boundary
+qualification_start_utc = strictly_next_utc_hour(actual_start_utc)
 qualification_end_utc   = qualification_start_utc + 30 hours
 collection_stop_utc     = qualification_end_utc
 ```
 
 The runtime seal carries `required_qualifying_full_hours = 30` and
-`maximum_collection_window_seconds = 111600` (strictly less than 31 hours in
-normal execution, with 31 hours as the sealed upper bound). The supervisor
-computes the exact stop instant from actual start using this formula. The
-supervisor hard ceiling and systemd maximum are derived from the sealed maximum
-collection window plus the separately measured finalization ceiling and safety
-margin. Opening and ending partial evidence does not count toward the 30.
+`maximum_collection_window_seconds = 111600`. Collection elapsed time is
+strictly greater than 30 hours and at most 31 hours. Before
+`qualification_start_utc`, the collector must have writer readiness, active
+heartbeat monitoring, and 76 of 76 subscription confirmations. If it does not,
+the first candidate full hour fails; qualification start is not shifted.
+
+At runtime the supervisor captures `actual_start_utc` and
+`actual_start_monotonic` together, computes `qualification_start_utc` and
+`collection_stop_utc` once, converts their one-time UTC delta to
+`collection_stop_monotonic`, and durably records all four values. Deadline
+enforcement uses only `collection_stop_monotonic`; NTP or later wall-clock
+changes never recompute or move the stop. V3 does not pass a fixed
+`collection_duration_seconds = 108000` launch argument.
+
+The interval contains exactly 30 candidate full UTC hours. Every one must pass;
+a failed candidate is never replaced by automatically extending to a 31st
+candidate hour. The supervisor hard ceiling and systemd maximum are derived
+from the sealed maximum collection window plus the separately measured
+finalization ceiling and safety margin. Opening and abnormal-ending partial
+evidence does not count toward the 30.
 
 ### 6.2 Coverage evidence schema v1
 
@@ -497,8 +512,10 @@ Cohort closure is serialized through the same single writer:
    captured `local_write_ts`, even if it was received earlier;
 4. only after no future append can receive the old cohort's `local_write_ts`
    does the writer freeze its observation counters and session timeline; and
-5. the archive/coverage finalizer materializes the immutable coverage object
-   after required RAW manifest bindings are available.
+5. the writer hands off the frozen journal without creating an immutable
+   coverage object. For a positive-count slot, materialization waits for the
+   RAW terminal receipt and restore verification; a zero-count slot has no RAW
+   dependency and may materialize only after the common gate passes.
 
 Shutdown first stops producers, drains the queue, disables further partition
 writes, and then closes every completed full UTC hour. The opening/ending
@@ -551,16 +568,16 @@ A successful explicit WebSocket Ping/Pong or a valid data/control frame on the
 owning connection is a heartbeat observation. The maximum gap includes the
 cohort-start-to-first-observation and last-observation-to-cohort-end edges. A
 gap greater than the sealed exchange threshold, a timed-out heartbeat, or an
-absent threshold prevents `VERIFIED_ZERO_EVENT`. Thresholds cannot be selected
-or relaxed after observing run results; changing one requires a new sealed
-validation identity.
+absent threshold prevents either qualifying state. Thresholds cannot be
+selected or relaxed after observing run results; changing one requires a new
+sealed validation identity.
 
-For a zero-event slot, session evidence must cover the entire cohort without an
-unobserved connection gap. A reconnecting cohort with any collection gap cannot
-claim that no event occurred and resolves to `FAILED`. After the new session is
-confirmed, later uninterrupted cohorts may qualify again. This rule is stricter
-than merely recording reconnect chronology and prevents an event during a gap
-from being silently treated as zero.
+Session and liveness evidence is a common completeness gate for every
+qualifying slot, not only zero-event slots. A reconnecting cohort with any
+collection gap resolves every affected slot to `FAILED`, even if records exist
+after reconnection. After the new session is confirmed, later uninterrupted
+cohorts may qualify again. This prevents a partial-hour RAW file from being
+treated as complete microstructure evidence.
 
 ### 6.5 Exchange-specific confirmation
 
@@ -594,31 +611,42 @@ orderbook/trade/ticker produced feed-specific `SNAPSHOT` messages for all 60 of
 
 This establishes implementation feasibility, not future V3 run truth. Runtime
 coverage still records and validates its own owning-session evidence. If a V3
-session fails to confirm any feed, that feed cannot become
-`VERIFIED_ZERO_EVENT`.
+session fails to confirm any feed, that feed cannot enter either qualifying
+state for an interval covered by that session.
 
 ### 6.7 State predicates
 
-`DATA_PRESENT` requires:
+Every qualifying slot first passes these common requirements:
+
+- membership in the sealed 76-feed universe;
+- `cohort_qualification = QUALIFYING_FULL_HOUR`;
+- writer ready and heartbeat monitoring active before the interval begins;
+- subscription confirmed on the owning session before the interval begins;
+- owning-session evidence covering the complete interval;
+- no unobserved connection gap or reconnect gap;
+- every heartbeat gap at or below the exchange's sealed
+  `max_allowed_heartbeat_gap_seconds`;
+- zero writer errors, queue drops, and unpersisted events; and
+- null fatal writer error.
+
+Failure of a common requirement produces `FAILED` regardless of record count.
+Only after this common gate does `event_count` select the state-specific path.
+
+`DATA_PRESENT` then requires:
 
 - `event_count > 0`;
 - a non-empty RAW market-data artifact;
 - a matching manifest;
 - immutable compressed archive and terminal receipt;
-- restore verification and fullscan/DQ success; and
-- exact coverage-to-RAW/manifest/receipt identity and hash binding.
+- RAW restore verification and fullscan/DQ success;
+- exact coverage-to-RAW/manifest/receipt identity and hash binding; and
+- an immutable archived coverage artifact with its own terminal receipt and
+  restore verification.
 
-`VERIFIED_ZERO_EVENT` requires:
+`VERIFIED_ZERO_EVENT` then requires:
 
-- membership in the sealed feed universe;
 - `event_count = 0` and null first/last event timestamps;
-- a successfully requested and confirmed subscription on every session segment
-  used for the cohort;
-- continuous owning-session liveness over the complete cohort;
-- every heartbeat gap at or below the exchange's sealed
-  `max_allowed_heartbeat_gap_seconds`;
-- zero writer errors, queue drops, and unpersisted events;
-- null fatal writer error; and
+- `data_artifact_binding = null`; and
 - an immutable archived coverage artifact with terminal receipt and restore
   verification.
 
@@ -679,6 +707,43 @@ Every one of the 76 slots archives its coverage evidence. In addition:
   chain; it has no RAW market-data artifact.
 - `FAILED` remains durable diagnostic evidence but cannot qualify the cohort.
 
+RAW archival is discovered from an append-closed RAW partition plus its valid
+manifest and finalization index entry. It does not require a coverage object and
+therefore cannot depend on the later `DATA_PRESENT` decision.
+
+For a candidate with `event_count > 0`, the order is strictly:
+
+```text
+hour append-closed
+-> observation journal frozen
+-> common slot gate evaluated
+-> RAW manifest generated or source-bound reuse validated
+-> RAW_DATA archived through the generic pipeline
+-> RAW terminal receipt and restore verification complete
+-> event_count == manifest.record_count == receipt.source_record_count
+-> immutable DATA_PRESENT coverage object materialized with RAW bindings
+-> COVERAGE_EVIDENCE archived through the same generic pipeline
+-> coverage terminal receipt and restore verification complete
+-> strict auditor and state-dependent fullscan
+```
+
+For a candidate with `event_count = 0`, there is no RAW stage:
+
+```text
+hour append-closed
+-> observation journal frozen
+-> common slot gate evaluated
+-> immutable VERIFIED_ZERO_EVENT coverage object materialized
+-> COVERAGE_EVIDENCE archived through the generic pipeline
+-> coverage terminal receipt and restore verification complete
+-> strict auditor and coverage scan
+```
+
+If the common gate or a branch-specific check fails, an immutable `FAILED`
+coverage object records the reason and may be archived as diagnostic evidence,
+but it cannot qualify the cohort. The coverage object is the final slot evidence
+that binds prior RAW archive results; it is never the trigger for RAW archival.
+
 Fullscan validates market JSONL records only for `DATA_PRESENT`. Coverage scan
 validates coverage JSON schema, canonical hash, identity, session proof, receipt,
 remote checksum, and restore checksum. It never adds a synthetic record to
@@ -700,19 +765,24 @@ must fail.
    increments a slot only after the RAW append succeeds.
 4. The writer registers RAW partitions in the finalization pending index.
 5. After a writer-serialized boundary fence makes the cohort append-closed, the
-   tracker freezes its observation journal. Full-hour cohorts may resolve to a
-   candidate state; opening/ending partials remain `TOUCHED_PARTIAL`.
-6. After required manifest bindings exist, the coverage finalizer verifies
-   `event_count == manifest.record_count == receipt.source_record_count` for
-   `DATA_PRESENT` and atomically writes the immutable coverage object.
-7. The archive scheduler validates and archives coverage evidence for all slots
-   and RAW data only for `DATA_PRESENT` slots.
-8. Terminal RAW receipts transition historical finalization entries to
+   tracker freezes its observation journal and evaluates the common completeness
+   gate. Opening/abnormal-ending partials remain `TOUCHED_PARTIAL`.
+6. For a positive-count candidate, the archive scheduler creates or validates
+   the RAW manifest, archives RAW independently of coverage, and completes its
+   terminal receipt and restore verification.
+7. The coverage finalizer verifies
+   `event_count == manifest.record_count == receipt.source_record_count` and
+   atomically writes the immutable `DATA_PRESENT` coverage object. A zero-count
+   candidate skips RAW and may materialize `VERIFIED_ZERO_EVENT` only after the
+   same common gate passes.
+8. The archive scheduler archives the resulting coverage object and completes
+   its separate terminal receipt and restore verification.
+9. Terminal RAW receipts transition historical finalization entries to
    `REUSED`; the collector shutdown finalizer handles only entries still
    pending.
-9. Fullscan and the strict auditor apply state-dependent rules and enforce the
+10. Fullscan and the strict auditor apply state-dependent rules and enforce the
    exact 76-slot root invariant.
-10. Offline contract composition and epoch manifest building bind the normalized
+11. Offline contract composition and epoch manifest building bind the normalized
    actual-start evidence and new coverage semantics.
 
 ## 9. Failure behavior
@@ -723,9 +793,9 @@ The system fails closed on:
   and bounded write-ahead intent;
 - manifest, receipt, source, identity, or artifact-kind contradiction;
 - missing or duplicate coverage objects;
-- any unproven zero-event slot;
+- any slot missing the common full-hour completeness gate;
 - reconnect without fresh subscription confirmation;
-- a connection gap during a candidate zero-event cohort;
+- a connection gap during any qualifying cohort, regardless of record count;
 - an absent or exceeded sealed heartbeat-gap threshold;
 - coverage/manifest/receipt record-count disagreement;
 - writer, queue-loss, or unpersisted-event evidence;
@@ -755,13 +825,21 @@ Focused tests include:
 - 1/10/30 cohort bounded scale with identical dirty tail;
 - slow manifest generation bounded by dirty count;
 - opening and ending partial cohorts excluded from full-hour qualification;
-- an arbitrary actual start producing exactly 30 subsequent qualifying hours;
+- an arbitrary or exact-boundary actual start using the strictly next boundary
+  and producing exactly 30 candidate qualifying hours;
+- startup readiness missing at the first boundary causing failure without
+  shifting qualification start;
+- a failed candidate hour not extending collection to a replacement hour;
+- one-time UTC-to-monotonic stop calculation remaining fixed across simulated
+  wall-clock/NTP changes;
 - boundary-fence ordering and an append that crosses the UTC hour;
 - append failure leaving coverage event count unchanged;
 - `DATA_PRESENT` coverage/manifest/receipt record-count equality and mismatch;
 - exact canonical JSON bytes, stable hashes, sorted subscription sets, preserved
   session chronology, and non-finite-number rejection;
 - `DATA_PRESENT` complete chain;
+- `DATA_PRESENT` rejected for late subscription confirmation, connection gap,
+  heartbeat-gap breach, or writer/queue loss even when valid records exist;
 - `VERIFIED_ZERO_EVENT` complete coverage chain;
 - unproven zero event, missing slot, duplicate slot, and foreign identity;
 - reconnect invalidating old confirmation and later-session reconfirmation;
@@ -769,8 +847,11 @@ Focused tests include:
 - sealed heartbeat-gap boundary acceptance, one-step-over rejection, missing
   threshold rejection, and edge-gap accounting;
 - writer, queue, unpersisted, and fatal-writer failures preventing zero-event;
-- Upbit and Binance same-session list-subscription normalization; and
-- Bithumb feed-specific snapshot/event confirmation.
+- Upbit and Binance same-session list-subscription normalization;
+- Bithumb feed-specific snapshot/event confirmation;
+- RAW archive and terminal receipt completing before `DATA_PRESENT` coverage
+  materialization, with coverage never required to trigger RAW archive;
+- and zero-count coverage skipping the RAW archive path entirely.
 
 Before the remediation PR, all of the following must be freshly green:
 
