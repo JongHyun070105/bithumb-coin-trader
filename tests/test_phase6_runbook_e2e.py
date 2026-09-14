@@ -237,7 +237,7 @@ def _populate_official_shaped_epoch(
         "collector_run_id": collector_run_id,
         "software_commit": software_commit,
         "runtime_code_commit": software_commit,
-        "fingerprint": fingerprint,
+        "runtime_config_fingerprint": fingerprint,
         "launch_time_utc": "2026-09-01T00:00:00+00:00",
         "created_at_utc": "2026-08-31T23:55:00+00:00",
         "duration_seconds": 3600,

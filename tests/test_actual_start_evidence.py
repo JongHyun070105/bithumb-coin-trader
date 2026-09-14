@@ -181,3 +181,74 @@ def test_wrong_evidence_kind() -> None:
     )
     with pytest.raises(ValueError, match="ACTUAL_START_SCHEMA_UNSUPPORTED"):
         normalize_actual_start_evidence(payload, identity)
+
+
+@pytest.mark.parametrize("drop_key", [
+    "runtime_commit",
+    "source",
+    "captured_at_utc",
+    "actual_start_time_utc",
+    "runtime_config_fingerprint",
+])
+def test_canonical_v2_missing_required_key(drop_key: str) -> None:
+    payload = {
+        "schema_version": 2,
+        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "collector_epoch": "epoch-test",
+        "collector_run_id": "run-test",
+        "runtime_commit": "aabbcc",
+        "runtime_config_fingerprint": "ddeeff",
+        "actual_start_time_utc": "2026-01-01T00:00:00Z",
+        "source": "test.service",
+        "captured_at_utc": "2026-01-01T00:00:01Z",
+    }
+    identity = ActualStartIdentity(
+        collector_epoch="epoch-test",
+        collector_run_id="run-test",
+        runtime_commit="aabbcc",
+        runtime_config_fingerprint="ddeeff",
+    )
+    del payload[drop_key]
+    with pytest.raises(ValueError, match="ACTUAL_START_SCHEMA_UNSUPPORTED"):
+        normalize_actual_start_evidence(payload, identity)
+
+
+@pytest.mark.parametrize("drop_key", [
+    "runtime_code_commit",
+    "systemd_unit",
+    "observed_post_launch_utc",
+    "timing_contract",
+])
+def test_legacy_v1_missing_required_key(drop_key: str) -> None:
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    del payload[drop_key]
+    with pytest.raises(ValueError, match="ACTUAL_START_SCHEMA_UNSUPPORTED"):
+        normalize_actual_start_evidence(payload, expected_identity(
+            json.loads(FIXTURE.read_text(encoding="utf-8"))  # use original for identity
+        ))
+
+
+def test_canonical_v2_with_legacy_alias_fails() -> None:
+    """A canonical v2 payload that ALSO contains legacy alias keys must fail.
+    Spec §4.4: reject duplicate semantic fields.
+    """
+    payload = {
+        "schema_version": 2,
+        "evidence_kind": "systemd-transient-actual-start-evidence",
+        "collector_epoch": "epoch-test",
+        "collector_run_id": "run-test",
+        "runtime_commit": "aabbcc",
+        "runtime_code_commit": "aabbcc",  # legacy alias present alongside canonical
+        "runtime_config_fingerprint": "ddeeff",
+        "actual_start_time_utc": "2026-01-01T00:00:00Z",
+        "source": "test.service",
+        "captured_at_utc": "2026-01-01T00:00:01Z",
+    }
+    identity = ActualStartIdentity(
+        collector_epoch="epoch-test",
+        collector_run_id="run-test",
+        runtime_commit="aabbcc",
+        runtime_config_fingerprint="ddeeff",
+    )
+    with pytest.raises(ValueError, match="ACTUAL_START_SCHEMA_UNSUPPORTED"):
+        normalize_actual_start_evidence(payload, identity)

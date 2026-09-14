@@ -45,25 +45,20 @@ def compose_epoch_contract(
     launch_prov = json.loads(launch_provenance_path.read_text(encoding="utf-8"))
 
     # Cross-check identities
-    runtime_commit = (
-        runtime_seal.get("runtime_software_commit")
-        or runtime_seal.get("runtime_code_commit")
-        or runtime_seal.get("software_commit")
-    )
-    prov_commit = (
-        launch_prov.get("runtime_code_commit")
-        or launch_prov.get("software_commit")
-        or launch_prov.get("runtime_software_commit")
-    )
+    runtime_commit = runtime_seal.get("runtime_software_commit")
+    if not runtime_commit:
+        raise ValueError("SEAL_MISSING_RUNTIME_COMMIT")
+
+    prov_commit = launch_prov.get("runtime_code_commit")
+    if not prov_commit:
+        raise ValueError("PROV_MISSING_RUNTIME_COMMIT")
+
     if runtime_commit != prov_commit:
         raise ValueError(
             f"RUNTIME_COMMIT_MISMATCH: runtime seal commit '{runtime_commit}' != launch provenance commit '{prov_commit}'"
         )
 
-    runtime_fingerprint = (
-        launch_prov.get("runtime_config_fingerprint")
-        or launch_prov.get("fingerprint")
-    )
+    runtime_fingerprint = launch_prov.get("runtime_config_fingerprint")
     if not runtime_fingerprint or (len(runtime_fingerprint) != 64 and strict and not runtime_fingerprint.startswith("fp-")):
         raise ValueError(f"RUNTIME_FINGERPRINT_MISMATCH: Invalid runtime fingerprint: {runtime_fingerprint}")
 
@@ -81,7 +76,7 @@ def compose_epoch_contract(
     if not collector_epoch or not collector_run_id:
         raise ValueError("MISSING_EPOCH_OR_RUN_ID: collector_epoch and collector_run_id are required")
 
-    duration_sec = launch_prov.get("duration_seconds") or runtime_seal.get("duration_seconds") or 259200
+    duration_sec = launch_prov.get("duration_seconds", 259200)
     if duration_sec <= 0:
         raise ValueError(f"INVALID_DURATION: Duration seconds must be positive, got {duration_sec}")
 
