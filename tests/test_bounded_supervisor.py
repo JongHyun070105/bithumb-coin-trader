@@ -501,5 +501,26 @@ class BoundedSupervisorTests(unittest.TestCase):
             self.assertIn("deadline_recomputed", result_data)
             self.assertIs(result_data["deadline_recomputed"], False)
             self.assertEqual(result_data["overall_status"], "PASS")
+
+    def test_run_bounded_short_smoke_partial_v3_args_rejected(self) -> None:
+        from scripts.run_bounded_short_smoke import main as smoke_main
+        cases = [
+            ["--required-qualifying-full-hours", "30"],
+            ["--maximum-collection-window-seconds", "111600"],
+            ["--qualification-schedule-path", "/tmp/s.json"],
+            ["--required-qualifying-full-hours", "30", "--maximum-collection-window-seconds", "111600"],
+        ]
+        for v3_part in cases:
+            with self.subTest(v3_part=v3_part):
+                with self.assertRaisesRegex(ValueError, "all V3 schedule arguments must be provided together"):
+                    smoke_main([
+                        "--run-id", "test-partial-v3",
+                        "--collector-command-json", json.dumps(["python", "-c", "pass"]),
+                        "--metrics-path", "/tmp/metrics.json",
+                        "--collector-lifecycle-path", "/tmp/lifecycle.json",
+                        "--result-path", "/tmp/result.json",
+                        "--log-path", "/tmp/log.txt",
+                        *v3_part,
+                    ])
 if __name__ == "__main__":
     unittest.main()

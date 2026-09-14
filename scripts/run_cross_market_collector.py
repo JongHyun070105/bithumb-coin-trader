@@ -9,8 +9,8 @@ import json
 import logging
 import os
 from pathlib import Path
-import sys
 from datetime import datetime, timezone
+from collections.abc import Sequence
 
 from bithumb_coin_trader.cross_market_collector import MultiExchangeMicrostructureCollector
 from bithumb_coin_trader.dynamic_universe import TOP_UNIVERSE_CANDIDATES
@@ -265,7 +265,7 @@ def _validate_runtime_config(
         raise ValueError("runtime config does not match collector invocation: " + ", ".join(failed))
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Multi-Exchange Microstructure Collector Daemon")
     parser.add_argument("--bithumb-markets", type=int, default=20, help="Number of Bithumb KRW markets (default: 20)")
     parser.add_argument("--duration", type=float, default=0.0)
@@ -281,7 +281,7 @@ def main() -> None:
     parser.add_argument("--required-qualifying-full-hours", type=int)
     parser.add_argument("--maximum-collection-window-seconds", type=int)
     parser.add_argument("--qualification-schedule-path", type=Path)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.qualification_schedule_path is not None:
         if args.duration > 0:
@@ -289,8 +289,22 @@ def main() -> None:
         from bithumb_coin_trader.qualification_schedule import load_schedule
         import time
         schedule = load_schedule(args.qualification_schedule_path)
+        if args.required_qualifying_full_hours is not None:
+            if (
+                args.required_qualifying_full_hours != 30
+                or args.required_qualifying_full_hours != schedule.required_qualifying_full_hours
+            ):
+                raise ValueError("required_qualifying_full_hours must be 30 and match schedule")
+        if args.maximum_collection_window_seconds is not None:
+            if (
+                args.maximum_collection_window_seconds != 111600
+                or args.maximum_collection_window_seconds != schedule.maximum_collection_window_seconds
+            ):
+                raise ValueError("maximum_collection_window_seconds must be 111600 and match schedule")
         args.duration_to_run = max(0.0, schedule.collection_stop_monotonic - time.monotonic())
     else:
+        if args.required_qualifying_full_hours is not None or args.maximum_collection_window_seconds is not None:
+            raise ValueError("qualification_schedule_path must be provided when V3 schedule arguments are used")
         if args.duration <= 0:
             raise ValueError("duration must be positive")
         args.duration_to_run = args.duration

@@ -40,13 +40,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--qualification-schedule-path", type=Path)
     args = parser.parse_args(argv)
 
-    v3_schedule = None
-    if args.required_qualifying_full_hours is not None:
+    v3_args = (
+        args.required_qualifying_full_hours,
+        args.maximum_collection_window_seconds,
+        args.qualification_schedule_path,
+    )
+    if any(arg is not None for arg in v3_args):
+        if not all(arg is not None for arg in v3_args):
+            raise ValueError("all V3 schedule arguments must be provided together")
         v3_schedule = V3ScheduleConfig(
             required_qualifying_full_hours=args.required_qualifying_full_hours,
             maximum_collection_window_seconds=args.maximum_collection_window_seconds,
             schedule_path=args.qualification_schedule_path,
         )
+    else:
+        v3_schedule = None
     return BoundedSupervisor(
         SupervisorConfig(
             run_id=args.run_id,

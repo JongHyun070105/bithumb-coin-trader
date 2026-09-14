@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
-from typing import Sequence
 
 __all__ = [
     "QualificationSchedule",
@@ -113,7 +112,7 @@ def build_qualification_schedule(
     )
 
 
-def _to_dict(schedule: QualificationSchedule) -> dict:
+def _to_dict(schedule: QualificationSchedule) -> dict[str, object]:
     return {
         "schema_version": schedule.schema_version,
         "actual_start_utc": schedule.actual_start_utc,
@@ -132,29 +131,29 @@ def save_schedule(schedule: QualificationSchedule, path: Path) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.dumps(_to_dict(schedule), indent=2, ensure_ascii=True, sort_keys=False)
-    tmp = path.with_suffix(".tmp")
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
     try:
-        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         try:
             with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as fh:
                 fh.write(data)
                 fh.flush()
                 os.fsync(fh.fileno())
         except Exception:
-            try:
-                os.unlink(str(tmp))
-            except OSError:
-                pass
             raise
+        os.replace(str(temporary), str(path))
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception:
+        try:
+            if temporary.exists():
+                temporary.unlink()
+        except OSError:
+            pass
         raise
-    os.replace(str(tmp), str(path))
-    # fsync parent directory
-    dir_fd = os.open(str(path.parent), os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
 
 
 def load_schedule(path: Path) -> QualificationSchedule:

@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from bithumb_coin_trader.qualification_schedule import (
-    QualificationSchedule,
     build_qualification_schedule,
     format_utc,
     parse_utc,
@@ -159,10 +158,33 @@ def test_load_rejects_wrong_candidate_count(tmp_path: Path) -> None:
     from bithumb_coin_trader.qualification_schedule import save_schedule, load_schedule
     schedule = build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 100.0, 30, 111600)
     path = tmp_path / "schedule.json"
-    data = json.loads(path.read_text()) if path.exists() else {}
     save_schedule(schedule, path)
     d = json.loads(path.read_text(encoding="utf-8"))
     d["candidate_cohorts"] = d["candidate_cohorts"][:-1]  # remove last
     path.write_text(json.dumps(d), encoding="utf-8")
     with pytest.raises(ValueError, match="SCHEDULE_CANDIDATE_COUNT"):
+        load_schedule(path)
+
+
+def test_load_rejects_wrong_hours(tmp_path: Path) -> None:
+    from bithumb_coin_trader.qualification_schedule import save_schedule, load_schedule
+    schedule = build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 100.0, 30, 111600)
+    path = tmp_path / "schedule.json"
+    save_schedule(schedule, path)
+    d = json.loads(path.read_text(encoding="utf-8"))
+    d["required_qualifying_full_hours"] = 29
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCHEDULE_HOURS_INVALID"):
+        load_schedule(path)
+
+
+def test_load_rejects_wrong_window(tmp_path: Path) -> None:
+    from bithumb_coin_trader.qualification_schedule import save_schedule, load_schedule
+    schedule = build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 100.0, 30, 111600)
+    path = tmp_path / "schedule.json"
+    save_schedule(schedule, path)
+    d = json.loads(path.read_text(encoding="utf-8"))
+    d["maximum_collection_window_seconds"] = 108000
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCHEDULE_WINDOW_INVALID"):
         load_schedule(path)

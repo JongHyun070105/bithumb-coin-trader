@@ -335,6 +335,34 @@ class TransientLaunchTests(unittest.TestCase):
             ])
         self.assertEqual(ret, 0)
 
+    def test_launch_cli_rejects_v3_without_v3_supervisor_args(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py"])
+        with self.assertRaisesRegex(ValueError, "V3 supervisor command must contain --qualification-schedule-path or V3 arguments"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+
+    def test_launch_cli_rejects_v3_with_supervisor_command_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--collection-duration-seconds", "108000", "--required-qualifying-full-hours", "30"])
+        with self.assertRaisesRegex(ValueError, "V3 supervisor command must not include --collection-duration-seconds"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+
     def test_renderer_v3_maximum_collection_window(self) -> None:
         cfg = TransientLaunchConfig(
             run_id="aws-v3-test",

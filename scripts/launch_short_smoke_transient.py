@@ -88,14 +88,29 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
 
-    is_v3 = args.required_qualifying_full_hours is not None
+    v3_args = (
+        args.required_qualifying_full_hours,
+        args.maximum_collection_window_seconds,
+        args.qualification_schedule_path,
+    )
+    is_v3 = any(x is not None for x in v3_args)
     if is_v3:
+        if not all(x is not None for x in v3_args):
+            raise ValueError("all V3 schedule arguments must be provided together")
         if args.collection_duration_seconds is not None:
             raise ValueError("cannot specify both collection_duration_seconds and V3 schedule")
-        if not args.maximum_collection_window_seconds or not args.qualification_schedule_path:
-            raise ValueError("missing V3 schedule arguments")
         if any(token == "--collection-duration-seconds" or token.startswith("--collection-duration-seconds=") for token in args.supervisor_command_json):
             raise ValueError("V3 supervisor command must not include --collection-duration-seconds")
+        v3_supervisor_tokens = (
+            "--qualification-schedule-path",
+            "--required-qualifying-full-hours",
+            "--maximum-collection-window-seconds",
+        )
+        if not any(
+            any(token == flag or token.startswith(f"{flag}=") for flag in v3_supervisor_tokens)
+            for token in args.supervisor_command_json
+        ):
+            raise ValueError("V3 supervisor command must contain --qualification-schedule-path or V3 arguments")
         config = TransientLaunchConfig(
             run_id=args.run_id,
             workdir=args.workdir,

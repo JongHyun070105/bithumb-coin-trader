@@ -80,6 +80,50 @@ class ShortSmokeRuntimeConfigTests(unittest.TestCase):
         self.assertFalse(loaded["execution"]["systemd_enable"])
         self.assertFalse(loaded["execution"]["collector_autostart"])
 
+    def test_run_cross_market_collector_v3_validation(self) -> None:
+        from bithumb_coin_trader.qualification_schedule import build_qualification_schedule, parse_utc, save_schedule
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            sched_path = tmp_path / "schedule.json"
+            schedule = build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 100.0, 30, 111600)
+            save_schedule(schedule, sched_path)
+
+            base_args = [
+                "--config-file", str(tmp_path / "config.json"),
+                "--storage-base-dir", str(tmp_path / "raw"),
+                "--environment-id", "test-env",
+                "--collector-epoch", "epoch-1",
+                "--run-id", "run-1",
+                "--config-fingerprint", "fp",
+                "--runtime-commit", "abc",
+                "--qualification-schedule-path", str(sched_path),
+            ]
+
+            # Wrong hours
+            with self.assertRaisesRegex(ValueError, "required_qualifying_full_hours must be 30 and match schedule"):
+                MODULE.main([*base_args, "--required-qualifying-full-hours", "29"])
+
+            # Wrong window
+            with self.assertRaisesRegex(ValueError, "maximum_collection_window_seconds must be 111600 and match schedule"):
+                MODULE.main([*base_args, "--maximum-collection-window-seconds", "108000"])
+
+            # Duration conflict
+            with self.assertRaisesRegex(ValueError, "cannot specify both duration and V3 schedule"):
+                MODULE.main([*base_args, "--duration", "100"])
+
+            # V3 args without schedule path
+            with self.assertRaisesRegex(ValueError, "qualification_schedule_path must be provided when V3 schedule arguments are used"):
+                MODULE.main([
+                    "--config-file", str(tmp_path / "config.json"),
+                    "--storage-base-dir", str(tmp_path / "raw"),
+                    "--environment-id", "test-env",
+                    "--collector-epoch", "epoch-1",
+                    "--run-id", "run-1",
+                    "--config-fingerprint", "fp",
+                    "--runtime-commit", "abc",
+                    "--required-qualifying-full-hours", "30",
+                ])
+
 
 if __name__ == "__main__":
     unittest.main()

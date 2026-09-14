@@ -12,7 +12,7 @@ import signal
 import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from bithumb_coin_trader.qualification_schedule import QualificationSchedule
@@ -265,8 +265,6 @@ class BoundedSupervisor:
 
     def run(self) -> int:
         cfg = self.config
-        cfg.log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_descriptor = os.open(str(cfg.log_path), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
 
         schedule: QualificationSchedule | None = None
         if cfg.v3_schedule is not None:
@@ -291,6 +289,9 @@ class BoundedSupervisor:
             started_monotonic = time.monotonic()
             hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
 
+        cfg.log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_descriptor = os.open(str(cfg.log_path), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+
         collector_exit: int | None = None
         publisher_exit: int | None = None
         publisher_failure: int | None = None
@@ -309,12 +310,14 @@ class BoundedSupervisor:
         forced_timeout = False
         old_handlers: dict[int, Any] = {}
         can_install_handlers = threading.current_thread() is threading.main_thread()
+        log_opened = False
         try:
             if can_install_handlers:
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     old_handlers[signum] = signal.getsignal(signum)
                     signal.signal(signum, self._forward_signal)
             with os.fdopen(log_descriptor, "ab", buffering=0) as log_handle:
+                log_opened = True
                 self._collector = subprocess.Popen(
                     cfg.collector_command,
                     stdin=subprocess.DEVNULL,
@@ -391,6 +394,11 @@ class BoundedSupervisor:
                     if archive_scheduler_exit not in {0, -signal.SIGTERM} and archive_scheduler_failure is None:
                         archive_scheduler_failure = archive_scheduler_exit
         finally:
+            if not log_opened:
+                try:
+                    os.close(log_descriptor)
+                except OSError:
+                    pass
             if can_install_handlers:
                 for signum, handler in old_handlers.items():
                     signal.signal(signum, handler)
