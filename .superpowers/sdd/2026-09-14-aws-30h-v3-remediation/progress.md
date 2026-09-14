@@ -87,8 +87,8 @@ None found. Plan is implementable as written.
 | Task 4: Owning Sessions + Feed-Hour Coverage | ✅ COMPLETE | `a256bb6` |
 | Task 5: Collector Confirmation, Heartbeats, Writer Fences | ✅ COMPLETE | `b831358` → test fixes `1275085`, `2c5e81e` |
 | Task 6: Generic Immutable Archive + Receipt v3 | ✅ COMPLETE | `f483f32` → fixes `133592a` |
-| Task 7: Ordered Closed-Hour Finalization + Scheduler | ⏳ IN PROGRESS | — |
-| Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ⬜ PENDING | — |
+| Task 7: Ordered Closed-Hour Finalization + Scheduler | ✅ COMPLETE | `cdcf903` → fixes `44fb553` |
+| Task 8: V3 Contract, Epoch Manifest, Exact-Slot Audit | ⏳ IN PROGRESS | — |
 | Task 9: Bounded Scale + Cross-Layer Gate | ⬜ PENDING | — |
 | Task 10: Full Verification + Independent Review | ⬜ PENDING | — |
 
@@ -114,6 +114,9 @@ None found. Plan is implementable as written.
 - **Task 6** (Commits `f483f32`, `133592a`):
   - Spec Compliance: PASS (ArtifactKind, ImmutableArtifact frozen dataclass, ArchiveReceiptV3, adapt_legacy_v2_receipt memory-only adapter preserving disk bytes, finalize_artifact with kind-specific validation: RAW manifest binding & count vs COVERAGE_EVIDENCE canonical hash & forbid record count, shared compression/upload/remote/restore verification, legacy finalize compatibility wrapper)
   - Code Quality: APPROVED (I1 temp_compressed_path cleanup on exception in finalize_artifact; M1 removed unused InitVar; M2 added test_raw_v3_requires_record_count negative test; all 86 archive tests pass; 0 pyright errors/warnings)
+- **Task 7** (Commits `cdcf903`, `44fb553`):
+  - Spec Compliance: PASS (ClosedSlotResult, ClosedHourFinalizer strictly enforcing manifest_raw -> archive_raw -> verify_raw_restore -> materialize_data_present -> archive_coverage -> verify_coverage_restore, zero-event skips RAW, 76 sealed feed universe validation, journal-driven scheduler discovery without 600s grace for V3)
+  - Code Quality: APPROVED (C1 unified ARCHIVE_ORCHESTRATOR_LOCK_NAME; C2 fixed is_cohort_completed and has_cohort_failed for failed cohorts with test; I1 atomic write for cohort reports and metrics; I2 narrowed _find_raw_path fallback glob to match exchange and stream; M1 cleaned unused imports; 315 tests pass; 0 pyright errors/warnings)
 
 
 ---
