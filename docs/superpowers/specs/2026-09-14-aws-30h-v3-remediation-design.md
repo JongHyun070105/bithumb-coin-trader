@@ -178,21 +178,79 @@ patterns. It avoids a database dependency and, crucially, lets shutdown load
 only the bounded `pending.json` index rather than enumerate all entries.
 
 An entry ID is the SHA-256 of the canonical epoch/run/cohort/feed/RAW-path
-identity. Every entry contains:
+identity. Every entry always contains:
 
 - schema version and state: `PENDING`, `REUSED`, `RECOMPUTED`, or `FAILED`;
 - environment, epoch, run ID, cohort, exchange, stream, market, and feed ID;
-- RAW path, stat identity, size, and SHA-256;
-- manifest path and manifest file SHA-256;
-- terminal receipt path, receipt file SHA-256, receipt state, artifact kind,
-  and the receipt's source identity;
-- created, started, and completed UTC timestamps; and
+- RAW relative path and the path-derived source identity;
+- required creation time plus state-appropriate nullable start/completion UTC
+  timestamps; and
 - a stable failure reason code when failed.
+
+Binding fields are state-dependent:
+
+| State | Source size/SHA | Manifest binding | Receipt binding |
+| --- | --- | --- | --- |
+| `PENDING` | nullable | nullable | nullable |
+| `RECOMPUTED` | required | required | nullable unless already archived |
+| `REUSED` | required | required | required and terminal |
+| `FAILED` | nullable; retain last observed value | nullable; retain last observed value | nullable; retain last observed value |
+
+The writer therefore can register `PENDING` before the first append using only
+the immutable run/feed/cohort/path identity. A transition to `RECOMPUTED` or
+`REUSED` is rejected unless every binding required by that target state is
+present and valid.
 
 Entry and summary writes use write-to-temporary, file `fsync`, `os.replace`,
 and parent-directory `fsync`. State transitions and pending-index replacement
 occur under the run-scoped lock. The summary keeps counters incrementally; it
 does not recount all entries at shutdown.
+
+### 5.2.1 Authority and crash reconciliation
+
+`entries/<entry-id>.json` is the authoritative semantic state.
+`pending.json` and `summary.json` are derived bounded indexes, not independent
+sources of truth. Because three file renames cannot form one filesystem
+transaction, every state transition uses a single bounded write-ahead intent:
+
+```text
+<run-root>/finalization-progress/transaction.json
+```
+
+Under `.lock`, a transition proceeds in this order:
+
+1. write and fsync `transaction.json` with transaction ID, entry ID, before and
+   after entry hashes/states, before and after pending membership, counter
+   deltas, and expected index generations;
+2. atomically replace the authoritative entry;
+3. atomically replace `pending.json` with the target membership and generation;
+4. atomically replace `summary.json` with the target counters, generation, and
+   `last_applied_transaction_id`; and
+5. delete `transaction.json` and fsync the directory.
+
+Initial registration uses the explicit before sentinel
+`before_state = ABSENT`, `before_hash = null`; `ABSENT` is a transaction-only
+sentinel and is never a persisted entry state.
+
+Only one transaction may be active because the same lock serializes writers,
+the archive scheduler, and shutdown finalization. Startup/re-entry first
+reconciles an existing transaction before accepting new work:
+
+- if the authoritative entry still matches the recorded before hash/state,
+  restore the before pending membership and counters, then clear the intent;
+- if the entry matches the after hash/state, roll `pending.json` and
+  `summary.json` forward idempotently to the recorded after generation, then
+  clear the intent;
+- a terminal entry left in `pending.json` is therefore removed safely;
+- a newly written `PENDING` entry missing from `pending.json` is restored safely;
+  and
+- an entry matching neither hash, an unexplained generation jump, or an index
+  mismatch without a corresponding intent is structural corruption and fails
+  closed.
+
+This reconciliation reads only the one in-flight entry referenced by the
+bounded intent. It does not enumerate all historical entries or open any RAW
+file, so normal crash recovery preserves the history-independent shutdown cost.
 
 ### 5.3 Historical reuse trust chain
 
@@ -234,8 +292,9 @@ For each remaining stable ending partition it:
 
 Missing, unstable, foreign, or contradictory work becomes `FAILED`. A process
 interruption leaves either the old complete files or the new complete files;
-temporary files never qualify. Re-entry skips valid `REUSED` and `RECOMPUTED`
-entries and processes only pending work.
+temporary files never qualify. Re-entry performs the transaction reconciliation
+above, skips valid `REUSED` and `RECOMPUTED` entries, and processes only the
+recovered pending index.
 
 ### 5.5 Lifecycle metrics
 
@@ -286,6 +345,54 @@ Missing, duplicate, foreign-identity, and unknown-state objects fail the
 cohort. V2 remains governed by its original contract and cannot use this schema
 retroactively.
 
+### 6.1.1 Qualifying and partial cohorts
+
+V3 uses full-hour qualification. A cohort is qualifying only when the run's
+actual observation interval covers the complete UTC interval
+`[hour_start, hour_end)` and the collector was eligible to observe the sealed
+universe throughout that interval. The first UTC hour containing actual start
+and the last UTC hour containing actual stop are
+`TOUCHED_PARTIAL` unless actual start equals the hour boundary and actual stop
+is at or after the closing boundary.
+
+For example, a run starting at `11:24` cannot qualify the `11:00` cohort. Its
+first possible qualifying cohort starts at `12:00`. Opening and ending partial
+cohorts remain durable diagnostic evidence but are excluded from the exact
+76-slot success denominator and cannot be used to satisfy the requested 30-hour
+qualification duration.
+
+Coverage evidence includes:
+
+```text
+cohort_qualification = QUALIFYING_FULL_HOUR | TOUCHED_PARTIAL
+observation_start_utc
+observation_end_utc
+```
+
+For a qualifying cohort these observation bounds equal the full UTC hour. For a
+partial cohort they equal the intersection of the run observation interval and
+the UTC hour. `VERIFIED_ZERO_EVENT` is forbidden for `TOUCHED_PARTIAL`; an empty
+partial slot remains diagnostic and non-qualifying rather than claiming a
+full-hour zero event.
+
+To make “30H” mean 30 qualifying full UTC hours rather than merely 30 elapsed
+hours, V3 seals this deterministic schedule:
+
+```text
+qualification_start_utc = actual_start_utc if exactly on a UTC-hour boundary
+                          else next UTC-hour boundary
+qualification_end_utc   = qualification_start_utc + 30 hours
+collection_stop_utc     = qualification_end_utc
+```
+
+The runtime seal carries `required_qualifying_full_hours = 30` and
+`maximum_collection_window_seconds = 111600` (strictly less than 31 hours in
+normal execution, with 31 hours as the sealed upper bound). The supervisor
+computes the exact stop instant from actual start using this formula. The
+supervisor hard ceiling and systemd maximum are derived from the sealed maximum
+collection window plus the separately measured finalization ceiling and safety
+margin. Opening and ending partial evidence does not count toward the 30.
+
 ### 6.2 Coverage evidence schema v1
 
 Create `src/bithumb_coin_trader/feed_hour_coverage.py` with a strict immutable
@@ -309,6 +416,9 @@ runtime_config_fingerprint
 cohort_utc
 interval_start_utc
 interval_end_utc
+cohort_qualification
+observation_start_utc
+observation_end_utc
 exchange
 stream
 market
@@ -330,10 +440,82 @@ closed_at_utc
 evidence_sha256
 ```
 
-`evidence_sha256` is the canonical hash of the object excluding that field.
 The interval is UTC and half-open: `[hour_start, hour_end)`.
 
-### 6.3 Session and subscription evidence
+### 6.2.1 Canonical JSON and hashes
+
+Create `src/bithumb_coin_trader/evidence_hashing.py` as the sole implementation
+of `canonical_json_bytes()` and `canonical_sha256()`. Existing
+`scripts/evidence_contract.py` imports those helpers so contract, coverage,
+subscription, and finalization evidence cannot drift into separate
+canonicalization rules. Canonical bytes are defined exactly as:
+
+```python
+json.dumps(
+    value,
+    ensure_ascii=True,
+    sort_keys=True,
+    separators=(",", ":"),
+    allow_nan=False,
+).encode("utf-8")
+```
+
+No BOM or trailing newline is included in canonical bytes. Object keys are
+sorted recursively by the JSON encoder. Array order is preserved, so schemas
+must define it: subscription/feed sets are normalized to sorted unique
+canonical feed strings before hashing, and session segments are ordered by
+`(connected_at_utc, session_id)`. Non-finite numbers are rejected.
+
+`evidence_sha256` is `SHA-256(canonical_json_bytes(object_without_evidence_sha256))`.
+Requested-subscription hashes, confirmed-subscription hashes, progress entry
+IDs, entry hashes, and transition hashes use the same helper. A separate file
+SHA-256 may bind pretty-printed stored bytes; canonical and file-byte hashes are
+never treated as interchangeable.
+
+### 6.3 Writer ordering and cohort closure
+
+RAW partitioning and coverage attribution use the same `local_write_ts` value.
+The single writer captures one timezone-aware UTC timestamp immediately before
+an append and passes that exact value to both
+`RawMicrostructureStorage.append_raw_record(..., write_ts=local_write_ts)` and
+the coverage tracker.
+
+The tracker increments `event_count` and first/last timestamps only after the
+RAW append returns successfully. Those first/last values are the same
+`local_write_ts` domain used for cohort attribution; exchange and receive
+timestamps remain available in RAW evidence but do not choose the coverage
+cohort. An append failure increments writer and unpersisted counters and cannot
+create a `DATA_PRESENT` observation. A backward writer-clock transition is a
+fatal evidence error rather than silently reopening a closed cohort.
+
+Cohort closure is serialized through the same single writer:
+
+1. a periodic writer tick or the next append observes that UTC has crossed an
+   hour boundary;
+2. the writer drains all queue items preceding its boundary fence;
+3. any item processed after the boundary is assigned to the new cohort by its
+   captured `local_write_ts`, even if it was received earlier;
+4. only after no future append can receive the old cohort's `local_write_ts`
+   does the writer freeze its observation counters and session timeline; and
+5. the archive/coverage finalizer materializes the immutable coverage object
+   after required RAW manifest bindings are available.
+
+Shutdown first stops producers, drains the queue, disables further partition
+writes, and then closes every completed full UTC hour. The opening/ending
+partial cohort is marked `TOUCHED_PARTIAL` under the rule above.
+
+For `DATA_PRESENT`, the final validator requires all three counts to agree:
+
+```text
+coverage.event_count
+= partition_manifest.record_count
+= archive_receipt.source_record_count
+```
+
+A mismatch fails closed. The mutable observation journal used before closure is
+not the immutable coverage artifact and cannot qualify a slot.
+
+### 6.4 Session and subscription evidence
 
 Each `session_segments` item contains:
 
@@ -350,6 +532,29 @@ A confirmation is valid only for its owning WebSocket connection. Reconnect
 immediately invalidates it. The new connection must request and confirm its own
 subscriptions before contributing evidence to later slots.
 
+The runtime seal contains the exact liveness policy and the auditor consumes
+that same sealed object:
+
+```json
+{
+  "heartbeat_probe_interval_seconds": 10,
+  "heartbeat_timeout_seconds": 10,
+  "max_allowed_heartbeat_gap_seconds": {
+    "bithumb": 30,
+    "binance": 30,
+    "upbit": 30
+  }
+}
+```
+
+A successful explicit WebSocket Ping/Pong or a valid data/control frame on the
+owning connection is a heartbeat observation. The maximum gap includes the
+cohort-start-to-first-observation and last-observation-to-cohort-end edges. A
+gap greater than the sealed exchange threshold, a timed-out heartbeat, or an
+absent threshold prevents `VERIFIED_ZERO_EVENT`. Thresholds cannot be selected
+or relaxed after observing run results; changing one requires a new sealed
+validation identity.
+
 For a zero-event slot, session evidence must cover the entire cohort without an
 unobserved connection gap. A reconnecting cohort with any collection gap cannot
 claim that no event occurred and resolves to `FAILED`. After the new session is
@@ -357,7 +562,7 @@ confirmed, later uninterrupted cohorts may qualify again. This rule is stricter
 than merely recording reconnect chronology and prevents an event during a gap
 from being silently treated as zero.
 
-### 6.4 Exchange-specific confirmation
+### 6.5 Exchange-specific confirmation
 
 Upbit uses `LIST_SUBSCRIPTIONS` on the same owning connection. The request,
 normalized response, timestamp, session ID, epoch, and run ID are recorded.
@@ -379,7 +584,7 @@ There is no periodic re-subscription. A reconnect ends every previous Bithumb
 confirmation and repeats the one-request, feed-specific confirmation process on
 the new connection.
 
-### 6.5 Bithumb feasibility evidence
+### 6.6 Bithumb feasibility evidence
 
 On 2026-09-14, a credential-free read-only probe used the current public
 endpoint and the sealed 20 Bithumb markets. A single request for
@@ -392,7 +597,7 @@ coverage still records and validates its own owning-session evidence. If a V3
 session fails to confirm any feed, that feed cannot become
 `VERIFIED_ZERO_EVENT`.
 
-### 6.6 State predicates
+### 6.7 State predicates
 
 `DATA_PRESENT` requires:
 
@@ -410,6 +615,8 @@ session fails to confirm any feed, that feed cannot become
 - a successfully requested and confirmed subscription on every session segment
   used for the cohort;
 - continuous owning-session liveness over the complete cohort;
+- every heartbeat gap at or below the exchange's sealed
+  `max_allowed_heartbeat_gap_seconds`;
 - zero writer errors, queue drops, and unpersisted events;
 - null fatal writer error; and
 - an immutable archived coverage artifact with terminal receipt and restore
@@ -486,34 +693,41 @@ must fail.
 ## 8. End-to-end data flow
 
 1. The sealed runtime contract creates the exact 76 feed-slot identities for
-   each UTC hour.
+   each UTC hour and carries the numeric heartbeat policy.
 2. Each WebSocket connection gets a new session ID and writes subscription and
    liveness control evidence.
-3. The tracker increments per-feed/hour event counts while the writer persists
-   real market records.
+3. The single writer assigns RAW and coverage to the same `local_write_ts` and
+   increments a slot only after the RAW append succeeds.
 4. The writer registers RAW partitions in the finalization pending index.
-5. At hour close, the tracker resolves each slot to a candidate state and
-   atomically writes its coverage object. Insufficient proof produces `FAILED`.
-6. The archive scheduler validates and archives coverage evidence for all slots
+5. After a writer-serialized boundary fence makes the cohort append-closed, the
+   tracker freezes its observation journal. Full-hour cohorts may resolve to a
+   candidate state; opening/ending partials remain `TOUCHED_PARTIAL`.
+6. After required manifest bindings exist, the coverage finalizer verifies
+   `event_count == manifest.record_count == receipt.source_record_count` for
+   `DATA_PRESENT` and atomically writes the immutable coverage object.
+7. The archive scheduler validates and archives coverage evidence for all slots
    and RAW data only for `DATA_PRESENT` slots.
-7. Terminal RAW receipts transition historical finalization entries to
+8. Terminal RAW receipts transition historical finalization entries to
    `REUSED`; the collector shutdown finalizer handles only entries still
    pending.
-8. Fullscan and the strict auditor apply state-dependent rules and enforce the
+9. Fullscan and the strict auditor apply state-dependent rules and enforce the
    exact 76-slot root invariant.
-9. Offline contract composition and epoch manifest building bind the normalized
+10. Offline contract composition and epoch manifest building bind the normalized
    actual-start evidence and new coverage semantics.
 
 ## 9. Failure behavior
 
 The system fails closed on:
 
-- progress-index corruption or an entry/index mismatch;
+- progress corruption that cannot be reconciled from the authoritative entry
+  and bounded write-ahead intent;
 - manifest, receipt, source, identity, or artifact-kind contradiction;
 - missing or duplicate coverage objects;
 - any unproven zero-event slot;
 - reconnect without fresh subscription confirmation;
 - a connection gap during a candidate zero-event cohort;
+- an absent or exceeded sealed heartbeat-gap threshold;
+- coverage/manifest/receipt record-count disagreement;
 - writer, queue-loss, or unpersisted-event evidence;
 - archive, restore, coverage-scan, or RAW fullscan failure; and
 - malformed or ambiguous actual-start evidence.
@@ -534,14 +748,26 @@ Focused tests include:
 - sealed historical manifest/receipt reuse without opening RAW;
 - dirty tail recomputation;
 - contradictory terminal receipt failure without overwrite;
-- interrupted progress and restart/re-entry;
+- interruption after every transaction write/rename boundary, including
+  terminal-entry removal from pending and missing-`PENDING` restoration;
+- restart/re-entry with idempotent summary counters and an unexplained mismatch
+  that fails closed;
 - 1/10/30 cohort bounded scale with identical dirty tail;
 - slow manifest generation bounded by dirty count;
+- opening and ending partial cohorts excluded from full-hour qualification;
+- an arbitrary actual start producing exactly 30 subsequent qualifying hours;
+- boundary-fence ordering and an append that crosses the UTC hour;
+- append failure leaving coverage event count unchanged;
+- `DATA_PRESENT` coverage/manifest/receipt record-count equality and mismatch;
+- exact canonical JSON bytes, stable hashes, sorted subscription sets, preserved
+  session chronology, and non-finite-number rejection;
 - `DATA_PRESENT` complete chain;
 - `VERIFIED_ZERO_EVENT` complete coverage chain;
 - unproven zero event, missing slot, duplicate slot, and foreign identity;
 - reconnect invalidating old confirmation and later-session reconfirmation;
 - a reconnect gap preventing zero-event qualification;
+- sealed heartbeat-gap boundary acceptance, one-step-over rejection, missing
+  threshold rejection, and edge-gap accounting;
 - writer, queue, unpersisted, and fatal-writer failures preventing zero-event;
 - Upbit and Binance same-session list-subscription normalization; and
 - Bithumb feed-specific snapshot/event confirmation.
