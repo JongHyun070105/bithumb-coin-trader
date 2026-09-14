@@ -443,6 +443,28 @@ class BoundedSupervisorTests(unittest.TestCase):
             self.assertEqual(result["overall_status"], "FAIL")
             self.assertEqual(result["archive_scheduler_exit_code"], 7)
 
+    def test_v3_schedule_config_validates(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import V3ScheduleConfig
+        with self.assertRaises(ValueError):
+            V3ScheduleConfig(required_qualifying_full_hours=29, maximum_collection_window_seconds=111600, schedule_path=Path("/tmp/s.json"))
+        with self.assertRaises(ValueError):
+            V3ScheduleConfig(required_qualifying_full_hours=30, maximum_collection_window_seconds=108000, schedule_path=Path("/tmp/s.json"))
+        # valid
+        cfg = V3ScheduleConfig(required_qualifying_full_hours=30, maximum_collection_window_seconds=111600, schedule_path=Path("/tmp/s.json"))
+        self.assertEqual(cfg.required_qualifying_full_hours, 30)
 
+    def test_supervisor_config_rejects_both_modes(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import V3ScheduleConfig
+        with self.assertRaises(ValueError):
+            SupervisorConfig(
+                run_id="test-run",
+                collection_duration_seconds=108000.0,
+                v3_schedule=V3ScheduleConfig(30, 111600, Path("/tmp/s.json")),
+                collector_command=("python", "-c", "pass"),
+                metrics_path=Path("/tmp/metrics.json"),
+                collector_lifecycle_path=Path("/tmp/lifecycle.json"),
+                result_path=Path("/tmp/result.json"),
+                log_path=Path("/tmp/log.txt"),
+            )
 if __name__ == "__main__":
     unittest.main()

@@ -23,7 +23,7 @@ logging.basicConfig(
 
 
 async def _run(args: argparse.Namespace) -> None:
-    bithumb_mkts = list(TOP_UNIVERSE_CANDIDATES[: args.bithumb_markets])
+    bithumb_mkts: list[str] = list(TOP_UNIVERSE_CANDIDATES[: args.bithumb_markets])
     binance_syms = ["btcusdt", "ethusdt", "solusdt", "xrpusdt"]
     upbit_mkts = ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"]
     config = _load_runtime_config(args.config_file, args.config_fingerprint)
@@ -64,7 +64,7 @@ async def _run(args: argparse.Namespace) -> None:
             error_type=None,
         )
     try:
-        await collector.run_collector(max_duration_seconds=args.duration)
+        await collector.run_collector(max_duration_seconds=args.duration_to_run)
     except BaseException as error:
         collector_error = error
         raise
@@ -236,7 +236,11 @@ def _validate_runtime_config(
         "sealed environment": args.environment_id not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed epoch": args.collector_epoch not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed run ID": args.run_id not in {"", "UNKNOWN", "NOT-SEALED"},
-        "duration": config.get("duration_seconds") == args.duration and args.duration > 0,
+        "duration": (
+            config.get("duration_seconds") == 0
+            if getattr(args, "qualification_schedule_path", None) is not None
+            else config.get("duration_seconds") == getattr(args, "duration", None) and getattr(args, "duration", 0) > 0
+        ),
         "raw root": expected_raw_root == args.storage_base_dir,
         "manifest root": expected_manifest_root == args.storage_base_dir.parent / "manifests",
         "compressed root": expected_compressed_root == args.storage_base_dir.parent / "compressed",
@@ -264,7 +268,7 @@ def _validate_runtime_config(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Multi-Exchange Microstructure Collector Daemon")
     parser.add_argument("--bithumb-markets", type=int, default=20, help="Number of Bithumb KRW markets (default: 20)")
-    parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--duration", type=float, default=0.0)
     parser.add_argument("--config-file", type=Path, required=True)
     parser.add_argument("--storage-base-dir", type=Path, required=True)
     parser.add_argument("--environment-id", required=True)
@@ -273,7 +277,24 @@ def main() -> None:
     parser.add_argument("--config-fingerprint", required=True)
     parser.add_argument("--runtime-commit", required=True)
     parser.add_argument("--lifecycle-status-path", type=Path)
+
+    parser.add_argument("--required-qualifying-full-hours", type=int)
+    parser.add_argument("--maximum-collection-window-seconds", type=int)
+    parser.add_argument("--qualification-schedule-path", type=Path)
     args = parser.parse_args()
+
+    if args.qualification_schedule_path is not None:
+        if args.duration > 0:
+            raise ValueError("cannot specify both duration and V3 schedule")
+        from bithumb_coin_trader.qualification_schedule import load_schedule
+        import time
+        schedule = load_schedule(args.qualification_schedule_path)
+        args.duration_to_run = max(0.0, schedule.collection_stop_monotonic - time.monotonic())
+    else:
+        if args.duration <= 0:
+            raise ValueError("duration must be positive")
+        args.duration_to_run = args.duration
+
     try:
         asyncio.run(_run(args))
     except KeyboardInterrupt:

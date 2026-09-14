@@ -19,6 +19,21 @@ SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 @dataclass(frozen=True)
+class V3ScheduleConfig:
+    required_qualifying_full_hours: int
+    maximum_collection_window_seconds: int
+    schedule_path: Path
+
+    def __post_init__(self) -> None:
+        if self.required_qualifying_full_hours != 30:
+            raise ValueError("required_qualifying_full_hours must be 30 for V3")
+        if self.maximum_collection_window_seconds != 111600:
+            raise ValueError("maximum_collection_window_seconds must be 111600 for V3")
+        if not self.schedule_path:
+            raise ValueError("schedule_path must be provided")
+
+
+@dataclass(frozen=True)
 class SupervisorConfig:
     run_id: str
     collection_duration_seconds: float
@@ -35,11 +50,14 @@ class SupervisorConfig:
     publisher_interval_seconds: float = 60.0
     shutdown_grace_seconds: float = 45.0
     require_full_duration: bool = False
+    v3_schedule: V3ScheduleConfig | None = None
 
     def __post_init__(self) -> None:
         if not SAFE_RUN_ID.fullmatch(self.run_id):
             raise ValueError("run_id must be a safe identifier")
-        if self.collection_duration_seconds <= 0:
+        if self.v3_schedule is not None and self.collection_duration_seconds > 0:
+            raise ValueError("SUPERVISOR_MODE_CONFLICT: cannot specify both collection_duration_seconds and v3_schedule")
+        if self.v3_schedule is None and self.collection_duration_seconds <= 0:
             raise ValueError("collection_duration_seconds must be positive")
         if self.finalization_timeout_seconds <= 0:
             raise ValueError("finalization_timeout_seconds must be positive")
@@ -275,7 +293,12 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
-                hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
+                if cfg.v3_schedule is not None:
+                    from bithumb_coin_trader.qualification_schedule import load_schedule
+                    schedule = load_schedule(cfg.v3_schedule.schedule_path)
+                    hard_deadline = schedule.collection_stop_monotonic + cfg.finalization_timeout_seconds
+                else:
+                    hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
                     now = time.monotonic()

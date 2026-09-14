@@ -307,6 +307,34 @@ class TransientLaunchTests(unittest.TestCase):
             self.assertEqual(ret_launch, 0)
             mock_run.assert_called_once()
 
+    def test_launch_cli_rejects_v3_with_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--required-qualifying-full-hours", "30"])
+        with self.assertRaisesRegex(ValueError, "cannot specify both collection_duration_seconds and V3 schedule"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--collection-duration-seconds", "108000",
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+            ])
+
+    def test_launch_cli_accepts_v3_without_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--required-qualifying-full-hours", "30"])
+        with patch("sys.stdout", io.StringIO()):
+            ret = launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+        self.assertEqual(ret, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
