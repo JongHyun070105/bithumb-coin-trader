@@ -21,7 +21,7 @@ def _command(value: str) -> tuple[str, ...]:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True)
-    parser.add_argument("--collection-duration-seconds", type=float, default=0.0)
+    parser.add_argument("--collection-duration-seconds", type=float, default=None)
     parser.add_argument("--finalization-timeout-seconds", type=float, default=45.0)
     parser.add_argument("--hard-ceiling-seconds", type=float)
     parser.add_argument("--collector-command-json", type=_command, required=True)

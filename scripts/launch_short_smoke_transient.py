@@ -94,16 +94,25 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise ValueError("cannot specify both collection_duration_seconds and V3 schedule")
         if not args.maximum_collection_window_seconds or not args.qualification_schedule_path:
             raise ValueError("missing V3 schedule arguments")
-        collection_duration = 108000
+        if any(token == "--collection-duration-seconds" or token.startswith("--collection-duration-seconds=") for token in args.supervisor_command_json):
+            raise ValueError("V3 supervisor command must not include --collection-duration-seconds")
+        config = TransientLaunchConfig(
+            run_id=args.run_id,
+            workdir=args.workdir,
+            supervisor_command=args.supervisor_command_json,
+            collection_duration_seconds=None,
+            maximum_collection_window_seconds=args.maximum_collection_window_seconds,
+            finalization_timeout_seconds=args.finalization_timeout_seconds,
+            supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
+            systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
+        )
     else:
         if args.collection_duration_seconds is None:
             collection_duration = 2700
         else:
             collection_duration = args.collection_duration_seconds
         _validate_cross_layer_duration(collection_duration, args.supervisor_command_json)
-
-    command = render_systemd_run(
-        TransientLaunchConfig(
+        config = TransientLaunchConfig(
             run_id=args.run_id,
             workdir=args.workdir,
             supervisor_command=args.supervisor_command_json,
@@ -112,7 +121,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
         )
-    )
+
+    command = render_systemd_run(config)
     if not args.launch:
         print(json.dumps(command, indent=2))
         return 0

@@ -466,5 +466,40 @@ class BoundedSupervisorTests(unittest.TestCase):
                 result_path=Path("/tmp/result.json"),
                 log_path=Path("/tmp/log.txt"),
             )
+
+    def test_supervisor_v3_schedule_execution(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import V3ScheduleConfig
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            paths = self._paths(tmp_path)
+            schedule_path = tmp_path / "qualification_schedule.json"
+            run_id = "aws-30h-run-v3-exec-test"
+            config = SupervisorConfig(
+                run_id=run_id,
+                collector_command=self._collector(paths, run_id, seconds=0.05),
+                metrics_path=paths["metrics"],
+                collector_lifecycle_path=paths["lifecycle"],
+                result_path=paths["result"],
+                log_path=paths["log"],
+                poll_interval_seconds=0.01,
+                shutdown_grace_seconds=0.2,
+                v3_schedule=V3ScheduleConfig(
+                    required_qualifying_full_hours=30,
+                    maximum_collection_window_seconds=111600,
+                    schedule_path=schedule_path,
+                ),
+            )
+            exit_code = BoundedSupervisor(config).run()
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(schedule_path.exists())
+            schedule_data = json.loads(schedule_path.read_text(encoding="utf-8"))
+            self.assertEqual(schedule_data.get("schema_version"), 1)
+            self.assertEqual(schedule_data.get("required_qualifying_full_hours"), 30)
+            self.assertEqual(schedule_data.get("maximum_collection_window_seconds"), 111600)
+            self.assertTrue(paths["result"].exists())
+            result_data = json.loads(paths["result"].read_text(encoding="utf-8"))
+            self.assertIn("deadline_recomputed", result_data)
+            self.assertIs(result_data["deadline_recomputed"], False)
+            self.assertEqual(result_data["overall_status"], "PASS")
 if __name__ == "__main__":
     unittest.main()

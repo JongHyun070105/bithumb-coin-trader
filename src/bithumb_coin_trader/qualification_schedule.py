@@ -163,9 +163,20 @@ def load_schedule(path: Path) -> QualificationSchedule:
     raw = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or raw.get("schema_version") != _SCHEMA_VERSION:
         raise ValueError(f"SCHEDULE_SCHEMA_UNSUPPORTED: got {raw.get('schema_version')}")
+    if raw.get("required_qualifying_full_hours") != 30:
+        raise ValueError(f"SCHEDULE_HOURS_INVALID: expected 30, got {raw.get('required_qualifying_full_hours')}")
+    if raw.get("maximum_collection_window_seconds") != 111600:
+        raise ValueError(f"SCHEDULE_WINDOW_INVALID: expected 111600, got {raw.get('maximum_collection_window_seconds')}")
+    if "qualification_start_utc" not in raw or not isinstance(raw["qualification_start_utc"], str):
+        raise ValueError("SCHEDULE_QUALIFICATION_START_INVALID")
+    start = parse_utc(raw["qualification_start_utc"])
     cohorts = raw.get("candidate_cohorts", [])
-    if not isinstance(cohorts, list) or len(cohorts) != raw.get("required_qualifying_full_hours", 0):
-        raise ValueError(f"SCHEDULE_CANDIDATE_COUNT: expected {raw.get('required_qualifying_full_hours')}, got {len(cohorts)}")
+    if not isinstance(cohorts, list) or len(cohorts) != 30:
+        raise ValueError(f"SCHEDULE_CANDIDATE_COUNT: expected 30, got {len(cohorts) if isinstance(cohorts, list) else type(cohorts)}")
+    expected = tuple((start + timedelta(hours=i)).strftime("%Y-%m-%d_%H") for i in range(30))
+    if tuple(cohorts) != expected:
+        raise ValueError("SCHEDULE_CANDIDATE_ORDER_INVALID")
+
     return QualificationSchedule(
         schema_version=int(raw["schema_version"]),
         actual_start_utc=str(raw["actual_start_utc"]),

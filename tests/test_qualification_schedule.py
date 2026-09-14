@@ -123,16 +123,17 @@ def test_wrong_max_window_raises() -> None:
         build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 0.0, 30, 108000)  # not 111600
 
 
-def test_elapsed_too_large_raises() -> None:
-    """If actual start is before qualification start by more than 111600s, raise."""
-    # actual = 1970-01-01T00:00:00Z, qual_start = 1970-01-01T01:00:00Z, stop = +30h
-    # elapsed = 31h = 111600 exactly. That is the boundary: <=111600 is valid.
-    # What if actual is 1970-01-01T00:00:01Z? qual_start=01:00:00, stop=07:00:00 next day
-    # elapsed = 30h + 59m59s = 110399s < 111600 -> valid
-    # To get elapsed > 111600, actual must be before qual_start by > 111600s which is impossible
-    # since qual_start is at most actual+1h (strictly next)
-    # So elapsed is always in (108000, 111600]. The only invalid case is wrong hours/window.
-    pass  # covered by test_wrong_hours_raises and test_wrong_max_window_raises
+def test_schedule_candidate_cohorts_order_validation(tmp_path: Path) -> None:
+    from bithumb_coin_trader.qualification_schedule import save_schedule, load_schedule
+    schedule = build_qualification_schedule(parse_utc("2026-09-14T12:00:00Z"), 100.0, 30, 111600)
+    path = tmp_path / "schedule.json"
+    save_schedule(schedule, path)
+    d = json.loads(path.read_text(encoding="utf-8"))
+    # Reverse two cohorts to break chronological order
+    d["candidate_cohorts"][0], d["candidate_cohorts"][1] = d["candidate_cohorts"][1], d["candidate_cohorts"][0]
+    path.write_text(json.dumps(d), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCHEDULE_CANDIDATE_ORDER_INVALID"):
+        load_schedule(path)
 
 
 # --- schedule persistence ---

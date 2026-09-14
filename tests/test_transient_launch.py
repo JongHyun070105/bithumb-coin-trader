@@ -335,6 +335,47 @@ class TransientLaunchTests(unittest.TestCase):
             ])
         self.assertEqual(ret, 0)
 
+    def test_renderer_v3_maximum_collection_window(self) -> None:
+        cfg = TransientLaunchConfig(
+            run_id="aws-v3-test",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            maximum_collection_window_seconds=111600,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=111720,
+            systemd_runtime_max_seconds=111800,
+        )
+        command = render_systemd_run(cfg)
+        self.assertIn("--unit=bitcoin-trader-30h-aws-v3-test.service", command)
+
+        # Rejects window != 111600
+        with self.assertRaisesRegex(ValueError, "V3 maximum_collection_window_seconds must be 111600"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="aws-v3-test",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "run.py"),
+                    maximum_collection_window_seconds=108000,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=111720,
+                    systemd_runtime_max_seconds=111800,
+                )
+            )
+
+        # Rejects hard ceiling < max_window + finalization
+        with self.assertRaisesRegex(ValueError, "supervisor hard ceiling must cover maximum collection window plus finalization"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="aws-v3-test",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "run.py"),
+                    maximum_collection_window_seconds=111600,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=111600,  # less than 111600 + 120
+                    systemd_runtime_max_seconds=111800,
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
