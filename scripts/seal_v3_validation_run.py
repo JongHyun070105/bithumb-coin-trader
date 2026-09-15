@@ -138,17 +138,17 @@ def generate_runtime_config(commit: str, epoch: str) -> dict[str, object]:
             "upbit_markets": UPBIT_MARKETS
         },
         "paths": {
-            "raw_root_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/raw",
-            "manifest_root_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/manifests",
-            "compressed_root_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/compressed",
-            "receipt_root_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/archive-receipts",
-            "metrics_path_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/collector_metrics.json",
-            "publisher_state_path_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/metric-publisher-state.json",
-            "log_root_template": f"/var/lib/bitcoin-trader/30h-validation/{epoch}/logs"
+            "raw_root_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/raw",
+            "manifest_root_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/manifests",
+            "compressed_root_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/compressed",
+            "receipt_root_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/archive-receipts",
+            "metrics_path_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/collector_metrics.json",
+            "publisher_state_path_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/metric-publisher-state.json",
+            "log_root_template": "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/logs"
         },
         "archive": {
             "remote_class": "temporary",
-            "temporary_prefix_template": f"market-data/temporary/{epoch}",
+            "temporary_prefix_template": "market-data/temporary/{collector_epoch}",
             "compression": {
                 "algorithm": "zstd",
                 "level": 1

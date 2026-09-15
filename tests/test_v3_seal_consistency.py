@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,10 +18,17 @@ for d in (ROOT, SRC_DIR):
 
 from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig
 from scripts.run_cross_market_collector import (
+    _load_runtime_config,
+    _render_epoch_template,
+    _validate_runtime_config,
     canonical_config_fingerprint as collector_config_fingerprint,
 )
 from scripts.seal_v3_validation_run import (
+    BITHUMB_MARKETS,
+    BINANCE_SYMBOLS,
+    UPBIT_MARKETS,
     canonical_config_fingerprint as seal_config_fingerprint,
+    generate_runtime_config,
     validate_git_commit,
 )
 
@@ -233,6 +242,81 @@ class TestV3SealConsistency(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             validate_git_commit("", cwd=ROOT)
+
+    def test_16_sealed_runtime_config_passes_real_collector_config_validation(self) -> None:
+        """16. Freshly generated runtime config passes real collector config loading + validation."""
+        epoch = "aws-validation-30h-20260915-v4"
+        runtime_data = generate_runtime_config(self.runtime_commit, epoch)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "runtime.json"
+            config_path.write_text(json.dumps(runtime_data, indent=2), encoding="utf-8")
+
+            fingerprint = seal_config_fingerprint(runtime_data)
+            loaded = _load_runtime_config(config_path, fingerprint)
+            self.assertEqual(loaded, runtime_data)
+
+            paths = loaded["paths"]
+            archive = loaded["archive"]
+            assert isinstance(paths, dict)
+            assert isinstance(archive, dict)
+            rendered_raw_root = _render_epoch_template(
+                paths["raw_root_template"], epoch, "raw_root_template"
+            )
+            rendered_prefix = _render_epoch_template(
+                archive["temporary_prefix_template"], epoch, "temporary_prefix_template"
+            )
+            storage_base_dir = Path(rendered_raw_root)
+
+            args = argparse.Namespace(
+                collector_epoch=epoch,
+                run_id=f"aws-validation-30h-run-test-v4",
+                storage_base_dir=storage_base_dir,
+                runtime_commit=self.runtime_commit,
+                environment_id="aws-apne2-research",
+                duration=0,
+                qualification_schedule_path="/dummy/schedule.json",
+                bithumb_markets=20,
+            )
+            _validate_runtime_config(loaded, args, list(BITHUMB_MARKETS), list(BINANCE_SYMBOLS), list(UPBIT_MARKETS))
+
+            self.assertEqual(rendered_prefix, f"market-data/temporary/{epoch}")
+
+    def test_17_render_epoch_template_rejects_zero_placeholders(self) -> None:
+        """17. _render_epoch_template rejects a resolved path with zero {collector_epoch} placeholders."""
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            _render_epoch_template(
+                "/var/lib/bitcoin-trader/30h-validation/aws-validation-30h-20260915-v4/raw",
+                "aws-validation-30h-20260915-v4",
+                "raw_root_template",
+            )
+
+    def test_18_render_epoch_template_accepts_exactly_one_placeholder(self) -> None:
+        """18. _render_epoch_template accepts exactly one {collector_epoch} and renders correctly."""
+        result = _render_epoch_template(
+            "/var/lib/bitcoin-trader/30h-validation/{collector_epoch}/raw",
+            "aws-validation-30h-20260915-v4",
+            "raw_root_template",
+        )
+        self.assertEqual(result, "/var/lib/bitcoin-trader/30h-validation/aws-validation-30h-20260915-v4/raw")
+
+    def test_19_render_epoch_template_rejects_multiple_placeholders(self) -> None:
+        """19. _render_epoch_template rejects two {collector_epoch} placeholders."""
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            _render_epoch_template(
+                "/var/lib/{collector_epoch}/data/{collector_epoch}/raw",
+                "epoch-a",
+                "raw_root_template",
+            )
+
+    def test_20_render_epoch_template_rejects_already_resolved_absolute_path(self) -> None:
+        """20. _render_epochTemplate rejects a fully resolved absolute path as zero-placeholder."""
+        with self.assertRaisesRegex(ValueError, "exactly one"):
+            _render_epoch_template(
+                "/var/lib/bitcoin-trader/30h-validation/aws-validation-30h-20260915-v3/raw",
+                "aws-validation-30h-20260915-v3",
+                "raw_root_template",
+            )
 
 
 if __name__ == "__main__":
