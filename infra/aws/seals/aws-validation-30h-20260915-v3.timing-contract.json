@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "qualification_rule": "STRICTLY_NEXT_UTC_HOUR",
+  "required_qualifying_full_hours": 30,
+  "maximum_collection_window_seconds": 111600,
+  "expected_candidate_cohorts": 30,
+  "expected_slots_per_cohort": 76,
+  "total_expected_coverage_slots": 2280,
+  "qualification_start_policy": "strictly_next_utc_hour(actual_start_utc)",
+  "monotonic_deadline_policy": "single_conversion_at_launch_immutable_under_wall_clock_adjustments"
+}

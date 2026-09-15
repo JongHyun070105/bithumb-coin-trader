@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "collector_epoch": "aws-validation-30h-20260915-v3",
+  "collector_run_id": "aws-validation-30h-run-20260915T013000Z-v3",
+  "runtime_commit": "e9d5d5a91f2505603291419e8c3d5a1e448df205",
+  "launch_authorized": false,
+  "actual_start_time_utc": null,
+  "actual_start_evidence": null,
+  "systemd_unit_active": false,
+  "collector_process_running": false,
+  "supervisor_process_running": false,
+  "archive_scheduler_running": false,
+  "official_s3_objects_written": 0,
+  "market_data_records_written": 0,
+  "status": "PREPARED_NOT_AUTHORIZED",
+  "note": "Awaiting explicit human authorization to start official V3 30H validation."
+}
