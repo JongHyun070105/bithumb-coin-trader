@@ -58,6 +58,7 @@ class DatasetRegistration:
     notes: str = ""
     source_run_id: str | None = None
     collector_epoch: str | None = None
+    provenance_confidence: str = "PROVEN"  # PROVEN, PARTIALLY_PROVEN, AMBIGUOUS, UNATTRIBUTED
     registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
     def to_dict(self) -> dict[str, Any]:
@@ -88,6 +89,7 @@ class DatasetRegistration:
             notes=d.get("notes", ""),
             source_run_id=d.get("source_run_id"),
             collector_epoch=d.get("collector_epoch"),
+            provenance_confidence=d.get("provenance_confidence", "PROVEN"),
             registered_at=d.get("registered_at", ""),
         )
 
@@ -277,24 +279,36 @@ def register_default_datasets(registry: DatasetRegistry) -> None:
     ))
 
     registry.register(DatasetRegistration(
-        dataset_id="fresh45",
-        dataset_role=DatasetRole.INFRA_VALIDATION_ONLY,
-        description="45-minute validation reference data (Aug 25-28, 2026). "
-                    "~5,396 JSONL files, ~74 GB. 3 exchanges, 76 feeds.",
+        dataset_id="local_microstructure_aug2026",
+        dataset_role=DatasetRole.DEVELOPMENT_EXPLORATORY,
+        description="Local microstructure data collected Aug 25-28, 2026. "
+                    "~5,396 JSONL files, ~74 GB. 3 exchanges, ~76 feeds. "
+                    "UNATTRIBUTED: no collector_epoch, no run_id, no receipt files. "
+                    "Predates all documented AWS validation runs. "
+                    "Cannot be called Fresh45 without provenance evidence.",
         source_type="jsonl_raw",
         source_roots=("data/microstructure/raw/",),
-        time_range_start="2026-08-25T15:00:00Z",
-        time_range_end="2026-08-28T17:00:00Z",
+        time_range_start="2026-08-25T14:39:34Z",
+        time_range_end="2026-08-28T16:27:25Z",
         exchange_universe=("bithumb", "binance", "upbit"),
         feed_universe=("trade", "orderbook", "ticker"),
         raw_schema_version="v9.1.0-quarantine-hardened",
         manifest_schema_version="4",
-        known_integrity_status="PASS",
-        known_data_quality_issues=(),
+        known_integrity_status="UNVERIFIED",
+        known_data_quality_issues=(
+            "UNATTRIBUTED: no collector_epoch or run_id in manifests",
+            "No receipt files found",
+            "Predates all documented AWS validation epochs",
+            "git_commit=HEAD in manifests (not a specific commit)",
+            "Cannot confirm this is the same as any named validation run",
+            "Use for development/exploration only until lineage is established",
+        ),
         allowed_for_exploration=True,
         allowed_for_candidate_selection=False,
         allowed_for_final_holdout=False,
         immutable_source=True,
-        notes="INFRA_VALIDATION reference. May use for schema/adapter compatibility tests. "
-              "Used as local development dataset for pipeline testing.",
+        provenance_confidence="UNATTRIBUTED",
+        notes="UNATTRIBUTED local development data. "
+              "NOT Fresh45 unless provenance evidence is found. "
+              "DEVELOPMENT / EXPLORATORY ONLY.",
     ))

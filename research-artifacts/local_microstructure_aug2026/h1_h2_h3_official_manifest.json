@@ -1,0 +1,73 @@
+{
+  "dataset_ids": [
+    "local_microstructure_aug2026"
+  ],
+  "dataset_roles": [
+    "DEVELOPMENT_EXPLORATORY"
+  ],
+  "dq_exclusion_count": 0,
+  "dq_filters": {},
+  "embargo_s": 0.0,
+  "execution_assumptions": {
+    "fee_rate": 0.0,
+    "latency_ms": 50.0,
+    "passive_fills_enabled": false,
+    "slippage_bps": 5.0
+  },
+  "feature_config": {
+    "feature_names": [
+      "depth_imbalance_l1",
+      "microprice_bias_bps",
+      "ati_30s"
+    ]
+  },
+  "fingerprint": "7730b24243b475e09134de84c3381e2f155c8c74fb993c4af9a37db6cd125681",
+  "git_commit": "466e7299da82e6575e86c2341e9e73e5197d4047",
+  "hypothesis_description": "Orderbook imbalance, trade flow, microprice predict short-term returns",
+  "hypothesis_id": "H1_H2_H3_suite",
+  "label_config": {
+    "target_horizon_s": 5,
+    "target_type": "mid_return"
+  },
+  "metrics": {
+    "H1": {
+      "classification": null,
+      "hit_rate": null,
+      "ic": null
+    },
+    "H1_L5": {
+      "classification": null,
+      "hit_rate": null,
+      "ic": null
+    },
+    "H2": {
+      "classification": null,
+      "hit_rate": null,
+      "ic": null
+    },
+    "H3": {
+      "classification": null,
+      "hit_rate": null,
+      "ic": null
+    },
+    "H3_d": {
+      "classification": null,
+      "hit_rate": null,
+      "ic": null
+    }
+  },
+  "model_parameters": {},
+  "model_type": "correlation",
+  "n_folds": 0,
+  "random_seed": null,
+  "research_run_id": "581958c7-c5de-492e-b118-c7eaaf84a18c",
+  "result_artifact_paths": {},
+  "schema_version": "1.0.0",
+  "scientific_classification": "FRAGILE",
+  "source_fingerprints": {},
+  "source_time_range_end": null,
+  "source_time_range_start": null,
+  "test_range": null,
+  "timestamp": "2026-09-15T12:26:25.407658+00:00",
+  "train_range": null
+}

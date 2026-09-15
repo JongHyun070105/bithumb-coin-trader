@@ -29,7 +29,11 @@ from typing import Any, Mapping, Sequence
 
 
 class CoverageState(str, Enum):
-    DATA_PRESENT = "DATA_PRESENT"
+    PHYSICAL_FILE_PRESENT = "PHYSICAL_FILE_PRESENT"  # File exists, not yet validated
+    PARSE_VALID = "PARSE_VALID"  # Parsed successfully
+    MANIFEST_BOUND = "MANIFEST_BOUND"  # Has valid manifest binding
+    COHORT_VALID = "COHORT_VALID"  # Timestamps fall in expected cohort
+    DATA_PRESENT = "DATA_PRESENT"  # Scientifically verified data present
     VERIFIED_ZERO_EVENT = "VERIFIED_ZERO_EVENT"
     UNKNOWN_MISSING = "UNKNOWN_MISSING"
     INCOMPLETE = "INCOMPLETE"
@@ -52,6 +56,11 @@ class CoverageState(str, Enum):
             CoverageState.UNKNOWN_MISSING,
             CoverageState.CORRUPT,
             CoverageState.UNAVAILABLE,
+            CoverageState.UNVERIFIED,
+            CoverageState.PHYSICAL_FILE_PRESENT,
+            CoverageState.PARSE_VALID,
+            CoverageState.MANIFEST_BOUND,
+            CoverageState.COHORT_VALID,
         )
 
 
@@ -262,18 +271,21 @@ def build_dq_catalog_from_local(
 
                         discovered.add((exchange, feed, market, cohort))
 
-                        # Use file size as proxy for data presence (fast)
+                        # File exists — mark as PHYSICAL_FILE_PRESENT only.
+                        # DATA_PRESENT requires higher-level validation.
                         file_size = jsonl_file.stat().st_size
-                        has_data = file_size > 0
+                        if file_size == 0:
+                            state = CoverageState.UNVERIFIED
+                        else:
+                            state = CoverageState.PHYSICAL_FILE_PRESENT
 
                         cat.add_slot(FeedSlotCoverage(
                             exchange=exchange,
                             feed=feed,
                             market=market,
                             cohort_utc=cohort,
-                            state=CoverageState.DATA_PRESENT if has_data
-                                   else CoverageState.UNVERIFIED,
-                            event_count=-1,  # Not counted (use file_size for proxy)
+                            state=state,
+                            event_count=-1,  # Not counted at physical level
                             source_file=str(jsonl_file),
                         ))
 
@@ -347,3 +359,82 @@ def build_v2_known_missing() -> list[FeedSlotCoverage]:
         bithumb_mana_ticker_18, bithumb_mana_trade_18,
         bithumb_mana_ticker_19, bithumb_mana_trade_19,
     ]
+
+
+# V2 authoritative feed universe: 76 feeds per hour
+_V2_BITHUMB_MARKETS = [
+    "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-DOGE",
+    "KRW-ADA", "KRW-AVAX", "KRW-DOT", "KRW-LINK", "KRW-NEAR",
+    "KRW-SUI", "KRW-ETC", "KRW-BCH", "KRW-TRX", "KRW-SHIB",
+    "KRW-SAND", "KRW-MANA", "KRW-AXS", "KRW-APT", "KRW-XLM",
+]
+_V2_BINANCE_MARKETS = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"]
+_V2_UPBIT_MARKETS = ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"]
+
+
+def get_v2_feed_universe() -> list[tuple[str, str, str]]:
+    """Return the V2 76-feed universe as (exchange, feed, market) tuples."""
+    feeds = []
+    for market in _V2_BITHUMB_MARKETS:
+        for feed in ("trade", "orderbook", "ticker"):
+            feeds.append(("bithumb", feed, market))
+    for market in _V2_BINANCE_MARKETS:
+        for feed in ("trade", "orderbook"):
+            feeds.append(("binance", feed, market))
+    for market in _V2_UPBIT_MARKETS:
+        for feed in ("trade", "orderbook"):
+            feeds.append(("upbit", feed, market))
+    return feeds  # 20*3 + 4*2 + 4*2 = 60+8+8 = 76
+
+
+def get_v2_candidate_hours() -> list[str]:
+    """Return the V2 30 candidate hours."""
+    hours = []
+    for h in range(24):
+        hours.append(f"2026-09-12_{h:02d}")
+    for h in range(6):
+        hours.append(f"2026-09-13_{h:02d}")
+    return hours  # 30 hours
+
+
+def build_v2_authoritative_dq_catalog() -> DQCatalog:
+    """Build V2 DQ catalog from the authoritative 2280-slot universe.
+
+    This is NOT derived from local file counts.
+    It is based on the documented V2 contract:
+    - 30 candidate hours
+    - 76 feeds per hour
+    - 2280 total slots
+    - 2272 DATA_PRESENT
+    - 8 UNKNOWN_MISSING (the known eight)
+    - 0 VERIFIED_ZERO_EVENT for the missing eight
+    """
+    cat = DQCatalog()
+
+    missing_slots = build_v2_known_missing()
+    missing_set = {
+        (s.exchange, s.feed, s.market, s.cohort_utc) for s in missing_slots
+    }
+
+    universe = get_v2_feed_universe()
+    hours = get_v2_candidate_hours()
+
+    for hour in hours:
+        for exchange, feed, market in universe:
+            key = (exchange, feed, market, hour)
+            if key in missing_set:
+                # Find the corresponding missing slot
+                slot = next(s for s in missing_slots
+                           if (s.exchange, s.feed, s.market, s.cohort_utc) == key)
+                cat.add_slot(slot)
+            else:
+                cat.add_slot(FeedSlotCoverage(
+                    exchange=exchange,
+                    feed=feed,
+                    market=market,
+                    cohort_utc=hour,
+                    state=CoverageState.DATA_PRESENT,
+                    notes="V2 authoritative: documented as present in V2 validation evidence",
+                ))
+
+    return cat

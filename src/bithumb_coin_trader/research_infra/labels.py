@@ -87,13 +87,15 @@ class LabelEngine:
         self,
         tolerance_s: float = 2.0,
     ) -> None:
-        self._mid_history: list[tuple[int, float]] = []
+        self._mid_times: list[int] = []
+        self._mid_prices: list[float] = []
         self.tolerance_ns = int(tolerance_s * 1_000_000_000)
 
     def add_mid_observation(self, timestamp_ns: int, mid_price: float) -> None:
         """Add a mid-price observation to the history."""
         if mid_price > 0:
-            self._mid_history.append((timestamp_ns, mid_price))
+            self._mid_times.append(timestamp_ns)
+            self._mid_prices.append(mid_price)
 
     def compute_label(self, timestamp_ns: int, exchange: str, market: str) -> LabelVector:
         """Compute labels for a given timestamp using available mid history.
@@ -151,23 +153,24 @@ class LabelEngine:
         )
 
     def _find_mid_at(self, timestamp_ns: int) -> float | None:
-        """Find the mid price at or just before timestamp_ns."""
-        best = None
-        for t, p in self._mid_history:
-            if t <= timestamp_ns:
-                best = p
-            else:
-                break
-        return best
+        """Find the mid price at or just before timestamp_ns. O(log n)."""
+        import bisect
+        if not self._mid_times:
+            return None
+        idx = bisect.bisect_right(self._mid_times, timestamp_ns)
+        if idx == 0:
+            return None
+        return self._mid_prices[idx - 1]
 
     def _find_mid_at_or_after(self, target_ns: int) -> float | None:
-        """Find the first mid price at or after target_ns within tolerance."""
-        for t, p in self._mid_history:
-            if t >= target_ns:
-                if t - target_ns <= self.tolerance_ns:
-                    return p
-                else:
-                    return None  # Too far in the future
+        """Find the first mid price at or after target_ns within tolerance. O(log n)."""
+        import bisect
+        idx = bisect.bisect_left(self._mid_times, target_ns)
+        if idx >= len(self._mid_times):
+            return None
+        t = self._mid_times[idx]
+        if t - target_ns <= self.tolerance_ns:
+            return self._mid_prices[idx]
         return None
 
     def get_missing_label_stats(self, labels: Sequence[LabelVector]) -> dict[str, float]:

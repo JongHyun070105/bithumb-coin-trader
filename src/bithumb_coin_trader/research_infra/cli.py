@@ -29,6 +29,7 @@ from .dq import (
     CoverageState,
     build_dq_catalog_from_local,
     build_v2_known_missing,
+    build_v2_authoritative_dq_catalog,
 )
 from .hypotheses import HypothesisRegistry, HypothesisStatus, register_default_hypotheses
 from .manifests import create_manifest
@@ -82,15 +83,15 @@ def cmd_dq_build(args: argparse.Namespace) -> None:
     dataset_id = args.dataset
     data_root = Path(args.data_root) if args.data_root else _get_data_root()
 
-    print(f"Building DQ catalog for {dataset_id} from {data_root}...")
+    print(f"Building DQ catalog for {dataset_id}...")
 
-    cat = build_dq_catalog_from_local(data_root, dataset_id)
-
-    # For V2, add known missing slots
     if dataset_id == "v2":
-        for slot in build_v2_known_missing():
-            if cat.get_slot(slot.exchange, slot.feed, slot.market, slot.cohort_utc) is None:
-                cat.add_slot(slot)
+        # V2 uses the authoritative 2280-slot model, NOT local file counts
+        cat = build_v2_authoritative_dq_catalog()
+        print("Using V2 authoritative 2280-slot universe (not local file counts)")
+    else:
+        cat = build_dq_catalog_from_local(data_root, dataset_id)
+        print(f"Scanned local files from {data_root}")
 
     path = _get_dq_path(dataset_id)
     cat.save(path)

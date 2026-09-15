@@ -919,5 +919,133 @@ class TestV4QuarantineGate(unittest.TestCase):
         self.assertEqual(v4.dataset_role, DatasetRole.PROSPECTIVE_RESEARCH)
 
 
+class TestCorrectionRegression(unittest.TestCase):
+    """Regression tests for issues found in the correction phase."""
+
+    def test_v2_authoritative_slot_universe_is_2280(self) -> None:
+        """V2 DQ must be based on 30 hours x 76 feeds = 2280 slots."""
+        from bithumb_coin_trader.research_infra.dq import (
+            build_v2_authoritative_dq_catalog,
+            get_v2_feed_universe,
+            get_v2_candidate_hours,
+        )
+        universe = get_v2_feed_universe()
+        hours = get_v2_candidate_hours()
+        self.assertEqual(len(universe), 76)
+        self.assertEqual(len(hours), 30)
+        self.assertEqual(len(universe) * len(hours), 2280)
+
+        cat = build_v2_authoritative_dq_catalog()
+        summary = cat.summary("v2")
+        self.assertEqual(summary.total_slots, 2280)
+        self.assertEqual(summary.data_present, 2272)
+        self.assertEqual(summary.unknown_missing, 8)
+
+    def test_v2_known_eight_are_exactly_unknown_missing(self) -> None:
+        """The 8 known V2 missing slots must be UNKNOWN_MISSING."""
+        from bithumb_coin_trader.research_infra.dq import (
+            build_v2_authoritative_dq_catalog,
+            build_v2_known_missing,
+        )
+        cat = build_v2_authoritative_dq_catalog()
+        missing = build_v2_known_missing()
+        self.assertEqual(len(missing), 8)
+        for slot in missing:
+            self.assertEqual(slot.state, CoverageState.UNKNOWN_MISSING)
+            cat_slot = cat.get_slot(slot.exchange, slot.feed, slot.market, slot.cohort_utc)
+            self.assertIsNotNone(cat_slot)
+            self.assertEqual(cat_slot.state, CoverageState.UNKNOWN_MISSING)
+
+    def test_v2_missing_slots_not_verified_zero(self) -> None:
+        """V2 missing slots must NOT be VERIFIED_ZERO_EVENT."""
+        from bithumb_coin_trader.research_infra.dq import build_v2_known_missing
+        missing = build_v2_known_missing()
+        for slot in missing:
+            self.assertNotEqual(slot.state, CoverageState.VERIFIED_ZERO_EVENT)
+
+    def test_v2_dq_not_contaminated_by_local_files(self) -> None:
+        """V2 logical coverage must not be affected by unrelated local file counts."""
+        from bithumb_coin_trader.research_infra.dq import build_v2_authoritative_dq_catalog
+        cat = build_v2_authoritative_dq_catalog()
+        summary = cat.summary("v2")
+        # The 5396 local files should NOT appear in V2 DQ
+        self.assertEqual(summary.total_slots, 2280)
+        self.assertNotEqual(summary.total_slots, 5396)
+
+    def test_physical_file_not_data_present(self) -> None:
+        """A non-empty file alone cannot establish DATA_PRESENT."""
+        from bithumb_coin_trader.research_infra.dq import CoverageState
+        # PHYSICAL_FILE_PRESENT is not DATA_PRESENT
+        self.assertNotEqual(CoverageState.PHYSICAL_FILE_PRESENT, CoverageState.DATA_PRESENT)
+        # PHYSICAL_FILE_PRESENT requires exclusion
+        self.assertTrue(CoverageState.PHYSICAL_FILE_PRESENT.requires_exclusion)
+        self.assertFalse(CoverageState.PHYSICAL_FILE_PRESENT.is_safe_for_research)
+
+    def test_local_data_not_called_fresh45(self) -> None:
+        """Unattributed local data must not be labeled as Fresh45."""
+        reg = DatasetRegistry()
+        register_default_datasets(reg)
+        # No dataset should be called "fresh45" without provenance
+        for ds in reg.list_datasets():
+            if ds.dataset_id == "fresh45":
+                self.fail("Dataset 'fresh45' should not exist without provenance evidence")
+        # The local data should be labeled as unattributed
+        local = reg.get("local_microstructure_aug2026")
+        self.assertEqual(local.provenance_confidence, "UNATTRIBUTED")
+        self.assertNotEqual(local.dataset_role, DatasetRole.INFRA_VALIDATION_ONLY)
+
+    def test_unattributed_dataset_blocks_candidate_selection(self) -> None:
+        """Unattributed data must not be used for candidate selection."""
+        reg = DatasetRegistry()
+        register_default_datasets(reg)
+        with self.assertRaises(DatasetValidationError):
+            reg.require_candidate_selection_allowed("local_microstructure_aug2026")
+
+    def test_unattributed_dataset_blocks_final_holdout(self) -> None:
+        """Unattributed data must not be used for final holdout."""
+        reg = DatasetRegistry()
+        register_default_datasets(reg)
+        with self.assertRaises(DatasetValidationError):
+            reg.require_final_holdout_allowed("local_microstructure_aug2026")
+
+    def test_v2_feed_universe_is_76(self) -> None:
+        """V2 must have exactly 76 feeds per hour."""
+        from bithumb_coin_trader.research_infra.dq import get_v2_feed_universe
+        universe = get_v2_feed_universe()
+        self.assertEqual(len(universe), 76)
+        # Verify composition: 20 bithumb x 3 + 4 binance x 2 + 4 upbit x 2
+        bithumb = [f for f in universe if f[0] == "bithumb"]
+        binance = [f for f in universe if f[0] == "binance"]
+        upbit = [f for f in universe if f[0] == "upbit"]
+        self.assertEqual(len(bithumb), 60)  # 20 markets x 3 feeds
+        self.assertEqual(len(binance), 8)   # 4 markets x 2 feeds
+        self.assertEqual(len(upbit), 8)     # 4 markets x 2 feeds
+
+    def test_v2_candidate_hours_is_30(self) -> None:
+        """V2 must have exactly 30 candidate hours."""
+        from bithumb_coin_trader.research_infra.dq import get_v2_candidate_hours
+        hours = get_v2_candidate_hours()
+        self.assertEqual(len(hours), 30)
+        # Verify: 24 hours on Sep 12 + 6 hours on Sep 13
+        sep12 = [h for h in hours if h.startswith("2026-09-12")]
+        sep13 = [h for h in hours if h.startswith("2026-09-13")]
+        self.assertEqual(len(sep12), 24)
+        self.assertEqual(len(sep13), 6)
+
+    def test_dq_coverage_states_distinct(self) -> None:
+        """PHYSICAL_FILE_PRESENT, PARSE_VALID, etc. must be distinct from DATA_PRESENT."""
+        from bithumb_coin_trader.research_infra.dq import CoverageState
+        intermediate_states = [
+            CoverageState.PHYSICAL_FILE_PRESENT,
+            CoverageState.PARSE_VALID,
+            CoverageState.MANIFEST_BOUND,
+            CoverageState.COHORT_VALID,
+        ]
+        for state in intermediate_states:
+            self.assertNotEqual(state, CoverageState.DATA_PRESENT)
+            self.assertTrue(state.requires_exclusion)
+            self.assertFalse(state.is_safe_for_research)
+
+
 if __name__ == "__main__":
     unittest.main()

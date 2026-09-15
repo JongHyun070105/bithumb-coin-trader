@@ -1,0 +1,22 @@
+{
+  "H1": {
+    "status": "INSUFFICIENT_DATA",
+    "samples": 0
+  },
+  "H1_L5": {
+    "status": "INSUFFICIENT_DATA",
+    "samples": 0
+  },
+  "H3": {
+    "status": "INSUFFICIENT_DATA",
+    "samples": 0
+  },
+  "H3_d": {
+    "status": "INSUFFICIENT_DATA",
+    "samples": 0
+  },
+  "H2": {
+    "status": "INSUFFICIENT_DATA",
+    "samples": 0
+  }
+}

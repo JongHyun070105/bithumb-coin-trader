@@ -124,6 +124,9 @@ class FeatureEngine:
 
     Maintains rolling state for efficient computation.
     All windows are strictly backward-looking.
+
+    Optimized with bisect for O(log n) window lookups instead of O(n) scans.
+    Uses running OFI accumulator to avoid O(n²) recomputation.
     """
 
     def __init__(
@@ -134,42 +137,73 @@ class FeatureEngine:
         self.market = market
         self.exchange = exchange
 
-        # Rolling state
-        self._orderbook_history: list[tuple[int, OrderbookSnapshot]] = []
-        self._trade_history: list[tuple[int, TradeTick]] = []
-        self._mid_history: list[tuple[int, float]] = []
+        # Rolling state — all sorted by timestamp
+        self._ob_times: list[int] = []
+        self._ob_snapshots: list[OrderbookSnapshot] = []
+        self._trade_times: list[int] = []
+        self._trade_ticks: list[TradeTick] = []
+        self._mid_times: list[int] = []
+        self._mid_prices: list[float] = []
         self._event_times: list[int] = []
-        self._ob_update_times: list[int] = []
 
-        # Max history to keep (prevent unbounded growth)
-        self._max_history_ns = 300_000_000_000  # 5 minutes
+        # Running OFI accumulator (avoids O(n²) recomputation)
+        self._ofi_cumulative: list[tuple[int, float]] = []  # (timestamp, cumulative_ofi)
+        self._last_ofi_value: float = 0.0
+
+        # Max history to keep (60s is enough for all windows)
+        self._max_history_ns = 120_000_000_000  # 2 minutes
 
     def _prune_old(self, current_ns: int) -> None:
         cutoff = current_ns - self._max_history_ns
-        self._orderbook_history = [
-            (t, s) for t, s in self._orderbook_history if t >= cutoff
-        ]
-        self._trade_history = [
-            (t, s) for t, s in self._trade_history if t >= cutoff
-        ]
-        self._mid_history = [
-            (t, p) for t, p in self._mid_history if t >= cutoff
-        ]
-        self._event_times = [t for t in self._event_times if t >= cutoff]
-        self._ob_update_times = [t for t in self._ob_update_times if t >= cutoff]
-
-    def _seconds_ago(self, current_ns: int, window_s: float) -> int:
-        return current_ns - int(window_s * 1_000_000_000)
+        # Use bisect to find cutoff index for each sorted list
+        import bisect
+        for times, data in [
+            (self._ob_times, self._ob_snapshots),
+            (self._trade_times, self._trade_ticks),
+            (self._mid_times, self._mid_prices),
+        ]:
+            idx = bisect.bisect_left(times, cutoff)
+            if idx > 0:
+                del times[:idx]
+                del data[:idx]
+        idx = bisect.bisect_left(self._event_times, cutoff)
+        if idx > 0:
+            del self._event_times[:idx]
+        idx = bisect.bisect_left([t for t, _ in self._ofi_cumulative], cutoff)
+        if idx > 0:
+            del self._ofi_cumulative[:idx]
 
     def _count_in_window(self, times: list[int], start_ns: int, end_ns: int) -> int:
-        return sum(1 for t in times if start_ns <= t <= end_ns)
+        """Count events in [start, end] using bisect. O(log n)."""
+        import bisect
+        lo = bisect.bisect_left(times, start_ns)
+        hi = bisect.bisect_right(times, end_ns)
+        return hi - lo
+
+    def _find_closest_mid(self, target_ns: int) -> float | None:
+        """Find mid price closest to target_ns using bisect. O(log n)."""
+        import bisect
+        if not self._mid_times:
+            return None
+        idx = bisect.bisect_left(self._mid_times, target_ns)
+        candidates = []
+        if idx > 0:
+            candidates.append((abs(self._mid_times[idx - 1] - target_ns), self._mid_prices[idx - 1]))
+        if idx < len(self._mid_times):
+            candidates.append((abs(self._mid_times[idx] - target_ns), self._mid_prices[idx]))
+        if not candidates:
+            return None
+        return min(candidates, key=lambda x: x[0])[1]
+
+    def _get_window_slice(self, times: list[int], start_ns: int, end_ns: int) -> tuple[int, int]:
+        """Return (lo, hi) indices for items in [start, end]. O(log n)."""
+        import bisect
+        lo = bisect.bisect_left(times, start_ns)
+        hi = bisect.bisect_right(times, end_ns)
+        return lo, hi
 
     def process_event(self, event: CanonicalEvent) -> FeatureVector | None:
-        """Process a single event and return features if available.
-
-        Only processes events for the configured market and exchange.
-        Returns None if event is for a different market/exchange.
-        """
+        """Process a single event and return features if available."""
         if event.market != self.market or event.exchange != self.exchange:
             return None
 
@@ -201,15 +235,15 @@ class FeatureEngine:
             asks=asks,
         )
 
-        self._orderbook_history.append((t_ns, ob))
-        self._ob_update_times.append(t_ns)
+        self._ob_times.append(t_ns)
+        self._ob_snapshots.append(ob)
 
-        # Update mid history
         mid = ob.mid_price
         if mid > 0:
-            self._mid_history.append((t_ns, mid))
+            self._mid_times.append(t_ns)
+            self._mid_prices.append(mid)
 
-        # Compute features
+        # Build feature vector incrementally
         fv = FeatureVector(
             timestamp_ns=t_ns,
             exchange=event.exchange,
@@ -223,70 +257,86 @@ class FeatureEngine:
         )
 
         # Depth features
-        bid_depth_l1 = sum(s for _, s in bids[:1])
-        ask_depth_l1 = sum(s for _, s in asks[:1])
+        bid_depth_l1 = bids[0][1]
+        ask_depth_l1 = asks[0][1]
         bid_depth_l5 = sum(s for _, s in bids[:5])
         ask_depth_l5 = sum(s for _, s in asks[:5])
+        depth_sum_l1 = bid_depth_l1 + ask_depth_l1
+        depth_sum_l5 = bid_depth_l5 + ask_depth_l5
 
-        depth_imb_l1 = (bid_depth_l1 - ask_depth_l1) / (bid_depth_l1 + ask_depth_l1) \
-            if (bid_depth_l1 + ask_depth_l1) > 0 else 0.0
-        depth_imb_l5 = (bid_depth_l5 - ask_depth_l5) / (bid_depth_l5 + ask_depth_l5) \
-            if (bid_depth_l5 + ask_depth_l5) > 0 else 0.0
-
-        fv = FeatureVector(
-            **{**fv.to_dict(), "bid_depth_l1": bid_depth_l1, "ask_depth_l1": ask_depth_l1,
-               "bid_depth_l5": bid_depth_l5, "ask_depth_l5": ask_depth_l5,
-               "depth_imbalance_l1": depth_imb_l1, "depth_imbalance_l5": depth_imb_l5},
-        )
+        object.__setattr__(fv, "bid_depth_l1", bid_depth_l1)
+        object.__setattr__(fv, "ask_depth_l1", ask_depth_l1)
+        object.__setattr__(fv, "bid_depth_l5", bid_depth_l5)
+        object.__setattr__(fv, "ask_depth_l5", ask_depth_l5)
+        object.__setattr__(fv, "depth_imbalance_l1",
+                           (bid_depth_l1 - ask_depth_l1) / depth_sum_l1 if depth_sum_l1 > 0 else 0.0)
+        object.__setattr__(fv, "depth_imbalance_l5",
+                           (bid_depth_l5 - ask_depth_l5) / depth_sum_l5 if depth_sum_l5 > 0 else 0.0)
 
         # Microprice
         micro, qi = compute_mpqi(ob, depth=5)
-        if mid > 0:
-            micro_bias_bps = (micro - mid) / mid * 10_000
-        else:
-            micro_bias_bps = 0.0
+        micro_bias_bps = (micro - mid) / mid * 10_000 if mid > 0 else 0.0
+        object.__setattr__(fv, "microprice", micro)
+        object.__setattr__(fv, "microprice_bias_bps", micro_bias_bps)
+        object.__setattr__(fv, "microprice_displacement", micro - mid)
+        object.__setattr__(fv, "qi_l1", qi)
+        object.__setattr__(fv, "qi_l3", qi)
+        object.__setattr__(fv, "qi_l5", qi)
 
-        fv = FeatureVector(
-            **{**fv.to_dict(), "microprice": micro, "microprice_bias_bps": micro_bias_bps,
-               "microprice_displacement": micro - mid,
-               "qi_l1": qi, "qi_l3": qi, "qi_l5": qi},
-        )
-
-        # Orderbook imbalance (OFI)
-        if len(self._orderbook_history) >= 2:
-            prev_ob = self._orderbook_history[-2][1]
-            prev_t = self._orderbook_history[-2][0]
-
+        # OFI — incremental accumulator
+        if len(self._ob_snapshots) >= 2:
+            prev_ob = self._ob_snapshots[-2]
             ofi_v1 = compute_ofi_v1(prev_ob, ob, depth=5)
             ofi_v2 = compute_ofi_v2(prev_ob, ob)
+            self._last_ofi_value += ofi_v1
+            self._ofi_cumulative.append((t_ns, self._last_ofi_value))
 
-            # Accumulate OFI over windows
-            window_5s = self._seconds_ago(t_ns, 5.0)
-            window_30s = self._seconds_ago(t_ns, 30.0)
+            # Window OFI using cumulative sum difference
+            window_5s = t_ns - 5_000_000_000
+            window_30s = t_ns - 30_000_000_000
+            ofi_5s = self._ofi_in_window(window_5s, t_ns)
+            ofi_30s = self._ofi_in_window(window_30s, t_ns)
 
-            ofi_v1_5s = self._accumulate_ofi(window_5s, t_ns)
-            ofi_v1_30s = self._accumulate_ofi(window_30s, t_ns)
-
-            fv = FeatureVector(
-                **{**fv.to_dict(),
-                   "obi_v1_5s": ofi_v1_5s if ofi_v1_5s != 0 else ofi_v1,
-                   "obi_v1_30s": ofi_v1_30s if ofi_v1_30s != 0 else ofi_v1,
-                   "obi_v2_5s": ofi_v2},
-            )
+            object.__setattr__(fv, "obi_v1_5s", ofi_5s if ofi_5s != 0 else ofi_v1)
+            object.__setattr__(fv, "obi_v1_30s", ofi_30s if ofi_30s != 0 else ofi_v1)
+            object.__setattr__(fv, "obi_v2_5s", ofi_v2)
 
         # Intensity
-        window_30s = self._seconds_ago(t_ns, 30.0)
-        ob_updates_30s = self._count_in_window(self._ob_update_times, window_30s, t_ns)
+        window_30s = t_ns - 30_000_000_000
+        ob_updates_30s = self._count_in_window(self._ob_times, window_30s, t_ns)
         events_30s = self._count_in_window(self._event_times, window_30s, t_ns)
+        object.__setattr__(fv, "ob_update_rate_30s", ob_updates_30s / 30.0)
+        object.__setattr__(fv, "event_intensity_30s", events_30s / 30.0)
 
-        fv = FeatureVector(
-            **{**fv.to_dict(),
-               "ob_update_rate_30s": ob_updates_30s / 30.0,
-               "event_intensity_30s": events_30s / 30.0},
-        )
+        # Momentum and volatility
+        if mid > 0 and self._mid_times:
+            for label, window_s in [
+                ("mid_return_1s", 1.0),
+                ("mid_return_5s", 5.0),
+                ("mid_return_30s", 30.0),
+                ("mid_return_60s", 60.0),
+            ]:
+                past_mid = self._find_closest_mid(t_ns - int(window_s * 1e9))
+                if past_mid is not None and past_mid > 0:
+                    object.__setattr__(fv, label, (mid - past_mid) / past_mid)
 
-        # Volatility and momentum from mid history
-        self._enrich_momentum_vol(fv, t_ns)
+            for label, window_s in [
+                ("realized_vol_30s", 30.0),
+                ("realized_vol_60s", 60.0),
+            ]:
+                cutoff = t_ns - int(window_s * 1e9)
+                lo, hi = self._get_window_slice(self._mid_times, cutoff, t_ns)
+                if hi - lo >= 2:
+                    returns = []
+                    for i in range(lo + 1, hi):
+                        prev_p = self._mid_prices[i - 1]
+                        curr_p = self._mid_prices[i]
+                        if prev_p > 0:
+                            returns.append(math.log(curr_p / prev_p))
+                    if returns:
+                        mean_sq = sum(r * r for r in returns) / len(returns)
+                        object.__setattr__(fv, label,
+                                           math.sqrt(mean_sq) * math.sqrt(365.25 * 24 * 3600 / window_s))
 
         return fv
 
@@ -305,53 +355,54 @@ class FeatureEngine:
             exchange=event.exchange.upper(),
         )
 
-        self._trade_history.append((t_ns, trade))
-        self._event_times.append(t_ns)
+        self._trade_times.append(t_ns)
+        self._trade_ticks.append(trade)
 
         fv = self._empty_features(t_ns, event)
 
-        # Trade flow features
-        window_5s = self._seconds_ago(t_ns, 5.0)
-        window_30s = self._seconds_ago(t_ns, 30.0)
-        window_60s = self._seconds_ago(t_ns, 60.0)
+        # Volume decomposition using window slice
+        window_5s = t_ns - 5_000_000_000
+        window_30s = t_ns - 30_000_000_000
+        window_60s = t_ns - 60_000_000_000
 
-        # ATI
-        trade_ticks = [t for _, t in self._trade_history]
-        ati_5s = compute_ati(trade_ticks, trade.timestamp, 5.0)
-        ati_30s = compute_ati(trade_ticks, trade.timestamp, 30.0)
-        ati_60s = compute_ati(trade_ticks, trade.timestamp, 60.0)
+        # ATI using window slices
+        lo5, hi5 = self._get_window_slice(self._trade_times, window_5s, t_ns)
+        lo30, hi30 = self._get_window_slice(self._trade_times, window_30s, t_ns)
+        lo60, hi60 = self._get_window_slice(self._trade_times, window_60s, t_ns)
 
-        # Volume decomposition
-        trades_30s = [
-            (t, tr) for t, tr in self._trade_history
-            if window_30s <= t <= t_ns
-        ]
-        buy_vol = sum(tr.volume for _, tr in trades_30s if tr.side == "BUY")
-        sell_vol = sum(tr.volume for _, tr in trades_30s if tr.side == "SELL")
-        signed_vol = buy_vol - sell_vol
-        trade_count = len(trades_30s)
+        def _compute_ati_from_slice(lo: int, hi: int) -> float | None:
+            if hi - lo < 1:
+                return None
+            buy_vol = sum(self._trade_ticks[i].volume for i in range(lo, hi)
+                          if self._trade_ticks[i].side == "BUY")
+            sell_vol = sum(self._trade_ticks[i].volume for i in range(lo, hi)
+                           if self._trade_ticks[i].side == "SELL")
+            total = buy_vol + sell_vol
+            if total <= 0:
+                return 0.0
+            return (buy_vol - sell_vol) / total
 
-        fv = FeatureVector(
-            **{**fv.to_dict(),
-               "ati_5s": ati_5s,
-               "ati_30s": ati_30s,
-               "ati_60s": ati_60s,
-               "signed_volume_30s": signed_vol,
-               "trade_count_30s": trade_count,
-               "buy_volume_30s": buy_vol,
-               "sell_volume_30s": sell_vol,
-               "trade_arrival_rate_30s": trade_count / 30.0,
-               "event_intensity_30s": len([t for t in self._event_times
-                                           if window_30s <= t <= t_ns]) / 30.0},
-        )
+        buy_vol_30 = sum(self._trade_ticks[i].volume for i in range(lo30, hi30)
+                         if self._trade_ticks[i].side == "BUY")
+        sell_vol_30 = sum(self._trade_ticks[i].volume for i in range(lo30, hi30)
+                          if self._trade_ticks[i].side == "SELL")
+        trade_count_30 = hi30 - lo30
 
-        # Mid price from latest orderbook
-        if self._orderbook_history:
-            latest_ob = self._orderbook_history[-1][1]
-            fv = FeatureVector(
-                **{**fv.to_dict(), "mid_price": latest_ob.mid_price,
-                   "spread_bps": latest_ob.spread_bps},
-            )
+        object.__setattr__(fv, "ati_5s", _compute_ati_from_slice(lo5, hi5))
+        object.__setattr__(fv, "ati_30s", _compute_ati_from_slice(lo30, hi30))
+        object.__setattr__(fv, "ati_60s", _compute_ati_from_slice(lo60, hi60))
+        object.__setattr__(fv, "signed_volume_30s", buy_vol_30 - sell_vol_30)
+        object.__setattr__(fv, "trade_count_30s", trade_count_30)
+        object.__setattr__(fv, "buy_volume_30s", buy_vol_30)
+        object.__setattr__(fv, "sell_volume_30s", sell_vol_30)
+        object.__setattr__(fv, "trade_arrival_rate_30s", trade_count_30 / 30.0)
+        events_30 = self._count_in_window(self._event_times, window_30s, t_ns)
+        object.__setattr__(fv, "event_intensity_30s", events_30 / 30.0)
+
+        if self._ob_snapshots:
+            latest_ob = self._ob_snapshots[-1]
+            object.__setattr__(fv, "mid_price", latest_ob.mid_price)
+            object.__setattr__(fv, "spread_bps", latest_ob.spread_bps)
 
         return fv
 
@@ -360,7 +411,7 @@ class FeatureEngine:
         last_price = float(payload.get("last_price", 0))
         fv = self._empty_features(t_ns, event)
         if last_price > 0:
-            fv = FeatureVector(**{**fv.to_dict(), "mid_price": last_price})
+            object.__setattr__(fv, "mid_price", last_price)
         return fv
 
     def _empty_features(self, t_ns: int, event: CanonicalEvent) -> FeatureVector:
@@ -370,69 +421,22 @@ class FeatureEngine:
             market=event.market,
         )
 
-    def _accumulate_ofi(self, start_ns: int, end_ns: int) -> float:
-        """Accumulate OFI over a window from orderbook history."""
-        total = 0.0
-        obs_in_window = [(t, ob) for t, ob in self._orderbook_history
-                         if start_ns <= t <= end_ns]
-        for i in range(1, len(obs_in_window)):
-            prev_ob = obs_in_window[i - 1][1]
-            curr_ob = obs_in_window[i][1]
-            total += compute_ofi_v1(prev_ob, curr_ob, depth=5)
-        return total
+    def _ofi_in_window(self, start_ns: int, end_ns: int) -> float:
+        """Compute OFI in window using cumulative sum. O(log n)."""
+        import bisect
+        if not self._ofi_cumulative:
+            return 0.0
+        times = [t for t, _ in self._ofi_cumulative]
+        values = [v for _, v in self._ofi_cumulative]
 
-    def _enrich_momentum_vol(self, fv: FeatureVector, t_ns: int) -> None:
-        """Add momentum and volatility features from mid price history."""
-        if not self._mid_history or fv.mid_price is None or fv.mid_price <= 0:
-            return
+        lo = bisect.bisect_left(times, start_ns)
+        hi = bisect.bisect_right(times, end_ns)
 
-        mid = fv.mid_price
-        updates: dict[str, Any] = {}
-
-        for label, window_s in [
-            ("mid_return_1s", 1.0),
-            ("mid_return_5s", 5.0),
-            ("mid_return_30s", 30.0),
-            ("mid_return_60s", 60.0),
-        ]:
-            target_ns = t_ns - int(window_s * 1_000_000_000)
-            # Find closest mid to target
-            best = None
-            best_dist = float("inf")
-            for t, p in self._mid_history:
-                dist = abs(t - target_ns)
-                if dist < best_dist:
-                    best_dist = dist
-                    best = p
-            if best is not None and best > 0:
-                updates[label] = (mid - best) / best
-
-        # Realized volatility (annualized from returns)
-        for label, window_s in [
-            ("realized_vol_30s", 30.0),
-            ("realized_vol_60s", 60.0),
-        ]:
-            cutoff = t_ns - int(window_s * 1_000_000_000)
-            window_mids = [(t, p) for t, p in self._mid_history if t >= cutoff]
-            if len(window_mids) >= 2:
-                returns = []
-                for i in range(1, len(window_mids)):
-                    prev_p = window_mids[i - 1][1]
-                    curr_p = window_mids[i][1]
-                    if prev_p > 0:
-                        returns.append(math.log(curr_p / prev_p))
-                if returns:
-                    mean_sq = sum(r * r for r in returns) / len(returns)
-                    # Annualize: sqrt(mean_sq * events_per_year)
-                    # Rough: use 365.25 * 24 * 3600 seconds per year
-                    updates[label] = math.sqrt(mean_sq) * math.sqrt(365.25 * 24 * 3600 / window_s)
-
-        if updates:
-            from dataclasses import fields as dc_fields
-            valid_names = {f.name for f in dc_fields(FeatureVector)}
-            for k, v in updates.items():
-                if k in valid_names and v is not None:
-                    object.__setattr__(fv, k, v)
+        if hi <= lo:
+            return 0.0
+        if lo == 0:
+            return values[hi - 1]
+        return values[hi - 1] - values[lo - 1]
 
 
 def compute_cross_exchange_features(

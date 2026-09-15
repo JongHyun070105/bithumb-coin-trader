@@ -112,54 +112,36 @@ def adapt_raw_record(
                 }
 
         elif event_kind == EventKind.ORDERBOOK:
-            try:
-                canonical = raw_record_to_canonical(record)
-                if not isinstance(canonical, CanonicalOrderBook):
-                    return None
-                ob_payload = {
-                    "bids": [list(b) for b in canonical.bids],
-                    "asks": [list(a) for a in canonical.asks],
-                    "is_snapshot": canonical.is_snapshot,
-                }
-                # DQ check
-                dq_flags = scan_orderbook_quality(canonical)
-            except Exception:
-                # Fallback: parse directly
-                units = payload.get("orderbook_units", [])
-                if not units:
-                    return None
-                bids = sorted(
-                    [(float(u["bid_price"]), float(u["bid_size"])) for u in units if u.get("bid_price")],
-                    key=lambda x: -x[0],
-                )
-                asks = sorted(
-                    [(float(u["ask_price"]), float(u["ask_size"])) for u in units if u.get("ask_price")],
-                    key=lambda x: x[0],
-                )
-                if not bids or not asks:
-                    return None
-                ob_payload = {
-                    "bids": bids,
-                    "asks": asks,
-                    "is_snapshot": payload.get("stream_type", "") == "SNAPSHOT",
-                }
-                trade_payload = None  # not used for orderbook
+            # Parse orderbook directly — filter out zero-size levels
+            # (Bithumb sends levels with zero size that the canonical model rejects)
+            units = payload.get("orderbook_units", [])
+            if not units:
+                return None
+            bids = sorted(
+                [(float(u["bid_price"]), float(u["bid_size"]))
+                 for u in units if u.get("bid_price") and float(u.get("bid_size", 0)) > 0],
+                key=lambda x: -x[0],
+            )
+            asks = sorted(
+                [(float(u["ask_price"]), float(u["ask_size"]))
+                 for u in units if u.get("ask_price") and float(u.get("ask_size", 0)) > 0],
+                key=lambda x: x[0],
+            )
+            if not bids or not asks:
+                return None
+            ob_payload = {
+                "bids": bids,
+                "asks": asks,
+                "is_snapshot": payload.get("stream_type", "") == "SNAPSHOT",
+            }
 
         elif event_kind == EventKind.TICKER:
-            try:
-                canonical = raw_record_to_canonical(record)
-                if not isinstance(canonical, CanonicalTicker):
-                    return None
-                ticker_payload = {
-                    "last_price": canonical.last_price,
-                    "volume_24h": canonical.volume_24h,
-                }
-            except Exception:
-                ticker_payload = {
-                    "last_price": float(payload.get("trade_price", payload.get("last_price", 0))),
-                    "volume_24h": float(payload.get("acc_trade_volume_24h", 0))
-                        if payload.get("acc_trade_volume_24h") else None,
-                }
+            # Parse ticker directly — more robust than canonical conversion
+            ticker_payload = {
+                "last_price": float(payload.get("trade_price", payload.get("last_price", 0))),
+                "volume_24h": float(payload.get("acc_trade_volume_24h", 0))
+                    if payload.get("acc_trade_volume_24h") else None,
+            }
 
         # Build the final payload
         if event_kind == EventKind.TRADE:
