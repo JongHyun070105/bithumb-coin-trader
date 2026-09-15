@@ -166,27 +166,28 @@ class TestV3SealConsistency(unittest.TestCase):
         self.assertEqual(timing_data["total_expected_coverage_slots"], 2280)
         self.assertEqual(timing_data["total_expected_coverage_slots"], 30 * 76)
 
-    def test_11_launch_authorized_is_false(self) -> None:
-        """11. launch_authorized = false."""
+    def test_11_v3_consumed_identity_reflects_post_launch_failure(self) -> None:
+        """11. V3 consumed identity: launch_authorized=True, status=FAILED_TO_START."""
         auth_path = self.seals_dir / f"{self.epoch}.authorization-evidence.json"
         auth_data = json.loads(auth_path.read_text(encoding="utf-8"))
-        self.assertFalse(auth_data["launch_authorized"])
-        self.assertEqual(auth_data["status"], "PREPARED_NOT_AUTHORIZED")
+        self.assertTrue(auth_data["launch_authorized"])
+        self.assertEqual(auth_data["status"], "FAILED_TO_START")
+        self.assertIn("raw_root_template", auth_data["note"])
 
         prov_path = self.seals_dir / f"{self.epoch}.launch-provenance.json"
         prov_data = json.loads(prov_path.read_text(encoding="utf-8"))
-        self.assertFalse(prov_data["launch_authorized"])
+        self.assertTrue(prov_data["launch_authorized"])
 
-    def test_12_actual_start_time_utc_is_null(self) -> None:
-        """12. actual_start_time_utc = null."""
+    def test_12_v3_actual_start_time_utc_is_recorded(self) -> None:
+        """12. V3 consumed identity: actual_start_time_utc is recorded."""
         auth_path = self.seals_dir / f"{self.epoch}.authorization-evidence.json"
         auth_data = json.loads(auth_path.read_text(encoding="utf-8"))
-        self.assertIsNone(auth_data["actual_start_time_utc"])
-        self.assertIsNone(auth_data["actual_start_evidence"])
+        self.assertIsNotNone(auth_data["actual_start_time_utc"])
+        self.assertIsNotNone(auth_data["actual_start_evidence"])
 
         prov_path = self.seals_dir / f"{self.epoch}.launch-provenance.json"
         prov_data = json.loads(prov_path.read_text(encoding="utf-8"))
-        self.assertIsNone(prov_data["actual_start_time_utc"])
+        self.assertIsNotNone(prov_data["actual_start_time_utc"])
 
     def test_13_collector_schedule_mode_duration_validation(self) -> None:
         """13. V3 schedule mode requires duration 0; positive duration with schedule path fails closed."""
@@ -317,6 +318,26 @@ class TestV3SealConsistency(unittest.TestCase):
                 "aws-validation-30h-20260915-v3",
                 "raw_root_template",
             )
+
+    def test_21_v4_prelaunch_authorized_is_false(self) -> None:
+        """21. V4 pre-launch: launch_authorized=false, status=PREPARED_NOT_AUTHORIZED."""
+        v4_auth_path = self.seals_dir / "aws-validation-30h-20260915-v4.authorization-evidence.json"
+        auth_data = json.loads(v4_auth_path.read_text(encoding="utf-8"))
+        self.assertFalse(auth_data["launch_authorized"])
+        self.assertEqual(auth_data["status"], "PREPARED_NOT_AUTHORIZED")
+        self.assertIsNone(auth_data["actual_start_time_utc"])
+        self.assertIsNone(auth_data["actual_start_evidence"])
+        self.assertEqual(auth_data["collector_epoch"], "aws-validation-30h-20260915-v4")
+
+    def test_22_v4_prelaunch_provenance_state(self) -> None:
+        """22. V4 pre-launch: provenance has launch_authorized=false, no actual start."""
+        v4_prov_path = self.seals_dir / "aws-validation-30h-20260915-v4.launch-provenance.json"
+        prov_data = json.loads(v4_prov_path.read_text(encoding="utf-8"))
+        self.assertFalse(prov_data["launch_authorized"])
+        self.assertIsNone(prov_data["actual_start_time_utc"])
+        self.assertEqual(prov_data["runtime_code_commit"], self.runtime_commit)
+        self.assertEqual(prov_data["runtime_config_fingerprint"],
+                         "4229274b582598bb869aafd4d0c139949559ebffab837546613be651ee60b2fa")
 
 
 if __name__ == "__main__":
