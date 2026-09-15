@@ -8,6 +8,7 @@ import hashlib
 import json
 from pathlib import Path
 import stat
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,6 +20,7 @@ for d in (ROOT, SRC_DIR):
 from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig, render_systemd_run
 from bithumb_coin_trader.evidence_hashing import canonical_sha256, file_sha256
 from bithumb_coin_trader.session_evidence import FeedIdentity
+from scripts.run_cross_market_collector import canonical_config_fingerprint as collector_config_fingerprint
 
 BITHUMB_MARKETS = [
     "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-DOGE",
@@ -311,8 +313,39 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
 """
 
 
+def validate_git_commit(commit: str, cwd: Path) -> tuple[str, str]:
+    if not commit or not commit.strip():
+        raise ValueError("runtime commit argument is missing or empty")
+    commit_str = commit.strip()
+    try:
+        subprocess.run(
+            ["git", "cat-file", "-e", f"{commit_str}^{{commit}}"],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+        full_commit = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{commit_str}^{{commit}}"],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        tree = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{commit_str}^{{tree}}"],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+    except Exception as e:
+        raise ValueError(f"Commit validation failed for '{commit}': {e}") from e
+    return full_commit, tree
+
+
 def generate_launch_provenance(
     commit: str,
+    runtime_git_tree: str,
     epoch: str,
     run_id: str,
     runtime_seal_sha256: str,
@@ -326,6 +359,7 @@ def generate_launch_provenance(
     return {
         "schema_version": 2,
         "runtime_code_commit": commit,
+        "runtime_git_tree": runtime_git_tree,
         "runtime_config_seal_path": f"infra/aws/seals/{epoch}.runtime.json",
         "runtime_config_seal_sha256": runtime_seal_sha256,
         "runtime_config_fingerprint": runtime_fingerprint,
@@ -401,7 +435,13 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--epoch", default="aws-validation-30h-20260915-v3")
     parser.add_argument("--run-id", default="aws-validation-30h-run-20260915T013000Z-v3")
-    parser.add_argument("--commit", default="e9d5d5a91f2505603291419e8c3d5a1e448df205")
+    parser.add_argument(
+        "--runtime-commit",
+        "--commit",
+        dest="commit",
+        required=True,
+        help="Authoritative runtime software git commit SHA (required, no stale fallback)",
+    )
     parser.add_argument("--output-dir", type=Path, default=ROOT / "infra" / "aws" / "seals")
     args = parser.parse_args()
 
@@ -410,7 +450,7 @@ def main() -> int:
 
     epoch = args.epoch
     run_id = args.run_id
-    commit = args.commit
+    commit, git_tree = validate_git_commit(args.commit, cwd=ROOT)
 
     # 1. Feed Universe
     feed_data = generate_feed_universe()
@@ -439,7 +479,14 @@ def main() -> int:
     runtime_bytes = json.dumps(runtime_data, indent=2).encode("utf-8") + b"\n"
     runtime_path.write_bytes(runtime_bytes)
     runtime_sha256 = file_sha256(runtime_path)
-    runtime_fingerprint = canonical_config_fingerprint(runtime_data)
+    seal_fingerprint = canonical_config_fingerprint(runtime_data)
+    collector_fingerprint = collector_config_fingerprint(runtime_data)
+    if seal_fingerprint != collector_fingerprint:
+        raise ValueError(
+            f"Runtime config fingerprint mismatch! Seal generator: {seal_fingerprint}, "
+            f"Collector: {collector_fingerprint}"
+        )
+    runtime_fingerprint = seal_fingerprint
 
     # 5. Launch Command
     launch_cmd_data = generate_launch_command(commit, epoch, run_id, runtime_fingerprint)
@@ -458,6 +505,7 @@ def main() -> int:
     # 7. Launch Provenance
     provenance_data = generate_launch_provenance(
         commit=commit,
+        runtime_git_tree=git_tree,
         epoch=epoch,
         run_id=run_id,
         runtime_seal_sha256=runtime_sha256,
@@ -484,6 +532,7 @@ def main() -> int:
     print(f"Collector Epoch: {epoch}")
     print(f"Collector Run ID: {run_id}")
     print(f"Runtime Software Commit: {commit}")
+    print(f"Runtime Git Tree: {git_tree}")
     print(f"Runtime Config Fingerprint: {runtime_fingerprint}")
     print(f"Feed Universe Hash: {feed_sha256}")
     print(f"Timing Contract Hash: {timing_sha256}")
