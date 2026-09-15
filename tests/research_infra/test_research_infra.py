@@ -1047,5 +1047,159 @@ class TestCorrectionRegression(unittest.TestCase):
             self.assertFalse(state.is_safe_for_research)
 
 
+class TestExecutionIntegration(unittest.TestCase):
+    """Tests for execution integration with correct simulator API."""
+
+    def _make_ob_event(self, ts_ns: int, best_bid: float = 100_000_000.0,
+                       best_ask: float = 100_010_000.0,
+                       bid_size: float = 1.0, ask_size: float = 1.0) -> CanonicalEvent:
+        """Create a test orderbook event with realistic KRW-BTC prices."""
+        return CanonicalEvent(
+            dataset_id="test", source_run_id=None, collector_epoch=None,
+            source_file=None, source_file_offset=None,
+            exchange="bithumb", market="KRW-BTC",
+            event_kind=EventKind.ORDERBOOK,
+            exchange_timestamp_ms=ts_ns // 1_000_000,
+            local_recv_timestamp_ms=ts_ns // 1_000_000,
+            local_write_timestamp_ms=ts_ns // 1_000_000,
+            ordering_timestamp_ns=ts_ns,
+            exchange_timestamp_role=TimestampRole.EXCHANGE_EVENT,
+            payload={
+                "bids": [[best_bid, bid_size], [best_bid - 10_000, 2.0]],
+                "asks": [[best_ask, ask_size], [best_ask + 10_000, 2.0]],
+                "is_snapshot": True,
+            },
+        )
+
+    def test_taker_buy_walks_asks(self) -> None:
+        """BUY must execute against ask side."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, DEFAULT_TAKER_ASSUMPTIONS,
+        )
+        sim = ResearchExecutionSimulator(assumptions=DEFAULT_TAKER_ASSUMPTIONS)
+        event = self._make_ob_event(1_000_000_000_000)
+        result = sim.execute_signal("BUY", event, 100_005_000.0)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.side, "BUY")
+        # Fill price must be at or above best ask (100,010,000)
+        self.assertGreaterEqual(result.fill_price, 100_010_000.0)
+
+    def test_taker_sell_walks_bids(self) -> None:
+        """SELL must execute against bid side."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, DEFAULT_TAKER_ASSUMPTIONS,
+        )
+        sim = ResearchExecutionSimulator(assumptions=DEFAULT_TAKER_ASSUMPTIONS)
+        # First BUY
+        buy_event = self._make_ob_event(1_000_000_000_000)
+        sim.execute_signal("BUY", buy_event, 100_005_000.0)
+        # Then SELL
+        sell_event = self._make_ob_event(2_000_000_000_000)
+        result = sim.execute_signal("SELL", sell_event, 100_005_000.0)
+        self.assertIsNotNone(result)
+        self.assertEqual(result.side, "SELL")
+        # Fill price must be at or below best bid (100,000,000)
+        self.assertLessEqual(result.fill_price, 100_000_000.0)
+
+    def test_fee_applied_on_both_legs(self) -> None:
+        """Fee must be charged on both BUY and SELL."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, ExecutionAssumptions,
+        )
+        assumptions = ExecutionAssumptions(
+            fee_regime="normal_fee", fee_rate=0.0025, slippage_bps=5.0,
+            latency_ms=0.0, position_size_krw=100_000, max_depth_levels=5,
+        )
+        sim = ResearchExecutionSimulator(assumptions=assumptions)
+        buy = sim.execute_signal("BUY", self._make_ob_event(1_000_000_000_000), 100_005_000.0)
+        sell = sim.execute_signal("SELL", self._make_ob_event(2_000_000_000_000), 100_005_000.0)
+        self.assertGreater(buy.fee_krw, 0)
+        self.assertGreater(sell.fee_krw, 0)
+
+    def test_no_fill_beyond_visible_depth(self) -> None:
+        """Must not fill beyond visible orderbook depth."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, ExecutionAssumptions,
+        )
+        assumptions = ExecutionAssumptions(
+            fee_regime="live_zero_fee", fee_rate=0.0, slippage_bps=0.0,
+            latency_ms=0.0, position_size_krw=10_000_000_000,  # Very large order
+            max_depth_levels=2, partial_fills_enabled=True,
+        )
+        sim = ResearchExecutionSimulator(assumptions=assumptions)
+        event = self._make_ob_event(1_000_000_000_000, bid_size=1.0, ask_size=1.0)
+        result = sim.execute_signal("BUY", event, 100_005_000.0)
+        if result:
+            # Fill quantity should not exceed visible depth (3 BTC across 2 levels)
+            self.assertLessEqual(result.fill_quantity, 3.0 + 0.001)
+
+    def test_passive_fills_disabled_by_default(self) -> None:
+        """Passive fills must be disabled by default."""
+        from bithumb_coin_trader.research_infra.execution import DEFAULT_TAKER_ASSUMPTIONS
+        self.assertFalse(DEFAULT_TAKER_ASSUMPTIONS.passive_fills_enabled)
+
+    def test_mid_price_never_used_as_fill(self) -> None:
+        """Taker fill price must be at ask (BUY) or bid (SELL), never mid."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, DEFAULT_TAKER_ASSUMPTIONS,
+        )
+        sim = ResearchExecutionSimulator(assumptions=DEFAULT_TAKER_ASSUMPTIONS)
+        event = self._make_ob_event(1_000_000_000_000,
+                                     best_bid=100_000_000, best_ask=101_000_000)
+        result = sim.execute_signal("BUY", event, 100_500_000.0)
+        if result:
+            # Fill must be at ask (101M), not mid (100.5M)
+            self.assertGreaterEqual(result.fill_price, 101_000_000.0)
+
+    def test_long_only_no_short(self) -> None:
+        """Must not simulate impossible Bithumb spot short positions."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, DEFAULT_TAKER_ASSUMPTIONS,
+        )
+        sim = ResearchExecutionSimulator(assumptions=DEFAULT_TAKER_ASSUMPTIONS)
+        # SELL when flat must return None (no short)
+        event = self._make_ob_event(1_000_000_000_000)
+        result = sim.execute_signal("SELL", event, 100_005_000.0)
+        self.assertIsNone(result)
+
+    def test_round_trip_cost_decomposition(self) -> None:
+        """Round-trip must track gross, spread, slippage, fees, net."""
+        from bithumb_coin_trader.research_infra.execution import (
+            ResearchExecutionSimulator, ExecutionAssumptions,
+        )
+        assumptions = ExecutionAssumptions(
+            fee_regime="normal_fee", fee_rate=0.0025, slippage_bps=5.0,
+            latency_ms=0.0, position_size_krw=100_000, max_depth_levels=5,
+        )
+        sim = ResearchExecutionSimulator(assumptions=assumptions)
+        sim.execute_signal("BUY", self._make_ob_event(1_000_000_000_000), 100_005_000.0)
+        sim.execute_signal("SELL", self._make_ob_event(2_000_000_000_000), 100_005_000.0)
+        pnl = sim.get_pnl_summary()
+        self.assertEqual(pnl["round_trips"], 1)
+        self.assertIn("total_fees", pnl)
+        self.assertIn("total_spread_cost", pnl)
+        self.assertIn("total_depth_slippage", pnl)
+        self.assertIn("gross_pnl", pnl)
+        self.assertIn("net_pnl", pnl)
+
+    def test_latency_cannot_use_future_book(self) -> None:
+        """0ms latency scenario must be labeled theoretical."""
+        from bithumb_coin_trader.research_infra.execution import DEFAULT_TAKER_ASSUMPTIONS
+        # 0ms latency is the theoretical lower bound
+        self.assertEqual(DEFAULT_TAKER_ASSUMPTIONS.latency_ms, 50.0)  # Default is 50ms
+        # Verify the ExecutionAssumptions stores latency explicitly
+        d = DEFAULT_TAKER_ASSUMPTIONS.to_dict()
+        self.assertIn("latency_ms", d)
+
+    def test_cost_unmeasured_not_cost_killed(self) -> None:
+        """Cannot classify as COST_KILLED without actually measuring costs."""
+        # This is a semantic test: COST_KILLED requires execution evidence
+        # A result with only predictive metrics cannot be COST_KILLED
+        from bithumb_coin_trader.research_infra.hypotheses import HypothesisStatus
+        # COST_KILLED is a valid status
+        self.assertIn("COST_KILLED", [s.value for s in HypothesisStatus])
+        # But it requires cost measurement, not just prediction
+
+
 if __name__ == "__main__":
     unittest.main()

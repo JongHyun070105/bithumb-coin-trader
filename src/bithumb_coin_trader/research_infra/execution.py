@@ -17,7 +17,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
-from decimal import Decimal
 import math
 from typing import Any, Mapping, Sequence
 
@@ -155,7 +154,9 @@ class ResearchExecutionSimulator:
     ) -> SimulatedTrade | None:
         """Execute a trading signal against the current orderbook.
 
-        Returns SimulatedTrade if a trade was executed, None for HOLD.
+        LONG-ONLY SPOT: BUY when flat, SELL when in position.
+        SELL only exits an existing long (no short simulation).
+        Returns SimulatedTrade if a trade was executed, None otherwise.
         """
         if signal == "HOLD":
             return None
@@ -164,9 +165,8 @@ class ResearchExecutionSimulator:
             return None  # Already in position
 
         if signal == "SELL" and self._position.is_flat:
-            return None  # No position to sell
+            return None  # No position to sell (long-only spot)
 
-        # Get orderbook from event
         if event.event_kind != EventKind.ORDERBOOK:
             return None
 
@@ -185,52 +185,58 @@ class ResearchExecutionSimulator:
                 bids=bids,
                 asks=asks,
                 market=event.market,
+                validate=False,
             )
         except Exception:
             return None
 
-        # Calculate order amount
+        # Build request with correct API
+        fill_time = datetime.fromtimestamp(
+            event.ordering_timestamp_ns / 1_000_000_000, tz=timezone.utc
+        )
         if signal == "BUY":
-            amount_krw = self.assumptions.position_size_krw
             request = MarketOrderRequest(
+                timestamp=fill_time,
                 side="BUY",
-                amount_krw=Decimal(str(amount_krw)),
+                requested_amount_krw=self.assumptions.position_size_krw,
+                fee_rate=self.assumptions.fee_rate,
+                allow_partial=self.assumptions.partial_fills_enabled,
+                market=event.market,
             )
-        else:  # SELL
+        else:  # SELL (exit long)
             if self._position.entry_quantity <= 0:
                 return None
             request = MarketOrderRequest(
+                timestamp=fill_time,
                 side="SELL",
-                quantity_btc=Decimal(str(self._position.entry_quantity)),
+                requested_quantity_btc=self._position.entry_quantity,
+                fee_rate=self.assumptions.fee_rate,
+                allow_partial=self.assumptions.partial_fills_enabled,
+                market=event.market,
             )
 
         try:
-            result = self._simulator.execute_order(ob, request)
+            result: ExecutionResult = self._simulator.execute_order(request, ob)
         except Exception:
             return None
 
-        if not result.fills:
+        if result.filled_quantity <= 0:
             return None
 
-        # Compute costs
-        fill_price = result.volume_weighted_price
-        fill_qty = result.total_quantity
-        notional = result.total_notional_krw
+        # Extract execution details from correct attributes
+        fill_price = result.vwap_price
+        fill_qty = result.filled_quantity
+        notional = result.filled_amount_krw
+        fee = result.fee_paid_krw
+        mid = result.mid_price_at_fill
+        spread_bps = result.slippage_vs_mid_bps
+        slippage_vs_mid = result.slippage_vs_mid_bps
+        half_spread_cost = result.half_spread_cost_krw
+        depth_slip_cost = result.depth_slippage_cost_krw
+        total_cost = result.total_cost_krw
 
-        fee = notional * self.assumptions.fee_rate
-        half_spread = (asks[0][0] - bids[0][0]) / 2
-        mid = (asks[0][0] + bids[0][0]) / 2
-        spread_bps = (asks[0][0] - bids[0][0]) / mid * 10_000 if mid > 0 else 0
-
-        slippage_vs_mid = abs(fill_price - mid) / mid * 10_000 if mid > 0 else 0
-        total_cost = fee + half_spread * fill_qty
-
-        # Adverse selection: did price move against us after fill?
-        adverse = 0.0
-        if signal == "BUY":
-            adverse = (mid - fill_price) / mid * 10_000 if mid > 0 else 0
-        else:
-            adverse = (fill_price - mid) / mid * 10_000 if mid > 0 else 0
+        # Adverse selection from result
+        adverse = result.adverse_selection_bps
 
         trade = SimulatedTrade(
             timestamp_ns=event.ordering_timestamp_ns,
@@ -244,8 +250,8 @@ class ResearchExecutionSimulator:
             fee_krw=fee,
             slippage_bps=slippage_vs_mid,
             spread_at_fill_bps=spread_bps,
-            half_spread_cost_krw=half_spread * fill_qty,
-            depth_slippage_cost_krw=max(0, abs(fill_price - mid)) * fill_qty,
+            half_spread_cost_krw=half_spread_cost,
+            depth_slippage_cost_krw=depth_slip_cost,
             total_cost_krw=total_cost,
             mid_price_at_signal=mid_price_at_signal,
             mid_price_at_fill=mid,
@@ -262,9 +268,12 @@ class ResearchExecutionSimulator:
                 entry_timestamp_ns=event.ordering_timestamp_ns,
                 cumulative_cost=total_cost,
             )
-        else:  # SELL
+        else:  # SELL (exit long)
+            entry_cost = self._position.cumulative_cost
+            gross_pnl = (fill_price - self._position.entry_price) * fill_qty
+            net_pnl = gross_pnl - entry_cost - total_cost
+            self._initial_equity += net_pnl
             self._position = PositionState(is_flat=True)
-            self._initial_equity += (fill_price - self._position.entry_price) * fill_qty - total_cost
 
         self._trades.append(trade)
         self._equity_curve.append((event.ordering_timestamp_ns, self._initial_equity))
@@ -278,42 +287,55 @@ class ResearchExecutionSimulator:
         return list(self._equity_curve)
 
     def get_pnl_summary(self) -> dict[str, Any]:
-        """Compute PnL summary from simulated trades."""
+        """Compute PnL summary from simulated trades.
+
+        Tracks round-trip trades (BUY→SELL pairs) with full cost decomposition.
+        """
         if not self._trades:
             return {
                 "trade_count": 0,
+                "round_trips": 0,
                 "total_fees": 0.0,
-                "total_slippage": 0.0,
                 "total_cost": 0.0,
-                "net_pnl": 0.0,
                 "gross_pnl": 0.0,
+                "net_pnl": 0.0,
+                "assumptions": self.assumptions.to_dict(),
             }
 
         buy_trades = [t for t in self._trades if t.side == "BUY"]
         sell_trades = [t for t in self._trades if t.side == "SELL"]
 
         total_fees = sum(t.fee_krw for t in self._trades)
+        total_spread = sum(t.half_spread_cost_krw for t in self._trades)
+        total_depth_slip = sum(t.depth_slippage_cost_krw for t in self._trades)
         total_cost = sum(t.total_cost_krw for t in self._trades)
 
         # Round-trip PnL
         gross_pnl = 0.0
+        net_pnl = 0.0
+        round_trips = 0
         for sell in sell_trades:
             matching_buys = [b for b in buy_trades if b.timestamp_ns < sell.timestamp_ns]
             if matching_buys:
                 buy = matching_buys[-1]
-                gross_pnl += (sell.fill_price - buy.fill_price) * sell.fill_quantity
+                g = (sell.fill_price - buy.fill_price) * sell.fill_quantity
+                gross_pnl += g
+                net_pnl += g - buy.total_cost_krw - sell.total_cost_krw
+                round_trips += 1
 
-        net_pnl = gross_pnl - total_cost
-
+        n = len(self._trades)
         return {
-            "trade_count": len(self._trades),
+            "trade_count": n,
             "buy_count": len(buy_trades),
             "sell_count": len(sell_trades),
+            "round_trips": round_trips,
             "total_fees": total_fees,
+            "total_spread_cost": total_spread,
+            "total_depth_slippage": total_depth_slip,
             "total_cost": total_cost,
             "gross_pnl": gross_pnl,
             "net_pnl": net_pnl,
-            "avg_slippage_bps": sum(t.slippage_bps for t in self._trades) / len(self._trades),
-            "avg_spread_bps": sum(t.spread_at_fill_bps for t in self._trades) / len(self._trades),
+            "avg_slippage_bps": sum(t.slippage_bps for t in self._trades) / n,
+            "avg_spread_bps": sum(t.spread_at_fill_bps for t in self._trades) / n,
             "assumptions": self.assumptions.to_dict(),
         }
