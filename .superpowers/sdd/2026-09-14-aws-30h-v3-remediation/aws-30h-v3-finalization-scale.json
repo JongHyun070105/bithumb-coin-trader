@@ -4,7 +4,7 @@
     "identical_dirty_tail": true,
     "zero_historical_reads": true
   },
-  "generated_at_utc": "2026-09-14T14:43:01.989585+00:00",
+  "generated_at_utc": "2026-09-15T00:20:00.805207+00:00",
   "histories": {
     "1": {
       "counters": {
@@ -17,8 +17,8 @@
       "repetitions": 7,
       "samples": [
         {
-          "elapsed_ms": 6.7178,
-          "elapsed_seconds": 0.006717792013660073,
+          "elapsed_ms": 5.9993,
+          "elapsed_seconds": 0.005999332992359996,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -28,8 +28,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.3207,
-          "elapsed_seconds": 0.006320749991573393,
+          "elapsed_ms": 6.0519,
+          "elapsed_seconds": 0.006051917094737291,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -39,8 +39,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.3843,
-          "elapsed_seconds": 0.006384250009432435,
+          "elapsed_ms": 5.5811,
+          "elapsed_seconds": 0.005581083009019494,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -50,8 +50,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.1529,
-          "elapsed_seconds": 0.006152875022962689,
+          "elapsed_ms": 5.5757,
+          "elapsed_seconds": 0.00557566701900214,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -61,8 +61,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.4163,
-          "elapsed_seconds": 0.006416250020265579,
+          "elapsed_ms": 6.0885,
+          "elapsed_seconds": 0.006088499911129475,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -72,8 +72,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.2582,
-          "elapsed_seconds": 0.006258249981328845,
+          "elapsed_ms": 6.1744,
+          "elapsed_seconds": 0.006174374953843653,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -83,8 +83,8 @@
           "reused_count": 1
         },
         {
-          "elapsed_ms": 6.4748,
-          "elapsed_seconds": 0.006474792025983334,
+          "elapsed_ms": 6.2933,
+          "elapsed_seconds": 0.006293292040936649,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -95,18 +95,18 @@
         }
       ],
       "timing_ms": {
-        "max": 6.7178,
-        "min": 6.1529,
-        "p50": 6.3843,
-        "p95": 6.6449,
-        "p99": 6.7032
+        "max": 6.2933,
+        "min": 5.5757,
+        "p50": 6.0519,
+        "p95": 6.2576,
+        "p99": 6.2862
       },
       "timing_seconds": {
-        "max": 0.006718,
-        "min": 0.006153,
-        "p50": 0.006384,
-        "p95": 0.006645,
-        "p99": 0.006703
+        "max": 0.006293,
+        "min": 0.005576,
+        "p50": 0.006052,
+        "p95": 0.006258,
+        "p99": 0.006286
       }
     },
     "10": {
@@ -120,8 +120,8 @@
       "repetitions": 7,
       "samples": [
         {
-          "elapsed_ms": 6.4967,
-          "elapsed_seconds": 0.006496667047031224,
+          "elapsed_ms": 6.6715,
+          "elapsed_seconds": 0.006671541021205485,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -131,8 +131,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 5.3407,
-          "elapsed_seconds": 0.00534070807043463,
+          "elapsed_ms": 5.6896,
+          "elapsed_seconds": 0.0056896250462159514,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -142,8 +142,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 5.2758,
-          "elapsed_seconds": 0.0052758329547941685,
+          "elapsed_ms": 5.8068,
+          "elapsed_seconds": 0.005806833039969206,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -153,8 +153,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 4.9128,
-          "elapsed_seconds": 0.004912833101116121,
+          "elapsed_ms": 6.9572,
+          "elapsed_seconds": 0.006957208039239049,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -164,8 +164,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 5.126,
-          "elapsed_seconds": 0.005126042058691382,
+          "elapsed_ms": 7.2494,
+          "elapsed_seconds": 0.007249374990351498,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -175,8 +175,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 5.6974,
-          "elapsed_seconds": 0.005697374930605292,
+          "elapsed_ms": 7.9917,
+          "elapsed_seconds": 0.007991708000190556,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -186,8 +186,8 @@
           "reused_count": 10
         },
         {
-          "elapsed_ms": 5.1666,
-          "elapsed_seconds": 0.005166625021956861,
+          "elapsed_ms": 7.709,
+          "elapsed_seconds": 0.007708999910391867,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -198,18 +198,18 @@
         }
       ],
       "timing_ms": {
-        "max": 6.4967,
-        "min": 4.9128,
-        "p50": 5.2758,
-        "p95": 6.2569,
-        "p99": 6.4487
+        "max": 7.9917,
+        "min": 5.6896,
+        "p50": 6.9572,
+        "p95": 7.9069,
+        "p99": 7.9747
       },
       "timing_seconds": {
-        "max": 0.006497,
-        "min": 0.004913,
-        "p50": 0.005276,
-        "p95": 0.006257,
-        "p99": 0.006449
+        "max": 0.007992,
+        "min": 0.00569,
+        "p50": 0.006957,
+        "p95": 0.007907,
+        "p99": 0.007975
       }
     },
     "30": {
@@ -223,8 +223,8 @@
       "repetitions": 7,
       "samples": [
         {
-          "elapsed_ms": 6.4484,
-          "elapsed_seconds": 0.0064483750611543655,
+          "elapsed_ms": 6.7548,
+          "elapsed_seconds": 0.006754833040758967,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -234,8 +234,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 6.9585,
-          "elapsed_seconds": 0.006958500016480684,
+          "elapsed_ms": 5.5262,
+          "elapsed_seconds": 0.005526207969523966,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -245,8 +245,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 6.2353,
-          "elapsed_seconds": 0.006235291017219424,
+          "elapsed_ms": 5.7237,
+          "elapsed_seconds": 0.005723707959987223,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -256,8 +256,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 6.4394,
-          "elapsed_seconds": 0.006439417018555105,
+          "elapsed_ms": 6.4109,
+          "elapsed_seconds": 0.006410875008441508,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -267,8 +267,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 6.3979,
-          "elapsed_seconds": 0.006397917051799595,
+          "elapsed_ms": 6.0385,
+          "elapsed_seconds": 0.006038457970134914,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -278,8 +278,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 6.4018,
-          "elapsed_seconds": 0.00640183303039521,
+          "elapsed_ms": 6.4183,
+          "elapsed_seconds": 0.006418250035494566,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -289,8 +289,8 @@
           "reused_count": 30
         },
         {
-          "elapsed_ms": 5.3525,
-          "elapsed_seconds": 0.005352500011213124,
+          "elapsed_ms": 12.8538,
+          "elapsed_seconds": 0.012853833031840622,
           "historical_raw_bytes_read": 0,
           "historical_raw_files_opened": 0,
           "passed": true,
@@ -301,18 +301,18 @@
         }
       ],
       "timing_ms": {
-        "max": 6.9585,
-        "min": 5.3525,
-        "p50": 6.4018,
-        "p95": 6.8055,
-        "p99": 6.9279
+        "max": 12.8538,
+        "min": 5.5262,
+        "p50": 6.4109,
+        "p95": 11.0241,
+        "p99": 12.4879
       },
       "timing_seconds": {
-        "max": 0.006959,
-        "min": 0.005353,
-        "p50": 0.006402,
-        "p95": 0.006805,
-        "p99": 0.006928
+        "max": 0.012854,
+        "min": 0.005526,
+        "p50": 0.006411,
+        "p95": 0.011024,
+        "p99": 0.012488
       }
     }
   },

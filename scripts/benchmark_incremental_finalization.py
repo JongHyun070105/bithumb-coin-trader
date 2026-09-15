@@ -39,7 +39,7 @@ def compute_percentile(values: Sequence[float], pct: float) -> float:
 
 def run_benchmark(
     *,
-    repetitions: int = 5,
+    repetitions: int = 7,
     histories: Sequence[int] = (1, 10, 30),
     dirty_tail: int = 2,
     output_path: Path,
@@ -123,10 +123,10 @@ def run_benchmark(
                     "max": round(max_sec, 6),
                 },
                 "counters": {
-                    "recomputed_count": dirty_tail,
-                    "reused_count": history,
-                    "historical_raw_files_opened": 0,
-                    "historical_raw_bytes_read": 0,
+                    "recomputed_count": samples[-1]["recomputed_count"] if samples else 0,
+                    "reused_count": samples[-1]["reused_count"] if samples else 0,
+                    "historical_raw_files_opened": sum(s["historical_raw_files_opened"] for s in samples),
+                    "historical_raw_bytes_read": sum(s["historical_raw_bytes_read"] for s in samples),
                 },
                 "samples": samples,
             }
@@ -189,8 +189,8 @@ def main() -> int:
     parser.add_argument(
         "--repetitions",
         type=int,
-        default=5,
-        help="Number of repetitions per history size (default: 5).",
+        default=7,
+        help="Number of repetitions per history size (default: 7).",
     )
     parser.add_argument(
         "--output",

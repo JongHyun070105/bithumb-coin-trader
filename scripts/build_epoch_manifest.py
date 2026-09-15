@@ -21,15 +21,21 @@ from typing import Any
 _repo_root = Path(__file__).resolve().parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
+_src_dir = _repo_root / "src"
+if str(_src_dir) not in sys.path:
+    sys.path.insert(0, str(_src_dir))
 _scripts_dir = Path(__file__).resolve().parent
 if str(_scripts_dir) not in sys.path:
     sys.path.insert(0, str(_scripts_dir))
+
+from bithumb_coin_trader.evidence_hashing import canonical_sha256
 
 try:
     from scripts.audit_72h_soak import (
         EXPECTED_BITHUMB_20,
         EXPECTED_BINANCE_4,
         EXPECTED_UPBIT_4,
+        QUALIFYING_RECEIPT_STATES,
         SoakAuditor72H,
         parse_partition_path,
         _stream_file_sha256,
@@ -44,6 +50,7 @@ except ModuleNotFoundError:
         EXPECTED_BITHUMB_20,
         EXPECTED_BINANCE_4,
         EXPECTED_UPBIT_4,
+        QUALIFYING_RECEIPT_STATES,
         SoakAuditor72H,
         parse_partition_path,
         _stream_file_sha256,
@@ -78,8 +85,7 @@ def verify_epoch_manifest(manifest_path: Path, contract_path: Path | None = None
     if not claimed_sha:
         raise ValueError("EPOCH_MANIFEST_HASH_MISMATCH: Missing epoch_manifest_sha256 in manifest")
     data_copy = {k: v for k, v in data.items() if k != "epoch_manifest_sha256"}
-    canonical_json = json.dumps(data_copy, sort_keys=True, separators=(",", ":"))
-    actual_sha = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    actual_sha = canonical_sha256(data_copy)
     if actual_sha != claimed_sha:
         raise ValueError(f"EPOCH_MANIFEST_HASH_MISMATCH: actual '{actual_sha}' != claimed '{claimed_sha}'")
     if data.get("status") != "SEALED_COMPLETE" or not data.get("sealed_complete"):
@@ -381,6 +387,7 @@ def build_epoch_manifest(
                 "file_name": rf.name,
                 "receipt_sha256": r_sha,
                 "status": r_data.get("status") or r_data.get("state") or "UNKNOWN",
+                "state": r_data.get("state") or r_data.get("status") or "UNKNOWN",
                 "restore_verified": bool(r_data.get("restore_verified") or r_data.get("restore_verified_at")),
                 "file_count": r_data.get("file_count", 0),
                 "artifact_kind": kind,
@@ -507,13 +514,14 @@ def build_epoch_manifest(
                     missing_items.append(f"MISSING_COVERAGE_SLOT:{ch}:{exch}/{strm}/{mkt}")
                 else:
                     cov_entry = coverage_slot_map[slot_k]
-                    if cov_entry["coverage_state"] == "FAILED":
-                        missing_items.append(f"FAILED_COVERAGE_SLOT:{ch}:{exch}/{strm}/{mkt}")
+                    if cov_entry["coverage_state"] not in ("DATA_PRESENT", "VERIFIED_ZERO_EVENT"):
+                        missing_items.append(f"NON_QUALIFYING_COVERAGE_SLOT:{ch}:{exch}/{strm}/{mkt}:{cov_entry['coverage_state']}")
 
         cov_receipt_keys: set[tuple[str, str, str, str]] = set()
         raw_receipt_keys: set[tuple[str, str, str, str]] = set()
         for r in receipt_entries:
-            if r.get("restore_verified"):
+            rec_st = r.get("state") or r.get("status")
+            if r.get("restore_verified") and rec_st in QUALIFYING_RECEIPT_STATES:
                 ch = r.get("hour_cohort")
                 ex = r.get("exchange")
                 st = r.get("stream")
@@ -540,7 +548,7 @@ def build_epoch_manifest(
             if not fullscan_entries or not any(fs["status"] == "PASS" for fs in fullscan_entries):
                 missing_items.append("MISSING_FULLSCAN_REPORT")
 
-        is_complete = len(missing_items) == 0 and len(coverage_entries) > 0
+        is_complete = len(missing_items) == 0 and len(coverage_entries) > 0 and failed_count == 0
     else:
         cohorts_to_check = expected_raw_cohorts or sorted(found_feeds_by_cohort.keys())
         # Closed cohorts require full 76-feed universe.
@@ -615,9 +623,8 @@ def build_epoch_manifest(
         manifest_dict["failed_count"] = failed_count
         manifest_dict["coverage_index"] = coverage_entries
 
-    # Compute deterministic root SHA256
-    canonical_json = json.dumps(manifest_dict, sort_keys=True, separators=(",", ":"))
-    root_sha = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+    # Compute deterministic root SHA256 using authoritative helper
+    root_sha = canonical_sha256(manifest_dict)
     manifest_dict["epoch_manifest_sha256"] = root_sha
 
     if output_path:

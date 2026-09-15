@@ -690,6 +690,15 @@ def validate_v3_coverage_evidence(
                 cohort_failed += 1
                 failed_slots_count += 1
                 add_slot_blocker("SLOT_MISSING", f"missing coverage evidence for slot {slot_tag}")
+                exch, strm, mkt = feed
+                coverage_slots.append({
+                    "cohort_utc": cohort,
+                    "exchange": exch,
+                    "market": mkt,
+                    "stream": strm,
+                    "coverage_state": "MISSING",
+                    "event_count": 0,
+                })
                 continue
 
             c_data = slot_coverage[slot_key]
@@ -715,7 +724,10 @@ def validate_v3_coverage_evidence(
                     slot_has_failure = True
                     add_slot_blocker("COVERAGE_RECEIPT_RESTORE_MISMATCH", f"slot {slot_tag} coverage receipt lacks restore verification")
                 rcpt_src_sha = r_data.get("source_sha256") or r_data.get("raw_sha256")
-                if rcpt_src_sha and rcpt_src_sha != cf_sha:
+                if not rcpt_src_sha:
+                    slot_has_failure = True
+                    add_slot_blocker("COVERAGE_RECEIPT_HASH_MISSING", f"slot {slot_tag} coverage receipt missing source_sha256")
+                elif rcpt_src_sha != cf_sha:
                     slot_has_failure = True
                     add_slot_blocker("COVERAGE_RECEIPT_HASH_MISMATCH", f"slot {slot_tag} receipt sha '{rcpt_src_sha}' != file sha '{cf_sha}'")
 
@@ -739,14 +751,24 @@ def validate_v3_coverage_evidence(
             else:
                 interval_start = c_data.get("interval_start_utc", "")
                 interval_end = c_data.get("interval_end_utc", "")
+                if not interval_start or not interval_end:
+                    slot_has_failure = True
+                    add_slot_blocker("INTERVAL_COORDINATES_MISSING", f"slot {slot_tag} missing interval coordinates")
                 for seg in segments:
                     conf_at = seg.get("confirmed_at_utc")
                     if not conf_at:
                         slot_has_failure = True
                         add_slot_blocker("SUBSCRIPTION_NOT_CONFIRMED", f"slot {slot_tag} missing confirmation")
-                    elif interval_start and conf_at > interval_start:
-                        slot_has_failure = True
-                        add_slot_blocker("SUBSCRIPTION_NOT_CONFIRMED_BEFORE_INTERVAL", f"slot {slot_tag} confirmed at {conf_at} > interval start {interval_start}")
+                    elif interval_start:
+                        try:
+                            conf_dt = datetime.fromisoformat(conf_at.replace("Z", "+00:00"))
+                            int_start_dt = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
+                            if conf_dt > int_start_dt:
+                                slot_has_failure = True
+                                add_slot_blocker("SUBSCRIPTION_NOT_CONFIRMED_BEFORE_INTERVAL", f"slot {slot_tag} confirmed at {conf_at} > interval start {interval_start}")
+                        except Exception:
+                            slot_has_failure = True
+                            add_slot_blocker("SUBSCRIPTION_CONFIRMATION_TIMESTAMP_CORRUPT", f"slot {slot_tag} invalid confirmation timestamp {conf_at}")
 
                 max_allowed = thresholds.get(feed[0], 30)
                 gap_breached = False
@@ -759,12 +781,15 @@ def validate_v3_coverage_evidence(
                         try:
                             s_dt = datetime.fromisoformat(interval_start.replace("Z", "+00:00"))
                             e_dt = datetime.fromisoformat(interval_end.replace("Z", "+00:00"))
+                            for obs_ts in hb_obs:
+                                datetime.fromisoformat(obs_ts.replace("Z", "+00:00"))
                             f_hb = datetime.fromisoformat(hb_obs[0].replace("Z", "+00:00"))
                             l_hb = datetime.fromisoformat(hb_obs[-1].replace("Z", "+00:00"))
                             if (f_hb - s_dt).total_seconds() > max_allowed or (e_dt - l_hb).total_seconds() > max_allowed:
                                 gap_breached = True
                         except Exception:
-                            pass
+                            gap_breached = True
+                            add_slot_blocker("HEARTBEAT_OBSERVATIONS_CORRUPT", f"slot {slot_tag} invalid heartbeat timestamp")
                 if gap_breached:
                     slot_has_failure = True
                     add_slot_blocker("HEARTBEAT_GAP_EXCEEDED", f"slot {slot_tag} heartbeat gap exceeds sealed threshold {max_allowed}s")
@@ -802,6 +827,9 @@ def validate_v3_coverage_evidence(
                         add_slot_blocker("RAW_RECEIPT_MISSING", f"slot {slot_tag} missing RAW receipt")
                     else:
                         raw_rdata, raw_rp = raw_rcpts[0]
+                        if raw_rdata.get("state") not in QUALIFYING_RECEIPT_STATES:
+                            slot_has_failure = True
+                            add_slot_blocker("RAW_RECEIPT_INVALID_STATE", f"slot {slot_tag} RAW receipt state is '{raw_rdata.get('state')}'")
                         if not (raw_rdata.get("restore_verified_at") or raw_rdata.get("restore_verified")):
                             slot_has_failure = True
                             add_slot_blocker("RAW_RESTORE_MISMATCH", f"slot {slot_tag} RAW receipt lacks restore verification")

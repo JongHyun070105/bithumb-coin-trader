@@ -23,6 +23,7 @@ import pytest
 from bithumb_coin_trader.closed_hour_finalizer import (
     SEALED_FEED_UNIVERSE,
     ClosedHourFinalizer,
+    evaluate_common_gate,
 )
 from bithumb_coin_trader.feed_hour_coverage import (
     FrozenFeedHourObservation,
@@ -102,10 +103,11 @@ def _make_observation(
     progress_entry_id: str | None = None,
     confirmed: bool = True,
     cohort_utc: str = "2026-09-14_12",
+    session_segments: tuple[SessionSegment, ...] | None = None,
 ) -> FrozenFeedHourObservation:
     interval_start = "2026-09-14T12:00:00Z"
     interval_end = "2026-09-14T13:00:00Z"
-    segments = (_make_segment(feed, interval_start, interval_end, confirmed=confirmed),)
+    segments = session_segments if session_segments is not None else (_make_segment(feed, interval_start, interval_end, confirmed=confirmed),)
     return FrozenFeedHourObservation(
         feed=feed,
         cohort_utc=cohort_utc,
@@ -457,3 +459,40 @@ def test_finalize_cohort_foreign_feed_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError) as exc:
         bundle.finalizer.finalize_cohort(cohort_key)
     assert "FOREIGN" in str(exc.value) or "MISSING" in str(exc.value)
+
+
+def test_evaluate_common_gate_rejects_non_qualifying_full_hour() -> None:
+    obs = _make_observation(
+        SEALED_FEED_UNIVERSE[0],
+        event_count=10,
+        cohort_qualification="TOUCHED_PARTIAL",
+    )
+    policy = _make_policy()
+    reasons = evaluate_common_gate(obs, policy)
+    assert "NOT_QUALIFYING_FULL_HOUR" in reasons
+
+
+def test_evaluate_common_gate_rejects_unconfirmed_feed_on_session() -> None:
+    feed = SEALED_FEED_UNIVERSE[0]
+    other_feed = SEALED_FEED_UNIVERSE[1]
+    seg = _make_segment(other_feed)
+    # The segment confirms other_feed, but observation is for feed
+    obs = _make_observation(feed, event_count=0, session_segments=(seg,))
+    policy = _make_policy()
+    reasons = evaluate_common_gate(obs, policy)
+    assert "FEED_NOT_CONFIRMED_ON_SESSION" in reasons
+
+
+def test_closed_slot_result_convenience_properties(tmp_path: Path) -> None:
+    bundle = FixtureBundle(tmp_path)
+    cohort_key = "2026-09-14_12"
+    obs_list = [
+        _make_observation(feed, event_count=0, cohort_utc=cohort_key)
+        for feed in SEALED_FEED_UNIVERSE
+    ]
+    save_frozen_journal(obs_list, bundle.journals_dir)
+    results = bundle.finalizer.finalize_cohort(cohort_key)
+    res = results[0]
+    assert res.status == "VERIFIED_ZERO_EVENT"
+    assert res.slot == SEALED_FEED_UNIVERSE[0].canonical
+    assert res.reason == ()

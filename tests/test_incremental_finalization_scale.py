@@ -18,7 +18,6 @@ from bithumb_coin_trader.incremental_finalizer import (
     ArtifactBinding,
     FinalizationIdentity,
     FinalizationProgressStore,
-    FinalizationSummary,
     IncrementalManifestFinalizer,
 )
 from bithumb_coin_trader.microstructure_storage import (

@@ -99,6 +99,18 @@ class ClosedSlotResult:
     raw_receipt: ArchiveReceiptV3 | None
     failure_reason_codes: Sequence[str]
 
+    @property
+    def status(self) -> str:
+        return self.coverage.coverage_state
+
+    @property
+    def slot(self) -> str:
+        return self.coverage.feed_identity
+
+    @property
+    def reason(self) -> Sequence[str]:
+        return self.failure_reason_codes
+
 
 def evaluate_common_gate(
     observation: FrozenFeedHourObservation,
@@ -106,6 +118,10 @@ def evaluate_common_gate(
 ) -> list[str]:
     """Evaluate common completeness gates required before either qualifying state."""
     failure_reasons: list[str] = []
+
+    # 0. Cohort qualification check
+    if observation.cohort_qualification != "QUALIFYING_FULL_HOUR":
+        failure_reasons.append("NOT_QUALIFYING_FULL_HOUR")
 
     # 1. Health check
     health = observation.health
@@ -129,6 +145,9 @@ def evaluate_common_gate(
             elif seg.confirmed_at_utc > observation.interval_start_utc:
                 if "LATE_CONFIRMATION" not in failure_reasons:
                     failure_reasons.append("LATE_CONFIRMATION")
+            if seg.confirmed_feeds and observation.feed.canonical not in seg.confirmed_feeds:
+                if "FEED_NOT_CONFIRMED_ON_SESSION" not in failure_reasons:
+                    failure_reasons.append("FEED_NOT_CONFIRMED_ON_SESSION")
 
         # Heartbeat gap check
         threshold = heartbeat_policy.max_allowed_heartbeat_gap_seconds.get(observation.feed.exchange)

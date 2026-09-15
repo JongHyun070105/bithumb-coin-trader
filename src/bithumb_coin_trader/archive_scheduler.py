@@ -120,6 +120,19 @@ class ClosedHourArchiveScheduler:
     def _full_scan_report_path(self, cohort: ArchiveCohortId) -> Path:
         return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
 
+    def _full_scan_passed(self, cohort: ArchiveCohortId) -> bool:
+        if not self.config.run_full_scan:
+            return True
+        scan_rep = self._full_scan_report_path(cohort)
+        if not scan_rep.exists():
+            return False
+        try:
+            s_data = json.loads(scan_rep.read_text(encoding="utf-8"))
+            s_status = s_data.get("status") or s_data.get("integrity", {}).get("totals", {}).get("status")
+            return s_data.get("cohort") == cohort.key and s_status == "PASS"
+        except Exception:
+            return False
+
     def has_cohort_failed(self, cohort: ArchiveCohortId) -> bool:
         cohort_report = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
         if cohort_report.exists():
@@ -149,7 +162,9 @@ class ClosedHourArchiveScheduler:
                 try:
                     data = json.loads(report_path.read_text(encoding="utf-8"))
                     if data.get("cohort") == cohort.key:
-                        return data.get("status") == "PASS"
+                        if data.get("status") != "PASS":
+                            return False
+                        return self._full_scan_passed(cohort)
                 except Exception:
                     return False
             # Check coverage receipts directly
@@ -189,7 +204,7 @@ class ClosedHourArchiveScheduler:
                         all_found = False
                         break
                 if all_found:
-                    return True
+                    return self._full_scan_passed(cohort)
             return False
 
         matching_files = []
@@ -225,19 +240,7 @@ class ClosedHourArchiveScheduler:
             except Exception:
                 return False
 
-        if self.config.run_full_scan:
-            report_path = self._full_scan_report_path(cohort)
-            if not report_path.exists():
-                return False
-            try:
-                data = json.loads(report_path.read_text(encoding="utf-8"))
-                status = data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
-                if data.get("cohort") != cohort.key or status != "PASS":
-                    return False
-            except Exception:
-                return False
-
-        return True
+        return self._full_scan_passed(cohort)
 
     def discover_eligible_hours(self, now: Optional[datetime] = None) -> List[EligibleHour]:
         current_now = now or self._now_fn()

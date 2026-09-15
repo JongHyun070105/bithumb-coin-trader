@@ -12,6 +12,7 @@ from scripts.audit_72h_soak import (
     validate_archive_evidence_coverage,
     validate_v3_coverage_evidence,
 )
+from bithumb_coin_trader.evidence_hashing import canonical_sha256
 
 
 def _write_cohort_receipts(
@@ -1200,3 +1201,131 @@ def test_no_replacement_cohort_allowed(tmp_path: Path) -> None:
     result = validate_v3_coverage_evidence(**bundle)
     assert result["status"] == "FAIL"
     assert any("COHORT_UNEXPECTED" in b for b in result["blockers"])
+
+
+def test_missing_coverage_receipt_hash_fails_closed(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    for rp in bundle["receipt_files"]:
+        if ".coverage." in rp.name:
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            data.pop("source_sha256", None)
+            data.pop("raw_sha256", None)
+            rp.write_text(json.dumps(data), encoding="utf-8")
+            break
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("COVERAGE_RECEIPT_HASH_MISSING" in b for b in result["blockers"])
+
+
+def test_raw_receipt_invalid_state_rejected(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    for rp in bundle["receipt_files"]:
+        if ".coverage." not in rp.name:
+            data = json.loads(rp.read_text(encoding="utf-8"))
+            data["state"] = "FAILED"
+            rp.write_text(json.dumps(data), encoding="utf-8")
+            break
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("RAW_RECEIPT_INVALID_STATE" in b for b in result["blockers"])
+
+
+def test_missing_slot_recorded_in_coverage_slots(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 75, 0, 0)
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    missing_slots = [s for s in result["coverage_slots"] if s["coverage_state"] == "MISSING"]
+    assert len(missing_slots) == 1
+
+
+def test_subscription_confirmation_timestamp_corrupt_fails_closed(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0, confirmation_utc="INVALID-TIMESTAMP")
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("SUBSCRIPTION_CONFIRMATION_TIMESTAMP_CORRUPT" in b for b in result["blockers"])
+
+
+def test_heartbeat_observations_timestamp_corrupt_fails_closed(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    cov_file = bundle["coverage_files"][0]
+    data = json.loads(cov_file.read_text(encoding="utf-8"))
+    data["session_segments"][0]["heartbeat_observations_utc"] = ["NOT-A-VALID-TIMESTAMP"]
+    data["coverage_sha256"] = canonical_sha256(data, excluded=("coverage_sha256",))
+    cov_file.write_text(json.dumps(data), encoding="utf-8")
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("HEARTBEAT_OBSERVATIONS_CORRUPT" in b for b in result["blockers"])
+
+
+def test_missing_interval_coordinates_fails_closed(tmp_path: Path) -> None:
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    cov_file = bundle["coverage_files"][0]
+    data = json.loads(cov_file.read_text(encoding="utf-8"))
+    data.pop("interval_start_utc", None)
+    data["coverage_sha256"] = canonical_sha256(data, excluded=("coverage_sha256",))
+    cov_file.write_text(json.dumps(data), encoding="utf-8")
+
+    result = validate_v3_coverage_evidence(**bundle)
+    assert result["status"] == "FAIL"
+    assert any("INTERVAL_COORDINATES_MISSING" in b for b in result["blockers"])
+
+
+def test_build_epoch_manifest_non_qualifying_coverage_state(tmp_path: Path) -> None:
+    from scripts.build_epoch_manifest import build_epoch_manifest, verify_epoch_manifest
+    bundle = v3_bundle(tmp_path, 76, 0, 0)
+    contract_p = tmp_path / "contract.json"
+    contract_p.write_text(json.dumps(bundle["contract"]), encoding="utf-8")
+
+    # Set one coverage file to UNKNOWN state
+    cov_file = bundle["coverage_files"][0]
+    data = json.loads(cov_file.read_text(encoding="utf-8"))
+    data["coverage_state"] = "UNKNOWN"
+    data["coverage_sha256"] = canonical_sha256(data, excluded=("coverage_sha256",))
+    cov_file.write_text(json.dumps(data), encoding="utf-8")
+
+    manifest_p = tmp_path / "epoch_manifest.json"
+    manifest = build_epoch_manifest(
+        tmp_path,
+        contract_path=contract_p,
+        output_path=manifest_p,
+        strict=False,
+        mode="lenient",
+    )
+    assert manifest["status"] == "INCOMPLETE"
+    assert manifest["sealed_complete"] is False
+    assert manifest["failed_count"] == 1
+    assert any("NON_QUALIFYING_COVERAGE_SLOT" in item for item in manifest["missing_items"])
+
+    with pytest.raises(ValueError) as exc:
+        verify_epoch_manifest(manifest_p, contract_path=contract_p)
+    assert "EPOCH_MANIFEST_INCOMPLETE" in str(exc.value)
+
+
+def test_build_epoch_manifest_v3_complete(tmp_path: Path) -> None:
+    from scripts.build_epoch_manifest import build_epoch_manifest, verify_epoch_manifest
+    bundle = v3_bundle(tmp_path, present=74, zero=2, failed=0)
+    contract = bundle["contract"]
+    contract_p = tmp_path / "epoch_contract.json"
+    contract_p.write_text(json.dumps(contract, indent=2))
+
+    manifest_p = tmp_path / "manifests/epoch_manifest.json"
+    manifest = build_epoch_manifest(
+        epoch_dir=tmp_path,
+        contract_path=contract_p,
+        output_path=manifest_p,
+        strict=False,
+        mode="lenient",
+    )
+    assert manifest["schema_version"] == "3.0.0"
+    assert manifest["coverage_slots_count"] == 76
+    assert manifest["data_present_count"] == 74
+    assert manifest["verified_zero_count"] == 2
+    assert manifest["failed_count"] == 0
+    assert manifest["status"] == "SEALED_COMPLETE"
+    assert manifest["sealed_complete"] is True
+    assert len(manifest["missing_items"]) == 0
+
+    verified = verify_epoch_manifest(manifest_p, contract_p)
+    assert verified["epoch_manifest_sha256"] == manifest["epoch_manifest_sha256"]
+

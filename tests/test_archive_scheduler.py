@@ -598,6 +598,76 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertEqual(res2["status"], "IDLE")
         self.assertIsNone(res2["processed_cohort"])
 
+    def test_v3_cohort_with_run_full_scan_requires_passing_full_scan(self) -> None:
+        cohort = ArchiveCohortId("2026-09-04", "05")
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        # Create finalized report with PASS
+        report_path = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        report_path.write_text(
+            json.dumps({"status": "PASS", "cohort": cohort.key, "total_slots": 76, "failed_count": 0}),
+            encoding="utf-8",
+        )
+
+        # When run_full_scan=True but scan report missing -> incomplete
+        scheduler_with_scan = ClosedHourArchiveScheduler(self._config(run_full_scan=True))
+        self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
+
+        # When scan report exists but failed -> incomplete
+        scan_path = self.receipt_root / f"full_scan_{cohort.key}_report.json"
+        scan_path.write_text(
+            json.dumps({"status": "FAIL", "cohort": cohort.key}),
+            encoding="utf-8",
+        )
+        self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
+
+        # When scan report is PASS -> complete
+        scan_path.write_text(
+            json.dumps({"status": "PASS", "cohort": cohort.key}),
+            encoding="utf-8",
+        )
+        self.assertTrue(scheduler_with_scan.is_cohort_completed(cohort))
+
+    def test_v3_fallback_coverage_receipts_with_run_full_scan(self) -> None:
+        cohort = ArchiveCohortId("2026-09-04", "05")
+        self._create_v3_frozen_journal("2026-09-04", "05")
+        # Do not write cohort_<cohort>_finalized.json so it checks coverage receipts directly
+        cov_receipt_dir = self.receipt_root / "coverage" / cohort.key
+        cov_dir = self.base_dir / "coverage" / cohort.key
+        for feed in SEALED_FEED_UNIVERSE:
+            rec_p = cov_receipt_dir / feed.exchange / feed.stream / f"{feed.market}.coverage.json.archive-receipt.json"
+            rec_p.parent.mkdir(parents=True, exist_ok=True)
+            rec_p.write_text(
+                json.dumps({"restore_verified_at": "2026-09-04T06:05:00Z", "state": "RESTORE_VERIFIED"}),
+                encoding="utf-8",
+            )
+            cov_p = cov_dir / feed.exchange / feed.stream / f"{feed.market}.coverage.json"
+            cov_p.parent.mkdir(parents=True, exist_ok=True)
+            cov_p.write_text(json.dumps({"coverage_state": "DATA_PRESENT"}), encoding="utf-8")
+
+        scheduler_with_scan = ClosedHourArchiveScheduler(self._config(run_full_scan=True))
+        # Missing full-scan report -> False
+        self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
+
+        # Failed full-scan report -> False
+        scan_path = self.receipt_root / f"full_scan_{cohort.key}_report.json"
+        scan_path.write_text(
+            json.dumps({"status": "FAIL", "cohort": cohort.key}),
+            encoding="utf-8",
+        )
+        self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
+
+        # Passing full-scan report -> True
+        scan_path.write_text(
+            json.dumps({"status": "PASS", "cohort": cohort.key}),
+            encoding="utf-8",
+        )
+        self.assertTrue(scheduler_with_scan.is_cohort_completed(cohort))
+
+        # When run_full_scan=False, completes even without full scan
+        scan_path.unlink()
+        scheduler_no_scan = ClosedHourArchiveScheduler(self._config(run_full_scan=False))
+        self.assertTrue(scheduler_no_scan.is_cohort_completed(cohort))
+
 
 if __name__ == "__main__":
     unittest.main()
