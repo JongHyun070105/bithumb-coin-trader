@@ -138,7 +138,7 @@ None found. Plan is implementable as written.
   - `git diff --check`: CLEAN (no whitespace/EOF errors)
   - `json.tool`: PASS (valid scale benchmark artifact)
 - **Test Suite:** 1219 passed, 2 skipped (consecutive runs: 0 failures, 0 flakes)
-- **Scale Proof:** $O(1)$ bounded finalization verified (0 historical raw files opened / bytes read across 1, 10, 30 cohorts; p50 runtime ~5-6ms)
+- **Scale Verification (Task 9):** bounded dirty-tail behavior demonstrated (no O(1) overclaim; for tested 1/10/30-cohort histories with identical dirty tail: historical_raw_files_opened = 0, historical_raw_bytes_read = 0, recomputed_count equal to dirty tail size, expensive finalization work did not rescan historical RAW content; p50 runtime ~5-6ms)
 - **Evidence Integrity:** V2 evidence (`evidence/aws-validation-30h-20260912-6576f63/`) byte-for-byte immutable; `test-results/` directory untouched
 - **Safety Posture:** Fail-Closed maintained; live trading DISABLED; private APIs DISABLED; 0 AWS CLI / Terraform / IAM mutations
 - **Overall Verdict:** **APPROVED** — Remediation phase complete; awaiting user authorization for merge/push or downstream planning.
