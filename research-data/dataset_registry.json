@@ -1,0 +1,150 @@
+[
+  {
+    "allowed_for_candidate_selection": false,
+    "allowed_for_exploration": true,
+    "allowed_for_final_holdout": false,
+    "collector_epoch": null,
+    "dataset_id": "old72h",
+    "dataset_role": "DEVELOPMENT_EXPLORATORY",
+    "description": "Historical ~72h attempt. FAIL CASE B. ~49.87M messages, 73 RAW cohorts. Only ~3 date cohorts / 228 receipts due to hour-only cohort-key collision.",
+    "exchange_universe": [
+      "bithumb",
+      "binance",
+      "upbit"
+    ],
+    "feed_universe": [
+      "trade",
+      "orderbook",
+      "ticker"
+    ],
+    "immutable_source": true,
+    "known_data_quality_issues": [
+      "FAIL_CASE_B: Historical attempt, not prospective validation",
+      "Only ~3 date cohorts verified out of 73 expected",
+      "Hour-only cohort-key collision in early lifecycle",
+      "~66.19 GiB total, ~66.12 GiB RAW on EC2"
+    ],
+    "known_integrity_status": "FAIL",
+    "manifest_schema_version": "4",
+    "notes": "DEVELOPMENT / REFERENCE / EXPLORATORY RESEARCH ONLY. MUST NOT be presented as successful prospective validation.",
+    "raw_schema_version": "v9.1.0-quarantine-hardened",
+    "registered_at": "2026-09-15T11:14:47.894618+00:00",
+    "source_roots": [
+      "ec2://old72h"
+    ],
+    "source_run_id": null,
+    "source_type": "jsonl_raw",
+    "time_range_end": null,
+    "time_range_start": null
+  },
+  {
+    "allowed_for_candidate_selection": false,
+    "allowed_for_exploration": true,
+    "allowed_for_final_holdout": false,
+    "collector_epoch": null,
+    "dataset_id": "v2",
+    "dataset_role": "DEVELOPMENT_EXPLORATORY",
+    "description": "V2 30H collection. Completed duration but failed validation/finalization. ~28.59M records, 30 candidate hours, 2272/2280 slots.",
+    "exchange_universe": [
+      "bithumb",
+      "binance",
+      "upbit"
+    ],
+    "feed_universe": [
+      "trade",
+      "orderbook",
+      "ticker"
+    ],
+    "immutable_source": true,
+    "known_data_quality_issues": [
+      "27/30 candidate hours had exact 76/76 RAW coverage",
+      "8 missing feed-hours classified as UNKNOWN_MISSING",
+      "UNKNOWN_MISSING: 2026-09-12_17 Bithumb KRW-MANA ticker+trade",
+      "UNKNOWN_MISSING: 2026-09-12_18 Bithumb KRW-AXS ticker+trade, KRW-MANA ticker+trade",
+      "UNKNOWN_MISSING: 2026-09-12_19 Bithumb KRW-MANA ticker+trade",
+      "writer_errors=0, queue_drop=0, unpersisted=0",
+      "No immutable proof that missing slots were zero-event"
+    ],
+    "known_integrity_status": "PARTIAL",
+    "manifest_schema_version": "4",
+    "notes": "DEVELOPMENT / RESEARCH ONLY. NOT final alpha evidence. 8 missing slots classified UNKNOWN_MISSING, NOT verified zero-event.",
+    "raw_schema_version": "v9.1.0-quarantine-hardened",
+    "registered_at": "2026-09-15T11:14:47.894878+00:00",
+    "source_roots": [
+      "s3://bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-30h-20260912-6576f63/"
+    ],
+    "source_run_id": null,
+    "source_type": "jsonl_raw",
+    "time_range_end": "2026-09-13T05:59:59Z",
+    "time_range_start": "2026-09-12T00:00:00Z"
+  },
+  {
+    "allowed_for_candidate_selection": false,
+    "allowed_for_exploration": false,
+    "allowed_for_final_holdout": false,
+    "collector_epoch": "aws-validation-30h-20260915-v4",
+    "dataset_id": "v4",
+    "dataset_role": "QUARANTINED",
+    "description": "V4 30H validation run. CURRENTLY RUNNING as of 2026-09-15. aws-validation-30h-20260915-v4.",
+    "exchange_universe": [
+      "bithumb",
+      "binance",
+      "upbit"
+    ],
+    "feed_universe": [
+      "trade",
+      "orderbook",
+      "ticker"
+    ],
+    "immutable_source": true,
+    "known_data_quality_issues": [
+      "RUNNING: Do not use for research until infrastructure PASS",
+      "Must complete collection, finalize, and receive independent PASS"
+    ],
+    "known_integrity_status": "UNKNOWN",
+    "manifest_schema_version": "4",
+    "notes": "QUARANTINED until infrastructure PASS. Then PROSPECTIVE_RESEARCH.",
+    "raw_schema_version": "v9.1.0-quarantine-hardened",
+    "registered_at": "2026-09-15T11:14:47.894885+00:00",
+    "source_roots": [
+      "s3://bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-30h-20260915-v4/"
+    ],
+    "source_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
+    "source_type": "jsonl_raw",
+    "time_range_end": null,
+    "time_range_start": "2026-09-15T10:26:33Z"
+  },
+  {
+    "allowed_for_candidate_selection": false,
+    "allowed_for_exploration": true,
+    "allowed_for_final_holdout": false,
+    "collector_epoch": null,
+    "dataset_id": "fresh45",
+    "dataset_role": "INFRA_VALIDATION_ONLY",
+    "description": "45-minute validation reference data (Aug 25-28, 2026). ~5,396 JSONL files, ~74 GB. 3 exchanges, 76 feeds.",
+    "exchange_universe": [
+      "bithumb",
+      "binance",
+      "upbit"
+    ],
+    "feed_universe": [
+      "trade",
+      "orderbook",
+      "ticker"
+    ],
+    "immutable_source": true,
+    "known_data_quality_issues": [],
+    "known_integrity_status": "PASS",
+    "manifest_schema_version": "4",
+    "notes": "INFRA_VALIDATION reference. May use for schema/adapter compatibility tests. Used as local development dataset for pipeline testing.",
+    "raw_schema_version": "v9.1.0-quarantine-hardened",
+    "registered_at": "2026-09-15T11:14:47.894891+00:00",
+    "source_roots": [
+      "data/microstructure/raw/"
+    ],
+    "source_run_id": null,
+    "source_type": "jsonl_raw",
+    "time_range_end": "2026-08-28T17:00:00Z",
+    "time_range_start": "2026-08-25T15:00:00Z"
+  }
+]

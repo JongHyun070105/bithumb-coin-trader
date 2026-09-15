@@ -1,0 +1,61 @@
+{
+  "dataset_id": "fresh45",
+  "dataset_role": "INFRA_VALIDATION_ONLY",
+  "market": "KRW-BTC",
+  "exchange": "bithumb",
+  "time_range": "2026-08-25 16:00 UTC (1 hour)",
+  "events_processed": {
+    "orderbook": 44681,
+    "trade": 3769,
+    "feature_vectors": 42675
+  },
+  "hypotheses": {
+    "H1": {
+      "description": "Orderbook imbalance predicts short-term mid-price direction/return",
+      "feature": "depth_imbalance_l1",
+      "target": "mid_return_5s",
+      "samples": 42675,
+      "ic_pearson": 0.131839,
+      "hit_rate": 0.5178,
+      "mean_return": -0.00000470,
+      "quantile_returns": {
+        "Q1": -0.00001677,
+        "Q2": -0.00002919,
+        "Q3": -0.00000647,
+        "Q4": 0.00002388,
+        "Q5": 0.00000507
+      },
+      "classification": "EXPLORATORY_POSITIVE",
+      "caveats": "Single hour, single market, INFRA_VALIDATION_ONLY data"
+    },
+    "H2": {
+      "description": "Signed trade-flow imbalance predicts short-term continuation",
+      "feature": "ati_30s",
+      "target": "mid_return_10s",
+      "samples": 44477,
+      "ic_pearson": 0.017546,
+      "hit_rate": 0.5051,
+      "classification": "EXPLORATORY_NEGATIVE",
+      "caveats": "Weak signal, single hour"
+    },
+    "H3": {
+      "description": "Microprice displacement from mid predicts near-term price movement",
+      "feature": "microprice_bias_bps",
+      "target": "mid_return_5s",
+      "samples": 42675,
+      "ic_pearson": 0.119389,
+      "hit_rate": 0.5198,
+      "classification": "EXPLORATORY_POSITIVE",
+      "caveats": "Single hour, single market, INFRA_VALIDATION_ONLY data"
+    }
+  },
+  "overall_classification": "EXPLORATORY_POSITIVE",
+  "scientific_state": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "timestamp": "2026-09-15",
+  "note": "ALL RESULTS ARE DEVELOPMENT / EXPLORATORY ONLY. NOT alpha proof. Requires prospective validation on V4-after-PASS and future holdout."
+}
