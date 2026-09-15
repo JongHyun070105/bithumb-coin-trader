@@ -17,6 +17,10 @@ for d in (ROOT, SRC_DIR):
         sys.path.insert(0, str(d))
 
 from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig
+from bithumb_coin_trader.actual_start_evidence import (
+    ActualStartIdentity,
+    normalize_actual_start_evidence,
+)
 from scripts.run_cross_market_collector import (
     _load_runtime_config,
     _render_epoch_template,
@@ -319,25 +323,60 @@ class TestV3SealConsistency(unittest.TestCase):
                 "raw_root_template",
             )
 
-    def test_21_v4_prelaunch_authorized_is_false(self) -> None:
-        """21. V4 pre-launch: launch_authorized=false, status=PREPARED_NOT_AUTHORIZED."""
+    def test_21_v4_consumed_identity_is_running(self) -> None:
+        """21. V4 post-launch: exact identity is authorized, running, and consumed."""
         v4_auth_path = self.seals_dir / "aws-validation-30h-20260915-v4.authorization-evidence.json"
         auth_data = json.loads(v4_auth_path.read_text(encoding="utf-8"))
-        self.assertFalse(auth_data["launch_authorized"])
-        self.assertEqual(auth_data["status"], "PREPARED_NOT_AUTHORIZED")
-        self.assertIsNone(auth_data["actual_start_time_utc"])
-        self.assertIsNone(auth_data["actual_start_evidence"])
+        self.assertTrue(auth_data["launch_authorized"])
+        self.assertEqual(auth_data["status"], "RUNNING")
+        self.assertEqual(auth_data["actual_start_time_utc"], "2026-09-15T10:26:33.652102Z")
+        self.assertEqual(
+            auth_data["actual_start_evidence"],
+            "evidence/aws-validation-30h-20260915-v4/actual-start-evidence.json",
+        )
+        self.assertTrue(auth_data["systemd_unit_active"])
+        self.assertTrue(auth_data["collector_process_running"])
+        self.assertTrue(auth_data["supervisor_process_running"])
+        self.assertTrue(auth_data["archive_scheduler_running"])
         self.assertEqual(auth_data["collector_epoch"], "aws-validation-30h-20260915-v4")
 
-    def test_22_v4_prelaunch_provenance_state(self) -> None:
-        """22. V4 pre-launch: provenance has launch_authorized=false, no actual start."""
+    def test_22_v4_post_launch_provenance_state(self) -> None:
+        """22. V4 post-launch provenance records authorization and actual start."""
         v4_prov_path = self.seals_dir / "aws-validation-30h-20260915-v4.launch-provenance.json"
         prov_data = json.loads(v4_prov_path.read_text(encoding="utf-8"))
-        self.assertFalse(prov_data["launch_authorized"])
-        self.assertIsNone(prov_data["actual_start_time_utc"])
+        self.assertTrue(prov_data["launch_authorized"])
+        self.assertEqual(prov_data["actual_start_time_utc"], "2026-09-15T10:26:33.652102Z")
+        self.assertEqual(prov_data["authorization_timestamp_utc"], "2026-09-15T10:24:43Z")
         self.assertEqual(prov_data["runtime_code_commit"], self.runtime_commit)
         self.assertEqual(prov_data["runtime_config_fingerprint"],
                          "4229274b582598bb869aafd4d0c139949559ebffab837546613be651ee60b2fa")
+
+    def test_23_v4_actual_start_evidence_normalizes_to_exact_identity(self) -> None:
+        """23. V4 schema-v2 actual-start evidence is canonical and identity-bound."""
+        evidence_path = (
+            ROOT
+            / "evidence"
+            / "aws-validation-30h-20260915-v4"
+            / "actual-start-evidence.json"
+        )
+        evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+        normalized = normalize_actual_start_evidence(
+            evidence,
+            ActualStartIdentity(
+                collector_epoch="aws-validation-30h-20260915-v4",
+                collector_run_id="aws-validation-30h-run-20260915T061253Z-v4",
+                runtime_commit=self.runtime_commit,
+                runtime_config_fingerprint=(
+                    "4229274b582598bb869aafd4d0c139949559ebffab837546613be651ee60b2fa"
+                ),
+            ),
+        )
+        self.assertEqual(normalized.schema_version, 2)
+        self.assertEqual(normalized.actual_start_time_utc, "2026-09-15T10:26:33.652102Z")
+        self.assertEqual(
+            normalized.source,
+            "bitcoin-trader-30h-aws-validation-30h-run-20260915T061253Z-v4.service",
+        )
 
 
 if __name__ == "__main__":

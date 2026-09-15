@@ -4,14 +4,14 @@
   "collector_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
   "runtime_commit": "ac81f94f431f5d868d88e10fa784eb0da449264d",
   "launch_authorized": true,
-  "actual_start_time_utc": null,
-  "actual_start_evidence": null,
-  "systemd_unit_active": false,
-  "collector_process_running": false,
-  "supervisor_process_running": false,
-  "archive_scheduler_running": false,
+  "actual_start_time_utc": "2026-09-15T10:26:33.652102Z",
+  "actual_start_evidence": "evidence/aws-validation-30h-20260915-v4/actual-start-evidence.json",
+  "systemd_unit_active": true,
+  "collector_process_running": true,
+  "supervisor_process_running": true,
+  "archive_scheduler_running": true,
   "official_s3_objects_written": 0,
-  "market_data_records_written": 0,
-  "status": "AUTHORIZED_NOT_STARTED",
-  "note": "Explicit human authorization recorded at 2026-09-15T10:24:43Z for this exact-once official V4 30H launch identity."
+  "market_data_records_written": 24759,
+  "status": "RUNNING",
+  "note": "The exact-once V4 launch was submitted once and initial health passed. This identity is consumed; no relaunch is permitted. Record count is the initial 2026-09-15T10:28:44Z metrics snapshot."
 }

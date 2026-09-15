@@ -1,0 +1,11 @@
+{
+  "schema_version": 2,
+  "evidence_kind": "systemd-transient-actual-start-evidence",
+  "collector_epoch": "aws-validation-30h-20260915-v4",
+  "collector_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
+  "runtime_commit": "ac81f94f431f5d868d88e10fa784eb0da449264d",
+  "runtime_config_fingerprint": "4229274b582598bb869aafd4d0c139949559ebffab837546613be651ee60b2fa",
+  "actual_start_time_utc": "2026-09-15T10:26:33.652102Z",
+  "source": "bitcoin-trader-30h-aws-validation-30h-run-20260915T061253Z-v4.service",
+  "captured_at_utc": "2026-09-15T10:28:38.416567Z"
+}
