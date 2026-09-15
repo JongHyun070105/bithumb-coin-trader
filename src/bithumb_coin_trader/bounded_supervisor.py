@@ -12,21 +12,39 @@ import signal
 import subprocess
 import threading
 import time
-from typing import Any, Sequence
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from bithumb_coin_trader.qualification_schedule import QualificationSchedule
 
 
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 @dataclass(frozen=True)
+class V3ScheduleConfig:
+    required_qualifying_full_hours: int
+    maximum_collection_window_seconds: int
+    schedule_path: Path
+
+    def __post_init__(self) -> None:
+        if self.required_qualifying_full_hours != 30:
+            raise ValueError("required_qualifying_full_hours must be 30 for V3")
+        if self.maximum_collection_window_seconds != 111600:
+            raise ValueError("maximum_collection_window_seconds must be 111600 for V3")
+        if not self.schedule_path:
+            raise ValueError("schedule_path must be provided")
+
+
+@dataclass(frozen=True)
 class SupervisorConfig:
     run_id: str
-    collection_duration_seconds: float
     collector_command: tuple[str, ...]
     metrics_path: Path
     collector_lifecycle_path: Path
     result_path: Path
     log_path: Path
+    collection_duration_seconds: float | None = None
     finalization_timeout_seconds: float = 45.0
     hard_ceiling_seconds: float | None = None
     publisher_command: tuple[str, ...] | None = None
@@ -35,17 +53,26 @@ class SupervisorConfig:
     publisher_interval_seconds: float = 60.0
     shutdown_grace_seconds: float = 45.0
     require_full_duration: bool = False
+    v3_schedule: V3ScheduleConfig | None = None
 
     def __post_init__(self) -> None:
         if not SAFE_RUN_ID.fullmatch(self.run_id):
             raise ValueError("run_id must be a safe identifier")
-        if self.collection_duration_seconds <= 0:
+        if self.v3_schedule is not None and self.collection_duration_seconds is not None and self.collection_duration_seconds > 0:
+            raise ValueError("SUPERVISOR_MODE_CONFLICT: cannot specify both collection_duration_seconds and v3_schedule")
+        if self.v3_schedule is None and (self.collection_duration_seconds is None or self.collection_duration_seconds <= 0):
             raise ValueError("collection_duration_seconds must be positive")
         if self.finalization_timeout_seconds <= 0:
             raise ValueError("finalization_timeout_seconds must be positive")
-        minimum_ceiling = self.collection_duration_seconds + self.finalization_timeout_seconds
-        if self.hard_ceiling_seconds is not None and self.hard_ceiling_seconds + 1e-9 < minimum_ceiling:
-            raise ValueError("hard_ceiling_seconds must cover collection plus finalization")
+        if self.v3_schedule is not None:
+            min_ceiling = self.v3_schedule.maximum_collection_window_seconds + self.finalization_timeout_seconds
+            if self.hard_ceiling_seconds is not None and self.hard_ceiling_seconds + 1e-9 < min_ceiling:
+                raise ValueError("hard_ceiling_seconds must cover maximum collection window plus finalization")
+        else:
+            assert self.collection_duration_seconds is not None
+            min_ceiling = self.collection_duration_seconds + self.finalization_timeout_seconds
+            if self.hard_ceiling_seconds is not None and self.hard_ceiling_seconds + 1e-9 < min_ceiling:
+                raise ValueError("hard_ceiling_seconds must cover collection plus finalization")
         if not self.collector_command or any(not item for item in self.collector_command):
             raise ValueError("collector_command must be non-empty")
         if self.publisher_command is not None and any(not item for item in self.publisher_command):
@@ -59,9 +86,12 @@ class SupervisorConfig:
 
     @property
     def effective_hard_ceiling_seconds(self) -> float:
-        return self.hard_ceiling_seconds or (
-            self.collection_duration_seconds + self.finalization_timeout_seconds
-        )
+        if self.hard_ceiling_seconds is not None:
+            return self.hard_ceiling_seconds
+        if self.v3_schedule is not None:
+            return self.v3_schedule.maximum_collection_window_seconds + self.finalization_timeout_seconds
+        assert self.collection_duration_seconds is not None
+        return self.collection_duration_seconds + self.finalization_timeout_seconds
 
 
 @dataclass(frozen=True)
@@ -69,34 +99,45 @@ class TransientLaunchConfig:
     run_id: str
     workdir: Path
     supervisor_command: tuple[str, ...]
-    collection_duration_seconds: int = 2700
+    collection_duration_seconds: int | None = None
     finalization_timeout_seconds: int = 120
     supervisor_hard_ceiling_seconds: int = 2820
     systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
+    maximum_collection_window_seconds: int | None = None
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if not SAFE_RUN_ID.fullmatch(config.run_id):
         raise ValueError("run_id must be a safe identifier")
-    if config.collection_duration_seconds not in (2700, 7200, 108000, 259200):
-        raise ValueError("production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds")
-    if config.supervisor_hard_ceiling_seconds < (
-        config.collection_duration_seconds + config.finalization_timeout_seconds
-    ):
-        raise ValueError("supervisor hard ceiling must cover collection plus finalization")
-    if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
-        raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     if not config.workdir.is_absolute() or not config.supervisor_command:
         raise ValueError("workdir must be absolute and supervisor_command must be non-empty")
-    if config.collection_duration_seconds == 259200:
-        prefix = "bitcoin-trader-72h-soak"
-    elif config.collection_duration_seconds == 108000:
+    if config.maximum_collection_window_seconds is not None:
+        if config.maximum_collection_window_seconds != 111600:
+            raise ValueError("V3 maximum_collection_window_seconds must be 111600")
+        if config.supervisor_hard_ceiling_seconds < (
+            config.maximum_collection_window_seconds + config.finalization_timeout_seconds
+        ):
+            raise ValueError("supervisor hard ceiling must cover maximum collection window plus finalization")
         prefix = "bitcoin-trader-30h"
-    elif config.collection_duration_seconds == 7200:
-        prefix = "bitcoin-trader-120m"
     else:
-        prefix = "bitcoin-trader-short-smoke"
+        # Legacy duration path:
+        if config.collection_duration_seconds not in (2700, 7200, 108000, 259200):
+            raise ValueError("production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds")
+        if config.supervisor_hard_ceiling_seconds < (
+            config.collection_duration_seconds + config.finalization_timeout_seconds
+        ):
+            raise ValueError("supervisor hard ceiling must cover collection plus finalization")
+        if config.collection_duration_seconds == 259200:
+            prefix = "bitcoin-trader-72h-soak"
+        elif config.collection_duration_seconds == 108000:
+            prefix = "bitcoin-trader-30h"
+        elif config.collection_duration_seconds == 7200:
+            prefix = "bitcoin-trader-120m"
+        else:
+            prefix = "bitcoin-trader-short-smoke"
+    if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
+        raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     unit_name = f"{prefix}-{config.run_id}.service"
     return [
         "systemd-run",
@@ -224,10 +265,33 @@ class BoundedSupervisor:
 
     def run(self) -> int:
         cfg = self.config
+
+        schedule: QualificationSchedule | None = None
+        if cfg.v3_schedule is not None:
+            from bithumb_coin_trader.qualification_schedule import (
+                build_qualification_schedule,
+                save_schedule,
+            )
+            actual_utc = datetime.now(timezone.utc)
+            actual_monotonic = time.monotonic()
+            schedule = build_qualification_schedule(
+                actual_utc=actual_utc,
+                actual_mono=actual_monotonic,
+                hours=cfg.v3_schedule.required_qualifying_full_hours,
+                max_window=cfg.v3_schedule.maximum_collection_window_seconds,
+            )
+            save_schedule(schedule, cfg.v3_schedule.schedule_path)
+            started_at = schedule.actual_start_utc
+            started_monotonic = schedule.actual_start_monotonic
+            hard_deadline = schedule.collection_stop_monotonic + cfg.finalization_timeout_seconds
+        else:
+            started_at = _utc_iso()
+            started_monotonic = time.monotonic()
+            hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
+
         cfg.log_path.parent.mkdir(parents=True, exist_ok=True)
         log_descriptor = os.open(str(cfg.log_path), os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
-        started_at = _utc_iso()
-        started_monotonic = time.monotonic()
+
         collector_exit: int | None = None
         publisher_exit: int | None = None
         publisher_failure: int | None = None
@@ -246,12 +310,14 @@ class BoundedSupervisor:
         forced_timeout = False
         old_handlers: dict[int, Any] = {}
         can_install_handlers = threading.current_thread() is threading.main_thread()
+        log_opened = False
         try:
             if can_install_handlers:
                 for signum in (signal.SIGINT, signal.SIGTERM):
                     old_handlers[signum] = signal.getsignal(signum)
                     signal.signal(signum, self._forward_signal)
             with os.fdopen(log_descriptor, "ab", buffering=0) as log_handle:
+                log_opened = True
                 self._collector = subprocess.Popen(
                     cfg.collector_command,
                     stdin=subprocess.DEVNULL,
@@ -275,7 +341,6 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
-                hard_deadline = started_monotonic + cfg.effective_hard_ceiling_seconds
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
                     now = time.monotonic()
@@ -329,6 +394,11 @@ class BoundedSupervisor:
                     if archive_scheduler_exit not in {0, -signal.SIGTERM} and archive_scheduler_failure is None:
                         archive_scheduler_failure = archive_scheduler_exit
         finally:
+            if not log_opened:
+                try:
+                    os.close(log_descriptor)
+                except OSError:
+                    pass
             if can_install_handlers:
                 for signum, handler in old_handlers.items():
                     signal.signal(signum, handler)
@@ -337,10 +407,20 @@ class BoundedSupervisor:
         collector_pid = self._collector.pid if self._collector is not None else None
         final_metrics_valid = bool(collector_pid and self._final_metrics_valid(collector_pid))
         final_manifest_observed = self._final_manifest_observed()
-        ran_long_enough = (
-            not cfg.require_full_duration
-            or ended_monotonic - started_monotonic >= cfg.collection_duration_seconds - 0.05
-        )
+        if cfg.v3_schedule is not None and schedule is not None:
+            ran_long_enough = (
+                not cfg.require_full_duration
+                or ended_monotonic >= schedule.collection_stop_monotonic - 0.05
+            )
+        else:
+            ran_long_enough = (
+                not cfg.require_full_duration
+                or (
+                    cfg.collection_duration_seconds is not None
+                    and ended_monotonic - started_monotonic
+                    >= cfg.collection_duration_seconds - 0.05
+                )
+            )
         passed = bool(
             collector_exit == 0
             and self._received_signal is None
@@ -379,6 +459,7 @@ class BoundedSupervisor:
             "final_manifest_flush_observed": final_manifest_observed,
             "forced_timeout": forced_timeout,
             "full_duration_satisfied": ran_long_enough,
+            "deadline_recomputed": False,
             "overall_status": overall_status,
         }
         _atomic_json(cfg.result_path, result)

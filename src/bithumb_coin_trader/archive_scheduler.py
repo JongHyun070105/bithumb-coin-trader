@@ -17,12 +17,9 @@ import fcntl
 import json
 import os
 from pathlib import Path
-import re
-import signal
 import sys
 import threading
-import time
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = ROOT / "scripts"
@@ -31,19 +28,17 @@ for d in (ROOT, SCRIPTS_DIR):
         sys.path.insert(0, str(d))
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
+from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
 from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
-    OwnershipViolationError,
-    PARTITION_PATTERN,
     verify_runtime_ownership,
 )
 from scripts.orchestrate_closed_hour_archive import (
-    FULL_SCAN_GLOBAL_LOCK_NAME,
+    ARCHIVE_ORCHESTRATOR_LOCK_NAME,
     OrchestratorConcurrencyError,
     is_global_full_scan_running,
     load_active_paths,
     orchestrate_closed_hour_archive,
-    orchestrator_lock,
 )
 
 
@@ -105,7 +100,7 @@ class ClosedHourArchiveScheduler:
         return is_global_full_scan_running(self.config.receipt_root)
 
     def is_orchestrator_running(self) -> bool:
-        lock_file = self.config.receipt_root / ".orchestrator.lock"
+        lock_file = self.config.receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
         if not lock_file.exists():
             return False
         try:
@@ -125,7 +120,29 @@ class ClosedHourArchiveScheduler:
     def _full_scan_report_path(self, cohort: ArchiveCohortId) -> Path:
         return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
 
+    def _full_scan_passed(self, cohort: ArchiveCohortId) -> bool:
+        if not self.config.run_full_scan:
+            return True
+        scan_rep = self._full_scan_report_path(cohort)
+        if not scan_rep.exists():
+            return False
+        try:
+            s_data = json.loads(scan_rep.read_text(encoding="utf-8"))
+            s_status = s_data.get("status") or s_data.get("integrity", {}).get("totals", {}).get("status")
+            return s_data.get("cohort") == cohort.key and s_status == "PASS"
+        except Exception:
+            return False
+
     def has_cohort_failed(self, cohort: ArchiveCohortId) -> bool:
+        cohort_report = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        if cohort_report.exists():
+            try:
+                data = json.loads(cohort_report.read_text(encoding="utf-8"))
+                if data.get("cohort") == cohort.key and data.get("status") != "PASS":
+                    return True
+            except Exception:
+                return True
+
         report_path = self._full_scan_report_path(cohort)
         if not report_path.exists():
             return False
@@ -137,6 +154,59 @@ class ClosedHourArchiveScheduler:
             return True
 
     def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
+        # V3 check: if frozen journal exists
+        journal_file = self.config.base_dir / "coverage" / "journals" / f"journal_{cohort.key}.json"
+        if journal_file.exists():
+            report_path = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
+            if report_path.exists():
+                try:
+                    data = json.loads(report_path.read_text(encoding="utf-8"))
+                    if data.get("cohort") == cohort.key:
+                        if data.get("status") != "PASS":
+                            return False
+                        return self._full_scan_passed(cohort)
+                except Exception:
+                    return False
+            # Check coverage receipts directly
+            cov_receipt_dir = self.config.receipt_root / "coverage"
+            if cov_receipt_dir.exists():
+                all_found = True
+                for feed in SEALED_FEED_UNIVERSE:
+                    rec_file = (
+                        cov_receipt_dir
+                        / cohort.key
+                        / feed.exchange
+                        / feed.stream
+                        / f"{feed.market}.coverage.json.archive-receipt.json"
+                    )
+                    if not rec_file.exists():
+                        all_found = False
+                        break
+                    try:
+                        rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
+                        if not rec_data.get("restore_verified_at") or rec_data.get("state") == ArchiveState.FAILED.value:
+                            all_found = False
+                            break
+                        cov_file = (
+                            self.config.base_dir
+                            / "coverage"
+                            / cohort.key
+                            / feed.exchange
+                            / feed.stream
+                            / f"{feed.market}.coverage.json"
+                        )
+                        if cov_file.exists():
+                            cov_data = json.loads(cov_file.read_text(encoding="utf-8"))
+                            if cov_data.get("coverage_state") == "FAILED":
+                                all_found = False
+                                break
+                    except Exception:
+                        all_found = False
+                        break
+                if all_found:
+                    return self._full_scan_passed(cohort)
+            return False
+
         matching_files = []
         for path in self.config.raw_root.glob("**/*.jsonl"):
             try:
@@ -164,32 +234,78 @@ class ClosedHourArchiveScheduler:
                     return False
                 if not (data.get("cleanup_eligible") or data.get("state") in (
                     ArchiveState.CLEANUP_ELIGIBLE.value,
-                    ArchiveState.VERIFIED.value,
+                    ArchiveState.RESTORE_VERIFIED.value,
                 )):
                     return False
             except Exception:
                 return False
 
-        if self.config.run_full_scan:
-            report_path = self._full_scan_report_path(cohort)
-            if not report_path.exists():
-                return False
-            try:
-                data = json.loads(report_path.read_text(encoding="utf-8"))
-                status = data.get("status") or data.get("integrity", {}).get("totals", {}).get("status")
-                if data.get("cohort") != cohort.key or status != "PASS":
-                    return False
-            except Exception:
-                return False
-
-        return True
+        return self._full_scan_passed(cohort)
 
     def discover_eligible_hours(self, now: Optional[datetime] = None) -> List[EligibleHour]:
         current_now = now or self._now_fn()
         active_paths = load_active_paths(self.config.metrics_path, self.config.raw_root)
         active_set = {p.resolve() for p in active_paths}
 
-        # Verify ownership of raw root
+        journals_dir = self.config.base_dir / "coverage" / "journals"
+        v3_journals = sorted(journals_dir.glob("journal_*.json")) if journals_dir.exists() else []
+
+        if v3_journals:
+            # V3 journal-driven discovery
+            active_cohort_keys = set()
+            for p in active_paths:
+                try:
+                    active_cohort_keys.add(ArchiveCohortId.from_partition_name(p.name).key)
+                except ValueError:
+                    pass
+
+            eligible: List[EligibleHour] = []
+            for jf in v3_journals:
+                cohort_key = jf.stem.replace("journal_", "")
+                try:
+                    d_str, h_str = cohort_key.split("_")
+                    cohort = ArchiveCohortId(d_str, h_str)
+                except ValueError:
+                    continue
+
+                if self.is_cohort_completed(cohort):
+                    continue
+
+                # Active check: skip if currently active cohort
+                if cohort.key in active_cohort_keys:
+                    continue
+
+                # In V3, writer fence is closed and active paths empty, so no 600-second grace is needed.
+                verify_runtime_ownership((jf,), expected_owner=self.config.expected_owner)
+
+                matching_files = []
+                for p in self.config.raw_root.glob("**/*.jsonl"):
+                    try:
+                        if ArchiveCohortId.from_partition_name(p.name) == cohort:
+                            matching_files.append(p)
+                    except ValueError:
+                        continue
+
+                if matching_files:
+                    verify_runtime_ownership(tuple(matching_files), expected_owner=self.config.expected_owner)
+
+                try:
+                    closed_at = datetime.fromisoformat(
+                        f"{cohort.date_str}T{cohort.hour_str}:00:00+00:00"
+                    ) + timedelta(hours=1)
+                except ValueError:
+                    continue
+
+                eligible.append(EligibleHour(
+                    cohort=cohort,
+                    files=matching_files,
+                    closed_at=closed_at,
+                ))
+
+            eligible.sort(key=lambda e: e.cohort)
+            return eligible
+
+        # Legacy RAW discovery
         if self.config.raw_root.exists():
             verify_runtime_ownership((self.config.raw_root,), expected_owner=self.config.expected_owner)
 
@@ -201,7 +317,7 @@ class ClosedHourArchiveScheduler:
                 continue
             grouped.setdefault(cohort, []).append(p)
 
-        eligible: List[EligibleHour] = []
+        eligible = []
         for cohort, files in grouped.items():
             # 1. Check if hour is completed
             if self.is_cohort_completed(cohort):

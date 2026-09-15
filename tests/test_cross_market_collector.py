@@ -7,15 +7,22 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from typing import Any, cast
 import unittest
 from unittest.mock import patch
 
+import websockets
+
 from bithumb_coin_trader.cross_market_collector import (
     MultiExchangeMicrostructureCollector,
+    binance_list_subscriptions_request,
     build_binance_combined_url,
     parse_binance_message,
+    upbit_list_subscriptions_request,
 )
+from bithumb_coin_trader.feed_hour_coverage import load_frozen_journal
 from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
+from bithumb_coin_trader.session_evidence import FeedIdentity, HeartbeatPolicy
 
 
 class CrossMarketCollectorTests(unittest.TestCase):
@@ -361,6 +368,523 @@ class CrossMarketCollectorTests(unittest.TestCase):
             self.assertEqual(metric.queue_backpressure_events, 1)
             self.assertEqual(metric.queue_dropped_events, 0)
 
+    def test_upbit_list_subscriptions_confirms_same_owner(self) -> None:
+        async def exercise() -> None:
+            fake_ws = FakeWebSocket()
+            fake_ws.queue_json({
+                "method": "LIST_SUBSCRIPTIONS",
+                "result": [
+                    {"type": "orderbook", "codes": ["KRW-BTC"]},
+                    {"type": "trade", "codes": ["KRW-BTC"]},
+                ],
+                "ticket": "t",
+            })
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    upbit_markets=["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "upbit", ["upbit/orderbook/KRW-BTC", "upbit/trade/KRW-BTC"], "2026-09-14T12:00:00Z"
+                )
+                await collector._confirm_upbit_subscriptions(fake_ws, session_id, "t")
+                self.assertEqual(
+                    json.loads(fake_ws.sent[-1]),
+                    [{"ticket": "t"}, {"method": "LIST_SUBSCRIPTIONS"}, {"format": "DEFAULT"}],
+                )
+                self.assertTrue(collector.session_evidence.is_confirmed(session_id))
+
+        asyncio.run(exercise())
+
+    def test_binance_requires_exact_list_response(self) -> None:
+        async def exercise() -> None:
+            fake_ws = FakeWebSocket()
+            fake_ws.queue_json({"result": ["btcusdt@trade"], "id": 7})
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    binance_symbols=["btcusdt"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_upbit=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "binance", ["binance/trade/btcusdt", "binance/orderbook/btcusdt"], "2026-09-14T12:00:00Z"
+                )
+                with self.assertRaisesRegex(ValueError, "SUBSCRIPTION_SET_MISMATCH"):
+                    await collector._confirm_binance_subscriptions(fake_ws, session_id, 7)
+
+                self.assertEqual(
+                    json.loads(fake_ws.sent[-1]),
+                    {"method": "LIST_SUBSCRIPTIONS", "id": 7},
+                )
+
+        asyncio.run(exercise())
+
+    def test_bithumb_snapshot_confirms_feeds(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "bithumb",
+                    ["bithumb/orderbook/KRW-BTC", "bithumb/trade/KRW-BTC", "bithumb/ticker/KRW-BTC"],
+                    "2026-09-14T12:00:00Z",
+                )
+                snapshot_frame = {
+                    "type": "orderbook",
+                    "code": "KRW-BTC",
+                    "stream_type": "SNAPSHOT",
+                    "timestamp": 1726315200000,
+                    "orderbook_units": [],
+                }
+                collector._confirm_bithumb_feed(session_id, "orderbook", "KRW-BTC", snapshot_frame)
+                self.assertTrue(collector.session_evidence.is_confirmed(session_id))
+                seg = collector.session_evidence.segments_for(
+                    FeedIdentity("bithumb", "orderbook", "KRW-BTC"),
+                    "2026-09-14T12:00:00Z",
+                    "2026-09-14T13:00:00Z",
+                )[0]
+                self.assertIn("bithumb/orderbook/KRW-BTC", seg.confirmed_feeds)
+
+        asyncio.run(exercise())
+
+    def test_append_failure_keeps_count_zero(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                now = datetime(2026, 9, 14, 12, 10, tzinfo=timezone.utc)
+                collector._utc_now = lambda: now
+                event = ("bithumb", "trade", "KRW-BTC", {}, now, now, 1, collector._collector_run_id)
+                feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+                cohort = "2026-09-14_12"
+
+                with patch.object(collector.storage, "append_raw_record", side_effect=OSError("disk full")):
+                    await collector._writer_worker_once(event)
+
+                self.assertEqual(cast(Any, collector.coverage_tracker).event_count(feed, cohort), 0)
+
+        asyncio.run(exercise())
+
+    def test_reconnect_invalidates_session_and_creates_new_segment(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+                t1 = "2026-09-14T12:00:00Z"
+                t2 = "2026-09-14T12:10:00Z"
+                t3 = "2026-09-14T12:11:00Z"
+
+                s1 = collector.session_evidence.open_session("bithumb", [feed.canonical], t1)
+                collector.session_evidence.confirm(s1, [feed.canonical], "SNAPSHOT", t1)
+                collector.session_evidence.close_session(s1, t2, "CONNECTION_RESET")
+
+                s2 = collector.session_evidence.open_session("bithumb", [feed.canonical], t3)
+                collector.session_evidence._sessions[s1].reconnect_successor_id = s2
+
+                segs = collector.session_evidence.segments_for(feed, "2026-09-14T12:00:00Z", "2026-09-14T13:00:00Z")
+                self.assertEqual(len(segs), 2)
+                self.assertEqual(segs[0].session_id, s1)
+                self.assertEqual(segs[0].disconnect_reason, "CONNECTION_RESET")
+                self.assertEqual(segs[0].reconnect_successor_id, s2)
+                self.assertEqual(segs[1].session_id, s2)
+                self.assertFalse(collector.session_evidence.is_confirmed(s2))
+
+        asyncio.run(exercise())
+
+    def test_heartbeat_timeout_marks_disconnect(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                collector.heartbeat_policy = HeartbeatPolicy(
+                    heartbeat_probe_interval_seconds=0,
+                    heartbeat_timeout_seconds=0,
+                )
+                fake_ws = FakeWebSocket()
+                async def timing_out_ping() -> asyncio.Future[None]:
+                    fut: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+                    return fut
+                fake_ws.ping = timing_out_ping  # type: ignore
+
+                sid = collector.session_evidence.open_session("bithumb", ["bithumb/trade/KRW-BTC"], "2026-09-14T12:00:00Z")
+                collector.is_running = True
+                await collector._heartbeat_loop(fake_ws, "bithumb", sid)
+
+                sess = collector.session_evidence._sessions[sid]
+                self.assertEqual(sess.disconnect_reason, "HEARTBEAT_TIMEOUT")
+                self.assertIsNotNone(sess.disconnected_at_utc)
+                self.assertTrue(fake_ws.closed)
+
+        asyncio.run(exercise())
+
+    def test_bithumb_feed_confirmation_preserves_initial_timestamp(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "bithumb",
+                    ["bithumb/orderbook/KRW-BTC", "bithumb/trade/KRW-BTC", "bithumb/ticker/KRW-BTC"],
+                    "2026-09-14T12:00:00Z",
+                )
+                # Initial confirmations
+                collector._confirm_bithumb_feed(session_id, "orderbook", "KRW-BTC", {})
+                collector._confirm_bithumb_feed(session_id, "trade", "KRW-BTC", {})
+                collector._confirm_bithumb_feed(session_id, "ticker", "KRW-BTC", {})
+
+                sess = collector.session_evidence._sessions[session_id]
+                initial_confirmed_at = sess.confirmed_at_utc
+                self.assertIsNotNone(initial_confirmed_at)
+
+                # Subsequent messages arriving later should not modify confirmed_at_utc
+                with patch.object(collector, "_utc_now", return_value=datetime(2026, 9, 14, 12, 59, 59, tzinfo=timezone.utc)):
+                    collector._confirm_bithumb_feed(session_id, "trade", "KRW-BTC", {})
+                    collector._confirm_bithumb_feed(session_id, "orderbook", "KRW-BTC", {})
+                    collector._confirm_bithumb_feed(session_id, "ticker", "KRW-BTC", {})
+
+                self.assertEqual(sess.confirmed_at_utc, initial_confirmed_at)
+
+        asyncio.run(exercise())
+
+    def test_collector_persists_frozen_journals_on_boundary_and_shutdown(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            current_time = datetime(2026, 9, 14, 12, 10, 0, tzinfo=timezone.utc)
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"],
+                storage_base_dir=Path(tmp) / "raw",
+                enable_binance=False,
+                enable_upbit=False,
+                utc_now=lambda: current_time,
+            )
+            self.assertTrue(hasattr(collector, "journals_dir"))
+
+            # Write record in hour 12
+            self._write_one(collector, "bithumb", "trade", "KRW-BTC", current_time)
+
+            # Boundary crossing in hour 13 triggers freeze_completed
+            current_time = datetime(2026, 9, 14, 13, 5, 0, tzinfo=timezone.utc)
+            self._write_one(collector, "bithumb", "trade", "KRW-BTC", current_time)
+
+            # Verify boundary journal file exists
+            journal_12 = collector.journals_dir / "journal_2026-09-14_12.json"
+            self.assertTrue(journal_12.exists())
+            loaded_12 = load_frozen_journal(journal_12)
+            self.assertGreaterEqual(len(loaded_12), 1)
+
+            # Shutdown freeze
+            collector.finalize_all()
+            journal_13 = collector.journals_dir / "journal_2026-09-14_13.json"
+            self.assertTrue(journal_13.exists())
+            loaded_13 = load_frozen_journal(journal_13)
+            self.assertGreaterEqual(len(loaded_13), 1)
+
+            # Verify get_frozen_observations
+            frozen_all = collector.get_frozen_observations()
+            self.assertGreaterEqual(len(frozen_all), len(loaded_12) + len(loaded_13))
+
+    def test_upbit_requires_exact_list_response(self) -> None:
+        async def exercise() -> None:
+            fake_ws = FakeWebSocket()
+            fake_ws.queue_json({
+                "method": "LIST_SUBSCRIPTIONS",
+                "result": [{"type": "trade", "codes": ["KRW-BTC"]}],  # missing orderbook
+                "ticket": "t",
+            })
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    upbit_markets=["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "upbit", ["upbit/orderbook/KRW-BTC", "upbit/trade/KRW-BTC"], "2026-09-14T12:00:00Z"
+                )
+                with self.assertRaisesRegex(ValueError, "SUBSCRIPTION_SET_MISMATCH"):
+                    await collector._confirm_upbit_subscriptions(fake_ws, session_id, "t")
+
+        asyncio.run(exercise())
+
+    def test_stale_stream_timeout_closes_session(self) -> None:
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                )
+                fake_ws = FakeWebSocket()
+                async def timing_out_recv() -> str | bytes:
+                    collector.is_running = False
+                    raise asyncio.TimeoutError()
+                fake_ws.recv = timing_out_recv  # type: ignore
+
+                with patch("websockets.connect", return_value=fake_ws):
+                    collector.is_running = True
+                    await collector._bithumb_loop()
+
+                sessions = list(collector.session_evidence._sessions.values())
+                self.assertGreaterEqual(len(sessions), 1)
+                sess = sessions[0]
+                self.assertEqual(sess.disconnect_reason, "connection_stale_30s")
+                self.assertIsNotNone(sess.disconnected_at_utc)
+
+        asyncio.run(exercise())
+
+    def test_binance_confirmation_processes_interim_frames(self) -> None:
+        async def exercise() -> None:
+            interim_trade = {
+                "stream": "btcusdt@trade",
+                "data": {
+                    "e": "trade",
+                    "E": 1726315200000,
+                    "s": "BTCUSDT",
+                    "t": 12345,
+                    "p": "50000.00",
+                    "q": "0.1",
+                    "T": 1726315200000,
+                    "m": True,
+                    "M": True,
+                },
+            }
+            resp = {"result": ["btcusdt@trade", "btcusdt@depth20@100ms"], "id": 7}
+            fake_ws = FakeWebSocket()
+            fake_ws.queue_json(interim_trade)
+            fake_ws.queue_json(resp)
+
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    binance_symbols=["btcusdt"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_upbit=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "binance", ["binance/trade/btcusdt", "binance/orderbook/btcusdt"], "2026-09-14T12:00:00Z"
+                )
+                await collector._confirm_binance_subscriptions(fake_ws, session_id, 7)
+                self.assertTrue(collector.session_evidence.is_confirmed(session_id))
+                self.assertEqual(collector._write_queue.qsize(), 1)
+                item = collector._write_queue.get_nowait()
+                self.assertEqual(item[0], "binance")
+                self.assertEqual(item[1], "trade")
+                self.assertEqual(item[2], "BTCUSDT")
+
+        asyncio.run(exercise())
+
+    def test_upbit_confirmation_processes_interim_frames(self) -> None:
+        async def exercise() -> None:
+            interim_trade = {
+                "type": "trade",
+                "code": "KRW-BTC",
+                "trade_price": 50000000.0,
+                "trade_volume": 0.01,
+                "ask_bid": "BID",
+                "prev_closing_price": 49000000.0,
+                "change": "RISE",
+                "change_price": 1000000.0,
+                "trade_date_utc": "2026-09-14",
+                "trade_time_utc": "12:00:00",
+                "trade_timestamp": 1726315200000,
+                "timestamp": 1726315200000,
+                "sequential_id": 12345,
+                "stream_type": "REALTIME",
+            }
+            resp = {
+                "ticket": "t",
+                "result": [
+                    {"type": "orderbook", "codes": ["KRW-BTC"]},
+                    {"type": "trade", "codes": ["KRW-BTC"]},
+                ],
+            }
+            fake_ws = FakeWebSocket()
+            fake_ws.queue_json(interim_trade)
+            fake_ws.queue_json(resp)
+
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    upbit_markets=["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                )
+                session_id = collector.session_evidence.open_session(
+                    "upbit", ["upbit/orderbook/KRW-BTC", "upbit/trade/KRW-BTC"], "2026-09-14T12:00:00Z"
+                )
+                await collector._confirm_upbit_subscriptions(fake_ws, session_id, "t")
+                self.assertTrue(collector.session_evidence.is_confirmed(session_id))
+                self.assertEqual(collector._write_queue.qsize(), 1)
+                item = collector._write_queue.get_nowait()
+                self.assertEqual(item[0], "upbit")
+                self.assertEqual(item[1], "trade")
+                self.assertEqual(item[2], "KRW-BTC")
+
+        asyncio.run(exercise())
+
+
+class FakeWebSocket:
+    def __init__(self, incoming: list[str | bytes | dict[str, Any]] | None = None) -> None:
+        self.incoming: asyncio.Queue[str | bytes] = asyncio.Queue()
+        if incoming:
+            for item in incoming:
+                if isinstance(item, dict):
+                    self.queue_json(item)
+                else:
+                    self.incoming.put_nowait(item)
+        self.sent: list[str] = []
+        self.closed = False
+        self.close_code: int | None = None
+        self.close_reason: str | None = None
+
+    def queue_json(self, data: Any) -> None:
+        self.incoming.put_nowait(json.dumps(data))
+
+    async def send(self, data: str | bytes) -> None:
+        if isinstance(data, bytes):
+            data = data.decode("utf-8")
+        self.sent.append(data)
+
+    async def recv(self) -> str | bytes:
+        if self.closed:
+            raise websockets.exceptions.ConnectionClosed(None, None)
+        return await self.incoming.get()
+
+    async def ping(self) -> asyncio.Future[None]:
+        fut: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        fut.set_result(None)
+        return fut
+
+    async def close(self, code: int = 1000, reason: str = "") -> None:
+        self.closed = True
+        self.close_code = code
+        self.close_reason = reason
+
+    async def __aenter__(self) -> FakeWebSocket:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
+
+
+class StaleStreamSessionCloseTests(unittest.TestCase):
+    """I1: stale-stream 30s timeout must close the session for Binance and Upbit too."""
+
+    def test_binance_stale_stream_closes_session(self) -> None:
+        """Binance loop: 30s recv timeout must close the session with 'connection_stale_30s'."""
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    binance_symbols=["btcusdt"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_upbit=False,
+                )
+                # Binance calls _confirm_binance_subscriptions first (sends LIST_SUBSCRIPTIONS,
+                # then loops on ws.recv until it sees the response).  We must supply the
+                # confirmation response before raising TimeoutError on the data recv.
+                confirm_response = json.dumps(
+                    {"result": ["btcusdt@trade", "btcusdt@depth20@100ms"], "id": 1}
+                ).encode()
+                recv_call: list[int] = [0]
+
+                fake_ws = FakeWebSocket()
+
+                async def binance_recv() -> str | bytes:
+                    recv_call[0] += 1
+                    if recv_call[0] == 1:
+                        # First call: return the subscription confirmation
+                        return confirm_response
+                    # Subsequent call: simulate 30s stale stream
+                    collector.is_running = False
+                    raise asyncio.TimeoutError()
+
+                fake_ws.recv = binance_recv  # type: ignore[method-assign]
+
+                with patch("websockets.connect", return_value=fake_ws):
+                    collector.is_running = True
+                    await collector._binance_loop()
+
+                sessions = list(collector.session_evidence._sessions.values())
+                self.assertGreaterEqual(len(sessions), 1)
+                stale = next(
+                    (s for s in sessions if s.disconnect_reason == "connection_stale_30s"),
+                    None,
+                )
+                self.assertIsNotNone(stale, "No session closed with 'connection_stale_30s'")
+                assert stale is not None
+                self.assertIsNotNone(stale.disconnected_at_utc)
+
+        asyncio.run(exercise())
+
+    def test_upbit_stale_stream_closes_session(self) -> None:
+        """Upbit loop: 30s recv timeout must close the session with 'connection_stale_30s'."""
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    upbit_markets=["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                )
+                # Upbit calls _confirm_upbit_subscriptions (sends LIST_SUBSCRIPTIONS ticket frame,
+                # then loops on ws.recv until it sees the response with matching feeds).
+                confirm_response = json.dumps(
+                    {"result": [{"type": "orderbook", "codes": ["KRW-BTC"]},
+                                {"type": "trade", "codes": ["KRW-BTC"]}]}
+                ).encode()
+                recv_call: list[int] = [0]
+
+                fake_ws = FakeWebSocket()
+
+                async def upbit_recv() -> str | bytes:
+                    recv_call[0] += 1
+                    if recv_call[0] == 1:
+                        return confirm_response
+                    collector.is_running = False
+                    raise asyncio.TimeoutError()
+
+                fake_ws.recv = upbit_recv  # type: ignore[method-assign]
+
+                with patch("websockets.connect", return_value=fake_ws):
+                    collector.is_running = True
+                    await collector._upbit_loop()
+
+                sessions = list(collector.session_evidence._sessions.values())
+                self.assertGreaterEqual(len(sessions), 1)
+                stale = next(
+                    (s for s in sessions if s.disconnect_reason == "connection_stale_30s"),
+                    None,
+                )
+                self.assertIsNotNone(stale, "No session closed with 'connection_stale_30s'")
+                assert stale is not None
+                self.assertIsNotNone(stale.disconnected_at_utc)
+
+        asyncio.run(exercise())
 
 if __name__ == "__main__":
     unittest.main()

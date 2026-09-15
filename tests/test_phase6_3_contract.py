@@ -19,14 +19,24 @@ def bundle(tmp_path):
         src = ROOT / 'infra/aws/seals' / ('aws-72h-soak-20260905.' + name)
         (tmp_path / target).write_bytes(src.read_bytes())
     prov = json.loads((tmp_path / 'launch-provenance.json').read_text())
-    ev = dict(schema_version=1, collector_epoch=prov['collector_epoch'], collector_run_id=prov['collector_run_id'], runtime_commit=prov['runtime_code_commit'], runtime_fingerprint=prov['runtime_config_fingerprint'], actual_start_time_utc='2020-01-01T00:00:00Z', start_evidence_type='PROCESS_EXEC_START', source='synthetic-test', captured_at_utc='2020-01-01T00:00:01Z')
+    ev = dict(
+        schema_version=2,
+        evidence_kind="systemd-transient-actual-start-evidence",
+        collector_epoch=prov['collector_epoch'],
+        collector_run_id=prov['collector_run_id'],
+        runtime_commit=prov['runtime_code_commit'],
+        runtime_config_fingerprint=prov['runtime_config_fingerprint'],
+        actual_start_time_utc='2020-01-01T00:00:00Z',
+        source='synthetic-test',
+        captured_at_utc='2020-01-01T00:00:01Z'
+    )
     (tmp_path / 'actual.json').write_text(json.dumps(ev))
     return ev
 
 def compose(p):
     return compose_epoch_contract(p/'runtime_seal.json', p/'launch-provenance.json', p/'epoch_contract.json', p/'actual.json')
 
-@pytest.mark.parametrize('field,code', [('collector_epoch','EPOCH'),('collector_run_id','RUN_ID'),('runtime_commit','RUNTIME_COMMIT'),('runtime_fingerprint','RUNTIME_FINGERPRINT')])
+@pytest.mark.parametrize('field,code', [('collector_epoch','COLLECTOR_EPOCH'),('collector_run_id','COLLECTOR_RUN_ID'),('runtime_commit','RUNTIME_COMMIT'),('runtime_config_fingerprint','RUNTIME_CONFIG_FINGERPRINT')])
 def test_wrong_actual_identity(tmp_path, field, code):
     ev = bundle(tmp_path); ev[field] = 'wrong'
     (tmp_path/'actual.json').write_text(json.dumps(ev))
@@ -73,7 +83,7 @@ def test_tampered_contract(tmp_path, mutation):
 def test_invalid_start_time(tmp_path, value):
     ev = bundle(tmp_path); ev['actual_start_time_utc'] = value
     (tmp_path/'actual.json').write_text(json.dumps(ev))
-    with pytest.raises(ValueError, match='INVALID_ACTUAL_START_TIMESTAMP'):
+    with pytest.raises(ValueError, match='ACTUAL_START_TIMESTAMP_NOT_UTC'):
         compose(tmp_path)
 
 def test_contract_byte_whitespace(tmp_path):
@@ -133,3 +143,116 @@ def test_deep_audit_rejects_broken_contract_edge(tmp_path,field,code):
     report=SoakAuditor72H(tmp_path,contract_path=cp,epoch_manifest_path=mp).audit()
     assert report['status']=='FAIL'
     assert any(code in b for b in report['blockers'])
+
+
+def test_compose_v3_contract(tmp_path):
+    bundle(tmp_path)
+    prov = json.loads((tmp_path / "launch-provenance.json").read_text())
+    prov["contract_type"] = "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+    prov["schema_version"] = 2
+    prov["duration_seconds"] = 111600
+    prov["maximum_collection_window_seconds"] = 111600
+    prov["required_qualifying_full_hours"] = 30
+    (tmp_path / "launch-provenance.json").write_text(json.dumps(prov))
+
+    contract = compose_epoch_contract(
+        tmp_path / "runtime_seal.json",
+        tmp_path / "launch-provenance.json",
+        tmp_path / "v3_contract.json",
+        tmp_path / "actual.json",
+        schema_version=2,
+    )
+    assert contract["schema_version"] == 2
+    assert contract["contract_type"] == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+    assert contract["required_qualifying_full_hours"] == 30
+    assert contract["maximum_collection_window_seconds"] == 111600
+    assert len(contract["candidate_cohorts"]) == 30
+    assert contract["expected_coverage_slots_per_cohort"] == 76
+    assert contract["qualification_start_utc"] == "2020-01-01T01:00:00Z"
+    assert contract["qualification_end_utc"] == "2020-01-02T07:00:00Z"
+    assert contract["require_coverage_receipts"] is True
+    assert contract["require_state_dependent_fullscan"] is True
+
+    from scripts.evidence_contract import verify_contract
+    verified = verify_contract(tmp_path / "v3_contract.json")
+    assert verified["contract_sha256"] == contract["contract_sha256"]
+
+
+def test_v3_contract_rejects_108000_derived_end(tmp_path):
+    bundle(tmp_path)
+    prov = json.loads((tmp_path / "launch-provenance.json").read_text())
+    prov["duration_seconds"] = 108000
+    (tmp_path / "launch-provenance.json").write_text(json.dumps(prov))
+
+    with pytest.raises(ValueError, match="V3_DERIVED_108000_END_FORBIDDEN"):
+        compose_epoch_contract(
+            tmp_path / "runtime_seal.json",
+            tmp_path / "launch-provenance.json",
+            tmp_path / "v3_contract.json",
+            tmp_path / "actual.json",
+            schema_version=2,
+        )
+
+
+def test_v3_contract_rejects_invalid_qualifying_hours(tmp_path):
+    bundle(tmp_path)
+    prov = json.loads((tmp_path / "launch-provenance.json").read_text())
+    prov["required_qualifying_full_hours"] = 29
+    (tmp_path / "launch-provenance.json").write_text(json.dumps(prov))
+
+    with pytest.raises(ValueError, match="V3_QUALIFICATION_HOURS_INVALID"):
+        compose_epoch_contract(
+            tmp_path / "runtime_seal.json",
+            tmp_path / "launch-provenance.json",
+            tmp_path / "v3_contract.json",
+            tmp_path / "actual.json",
+            schema_version=2,
+        )
+
+
+def test_v3_contract_rejects_invalid_heartbeat_policy(tmp_path):
+    bundle(tmp_path)
+    seal = json.loads((tmp_path / "runtime_seal.json").read_text())
+    seal["heartbeat_policy"] = {"max_allowed_heartbeat_gap_seconds": {"bithumb": -1, "binance": 30, "upbit": 30}}
+    (tmp_path / "runtime_seal.json").write_text(json.dumps(seal))
+    prov = json.loads((tmp_path / "launch-provenance.json").read_text())
+    prov["runtime_config_seal_sha256"] = hashlib.sha256((tmp_path / "runtime_seal.json").read_bytes()).hexdigest()
+    (tmp_path / "launch-provenance.json").write_text(json.dumps(prov))
+
+    with pytest.raises(ValueError, match="INVALID_HEARTBEAT_POLICY"):
+        compose_epoch_contract(
+            tmp_path / "runtime_seal.json",
+            tmp_path / "launch-provenance.json",
+            tmp_path / "v3_contract.json",
+            tmp_path / "actual.json",
+            schema_version=2,
+        )
+
+
+def test_v3_build_epoch_manifest(tmp_path):
+    from tests.test_archive_audit_coverage import v3_bundle
+    from scripts.build_epoch_manifest import build_epoch_manifest, verify_epoch_manifest
+    bundle = v3_bundle(tmp_path, present=74, zero=2, failed=0)
+    contract = bundle["contract"]
+    contract_p = tmp_path / "epoch_contract.json"
+    contract_p.write_text(json.dumps(contract, indent=2))
+
+    manifest_p = tmp_path / "manifests/epoch_manifest.json"
+    manifest = build_epoch_manifest(
+        epoch_dir=tmp_path,
+        contract_path=contract_p,
+        output_path=manifest_p,
+        strict=False,
+        mode="lenient",
+    )
+    assert manifest["schema_version"] == "3.0.0"
+    assert manifest["coverage_slots_count"] == 76
+    assert manifest["data_present_count"] == 74
+    assert manifest["verified_zero_count"] == 2
+    assert manifest["failed_count"] == 0
+    assert manifest["status"] == "SEALED_COMPLETE"
+    assert manifest["sealed_complete"] is True
+    assert len(manifest["missing_items"]) == 0
+
+    verified = verify_epoch_manifest(manifest_p, contract_p)
+    assert verified["epoch_manifest_sha256"] == manifest["epoch_manifest_sha256"]

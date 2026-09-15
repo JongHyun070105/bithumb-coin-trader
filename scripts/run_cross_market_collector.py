@@ -9,11 +9,12 @@ import json
 import logging
 import os
 from pathlib import Path
-import sys
 from datetime import datetime, timezone
+from collections.abc import Sequence
 
 from bithumb_coin_trader.cross_market_collector import MultiExchangeMicrostructureCollector
 from bithumb_coin_trader.dynamic_universe import TOP_UNIVERSE_CANDIDATES
+from bithumb_coin_trader.incremental_finalizer import FinalizationState, FinalizationSummary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,7 +24,7 @@ logging.basicConfig(
 
 
 async def _run(args: argparse.Namespace) -> None:
-    bithumb_mkts = list(TOP_UNIVERSE_CANDIDATES[: args.bithumb_markets])
+    bithumb_mkts: list[str] = list(TOP_UNIVERSE_CANDIDATES[: args.bithumb_markets])
     binance_syms = ["btcusdt", "ethusdt", "solusdt", "xrpusdt"]
     upbit_mkts = ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"]
     config = _load_runtime_config(args.config_file, args.config_fingerprint)
@@ -64,12 +65,12 @@ async def _run(args: argparse.Namespace) -> None:
             error_type=None,
         )
     try:
-        await collector.run_collector(max_duration_seconds=args.duration)
+        await collector.run_collector(max_duration_seconds=args.duration_to_run)
     except BaseException as error:
         collector_error = error
         raise
     finally:
-        print("Flushing final manifests...")
+        print("Flushing final manifests with IncrementalManifestFinalizer...")
         if args.lifecycle_status_path is not None:
             _write_lifecycle_status(
                 args.lifecycle_status_path,
@@ -79,24 +80,56 @@ async def _run(args: argparse.Namespace) -> None:
                 manifest_count=0,
                 error_type=type(collector_error).__name__ if collector_error is not None else None,
             )
-        manifests: list[dict[str, object]] = []
+        summary: FinalizationSummary | None = None
         flush_observed = False
         flush_error: BaseException | None = None
         try:
-            manifests = collector.generate_all_manifests()
-            flush_observed = True
-            print(f"Generated {len(manifests)} partition manifests.")
+            summary = collector.finalize_all()
+            print(
+                f"Finalization summary: state={summary.state}, "
+                f"reused={summary.reused_count}, recomputed={summary.recomputed_count}, "
+                f"pending={summary.pending_count}, failed={summary.failed_count}"
+            )
+            if (
+                summary.state == "COMPLETE"
+                and summary.pending_count == 0
+                and summary.failed_count == 0
+                and collector_error is None
+            ):
+                flush_observed = True
         except BaseException as error:
             flush_error = error
             raise
         finally:
             if args.lifecycle_status_path is not None:
+                reused_count = summary.reused_count if summary is not None else 0
+                generated_count = summary.recomputed_count if summary is not None else 0
+                total_manifests = reused_count + generated_count
+                hist_files = summary.historical_raw_files_opened if summary is not None else 0
+                hist_bytes = summary.historical_raw_bytes_read if summary is not None else 0
+                curr_files = summary.recomputed_count if summary is not None else 0
+                curr_bytes = 0
+                if summary is not None and collector.finalizer_store is not None:
+                    try:
+                        for entry_file in collector.finalizer_store.entries_dir.glob("*.json"):
+                            entry_dict = json.loads(entry_file.read_text(encoding="utf-8"))
+                            if entry_dict.get("state") == FinalizationState.RECOMPUTED.value:
+                                curr_bytes += int(entry_dict.get("source_size") or 0)
+                    except Exception:
+                        pass
+
                 _write_lifecycle_status(
                     args.lifecycle_status_path,
                     run_id=args.run_id,
-                    phase="COMPLETE" if flush_observed and collector_error is None else "FINALIZING",
+                    phase="COMPLETE" if flush_observed else "FINALIZING",
                     final_manifest_flush_observed=flush_observed,
-                    manifest_count=len(manifests),
+                    manifest_count=total_manifests,
+                    historical_raw_files_opened=hist_files,
+                    historical_raw_bytes_read=hist_bytes,
+                    current_raw_files_opened=curr_files,
+                    current_raw_bytes_read=curr_bytes,
+                    reused_manifest_count=reused_count,
+                    generated_manifest_count=generated_count,
                     error_type=(
                         type(flush_error).__name__
                         if flush_error is not None
@@ -113,6 +146,12 @@ def _write_lifecycle_status(
     final_manifest_flush_observed: bool,
     manifest_count: int,
     error_type: str | None,
+    historical_raw_files_opened: int = 0,
+    historical_raw_bytes_read: int = 0,
+    current_raw_files_opened: int = 0,
+    current_raw_bytes_read: int = 0,
+    reused_manifest_count: int = 0,
+    generated_manifest_count: int = 0,
 ) -> None:
     if phase not in {"COLLECTING", "FINALIZING", "COMPLETE"}:
         raise ValueError("lifecycle phase must be COLLECTING, FINALIZING, or COMPLETE")
@@ -125,6 +164,12 @@ def _write_lifecycle_status(
         "process_id": os.getpid(),
         "final_manifest_flush_observed": final_manifest_flush_observed,
         "manifest_count": manifest_count,
+        "historical_raw_files_opened": historical_raw_files_opened,
+        "historical_raw_bytes_read": historical_raw_bytes_read,
+        "current_raw_files_opened": current_raw_files_opened,
+        "current_raw_bytes_read": current_raw_bytes_read,
+        "reused_manifest_count": reused_manifest_count,
+        "generated_manifest_count": generated_manifest_count,
         "error_type": error_type,
     }
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -236,7 +281,11 @@ def _validate_runtime_config(
         "sealed environment": args.environment_id not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed epoch": args.collector_epoch not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed run ID": args.run_id not in {"", "UNKNOWN", "NOT-SEALED"},
-        "duration": config.get("duration_seconds") == args.duration and args.duration > 0,
+        "duration": (
+            config.get("duration_seconds") == 0
+            if getattr(args, "qualification_schedule_path", None) is not None
+            else config.get("duration_seconds") == getattr(args, "duration", None) and getattr(args, "duration", 0) > 0
+        ),
         "raw root": expected_raw_root == args.storage_base_dir,
         "manifest root": expected_manifest_root == args.storage_base_dir.parent / "manifests",
         "compressed root": expected_compressed_root == args.storage_base_dir.parent / "compressed",
@@ -261,10 +310,10 @@ def _validate_runtime_config(
         raise ValueError("runtime config does not match collector invocation: " + ", ".join(failed))
 
 
-def main() -> None:
+def main(argv: Sequence[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Multi-Exchange Microstructure Collector Daemon")
     parser.add_argument("--bithumb-markets", type=int, default=20, help="Number of Bithumb KRW markets (default: 20)")
-    parser.add_argument("--duration", type=float, required=True)
+    parser.add_argument("--duration", type=float, default=0.0)
     parser.add_argument("--config-file", type=Path, required=True)
     parser.add_argument("--storage-base-dir", type=Path, required=True)
     parser.add_argument("--environment-id", required=True)
@@ -273,7 +322,38 @@ def main() -> None:
     parser.add_argument("--config-fingerprint", required=True)
     parser.add_argument("--runtime-commit", required=True)
     parser.add_argument("--lifecycle-status-path", type=Path)
-    args = parser.parse_args()
+
+    parser.add_argument("--required-qualifying-full-hours", type=int)
+    parser.add_argument("--maximum-collection-window-seconds", type=int)
+    parser.add_argument("--qualification-schedule-path", type=Path)
+    args = parser.parse_args(argv)
+
+    if args.qualification_schedule_path is not None:
+        if args.duration > 0:
+            raise ValueError("cannot specify both duration and V3 schedule")
+        from bithumb_coin_trader.qualification_schedule import load_schedule
+        import time
+        schedule = load_schedule(args.qualification_schedule_path)
+        if args.required_qualifying_full_hours is not None:
+            if (
+                args.required_qualifying_full_hours != 30
+                or args.required_qualifying_full_hours != schedule.required_qualifying_full_hours
+            ):
+                raise ValueError("required_qualifying_full_hours must be 30 and match schedule")
+        if args.maximum_collection_window_seconds is not None:
+            if (
+                args.maximum_collection_window_seconds != 111600
+                or args.maximum_collection_window_seconds != schedule.maximum_collection_window_seconds
+            ):
+                raise ValueError("maximum_collection_window_seconds must be 111600 and match schedule")
+        args.duration_to_run = max(0.0, schedule.collection_stop_monotonic - time.monotonic())
+    else:
+        if args.required_qualifying_full_hours is not None or args.maximum_collection_window_seconds is not None:
+            raise ValueError("qualification_schedule_path must be provided when V3 schedule arguments are used")
+        if args.duration <= 0:
+            raise ValueError("duration must be positive")
+        args.duration_to_run = args.duration
+
     try:
         asyncio.run(_run(args))
     except KeyboardInterrupt:

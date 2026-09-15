@@ -9,43 +9,32 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta, timezone
-import hashlib
 import json
-import os
 from pathlib import Path
 import sys
 from typing import Any
 
+ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT / "src"
+SCRIPTS_DIR = ROOT / "scripts"
+for d in (ROOT, SRC_DIR, SCRIPTS_DIR):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
 
 try:
-    from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+    from scripts.evidence_contract import canonical_sha256, file_sha256 as _file_sha256
 except ModuleNotFoundError:
-    from evidence_contract import canonical_sha256, file_sha256 as _file_sha256, verify_contract
+    from evidence_contract import canonical_sha256, file_sha256 as _file_sha256
 
-
-def validate_actual_start(data, epoch, run_id, commit, fingerprint):
-    if not isinstance(data, dict) or data.get("schema_version") != 1:
-        raise ValueError("INVALID_ACTUAL_START_SCHEMA")
-    for field, expected, code in (
-        ("collector_epoch", epoch, "EPOCH"),
-        ("collector_run_id", run_id, "RUN_ID"),
-        ("runtime_commit", commit, "RUNTIME_COMMIT"),
-        ("runtime_fingerprint", fingerprint, "RUNTIME_FINGERPRINT"),
-    ):
-        if data.get(field) != expected:
-            raise ValueError("ACTUAL_START_" + code + "_MISMATCH")
-    if data.get("start_evidence_type") not in {"SYSTEMD_SERVICE_START", "PROCESS_EXEC_START", "FIRST_RAW_RECORD"}:
-        raise ValueError("INVALID_ACTUAL_START_EVIDENCE_TYPE")
-    if not isinstance(data.get("source"), str) or not data["source"].strip():
-        raise ValueError("INVALID_ACTUAL_START_SOURCE")
-    for key in ("actual_start_time_utc", "captured_at_utc"):
-        try:
-            dt = datetime.fromisoformat(data[key].replace("Z", "+00:00"))
-            if dt.utcoffset() is None:
-                raise ValueError("timezone required")
-        except (KeyError, TypeError, AttributeError, ValueError) as exc:
-            raise ValueError("INVALID_ACTUAL_START_TIMESTAMP: " + key) from exc
-    return datetime.fromisoformat(data["actual_start_time_utc"].replace("Z", "+00:00")).astimezone(timezone.utc).isoformat()
+from bithumb_coin_trader.actual_start_evidence import (
+    ActualStartIdentity,
+    normalize_actual_start_evidence,
+)
+from bithumb_coin_trader.qualification_schedule import (
+    build_qualification_schedule,
+    format_utc,
+    parse_utc,
+)
 
 
 def compose_epoch_contract(
@@ -55,6 +44,7 @@ def compose_epoch_contract(
     actual_start_evidence_path: Path | None = None,
     synthetic_actual_start_time_utc: str | None = None,
     strict: bool = True,
+    schema_version: int | None = None,
 ) -> dict[str, Any]:
     if not runtime_seal_path.exists():
         raise FileNotFoundError(f"Runtime seal not found: {runtime_seal_path}")
@@ -65,25 +55,20 @@ def compose_epoch_contract(
     launch_prov = json.loads(launch_provenance_path.read_text(encoding="utf-8"))
 
     # Cross-check identities
-    runtime_commit = (
-        runtime_seal.get("runtime_software_commit")
-        or runtime_seal.get("runtime_code_commit")
-        or runtime_seal.get("software_commit")
-    )
-    prov_commit = (
-        launch_prov.get("runtime_code_commit")
-        or launch_prov.get("software_commit")
-        or launch_prov.get("runtime_software_commit")
-    )
+    runtime_commit = runtime_seal.get("runtime_software_commit")
+    if not runtime_commit:
+        raise ValueError("SEAL_MISSING_RUNTIME_COMMIT")
+
+    prov_commit = launch_prov.get("runtime_code_commit")
+    if not prov_commit:
+        raise ValueError("PROV_MISSING_RUNTIME_COMMIT")
+
     if runtime_commit != prov_commit:
         raise ValueError(
             f"RUNTIME_COMMIT_MISMATCH: runtime seal commit '{runtime_commit}' != launch provenance commit '{prov_commit}'"
         )
 
-    runtime_fingerprint = (
-        launch_prov.get("runtime_config_fingerprint")
-        or launch_prov.get("fingerprint")
-    )
+    runtime_fingerprint = launch_prov.get("runtime_config_fingerprint")
     if not runtime_fingerprint or (len(runtime_fingerprint) != 64 and strict and not runtime_fingerprint.startswith("fp-")):
         raise ValueError(f"RUNTIME_FINGERPRINT_MISMATCH: Invalid runtime fingerprint: {runtime_fingerprint}")
 
@@ -101,7 +86,7 @@ def compose_epoch_contract(
     if not collector_epoch or not collector_run_id:
         raise ValueError("MISSING_EPOCH_OR_RUN_ID: collector_epoch and collector_run_id are required")
 
-    duration_sec = launch_prov.get("duration_seconds") or runtime_seal.get("duration_seconds") or 259200
+    duration_sec = launch_prov.get("duration_seconds", 259200)
     if duration_sec <= 0:
         raise ValueError(f"INVALID_DURATION: Duration seconds must be positive, got {duration_sec}")
 
@@ -113,11 +98,15 @@ def compose_epoch_contract(
         if not actual_start_evidence_path.exists():
             raise FileNotFoundError(f"ACTUAL_START_EVIDENCE_MISSING: Evidence file not found: {actual_start_evidence_path}")
         start_evidence_sha = _file_sha256(actual_start_evidence_path)
-        try:
-            ev_data = json.loads(actual_start_evidence_path.read_text(encoding="utf-8"))
-            actual_start_str = validate_actual_start(ev_data, collector_epoch, collector_run_id, runtime_commit, runtime_fingerprint)
-        except Exception as e:
-            raise ValueError(f"CORRUPT_ACTUAL_START_EVIDENCE: {e}")
+        ev_data = json.loads(actual_start_evidence_path.read_text(encoding="utf-8"))
+        expected = ActualStartIdentity(
+            collector_epoch=collector_epoch,
+            collector_run_id=collector_run_id,
+            runtime_commit=runtime_commit,
+            runtime_config_fingerprint=runtime_fingerprint,
+        )
+        normalized = normalize_actual_start_evidence(ev_data, expected)
+        actual_start_str = normalized.actual_start_time_utc
     elif synthetic_actual_start_time_utc:
         if strict:
             raise ValueError("ACTUAL_START_EVIDENCE_MISSING: synthetic timestamp forbidden in official mode")
@@ -150,6 +139,96 @@ def compose_epoch_contract(
 
     if len(feed_universe) != 76 and strict:
         raise ValueError(f"FEED_UNIVERSE_MISMATCH: Expected 76 feeds, got {len(feed_universe)}")
+
+    target_schema = schema_version
+    if target_schema is None:
+        if (
+            launch_prov.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+            or runtime_seal.get("contract_type") == "OFFICIAL_30H_V3_COVERAGE_CONTRACT"
+            or launch_prov.get("schema_version") == 2
+            or runtime_seal.get("schema_version") == 2
+            or launch_prov.get("duration_seconds") == 111600
+            or launch_prov.get("maximum_collection_window_seconds") == 111600
+        ):
+            target_schema = 2
+        else:
+            target_schema = 1
+
+    if target_schema == 2:
+        if launch_prov.get("duration_seconds") == 108000:
+            raise ValueError(
+                "V3_DERIVED_108000_END_FORBIDDEN: Fixed 108000s duration is forbidden in V3 qualification schedule"
+            )
+
+        req_hours = launch_prov.get("required_qualifying_full_hours", 30)
+        max_window = launch_prov.get("maximum_collection_window_seconds", 111600)
+        if req_hours != 30:
+            raise ValueError(f"V3_QUALIFICATION_HOURS_INVALID: Expected 30 qualifying hours, got {req_hours}")
+        if max_window != 111600:
+            raise ValueError(f"V3_QUALIFICATION_WINDOW_INVALID: Expected 111600s max window, got {max_window}")
+
+        sealed_heartbeat_policy = runtime_seal.get("heartbeat_policy")
+        if not sealed_heartbeat_policy:
+            sealed_heartbeat_policy = {
+                "heartbeat_probe_interval_seconds": 10,
+                "heartbeat_timeout_seconds": 10,
+                "max_allowed_heartbeat_gap_seconds": {
+                    "bithumb": 30,
+                    "binance": 30,
+                    "upbit": 30,
+                },
+            }
+        gaps = sealed_heartbeat_policy.get("max_allowed_heartbeat_gap_seconds", {})
+        for ex in ("bithumb", "binance", "upbit"):
+            if ex not in gaps or not isinstance(gaps[ex], (int, float)) or gaps[ex] <= 0:
+                raise ValueError(f"INVALID_HEARTBEAT_POLICY: Missing or invalid gap threshold for {ex}")
+
+        if actual_start_str.endswith("Z") or actual_start_str.endswith("+00:00"):
+            actual_utc = parse_utc(actual_start_str)
+        else:
+            actual_utc = datetime.fromisoformat(actual_start_str)
+            if actual_utc.tzinfo is None:
+                actual_utc = actual_utc.replace(tzinfo=timezone.utc)
+
+        schedule = build_qualification_schedule(actual_utc, 0.0, req_hours, max_window)
+
+        v3_contract: dict[str, Any] = {
+            "schema_version": 2,
+            "contract_type": "OFFICIAL_30H_V3_COVERAGE_CONTRACT",
+            "collector_epoch": collector_epoch,
+            "collector_run_id": collector_run_id,
+            "actual_start_time_utc": format_utc(actual_utc),
+            "qualification_start_utc": schedule.qualification_start_utc,
+            "qualification_end_utc": schedule.collection_stop_utc,
+            "required_qualifying_full_hours": 30,
+            "maximum_collection_window_seconds": 111600,
+            "candidate_cohorts": list(schedule.candidate_cohorts),
+            "expected_coverage_slots_per_cohort": 76,
+            "heartbeat_policy": sealed_heartbeat_policy,
+            "feed_universe": feed_universe,
+            "require_coverage_receipts": True,
+            "require_state_dependent_fullscan": True,
+            "runtime_software_commit": runtime_commit,
+            "runtime_fingerprint": runtime_fingerprint,
+            "environment_id": launch_prov.get("environment_id", "aws-apne2-research"),
+            "raw_schema_version": runtime_seal.get("raw_schema_version", 4),
+            "runtime_seal_path": str(runtime_seal_path),
+            "runtime_seal_sha256": seal_sha,
+            "launch_provenance_path": str(launch_provenance_path),
+            "launch_provenance_sha256": prov_sha,
+            "actual_start_evidence_path": str(actual_start_evidence_path) if actual_start_evidence_path else "",
+            "actual_start_evidence_file_sha256": start_evidence_sha,
+            "feed_count": len(feed_universe),
+            "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+        v3_contract["contract_sha256"] = canonical_sha256(v3_contract)
+
+        if output_path:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(json.dumps(v3_contract, indent=2), encoding="utf-8")
+            print(f"Wrote epoch contract to {output_path} (contract_sha256={v3_contract['contract_sha256'][:16]})")
+
+        return v3_contract
 
     contract: dict[str, Any] = {
         "schema_version": 1,
@@ -196,6 +275,7 @@ def main() -> int:
     parser.add_argument("--synthetic-actual-start", type=str, default=None, help="Synthetic actual start ISO timestamp")
     parser.add_argument("--output", "-o", type=Path, default=None, help="Output epoch_contract.json path")
     parser.add_argument("--strict", action="store_true", default=True, help="Enforce strict contract checks")
+    parser.add_argument("--schema-version", type=int, default=None, choices=[1, 2], help="Contract schema version")
 
     args = parser.parse_args()
     try:
@@ -206,6 +286,7 @@ def main() -> int:
             actual_start_evidence_path=args.actual_start_evidence,
             synthetic_actual_start_time_utc=args.synthetic_actual_start,
             strict=args.strict,
+            schema_version=args.schema_version,
         )
         return 0
     except Exception as e:

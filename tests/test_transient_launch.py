@@ -307,6 +307,103 @@ class TransientLaunchTests(unittest.TestCase):
             self.assertEqual(ret_launch, 0)
             mock_run.assert_called_once()
 
+    def test_launch_cli_rejects_v3_with_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--required-qualifying-full-hours", "30"])
+        with self.assertRaisesRegex(ValueError, "cannot specify both collection_duration_seconds and V3 schedule"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--collection-duration-seconds", "108000",
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+            ])
+
+    def test_launch_cli_accepts_v3_without_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--required-qualifying-full-hours", "30"])
+        with patch("sys.stdout", io.StringIO()):
+            ret = launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+        self.assertEqual(ret, 0)
+
+    def test_launch_cli_rejects_v3_without_v3_supervisor_args(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py"])
+        with self.assertRaisesRegex(ValueError, "V3 supervisor command must contain --qualification-schedule-path or V3 arguments"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+
+    def test_launch_cli_rejects_v3_with_supervisor_command_collection_duration(self) -> None:
+        supervisor_cmd = json.dumps(["python", "run.py", "--collection-duration-seconds", "108000", "--required-qualifying-full-hours", "30"])
+        with self.assertRaisesRegex(ValueError, "V3 supervisor command must not include --collection-duration-seconds"):
+            launch_transient_main([
+                "--run-id", "aws-smoke-test",
+                "--workdir", "/opt/bitcoin-trader",
+                "--supervisor-command-json", supervisor_cmd,
+                "--required-qualifying-full-hours", "30",
+                "--maximum-collection-window-seconds", "111600",
+                "--qualification-schedule-path", "/tmp/s.json",
+                "--supervisor-hard-ceiling-seconds", "112000",
+                "--systemd-runtime-max-seconds", "113000",
+            ])
+
+    def test_renderer_v3_maximum_collection_window(self) -> None:
+        cfg = TransientLaunchConfig(
+            run_id="aws-v3-test",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            maximum_collection_window_seconds=111600,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=111720,
+            systemd_runtime_max_seconds=111800,
+        )
+        command = render_systemd_run(cfg)
+        self.assertIn("--unit=bitcoin-trader-30h-aws-v3-test.service", command)
+
+        # Rejects window != 111600
+        with self.assertRaisesRegex(ValueError, "V3 maximum_collection_window_seconds must be 111600"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="aws-v3-test",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "run.py"),
+                    maximum_collection_window_seconds=108000,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=111720,
+                    systemd_runtime_max_seconds=111800,
+                )
+            )
+
+        # Rejects hard ceiling < max_window + finalization
+        with self.assertRaisesRegex(ValueError, "supervisor hard ceiling must cover maximum collection window plus finalization"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="aws-v3-test",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "run.py"),
+                    maximum_collection_window_seconds=111600,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=111600,  # less than 111600 + 120
+                    systemd_runtime_max_seconds=111800,
+                )
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

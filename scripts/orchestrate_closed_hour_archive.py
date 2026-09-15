@@ -40,14 +40,44 @@ from bithumb_coin_trader.pre_soak_archive import (
     verify_runtime_ownership,
 )
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
+from bithumb_coin_trader.closed_hour_finalizer import ClosedHourFinalizer
+from bithumb_coin_trader.feed_hour_coverage import load_frozen_journal
+from bithumb_coin_trader.incremental_finalizer import FinalizationProgressStore
 from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
+from bithumb_coin_trader.session_evidence import HeartbeatPolicy
 
 
 # Global full-scan kernel flock and metadata constants
+ARCHIVE_ORCHESTRATOR_LOCK_NAME = ".archive_orchestrator.lock"
 FULL_SCAN_GLOBAL_LOCK_NAME = ".full_scan_runner.lock"
 FULL_SCAN_METADATA_NAME = ".full_scan_runner.json"
 DEFAULT_SCAN_TIMEOUT_SECONDS = 1800.0
 SCAN_GRACE_KILL_SECONDS = 5.0
+
+
+def _atomic_write_json(path: Path, payload: Any) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    data = json.dumps(payload, indent=2) + "\n"
+    try:
+        fd = os.open(str(tmp_path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(str(tmp_path), str(path))
+        parent_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(parent_fd)
+        finally:
+            os.close(parent_fd)
+    except Exception:
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
 
 
 def is_global_full_scan_running(receipt_root: Path) -> bool:
@@ -235,7 +265,7 @@ def compute_backlog_metrics(
                 rec_data = json.loads(receipt_file.read_text(encoding="utf-8"))
                 if rec_data.get("cleanup_eligible") or rec_data.get("state") in (
                     ArchiveState.CLEANUP_ELIGIBLE.value,
-                    ArchiveState.VERIFIED.value,
+                    ArchiveState.RESTORE_VERIFIED.value,
                     ArchiveState.CLEANED.value,
                 ):
                     is_done = True
@@ -464,7 +494,7 @@ if scan_result["totals"]["status"] != "PASS":
                 "timeout_seconds": timeout_seconds,
                 "timestamp": time.time(),
             }
-            report_path.write_text(json.dumps(terminal_report, indent=2), encoding="utf-8")
+            _atomic_write_json(report_path, terminal_report)
             return 124
 
         exit_code = child_proc.returncode
@@ -494,7 +524,7 @@ if scan_result["totals"]["status"] != "PASS":
                     "returncode": exit_code,
                     "timestamp": time.time(),
                 }
-                report_path.write_text(json.dumps(terminal_report, indent=2), encoding="utf-8")
+                _atomic_write_json(report_path, terminal_report)
         return exit_code
 
     finally:
@@ -688,7 +718,6 @@ def orchestrate_closed_hour_archive(
     compressed_root = base_dir / "compressed"
     receipt_root = base_dir / "archive-receipts"
     metrics_path = base_dir / "collector_metrics.json"
-    quarantine_root = base_dir / "quarantine"
 
     # 1. Ownership Preflight - Fail-Closed
     # Ensure all directories exist and are owned by expected_owner
@@ -700,14 +729,188 @@ def orchestrate_closed_hour_archive(
     )
 
     # 2. Concurrency Lock - Single orchestrator instance
-    lock_file = receipt_root / ".archive_orchestrator.lock"
+    lock_file = receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
 
     with orchestrator_lock(lock_file, expected_owner=expected_owner):
         now = datetime.now(timezone.utc)
         grace_period = timedelta(seconds=grace_seconds)
         active_paths = load_active_paths(metrics_path, raw_root)
 
-        # Discovered closed files
+        journals_dir = base_dir / "coverage" / "journals"
+        coverage_dir = base_dir / "coverage"
+
+        v3_target_cohort: Optional[ArchiveCohortId] = None
+        if target_cohort is not None and (journals_dir / f"journal_{target_cohort.key}.json").exists():
+            v3_target_cohort = target_cohort
+        elif target_cohort is None and journals_dir.exists():
+            v3_files = sorted(journals_dir.glob("journal_*.json"))
+            if v3_files:
+                ck = v3_files[0].stem.replace("journal_", "")
+                try:
+                    d, h = ck.split("_")
+                    v3_target_cohort = ArchiveCohortId(d, h)
+                except ValueError:
+                    pass
+
+        if v3_target_cohort is not None:
+            # V3 journal-driven finalization
+            journal_path = journals_dir / f"journal_{v3_target_cohort.key}.json"
+            observations = load_frozen_journal(journal_path)
+
+            if dry_run:
+                actions: list[dict[str, Any]] = []
+                for obs in observations:
+                    if obs.event_count > 0:
+                        actions.append({
+                            "action": "finalize_slot",
+                            "feed": obs.feed.canonical,
+                            "event_count": obs.event_count,
+                            "steps": [
+                                "manifest_raw",
+                                "archive_raw",
+                                "verify_raw_restore",
+                                "materialize_data_present",
+                                "archive_coverage",
+                                "verify_coverage_restore",
+                            ],
+                        })
+                    else:
+                        actions.append({
+                            "action": "finalize_slot",
+                            "feed": obs.feed.canonical,
+                            "event_count": 0,
+                            "steps": [
+                                "materialize_verified_zero_event",
+                                "archive_coverage",
+                                "verify_coverage_restore",
+                            ],
+                        })
+                return {
+                    "status": "DRY_RUN",
+                    "cohort": v3_target_cohort.key,
+                    "dry_run": True,
+                    "actions": actions,
+                    "archive_job_failures": 0,
+                    "closed_files_count": len([obs for obs in observations if obs.event_count > 0]),
+                    "archived_count": 0,
+                    "already_verified_count": 0,
+                    "failed_count": 0,
+                    "manifests_generated": 0,
+                    "archive_errors": [],
+                    "scan_launched": False,
+                }
+
+            # Initialize archive store & pipelines
+            if store_type == "s3":
+                if not allow_aws_write:
+                    raise ValueError("S3 store requires explicit allow_aws_write=True")
+                if not s3_bucket:
+                    raise ValueError("S3 store requires s3_bucket")
+                store = S3ArchiveStore(s3_bucket)
+            else:
+                f_root = file_store_root or (base_dir / "local-archive-fixture")
+                store = FileArchiveStore(f_root)
+
+            prefix = remote_prefix or f"market-data/temporary/{epoch}"
+            pipeline = ArchivePipeline(
+                raw_root=raw_root,
+                manifest_root=manifest_root,
+                compressed_root=compressed_root,
+                receipt_root=receipt_root,
+                store=store,
+                environment_id=environment_id,
+                run_id=run_id,
+                collector_epoch=epoch,
+                remote_prefix=prefix,
+                compression_level=1,
+                disk_critical_percent=disk_critical_percent,
+                expected_owner=expected_owner,
+            )
+
+            coverage_archive = ArchivePipeline(
+                raw_root=coverage_dir,
+                manifest_root=manifest_root,
+                compressed_root=compressed_root / "coverage",
+                receipt_root=receipt_root / "coverage",
+                store=store,
+                environment_id=environment_id,
+                run_id=run_id,
+                collector_epoch=epoch,
+                remote_prefix=f"{prefix}/coverage",
+                compression_level=1,
+                disk_critical_percent=disk_critical_percent,
+                expected_owner=expected_owner,
+            )
+
+            progress_store = FinalizationProgressStore(base_dir / "finalization-progress")
+            heartbeat_policy = HeartbeatPolicy(
+                heartbeat_probe_interval_seconds=10,
+                heartbeat_timeout_seconds=10,
+                max_allowed_heartbeat_gap_seconds={"bithumb": 30, "binance": 30, "upbit": 30},
+            )
+            finalizer = ClosedHourFinalizer(
+                raw_archive=pipeline,
+                coverage_archive=coverage_archive,
+                heartbeat_policy=heartbeat_policy,
+                progress_store=progress_store,
+                journals_dir=journals_dir,
+                coverage_dir=coverage_dir,
+                environment_id=environment_id,
+                runtime_commit=git_commit or "HEAD",
+                stability_wait_seconds=0.0 if "pytest" in sys.modules else 1.0,
+            )
+            results = finalizer.finalize_cohort(v3_target_cohort.key)
+            failed_slots = [r for r in results if r.coverage.coverage_state == "FAILED"]
+            data_present_slots = [r for r in results if r.coverage.coverage_state == "DATA_PRESENT"]
+            verified_zero_slots = [r for r in results if r.coverage.coverage_state == "VERIFIED_ZERO_EVENT"]
+            failures = len(failed_slots)
+            status = "PASS" if failures == 0 else "FAIL"
+
+            cohort_report_path = receipt_root / f"cohort_{v3_target_cohort.key}_finalized.json"
+            report_payload = {
+                "status": status,
+                "cohort": v3_target_cohort.key,
+                "total_slots": len(results),
+                "data_present_count": len(data_present_slots),
+                "verified_zero_count": len(verified_zero_slots),
+                "failed_count": failures,
+                "failed_feeds": [r.coverage.feed_identity for r in failed_slots],
+                "finalized_at_utc": datetime.now(timezone.utc).isoformat(),
+            }
+            _atomic_write_json(cohort_report_path, report_payload)
+
+            scan_results: Dict[str, Any] = {}
+            if run_full_scan and failures == 0:
+                ok, msg = launch_detached_full_scan(
+                    epoch=epoch,
+                    run_id=run_id,
+                    cohort=v3_target_cohort,
+                    base_dir=base_dir,
+                    expected_owner=expected_owner,
+                    runner_mode=scan_runner_mode,
+                    timeout_seconds=scan_timeout_seconds,
+                )
+                scan_results[v3_target_cohort.key] = {"success": ok, "message": msg}
+
+            return {
+                "status": status,
+                "cohort": v3_target_cohort.key,
+                "closed_files_count": len(data_present_slots),
+                "archived_count": len(data_present_slots) + len(verified_zero_slots),
+                "already_verified_count": 0,
+                "failed_count": failures,
+                "manifests_generated": len(data_present_slots),
+                "archive_job_failures": failures,
+                "archive_errors": [f"{r.coverage.feed_identity}: {list(r.failure_reason_codes)}" for r in failed_slots],
+                "scan_launched": len(scan_results) > 0,
+                "scan_results": scan_results,
+                "total_slots": len(results),
+                "data_present_count": len(data_present_slots),
+                "verified_zero_count": len(verified_zero_slots),
+                "results": [r.coverage.to_dict() for r in results],
+            }
+
+        # Discovered closed files (legacy mode)
         all_jsonl = sorted(raw_root.glob("**/*.jsonl"))
         closed_files: List[Path] = []
         cohorts_detected: set[ArchiveCohortId] = set()
@@ -786,7 +989,7 @@ def orchestrate_closed_hour_archive(
                             rec_data = json.loads(rec_path.read_text(encoding="utf-8"))
                             if rec_data.get("cleanup_eligible") or rec_data.get("state") in (
                                 ArchiveState.CLEANUP_ELIGIBLE.value,
-                                ArchiveState.VERIFIED.value,
+                                ArchiveState.RESTORE_VERIFIED.value,
                             ):
                                 already_verified_count += 1
                                 continue
@@ -846,7 +1049,7 @@ def orchestrate_closed_hour_archive(
         # Write backlog metrics to receipt_root
         metrics_file = receipt_root / "archive_backlog_metrics.json"
         if not dry_run:
-            metrics_file.write_text(json.dumps(backlog, indent=2), encoding="utf-8")
+            _atomic_write_json(metrics_file, backlog)
 
         return backlog
 
