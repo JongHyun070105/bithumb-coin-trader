@@ -4,14 +4,14 @@
   "collector_run_id": "aws-validation-30h-run-20260915T013000Z-v3",
   "runtime_commit": "ac81f94f431f5d868d88e10fa784eb0da449264d",
   "launch_authorized": true,
-  "actual_start_time_utc": null,
-  "actual_start_evidence": null,
+  "actual_start_time_utc": "2026-09-15T05:00:56.010873Z",
+  "actual_start_evidence": "evidence/aws-validation-30h-20260915-v3/actual-start-evidence.json",
   "systemd_unit_active": false,
   "collector_process_running": false,
   "supervisor_process_running": false,
   "archive_scheduler_running": false,
   "official_s3_objects_written": 0,
   "market_data_records_written": 0,
-  "status": "AUTHORIZED_NOT_STARTED",
-  "note": "Explicit human authorization recorded at 2026-09-15T04:59:51Z for this exact-once official V3 30H launch identity."
+  "status": "FAILED_TO_START",
+  "note": "The exact-once launch was submitted once. The collector exited immediately because raw_root_template did not contain the required {collector_epoch} placeholder; no relaunch was performed and this identity is consumed."
 }
