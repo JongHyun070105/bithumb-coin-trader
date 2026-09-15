@@ -15,20 +15,27 @@
 
 ---
 
-## 2. V3 암호학적 신원
+## 2. V3 암호학적 신원 및 런타임 코드 기준
 
 | 항목 | 값 |
 |---|---|
-| 준비 브랜치 | `codex/aws-30h-v3-preparation-20260915-e9d5d5a` |
+| 런타임 코드 커밋 (`RUNTIME_CODE_COMMIT`) | `ac81f94f431f5d868d88e10fa784eb0da449264d` (고정) |
+| 런타임 Git Tree (`RUNTIME_GIT_TREE`) | `5cf28b47cd522df127e3eddada0732ad28e3d371` |
+| 봉인 클로저 브랜치 | `codex/aws-30h-v3-seal-closure-20260915-ac81f94` |
 | collector epoch | `aws-validation-30h-20260915-v3` |
 | collector run ID | `aws-validation-30h-run-20260915T013000Z-v3` |
 | S3 prefix | `market-data/temporary/aws-validation-30h-20260915-v3` |
 | guest runtime worktree | `/var/lib/bitcoin-trader/runtime-worktrees/aws-validation-30h-20260915-v3` |
 | local runtime root | `/var/lib/bitcoin-trader/30h-validation/aws-validation-30h-20260915-v3` |
 | systemd unit name | `bitcoin-trader-30h-aws-validation-30h-run-20260915T013000Z-v3.service` |
-| canonical config fingerprint | `ff913e3c1468e6827e133a3c11a62421d2ac1bb07d6645fe32079f8eb49eedee` |
+| canonical config fingerprint | `61231ad0a554553d71070da09eb9a5a5cf573ac8a9970429a109b3e79fe171ff` |
 
-Run ID 안의 시각은 식별자 생성 시각이며 실제 시작 증거가 아니다. 실제 시작은 별도 승인된 실행에서 생성되는 `actual_start_time_utc`만 권위가 있으며 현재는 `null`이다.
+> [!NOTE]
+> **Self-Reference 방지를 위한 커밋 분리 원칙**:
+> `RUNTIME_CODE_COMMIT`은 PR #7 regular merge commit인 `ac81f94f431f5d868d88e10fa784eb0da449264d`로 영구 고정된다.
+> 후속 seal closure PR merge로 인해 새로운 main SHA가 생성되더라도, 봉인 파일 내의 런타임 코드 커밋은 결코 변경하지 않는다.
+> 향후 EC2 수집기 실행 시 런타임 worktree는 반드시 `ac81f94f431f5d868d88e10fa784eb0da449264d`를 checkout하여 기동한다.
+> Run ID 안의 시각은 식별자 생성 시각이며 실제 시작 증거가 아니다. 실제 시작은 별도 승인된 실행에서 생성되는 `actual_start_time_utc`만 권위가 있으며 현재는 `null`이다.
 
 ---
 
@@ -39,11 +46,11 @@ Run ID 안의 시각은 식별자 생성 시각이며 실제 시작 증거가 �
 | `aws-validation-30h-20260915-v3.feed-universe.json` | `52adb4e5f7dc06cbc85ae1926c043ffd44dd47b86f70c09e248c16568e428500` | 봉인 완료 (76 feeds) |
 | `aws-validation-30h-20260915-v3.timing-contract.json` | `adfcc4fc24d8cda14a8935a48a90683b56907c955f62437b326bb46905000284` | 봉인 완료 (Strictly-Next 30h) |
 | `aws-validation-30h-20260915-v3.heartbeat-contract.json` | `e8d6ebfa15425daecfbefd482dea129a43d79b3444db67e958701c4ecc0ad929` | 봉인 완료 (probe 10s, max 30s) |
-| `aws-validation-30h-20260915-v3.runtime.json` | `b79e702e7c634c34e81b5e407de63763ddffb7132b14707e0dc39d215c2e08f7` | 봉인 완료 |
-| `aws-validation-30h-20260915-v3.launch-command.json` | `48648a56fce3907048bfd0be5a774febe88bfa065c79b00edb0c969d954478a6` | 봉인 완료 |
+| `aws-validation-30h-20260915-v3.runtime.json` | `9b72ad1ef485952b6c116d90fae1b44bfecfe95ebd2c9be57ae5c800e3926fe2` | 봉인 완료 (runtime_software_commit=ac81f94...) |
+| `aws-validation-30h-20260915-v3.launch-command.json` | `f6a49eaf9f2cc28a59fa3daaba8b76df8bb3139938b477286ef316ab37fc0188` | 봉인 완료 (collector & scheduler commit=ac81f94...) |
 | `aws-validation-30h-20260915-v3.launch-wrapper.sh` | `509968d0b9e63e226864f5f4bc09641c624e248b7727f6316ea3aee834d3b0d3` | 봉인 완료 |
-| `aws-validation-30h-20260915-v3.launch-provenance.json` | `50ac75d44842059031caaade55a40d221b9518c34d06a7dd1cec921f6260053e` | 봉인 완료 |
-| `aws-validation-30h-20260915-v3.authorization-evidence.json` | `84c7f16a99c13a947409fb412c950f19e0c9b477e4a22dff8277e585d8d1a65f` | `launch_authorized=false` |
+| `aws-validation-30h-20260915-v3.launch-provenance.json` | `9153bf1dad83b74cded12d63ebdc6129733752091de2b181b8d8a79766630590` | 봉인 완료 (commit=ac81f94..., tree=5cf28b4...) |
+| `aws-validation-30h-20260915-v3.authorization-evidence.json` | `eb717fd9a78d5fb7f5cda256bd2b361dd506f283d9f3bfb9f9034a26b380f1ce` | `launch_authorized=false`, commit=ac81f94... |
 
 봉인된 실행 경로는 operator → guest `launch.sh` → `launch_short_smoke_transient.py` → `TransientLaunchConfig` → `render_systemd_run()` → `systemd-run` → `run_bounded_short_smoke.py` → collector / publisher / archive scheduler 순서다.
 
@@ -68,6 +75,12 @@ Render-only 사전 검증은 `Restart=no`, `--uid=bitcoin-trader`, `RuntimeMaxSe
 | cleanup | `false` |
 | heartbeat probe / timeout / max gap | `10s / 10s / 30s` (31s FAIL) |
 
+> [!NOTE]
+> **V3 Archive Grace 해석**:
+> launch command에 포함된 `--grace-seconds 600`은 수집기 및 스케줄러의 하위 호환 설정을 위한 레거시 스키마 파라미터이다.
+> V3 저널 기반 스케줄러(`ClosedHourArchiveScheduler`)에서는 정각 종료 시점 즉시 동결 저널(`frozen journal`)이 저장되고 쓰기 펜스(`writer fence`)가 닫히므로, 600초 유예 대기 없이 즉시 해당 시간 코호트가 자격 요건(`eligible`)을 획득한다 (`test_scheduler_v3_journal_driven_discovery_no_grace_needed`로 검증 완료).
+> 따라서 V3 실환경 수집에서 불필요한 600초 지연은 전혀 발생하지 않는다.
+
 ---
 
 ## 5. 인프라 및 환경 Gate 검증
@@ -83,7 +96,7 @@ Render-only 사전 검증은 `Restart=no`, `--uid=bitcoin-trader`, `RuntimeMaxSe
   - 디스크 전체 크기: `199.93 GiB` (214,668,652,544 B)
   - 디스크 사용량: `97.30 GiB` (104,479,367,168 B, 48.67%)
   - 현재 가용 공간: **`102.62 GiB`** (110,189,285,376 B, **51.33%**)
-  - 디스크 게이트 기준 ($\ge 50\text{ GiB}$): **PASS** (+52.62 GiB 초과 여유)
+  - 디스크 게이트 기준 ($\ge 50	ext{ GiB}$): **PASS** (+52.62 GiB 초과 여유)
 - **Active Process Gate**:
   - Running Collector: **0건** (`NO`)
   - Running Archive Scheduler: **0건** (`NO`)

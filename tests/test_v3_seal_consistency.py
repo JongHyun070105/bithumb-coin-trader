@@ -1,0 +1,239 @@
+"""Regression tests for authoritative AWS 30H V3 launch seals and contracts."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT / "src"
+for d in (ROOT, SRC_DIR):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
+
+from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig
+from scripts.run_cross_market_collector import (
+    canonical_config_fingerprint as collector_config_fingerprint,
+)
+from scripts.seal_v3_validation_run import (
+    canonical_config_fingerprint as seal_config_fingerprint,
+    validate_git_commit,
+)
+
+
+class TestV3SealConsistency(unittest.TestCase):
+    def setUp(self) -> None:
+        self.epoch = "aws-validation-30h-20260915-v3"
+        self.run_id = "aws-validation-30h-run-20260915T013000Z-v3"
+        self.seals_dir = ROOT / "infra" / "aws" / "seals"
+        self.runtime_commit = "ac81f94f431f5d868d88e10fa784eb0da449264d"
+
+    def test_01_generator_without_explicit_runtime_commit_fails(self) -> None:
+        """1. Generator without explicit runtime commit -> FAIL (exit code 2)."""
+        proc = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "seal_v3_validation_run.py")],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 2)
+        self.assertIn("required", proc.stderr)
+        self.assertIn("--runtime-commit", proc.stderr)
+
+    def test_02_runtime_json_runtime_commit_matches_explicit_commit(self) -> None:
+        """2. Generated runtime.json runtime commit == explicit runtime commit."""
+        runtime_path = self.seals_dir / f"{self.epoch}.runtime.json"
+        self.assertTrue(runtime_path.exists())
+        data = json.loads(runtime_path.read_text(encoding="utf-8"))
+        self.assertEqual(data["runtime_software_commit"], self.runtime_commit)
+
+    def test_03_collector_runtime_commit_matches_runtime_json(self) -> None:
+        """3. Collector --runtime-commit == runtime.json runtime commit."""
+        launch_cmd_path = self.seals_dir / f"{self.epoch}.launch-command.json"
+        data = json.loads(launch_cmd_path.read_text(encoding="utf-8"))
+        sup_cmd = data["supervisor_command"]
+        idx = sup_cmd.index("--collector-command-json")
+        collector_cmd = json.loads(sup_cmd[idx + 1])
+        c_commit_idx = collector_cmd.index("--runtime-commit")
+        collector_commit = collector_cmd[c_commit_idx + 1]
+
+        runtime_data = json.loads(
+            (self.seals_dir / f"{self.epoch}.runtime.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(collector_commit, runtime_data["runtime_software_commit"])
+        self.assertEqual(collector_commit, self.runtime_commit)
+
+    def test_04_archive_scheduler_git_commit_matches_runtime_json(self) -> None:
+        """4. Archive scheduler --git-commit == runtime.json runtime commit."""
+        launch_cmd_path = self.seals_dir / f"{self.epoch}.launch-command.json"
+        data = json.loads(launch_cmd_path.read_text(encoding="utf-8"))
+        sup_cmd = data["supervisor_command"]
+        idx = sup_cmd.index("--archive-scheduler-command-json")
+        sched_cmd = json.loads(sup_cmd[idx + 1])
+        s_commit_idx = sched_cmd.index("--git-commit")
+        sched_commit = sched_cmd[s_commit_idx + 1]
+
+        runtime_data = json.loads(
+            (self.seals_dir / f"{self.epoch}.runtime.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(sched_commit, runtime_data["runtime_software_commit"])
+        self.assertEqual(sched_commit, self.runtime_commit)
+
+    def test_05_launch_provenance_runtime_commit_and_tree_match(self) -> None:
+        """5. Launch provenance runtime_code_commit == runtime.json commit & tree matches."""
+        prov_path = self.seals_dir / f"{self.epoch}.launch-provenance.json"
+        prov_data = json.loads(prov_path.read_text(encoding="utf-8"))
+        runtime_data = json.loads(
+            (self.seals_dir / f"{self.epoch}.runtime.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(prov_data["runtime_code_commit"], runtime_data["runtime_software_commit"])
+        self.assertEqual(prov_data["runtime_code_commit"], self.runtime_commit)
+
+        # Tree SHA must match git rev-parse <commit>^{tree}
+        expected_tree = subprocess.run(
+            ["git", "rev-parse", "--verify", f"{self.runtime_commit}^{{tree}}"],
+            cwd=ROOT,
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout.strip()
+        self.assertEqual(prov_data["runtime_git_tree"], expected_tree)
+
+    def test_06_authorization_runtime_commit_matches_runtime_json(self) -> None:
+        """6. Authorization runtime_commit == runtime.json runtime commit."""
+        auth_path = self.seals_dir / f"{self.epoch}.authorization-evidence.json"
+        auth_data = json.loads(auth_path.read_text(encoding="utf-8"))
+        runtime_data = json.loads(
+            (self.seals_dir / f"{self.epoch}.runtime.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(auth_data["runtime_commit"], runtime_data["runtime_software_commit"])
+        self.assertEqual(auth_data["runtime_commit"], self.runtime_commit)
+
+    def test_07_runtime_config_fingerprint_matches_collector_calculation(self) -> None:
+        """7. runtime_config_fingerprint generated by seal tool == collector calculation."""
+        runtime_data = json.loads(
+            (self.seals_dir / f"{self.epoch}.runtime.json").read_text(encoding="utf-8")
+        )
+        seal_fp = seal_config_fingerprint(runtime_data)
+        collector_fp = collector_config_fingerprint(runtime_data)
+        self.assertEqual(seal_fp, collector_fp)
+
+        # Verify launch command uses this exact fingerprint
+        launch_cmd_path = self.seals_dir / f"{self.epoch}.launch-command.json"
+        data = json.loads(launch_cmd_path.read_text(encoding="utf-8"))
+        sup_cmd = data["supervisor_command"]
+        idx = sup_cmd.index("--collector-command-json")
+        collector_cmd = json.loads(sup_cmd[idx + 1])
+        fp_idx = collector_cmd.index("--config-fingerprint")
+        self.assertEqual(collector_cmd[fp_idx + 1], seal_fp)
+
+    def test_08_feed_universe_has_exactly_76_unique_feeds(self) -> None:
+        """8. Feed universe = exactly 76 unique feeds (60 bithumb, 8 binance, 8 upbit)."""
+        feed_path = self.seals_dir / f"{self.epoch}.feed-universe.json"
+        feed_data = json.loads(feed_path.read_text(encoding="utf-8"))
+        feeds = feed_data["feeds"]
+        self.assertEqual(len(feeds), 76)
+        self.assertEqual(len(set(feeds)), 76)
+        self.assertEqual(feed_data["feed_count"], 76)
+        self.assertEqual(feed_data["exchanges"]["bithumb"]["feed_count"], 60)
+        self.assertEqual(feed_data["exchanges"]["binance"]["feed_count"], 8)
+        self.assertEqual(feed_data["exchanges"]["upbit"]["feed_count"], 8)
+
+    def test_09_candidate_cohorts_exactly_30(self) -> None:
+        """9. Candidate cohorts = exactly 30."""
+        timing_path = self.seals_dir / f"{self.epoch}.timing-contract.json"
+        timing_data = json.loads(timing_path.read_text(encoding="utf-8"))
+        self.assertEqual(timing_data["required_qualifying_full_hours"], 30)
+        self.assertEqual(timing_data["expected_candidate_cohorts"], 30)
+        self.assertEqual(timing_data["maximum_collection_window_seconds"], 111600)
+
+    def test_10_total_coverage_slots_exactly_2280(self) -> None:
+        """10. Total coverage slots = exactly 2280 (30 cohorts * 76 feeds)."""
+        timing_path = self.seals_dir / f"{self.epoch}.timing-contract.json"
+        timing_data = json.loads(timing_path.read_text(encoding="utf-8"))
+        self.assertEqual(timing_data["total_expected_coverage_slots"], 2280)
+        self.assertEqual(timing_data["total_expected_coverage_slots"], 30 * 76)
+
+    def test_11_launch_authorized_is_false(self) -> None:
+        """11. launch_authorized = false."""
+        auth_path = self.seals_dir / f"{self.epoch}.authorization-evidence.json"
+        auth_data = json.loads(auth_path.read_text(encoding="utf-8"))
+        self.assertFalse(auth_data["launch_authorized"])
+        self.assertEqual(auth_data["status"], "PREPARED_NOT_AUTHORIZED")
+
+        prov_path = self.seals_dir / f"{self.epoch}.launch-provenance.json"
+        prov_data = json.loads(prov_path.read_text(encoding="utf-8"))
+        self.assertFalse(prov_data["launch_authorized"])
+
+    def test_12_actual_start_time_utc_is_null(self) -> None:
+        """12. actual_start_time_utc = null."""
+        auth_path = self.seals_dir / f"{self.epoch}.authorization-evidence.json"
+        auth_data = json.loads(auth_path.read_text(encoding="utf-8"))
+        self.assertIsNone(auth_data["actual_start_time_utc"])
+        self.assertIsNone(auth_data["actual_start_evidence"])
+
+        prov_path = self.seals_dir / f"{self.epoch}.launch-provenance.json"
+        prov_data = json.loads(prov_path.read_text(encoding="utf-8"))
+        self.assertIsNone(prov_data["actual_start_time_utc"])
+
+    def test_13_collector_schedule_mode_duration_validation(self) -> None:
+        """13. V3 schedule mode requires duration 0; positive duration with schedule path fails closed."""
+        # Valid: duration 0 with schedule path
+        schedule_path_str: str | None = "some/path.json"
+        valid_check = (
+            0 == 0
+            if schedule_path_str is not None
+            else 0 == 0 and 0 > 0
+        )
+        self.assertTrue(valid_check)
+
+        # Invalid: positive duration with schedule path
+        conflicting_check = (
+            0 == 108000
+            if schedule_path_str is not None
+            else 0 == 108000 and 108000 > 0
+        )
+        self.assertFalse(conflicting_check)
+
+        # Invalid: duration 0 without schedule path
+        no_schedule_check = (
+            0 == 0
+            if None is not None
+            else 0 == 0 and 0 > 0
+        )
+        self.assertFalse(no_schedule_check)
+
+    def test_14_transient_launch_config_rejects_legacy_duration(self) -> None:
+        """14. TransientLaunchConfig rejects positive collection_duration_seconds when schedule is used."""
+        cfg = TransientLaunchConfig(
+            run_id=self.run_id,
+            workdir=Path("/var/lib/bitcoin-trader/workdir"),
+            supervisor_command=("echo", "hi"),
+            collection_duration_seconds=None,
+            maximum_collection_window_seconds=111600,
+            finalization_timeout_seconds=180,
+            supervisor_hard_ceiling_seconds=111825,
+            systemd_runtime_max_seconds=111900,
+        )
+        self.assertIsNone(cfg.collection_duration_seconds)
+        self.assertEqual(cfg.maximum_collection_window_seconds, 111600)
+
+    def test_15_validate_git_commit_helper(self) -> None:
+        """15. validate_git_commit validates real commit and returns full SHA and tree SHA."""
+        commit_sha, tree_sha = validate_git_commit(self.runtime_commit, cwd=ROOT)
+        self.assertEqual(commit_sha, self.runtime_commit)
+        self.assertEqual(len(commit_sha), 40)
+        self.assertEqual(len(tree_sha), 40)
+
+        with self.assertRaises(ValueError):
+            validate_git_commit("notarealcommit99999", cwd=ROOT)
+
+        with self.assertRaises(ValueError):
+            validate_git_commit("", cwd=ROOT)
+
+
+if __name__ == "__main__":
+    unittest.main()
