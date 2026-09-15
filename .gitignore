@@ -31,3 +31,6 @@ override.tf.json
 *.auto.tfvars
 *.auto.tfvars.json
 terraform.tfvars
+
+# SDD workspace
+.superpowers/
