@@ -87,6 +87,12 @@ def _get_git_sha() -> str:
     return "unknown"
 
 
+def get_v2_summary() -> dict[str, Any]:
+    """Compact V2 summary for dashboard display."""
+    path = ROOT / "research-artifacts" / "v2-authoritative" / "reports" / "V2_DASHBOARD_SUMMARY.json"
+    return _load_json(path) or {"status": "NOT_AVAILABLE"}
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     """Read-only HTTP handler for dashboard API."""
 
@@ -94,6 +100,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         routes = {
             "/api/status": get_status,
             "/api/v2/research": get_v2_research,
+            "/api/v2/summary": get_v2_summary,
             "/api/v4/status": get_v4_status,
             "/api/evidence": get_evidence,
         }

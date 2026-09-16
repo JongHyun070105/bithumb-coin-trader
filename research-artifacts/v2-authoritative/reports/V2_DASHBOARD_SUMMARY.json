@@ -1,0 +1,77 @@
+{
+  "study": "V2 30H Authoritative Microstructure Research",
+  "dataset": "aws-validation-30h-20260912-6576f63",
+  "classification": "NO EXECUTABLE TAKER CANDIDATE",
+  "alpha": "UNPROVEN",
+  "source": {
+    "objects": 2272,
+    "bytes": 561782912,
+    "data_present": 2272,
+    "unknown_missing": 8
+  },
+  "markets": {
+    "KRW-BTC": {
+      "ob_events": 728305,
+      "trade_events": 9169,
+      "spread_bps": 1.6
+    },
+    "KRW-ETH": {
+      "ob_events": 682026,
+      "trade_events": 6558,
+      "spread_bps": 2.9
+    },
+    "KRW-XRP": {
+      "ob_events": 681449,
+      "trade_events": 10211,
+      "spread_bps": 5.4
+    }
+  },
+  "predictive": {
+    "H1_orderbook_imbalance": {
+      "best_ic": {
+        "XRP": 0.333,
+        "ETH": 0.294,
+        "BTC": 0.173
+      },
+      "horizon": "30s",
+      "classification": "EXPLORATORY_POSITIVE (predictive), COST_KILLED (execution)"
+    },
+    "H2_trade_flow_ATI": {
+      "best_ic": 0.241,
+      "market": "XRP",
+      "horizon": "1s",
+      "classification": "PREDICTIVE_ONLY (execution incomplete)"
+    },
+    "H3_microprice": {
+      "best_ic": {
+        "ETH": 0.277,
+        "XRP": 0.274,
+        "BTC": 0.1
+      },
+      "horizon": "30s",
+      "classification": "EXPLORATORY_POSITIVE (predictive), COST_KILLED (execution)"
+    },
+    "H4_cross_exchange": {
+      "basis_ic": -0.069,
+      "classification": "PREDICTIVE_BUT_UNTRADEABLE"
+    }
+  },
+  "execution": {
+    "total_scenarios": 48,
+    "profitable": 0,
+    "best": {
+      "market": "KRW-BTC",
+      "hypothesis": "H1",
+      "mean_bps": -1.94,
+      "latency": "0ms",
+      "fee": "promotional"
+    },
+    "latency_sensitivity": "minimal (0-500ms)"
+  },
+  "validation": {
+    "entered": false
+  },
+  "internal_test": {
+    "entered": false
+  }
+}
