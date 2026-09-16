@@ -1,16 +1,10 @@
 """Lightweight read-only local API for the dashboard.
 
-Serves project status, research results, and evidence from
-tracked filesystem artifacts.
+Derives all state from tracked filesystem artifacts via ProjectStateResolver.
+No hardcoded values.
 
 Usage:
     .venv/bin/python -m bithumb_coin_trader.dashboard_api
-
-Endpoints:
-    GET /api/status      — Project scientific state
-    GET /api/v2/research — V2 research results
-    GET /api/v4/status   — V4 validation status
-    GET /api/evidence    — Evidence artifacts
 """
 
 from __future__ import annotations
@@ -19,6 +13,8 @@ import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
+
+from .project_state import resolve_project_state, write_project_status
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -31,35 +27,38 @@ def _load_json(path: Path) -> dict[str, Any] | None:
 
 
 def get_status() -> dict[str, Any]:
-    """Project scientific state."""
-    return {
-        "alpha": "UNPROVEN",
-        "paper": "NOT STARTED",
-        "live": "DISABLED",
-        "private_api": "DISABLED",
-        "v2_classification": "NO EXECUTABLE TAKER CANDIDATE",
-        "v4_status": "RUNNING",
-        "v4_final_verdict": "NOT YET AVAILABLE",
-        "develop_sha": _get_git_sha(),
-    }
+    """Project status — derived from tracked artifacts."""
+    state = resolve_project_state()
+    return state.to_dict()
 
 
 def get_v2_research() -> dict[str, Any]:
-    """V2 research results."""
-    results_path = ROOT / "research-artifacts" / "v2-authoritative" / "reports" / "V2_FULLRES_DEV_RESULTS.json"
-    if results_path.exists():
-        data = _load_json(results_path)
-        if data:
-            return data
+    """Full V2 research results."""
+    path = ROOT / "research-artifacts" / "v2-authoritative" / "reports" / "V2_FULLRES_DEV_RESULTS.json"
+    if path.exists():
+        return _load_json(path) or {"status": "NOT_AVAILABLE"}
     return {"status": "NOT_AVAILABLE"}
 
 
+def get_v2_summary() -> dict[str, Any]:
+    """Compact V2 summary for dashboard."""
+    path = ROOT / "research-artifacts" / "v2-authoritative" / "reports" / "V2_DASHBOARD_SUMMARY.json"
+    return _load_json(path) or {"status": "NOT_AVAILABLE"}
+
+
 def get_v4_status() -> dict[str, Any]:
-    """V4 validation status."""
-    obs_path = ROOT / "evidence" / "aws-validation-30h-20260915-v4" / "post-run" / "preliminary-observation.json"
-    if obs_path.exists():
-        return _load_json(obs_path) or {}
-    return {"status": "RUNNING", "final_verdict": "NOT YET AVAILABLE"}
+    """V4 validation status — derived from evidence."""
+    state = resolve_project_state()
+    return {
+        "ec2_state": state.v4.ec2_state,
+        "ssm_agent": state.v4.ssm_agent,
+        "collector_process": state.v4.collector_process,
+        "lifecycle": state.v4.lifecycle,
+        "final_verdict": state.v4.final_verdict,
+        "actual_start": state.v4.actual_start,
+        "planned_stop": state.v4.planned_stop,
+        "s3_coverage_hours": state.v4.s3_coverage_hours,
+    }
 
 
 def get_evidence() -> dict[str, Any]:
@@ -75,22 +74,22 @@ def get_evidence() -> dict[str, Any]:
     return result
 
 
-def _get_git_sha() -> str:
-    head = ROOT / ".git" / "HEAD"
-    if head.exists():
-        content = head.read_text().strip()
-        if content.startswith("ref:"):
-            ref_path = ROOT / ".git" / content.split(" ", 1)[1]
-            if ref_path.exists():
-                return ref_path.read_text().strip()[:12]
-        return content[:12]
-    return "unknown"
+def get_datasets() -> dict[str, Any]:
+    """Dataset registry."""
+    path = ROOT / "research-data" / "dataset_registry.json"
+    return _load_json(path) or {"datasets": []}
 
 
-def get_v2_summary() -> dict[str, Any]:
-    """Compact V2 summary for dashboard display."""
-    path = ROOT / "research-artifacts" / "v2-authoritative" / "reports" / "V2_DASHBOARD_SUMMARY.json"
-    return _load_json(path) or {"status": "NOT_AVAILABLE"}
+def get_safety() -> dict[str, Any]:
+    """Safety state."""
+    state = resolve_project_state()
+    return {
+        "live_trading": state.live_trading,
+        "private_api": state.private_api,
+        "paper_trading": state.paper_trading,
+        "dashboard_mode": state.dashboard_mode,
+        "alpha": state.scientific.alpha,
+    }
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -103,6 +102,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/v2/summary": get_v2_summary,
             "/api/v4/status": get_v4_status,
             "/api/evidence": get_evidence,
+            "/api/datasets": get_datasets,
+            "/api/safety": get_safety,
         }
         handler = routes.get(self.path)
         if handler:
@@ -118,15 +119,18 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self.wfile.write(b'{"error": "not found"}')
 
     def log_message(self, format, *args):
-        pass  # Suppress logging
+        pass
 
 
 def main():
     port = 8787
+    # Generate initial status file
+    status_path = write_project_status()
+    print(f"Generated: {status_path}")
+
     server = HTTPServer(("127.0.0.1", port), DashboardHandler)
-    print(f"Dashboard API running at http://127.0.0.1:{port}")
-    print(f"Endpoints: /api/status, /api/v2/research, /api/v4/status, /api/evidence")
-    print(f"Root: {ROOT}")
+    print(f"Dashboard API: http://127.0.0.1:{port}")
+    print(f"Endpoints: /api/status, /api/v2/research, /api/v2/summary, /api/v4/status, /api/evidence, /api/datasets, /api/safety")
     print("Press Ctrl+C to stop")
     try:
         server.serve_forever()

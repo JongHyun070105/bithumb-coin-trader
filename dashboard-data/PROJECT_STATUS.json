@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-16T15:37:06.775095+00:00",
+  "source_commit": "ae284ed",
+  "scientific": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "v2": {
+    "status": "COMPLETE",
+    "classification": "NO EXECUTABLE TAKER CANDIDATE",
+    "dataset": "aws-validation-30h-20260912-6576f63",
+    "source_objects": 0,
+    "source_bytes": 561782912,
+    "data_present": 0,
+    "unknown_missing": 0,
+    "h1h3_status": "COMPLETE",
+    "execution_status": "COMPLETE",
+    "execution_scenarios": 48,
+    "profitable_scenarios": 0,
+    "best_taker_bps": null,
+    "validation_entered": false,
+    "internal_test_entered": false
+  },
+  "v4": {
+    "ec2_state": "UNKNOWN (runtime check required)",
+    "ssm_agent": "UNKNOWN (runtime check required)",
+    "collector_process": "UNKNOWN (cannot infer from EC2 state alone)",
+    "lifecycle": "CORRECTED_PREMATURE",
+    "s3_coverage_hours": 0,
+    "s3_objects": 0,
+    "final_verdict": "NOT_YET_AVAILABLE",
+    "actual_start": "2026-09-15T10:26:33.652102Z",
+    "planned_stop": "2026-09-16T17:00:00Z"
+  },
+  "live_trading": "DISABLED",
+  "private_api": "DISABLED",
+  "paper_trading": "NOT STARTED",
+  "dashboard_mode": "READ_ONLY"
+}
