@@ -76,7 +76,7 @@ def adapt_raw_record(
 
         # exchange_ts may be null for some exchanges (e.g., Binance diff-depth).
         # Use local_recv as causal availability time when exchange_ts is absent.
-        if exchange_ts_str:
+        if exchange_ts_str is not None and str(exchange_ts_str).strip():
             exchange_ms = parse_iso_to_ms(str(exchange_ts_str))
         else:
             exchange_ms = local_recv_ms  # Earliest causal availability
@@ -119,20 +119,35 @@ def adapt_raw_record(
 
         elif event_kind == EventKind.ORDERBOOK:
             # Parse orderbook directly — filter out zero-size levels
-            # (Bithumb sends levels with zero size that the canonical model rejects)
+            # Bithumb format: orderbook_units with bid_price/bid_size/ask_price/ask_size
+            # Binance/Upbit format: direct bids/asks arrays
             units = payload.get("orderbook_units", [])
-            if not units:
-                return None
-            bids = sorted(
-                [(float(u["bid_price"]), float(u["bid_size"]))
-                 for u in units if u.get("bid_price") and float(u.get("bid_size", 0)) > 0],
-                key=lambda x: -x[0],
-            )
-            asks = sorted(
-                [(float(u["ask_price"]), float(u["ask_size"]))
-                 for u in units if u.get("ask_price") and float(u.get("ask_size", 0)) > 0],
-                key=lambda x: x[0],
-            )
+            if units:
+                # Bithumb format
+                bids = sorted(
+                    [(float(u["bid_price"]), float(u["bid_size"]))
+                     for u in units if u.get("bid_price") and float(u.get("bid_size", 0)) > 0],
+                    key=lambda x: -x[0],
+                )
+                asks = sorted(
+                    [(float(u["ask_price"]), float(u["ask_size"]))
+                     for u in units if u.get("ask_price") and float(u.get("ask_size", 0)) > 0],
+                    key=lambda x: x[0],
+                )
+            else:
+                # Binance/Upbit format: bids=[[price,size],...], asks=[[price,size],...]
+                raw_bids = payload.get("bids", [])
+                raw_asks = payload.get("asks", [])
+                bids = sorted(
+                    [(float(b[0]), float(b[1])) for b in raw_bids
+                     if len(b) >= 2 and float(b[1]) > 0],
+                    key=lambda x: -x[0],
+                )
+                asks = sorted(
+                    [(float(a[0]), float(a[1])) for a in raw_asks
+                     if len(a) >= 2 and float(a[1]) > 0],
+                    key=lambda x: x[0],
+                )
             if not bids or not asks:
                 return None
             ob_payload = {
