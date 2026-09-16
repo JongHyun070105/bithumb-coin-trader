@@ -1748,5 +1748,57 @@ class TestPreV2Closure(unittest.TestCase):
             )
 
 
+class TestBinanceAdapter(unittest.TestCase):
+    """Test Binance orderbook adapter with null exchange_ts and bids/asks format."""
+
+    def test_binance_orderbook_null_exchange_ts(self):
+        """Binance orderbook with null exchange_ts must parse using local_recv as fallback."""
+        from bithumb_coin_trader.research_infra.adapters import adapt_raw_record
+        record = {
+            "exchange": "binance",
+            "stream": "orderbook",
+            "market": "BTCUSDT",
+            "exchange_ts": None,
+            "local_recv_ts": "2026-09-12T11:24:52.431128+00:00",
+            "local_write_ts": "2026-09-12T11:24:52.533843+00:00",
+            "payload": {
+                "lastUpdateId": 12345,
+                "bids": [["77298.47", "6.8942"], ["77298.46", "1.0"]],
+                "asks": [["77298.48", "0.8370"], ["77298.49", "2.0"]],
+            }
+        }
+        event = adapt_raw_record(record, dataset_id="test")
+        self.assertIsNotNone(event)
+        self.assertEqual(event.exchange, "binance")
+        self.assertEqual(event.market, "BTCUSDT")
+        bids = event.payload["bids"]
+        asks = event.payload["asks"]
+        self.assertEqual(len(bids), 2)
+        self.assertEqual(len(asks), 2)
+        self.assertAlmostEqual(bids[0][0], 77298.47)
+        self.assertAlmostEqual(asks[0][0], 77298.48)
+
+    def test_binance_orderbook_with_exchange_ts(self):
+        """Binance orderbook with valid exchange_ts uses exchange time."""
+        from bithumb_coin_trader.research_infra.adapters import adapt_raw_record
+        record = {
+            "exchange": "binance",
+            "stream": "orderbook",
+            "market": "ETHUSDT",
+            "exchange_ts": "2026-09-12T11:24:52.431128+00:00",
+            "local_recv_ts": "2026-09-12T11:24:52.533843+00:00",
+            "local_write_ts": "2026-09-12T11:24:52.533843+00:00",
+            "payload": {
+                "lastUpdateId": 12345,
+                "bids": [["3456.78", "1.5"]],
+                "asks": [["3456.79", "2.0"]],
+            }
+        }
+        event = adapt_raw_record(record, dataset_id="test")
+        self.assertIsNotNone(event)
+        self.assertEqual(event.exchange, "binance")
+        self.assertEqual(event.market, "ETHUSDT")
+
+
 if __name__ == "__main__":
     unittest.main()
