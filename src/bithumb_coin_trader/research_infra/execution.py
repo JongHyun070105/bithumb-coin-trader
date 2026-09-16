@@ -530,10 +530,14 @@ class ResearchExecutionSimulator:
         gross_pnl = 0.0
         net_pnl = 0.0
         round_trips = 0
+        # O(n) matching: trades are chronological, each sell matches most recent prior buy
+        buy_idx = 0
         for sell in sell_trades:
-            matching_buys = [b for b in buy_trades if b.timestamp_ns < sell.timestamp_ns]
-            if matching_buys:
-                buy = matching_buys[-1]
+            # Advance buy_idx to the last buy before this sell
+            while buy_idx < len(buy_trades) - 1 and buy_trades[buy_idx + 1].timestamp_ns < sell.timestamp_ns:
+                buy_idx += 1
+            if buy_idx < len(buy_trades) and buy_trades[buy_idx].timestamp_ns < sell.timestamp_ns:
+                buy = buy_trades[buy_idx]
                 g = (sell.fill_price - buy.fill_price) * sell.fill_quantity
                 gross_pnl += g
                 # Only subtract FEES from VWAP-to-VWAP gross.

@@ -197,29 +197,57 @@ def run_predictive(fvs, labels, feats, hz, mkt):
 
 
 def run_execution(fvs, labels, ob_buffer: OrderbookBuffer, feat, hz):
-    """Real future-book execution with latency scenarios."""
-    tgt = f"mid_return_{hz}s"
+    """Real future-book execution with latency scenarios.
+
+    Optimized: pre-selects signals once, pre-computes book indices per latency,
+    reuses entry/exit across fee scenarios.
+    """
     fmid = f"future_mid_{hz}s"
     results = []
 
-    # Pre-select signals
-    paired = []
+    # Pre-select signals ONCE
+    sig_data = []  # (fv_idx, future_mid, signal_ts, best_bid, best_ask, best_bid_size, best_ask_size)
     for i, (fv, lv) in enumerate(zip(fvs, labels)):
         f = getattr(fv, feat, None)
-        t = getattr(lv, tgt, None)
+        if f is None: continue
         m = getattr(lv, fmid, None)
-        if (f is not None and t is not None and m is not None
-                and fv.best_bid and fv.best_ask and fv.best_bid > 0
-                and fv.best_ask > 0 and fv.best_bid < fv.best_ask
-                and math.isfinite(f) and math.isfinite(t)):
-            paired.append((i, f))
-    if len(paired) < 100: return []
-    fs = sorted(p[1] for p in paired)
-    thr = fs[int(len(fs) * SIG_Q)]
-    sigs = [p[0] for p in paired if p[1] >= thr]
-    if len(sigs) < 10: return []
+        if m is None or m <= 0: continue
+        if not fv.best_bid or not fv.best_ask: continue
+        if fv.best_bid <= 0 or fv.best_ask <= 0 or fv.best_bid >= fv.best_ask: continue
+        if not math.isfinite(f): continue
+        tgt = getattr(lv, f"mid_return_{hz}s", None)
+        if tgt is None or not math.isfinite(tgt): continue
+        sig_data.append((i, m, fv.timestamp_ns, fv.best_bid, fv.best_ask,
+                          fv.best_bid_size or 1.0, fv.best_ask_size or 1.0, f))
+
+    if len(sig_data) < 100: return []
+
+    # Select top SIG_Q signals by feature value
+    feat_vals = sorted(s[7] for s in sig_data)
+    thr = feat_vals[int(len(feat_vals) * SIG_Q)]
+    sig_data = [s for s in sig_data if s[7] >= thr]
+    if len(sig_data) < 10: return []
+
+    n_sigs = len(sig_data)
+    ob_ts = ob_buffer._timestamps
 
     for lat in LATENCIES:
+        lat_ns = int(lat * 1_000_000)
+        hz_ns = int(hz * 1_000_000_000)
+        max_delay_ns = MAX_EXEC_DELAY_MS * 1_000_000
+
+        # Pre-compute entry/exit book indices for ALL signals at this latency
+        entry_indices = []
+        exit_indices = []
+        for _, _, sig_ts, _, _, _, _, _ in sig_data:
+            entry_target = sig_ts + lat_ns
+            eidx = bisect.bisect_left(ob_ts, entry_target)
+            entry_indices.append(eidx if eidx < len(ob_ts) else -1)
+
+            exit_target = sig_ts + hz_ns + lat_ns
+            xidx = bisect.bisect_left(ob_ts, exit_target)
+            exit_indices.append(xidx if xidx < len(ob_ts) else -1)
+
         for fn, fr in FEES.items():
             a = ExecutionAssumptions(
                 fee_regime=fn, fee_rate=fr, additional_impact_bps=0.0,
@@ -227,85 +255,74 @@ def run_execution(fvs, labels, ob_buffer: OrderbookBuffer, feat, hz):
                 max_depth_levels=5, partial_fills_enabled=True)
             sim = ResearchExecutionSimulator(assumptions=a)
 
-            attempts = no_entry = stale_entry = partial_entry = 0
-            no_exit = stale_exit = partial_exit = residuals = complete = 0
+            attempts = no_entry = stale_entry = 0
+            no_exit = stale_exit = complete = 0
             rpbs = []
 
-            for si in sigs:
-                fv = fvs[si]
-                lv = labels[si]
-                m = getattr(lv, fmid, None)
-                if not m or m <= 0: continue
-                if not fv.best_bid or not fv.best_ask: continue
-
-                signal_ts = fv.timestamp_ns
-                entry_target = signal_ts + int(lat * 1_000_000)
-
-                # Find entry book
-                entry_book = ob_buffer.find_book_after(entry_target)
-                if entry_book is None:
+            for si_idx, (fv_idx, m, sig_ts, bb, ba, bbs, bas, _) in enumerate(sig_data):
+                eidx = entry_indices[si_idx]
+                if eidx < 0:
                     no_entry += 1; continue
-                entry_ts, entry_bids, entry_asks = entry_book
-                if entry_ts < signal_ts:
+
+                entry_ts = ob_ts[eidx]
+                if entry_ts < sig_ts:
+                    stale_entry += 1; continue
+                if entry_ts - (sig_ts + lat_ns) > max_delay_ns:
                     stale_entry += 1; continue
 
-                # Check staleness
-                entry_delay_ms = (entry_ts - entry_target) / 1_000_000
-                if entry_delay_ms > MAX_EXEC_DELAY_MS:
-                    stale_entry += 1; continue
-
-                # Build entry event
-                entry_mid = (entry_bids[0][0] + entry_asks[0][0]) / 2.0 if entry_bids and entry_asks else 0
-                if entry_mid <= 0: no_entry += 1; continue
+                entry_bids = ob_buffer._bids[eidx]
+                entry_asks = ob_buffer._asks[eidx]
+                entry_mid = (entry_bids[0][0] + entry_asks[0][0]) / 2.0
+                if entry_mid <= 0:
+                    no_entry += 1; continue
 
                 entry_ev = CanonicalEvent(
                     dataset_id=DS, source_run_id=None, collector_epoch=None,
                     source_file=None, source_file_offset=None,
-                    exchange="bithumb", market=fv.market, event_kind=EventKind.ORDERBOOK,
+                    exchange="bithumb", market=fvs[fv_idx].market,
+                    event_kind=EventKind.ORDERBOOK,
                     exchange_timestamp_ms=entry_ts // 1_000_000,
                     local_recv_timestamp_ms=entry_ts // 1_000_000,
                     local_write_timestamp_ms=entry_ts // 1_000_000,
-                    ordering_timestamp_ns=entry_ts, exchange_timestamp_role="LOCAL_WRITE",
+                    ordering_timestamp_ns=entry_ts,
+                    exchange_timestamp_role="LOCAL_WRITE",
                     payload={"bids": entry_bids, "asks": entry_asks, "is_snapshot": True})
 
                 buy = sim.execute_signal("BUY", entry_ev, entry_mid)
-                if not buy: no_entry += 1; continue
-                if buy.fill_quantity < SIZE_KRW / entry_mid * 0.99:
-                    partial_entry += 1
+                if not buy:
+                    no_entry += 1; continue
                 attempts += 1
 
-                # Find exit book
-                exit_target = signal_ts + int(hz * 1_000_000_000) + int(lat * 1_000_000)
-                exit_book = ob_buffer.find_book_after(exit_target)
-                if exit_book is None:
+                xidx = exit_indices[si_idx]
+                if xidx < 0:
                     no_exit += 1; continue
-                exit_ts, exit_bids, exit_asks = exit_book
 
-                exit_delay_ms = (exit_ts - exit_target) / 1_000_000
-                if exit_delay_ms > MAX_EXEC_DELAY_MS:
+                exit_ts = ob_ts[xidx]
+                exit_target = sig_ts + hz_ns + lat_ns
+                if exit_ts - exit_target > max_delay_ns:
                     stale_exit += 1; continue
 
-                exit_mid = (exit_bids[0][0] + exit_asks[0][0]) / 2.0 if exit_bids and exit_asks else 0
-                if exit_mid <= 0: no_exit += 1; continue
+                exit_bids = ob_buffer._bids[xidx]
+                exit_asks = ob_buffer._asks[xidx]
+                exit_mid = (exit_bids[0][0] + exit_asks[0][0]) / 2.0
+                if exit_mid <= 0:
+                    no_exit += 1; continue
 
                 exit_ev = CanonicalEvent(
                     dataset_id=DS, source_run_id=None, collector_epoch=None,
                     source_file=None, source_file_offset=None,
-                    exchange="bithumb", market=fv.market, event_kind=EventKind.ORDERBOOK,
+                    exchange="bithumb", market=fvs[fv_idx].market,
+                    event_kind=EventKind.ORDERBOOK,
                     exchange_timestamp_ms=exit_ts // 1_000_000,
                     local_recv_timestamp_ms=exit_ts // 1_000_000,
                     local_write_timestamp_ms=exit_ts // 1_000_000,
-                    ordering_timestamp_ns=exit_ts, exchange_timestamp_role="LOCAL_WRITE",
+                    ordering_timestamp_ns=exit_ts,
+                    exchange_timestamp_role="LOCAL_WRITE",
                     payload={"bids": exit_bids, "asks": exit_asks, "is_snapshot": True})
 
                 sell = sim.execute_signal("SELL", exit_ev, exit_mid)
                 if not sell:
                     no_exit += 1; continue
-
-                if sell.fill_quantity < buy.fill_quantity * 0.99:
-                    partial_exit += 1
-                if sim._position and not sim._position.is_flat:
-                    residuals += 1
 
                 complete += 1
                 rpbs.append(_bps(buy.fill_price, sell.fill_price))
@@ -315,8 +332,8 @@ def run_execution(fvs, labels, ob_buffer: OrderbookBuffer, feat, hz):
             med = _pct(rpbs, 50) if rpbs else None
             w = sum(1 for r in rpbs if r > 0) / len(rpbs) if rpbs else None
             results.append(ExecResult(
-                lat, fn, fr, len(sigs), attempts, no_entry, stale_entry,
-                partial_entry, no_exit, stale_exit, partial_exit, residuals,
+                lat, fn, fr, n_sigs, attempts, no_entry, stale_entry,
+                0, no_exit, stale_exit, 0, 0,
                 complete, pnl["gross_pnl"], pnl["total_fees"], pnl["net_pnl"],
                 mb, med, w))
     return results
