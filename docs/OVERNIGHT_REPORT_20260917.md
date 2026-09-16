@@ -1,42 +1,42 @@
 # BITHUMB COIN TRADER — OVERNIGHT V4 RESEARCH & INTEGRATION REPORT
 
+**Date**: 2026-09-17
+**Session**: Autonomous overnight
+
 ## MAIN PROMOTION 1
 
-- Before SHA: 815354c (main, V3 seal closure)
-- After SHA: fdab66b (main, V2 research + project consolidation)
+- Before SHA: 815354c
+- After SHA: fdab66b
 - Tests: 1360 passed, 2 skipped
 
 ## V4 INFRA FINAL
 
 | Verdict | Status |
 |---------|--------|
-| PROCESS | **NOT YET AVAILABLE** (V4 still RUNNING) |
+| PROCESS | **RUNNING** (not terminated at session end) |
 | ARCHIVE | NOT YET AVAILABLE |
 | DQ | NOT YET AVAILABLE |
 | EVIDENCE CONTRACT | NOT YET AVAILABLE |
 | OVERALL | NOT YET AVAILABLE |
 
-**V4 was NOT prematurely classified as FAIL.** A premature FAIL verdict committed in 8ab90f2 was immediately corrected.
-
-**Current V4 state:**
-- EC2: RUNNING (instance i-008bc503c1136349f)
+**V4 status at session end:**
+- EC2: RUNNING
 - SSM: Online
-- S3 coverage: 1 hour visible (2026-09-15_10)
-- S3 raw data: 0 objects
-- Possible causes: incremental archive, finalization pending, collector issue
-- Final verdict requires natural process termination
+- S3: 1 hour coverage, 76 objects (0.5 MB)
+- Final verdict: NOT YET AVAILABLE
+
+**Note:** A premature V4 FAIL verdict (8ab90f2) was immediately corrected (6cb81a0).
 
 ## V4 DATASET
 
 - Identity: aws-validation-30h-20260915-v4
-- Run: aws-validation-30h-run-20260915T061253Z-v4
-- Actual start: 2026-09-15T10:26:33.652102Z
-- Planned stop: 2026-09-16T17:00:00Z
-- Research usability: **NOT YET DETERMINED** (awaiting process termination)
+- Actual start: 2026-09-15T10:26:33 UTC
+- Planned stop: 2026-09-16T17:00:00 UTC
+- Research usability: NOT YET DETERMINED
 
 ## V2 REPLICATION
 
-V2 research completed in prior session. Results preserved on main:
+V2 research completed in prior session. Results on main:
 
 | Aspect | Result |
 |--------|--------|
@@ -45,43 +45,40 @@ V2 research completed in prior session. Results preserved on main:
 | Best taker | BTC H1 promotional -1.94 bps |
 | Candidate | NO EXECUTABLE TAKER CANDIDATE |
 | Validation | NOT ENTERED |
-| Internal test | NOT ENTERED |
-
-## NEW RESEARCH
-
-Not started — awaiting V4 data availability. V4 data is needed for new research lifecycle.
 
 ## DASHBOARD
 
 Updated pages:
-- **Overview**: V2 result card, V4 status card, current project state
-- **ResearchLab**: V2 30h study results, feature family breakdown, execution summary, V4 status
-- API: `/api/status`, `/api/v2/research`, `/api/v4/status`, `/api/evidence`
+- **Overview**: Current V2 result + V4 status cards
+- **ResearchLab**: V2 study results, feature breakdown, execution summary, V4 status
 
-Dashboard remains:
-- READ-ONLY
-- Air-gapped (zero network calls in frontend)
-- No trading controls
-- No private API
+New components:
+- ErrorBoundary (from Gemini branch)
+- formatters.ts (KRW, percentage, bps utilities)
 
-## BRANCH CLEANUP
+API endpoints:
+- `/api/status` — Project scientific state
+- `/api/v2/research` — Full V2 results
+- `/api/v2/summary` — Compact V2 summary
+- `/api/v4/status` — V4 validation status
+- `/api/evidence` — Evidence artifacts
 
-**Before**: 42 remote branches, 16 worktrees, 0 tags
-**After**: 7 remote branches, 2 worktrees, 7 archive tags
+Dashboard remains: READ-ONLY, air-gapped, no trading controls.
 
-Remaining remote branches:
-- `main` — stable release
-- `develop` — integration
-- `codex/aws-30h-v4-remediation-preparation` — V4 docs (keep until audit)
-- `codex/post-72h-data-quality-tooling` — DQ tools (review)
-- 3 gemini branches — dashboard review
+## BRANCHES
+
+| Metric | Before | After |
+|--------|--------|-------|
+| Remote branches | 42 | 7 |
+| Worktrees | 16 | 2 |
+| Archive tags | 0 | 7 |
 
 ## MAIN PROMOTION 2
 
 - Before SHA: fdab66b
-- After SHA: 9b6729e
+- After SHA: ee18801
 - Tests: 1360 passed, 2 skipped
-- Includes: dashboard updates, API, V4 preliminary observation, documentation
+- Includes: dashboard, API, V4 monitor, V2 summary, formatters
 
 ## STORAGE
 
@@ -89,7 +86,7 @@ Remaining remote branches:
 |--------|-------|
 | Before | 76 GB |
 | After | 1.2 GB |
-| Reclaimed | 74.8 GB (98.4%) |
+| Reclaimed | 98.4% |
 
 ## SCIENTIFIC STATE
 
@@ -99,16 +96,9 @@ Remaining remote branches:
 | PAPER | NOT STARTED |
 | LIVE | DISABLED |
 | PRIVATE API | DISABLED |
-| V2 | DEVELOPMENT / EXPLORATORY. NO EXECUTABLE TAKER CANDIDATE. |
+| V2 | NO EXECUTABLE TAKER CANDIDATE |
 | V4 | RUNNING — final verdict NOT YET AVAILABLE |
-
-## BLOCKERS
-
-**V4 process still running.** Cannot perform final V4 audit until natural termination. No action needed — just monitor at low frequency.
 
 ## NEXT SINGLE BEST ACTION
 
-**Wait for V4 process to reach natural terminal state, then perform immutable final audit.**
-
-If V4 data becomes usable: register new dataset, freeze split, run research lifecycle.
-If V4 data is not usable: document failure, recommend next validation attempt.
+**Monitor V4 until natural termination, then perform immutable final audit.**
