@@ -181,9 +181,26 @@ def iter_raw_jsonl_file(
     source_run_id: str | None = None,
     collector_epoch: str | None = None,
 ) -> Iterator[CanonicalEvent]:
-    """Iterate over a raw JSONL file, yielding CanonicalEvents."""
-    with open(path) as f:
-        for line_num, line in enumerate(f, 1):
+    """Iterate over a raw JSONL file, yielding CanonicalEvents.
+
+    Supports both plain .jsonl and zstd-compressed .jsonl.zst files.
+    """
+    import io
+
+    is_zst = str(path).endswith(".zst")
+
+    def _iter_lines(file_handle):
+        if is_zst:
+            import zstandard
+            dctx = zstandard.ZstdDecompressor()
+            reader = dctx.stream_reader(file_handle)
+            wrapper = io.TextIOWrapper(reader, encoding="utf-8")
+            yield from wrapper
+        else:
+            yield from file_handle
+
+    with open(path, "rb" if is_zst else "r") as f:
+        for line_num, line in enumerate(_iter_lines(f), 1):
             line = line.strip()
             if not line:
                 continue
@@ -241,11 +258,21 @@ def iter_raw_jsonl_streaming(
                     continue
 
                 for jsonl_file in sorted(feed_dir.iterdir()):
-                    if not jsonl_file.name.endswith(".jsonl"):
+                    fname = jsonl_file.name
+                    if fname.endswith(".jsonl.zst"):
+                        pass  # zstd-compressed JSONL
+                    elif fname.endswith(".jsonl"):
+                        pass  # plain JSONL
+                    else:
                         continue
 
-                    # Parse cohort from filename
-                    parts = jsonl_file.stem.split("_")
+                    # Parse cohort from filename (strip .jsonl.zst or .jsonl)
+                    stem = fname
+                    for ext in (".jsonl.zst", ".jsonl"):
+                        if stem.endswith(ext):
+                            stem = stem[: -len(ext)]
+                            break
+                    parts = stem.split("_")
                     if len(parts) >= 5:
                         market = parts[2].upper().replace("-", "-")
                         hour = parts[4]

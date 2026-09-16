@@ -1,0 +1,169 @@
+{
+  "manifest_type": "V2_SOURCE_MANIFEST",
+  "dataset_id": "aws-validation-30h-20260912-6576f63",
+  "epoch": "aws-validation-30h-20260912-6576f63",
+  "run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-30h-20260912-6576f63/",
+  "aws_profile": "bitcoin-trader-bootstrap",
+  "aws_region": "ap-northeast-2",
+  "retrieval_timestamp_utc": "2026-09-16T02:35:56Z",
+  "total_objects": 2272,
+  "total_bytes": 561782912,
+  "object_counts_by_kind": {
+    "RAW_MARKET_DATA": 2272
+  },
+  "total_bytes_by_kind": {
+    "RAW_MARKET_DATA": 561782912
+  },
+  "exchanges_present": [
+    "binance",
+    "bithumb",
+    "upbit"
+  ],
+  "feeds_present": [
+    "orderbook",
+    "ticker",
+    "trade"
+  ],
+  "hours_present": [
+    "2026-09-12_11",
+    "2026-09-12_12",
+    "2026-09-12_13",
+    "2026-09-12_14",
+    "2026-09-12_15",
+    "2026-09-12_16",
+    "2026-09-12_17",
+    "2026-09-12_18",
+    "2026-09-12_19",
+    "2026-09-12_20",
+    "2026-09-12_21",
+    "2026-09-12_22",
+    "2026-09-12_23",
+    "2026-09-13_00",
+    "2026-09-13_01",
+    "2026-09-13_02",
+    "2026-09-13_03",
+    "2026-09-13_04",
+    "2026-09-13_05",
+    "2026-09-13_06",
+    "2026-09-13_07",
+    "2026-09-13_08",
+    "2026-09-13_09",
+    "2026-09-13_10",
+    "2026-09-13_11",
+    "2026-09-13_12",
+    "2026-09-13_13",
+    "2026-09-13_14",
+    "2026-09-13_15",
+    "2026-09-13_16"
+  ],
+  "tickers_by_exchange": {
+    "binance": [
+      "btcusdt",
+      "ethusdt",
+      "solusdt",
+      "xrpusdt"
+    ],
+    "bithumb": [
+      "krw-ada",
+      "krw-apt",
+      "krw-avax",
+      "krw-axs",
+      "krw-bch",
+      "krw-btc",
+      "krw-doge",
+      "krw-dot",
+      "krw-etc",
+      "krw-eth",
+      "krw-link",
+      "krw-mana",
+      "krw-near",
+      "krw-sand",
+      "krw-shib",
+      "krw-sol",
+      "krw-sui",
+      "krw-trx",
+      "krw-xlm",
+      "krw-xrp"
+    ],
+    "upbit": [
+      "krw-btc",
+      "krw-eth",
+      "krw-sol",
+      "krw-xrp"
+    ]
+  },
+  "reconciliation": {
+    "dq_contract": {
+      "total_hours": 30,
+      "total_feeds": 76,
+      "logical_slots": 2280,
+      "expected_data_present": 2272,
+      "expected_unknown_missing": 8
+    },
+    "observed": {
+      "raw_market_data_files": 2272,
+      "data_present_slots": 2272,
+      "missing_slots": 8,
+      "missing_details": [
+        {
+          "exchange": "bithumb",
+          "feed": "ticker",
+          "ticker": "krw-axs",
+          "hour": "2026-09-12_18"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "ticker",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_17"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "ticker",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_18"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "ticker",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_19"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "trade",
+          "ticker": "krw-axs",
+          "hour": "2026-09-12_18"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "trade",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_17"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "trade",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_18"
+        },
+        {
+          "exchange": "bithumb",
+          "feed": "trade",
+          "ticker": "krw-mana",
+          "hour": "2026-09-12_19"
+        }
+      ]
+    },
+    "status": "PASS",
+    "notes": [
+      "All 8 missing slots match the DQ contract exactly.",
+      "Total logical slots: 76 combos \u00d7 30 hours = 2280",
+      "DATA_PRESENT: 2272",
+      "MISSING: 8",
+      "Expected: 30h \u00d7 76 feeds = 2280 slots, 2272 DATA_PRESENT, 8 UNKNOWN_MISSING"
+    ]
+  }
+}
