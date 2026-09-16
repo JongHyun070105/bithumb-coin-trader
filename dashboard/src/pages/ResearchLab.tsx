@@ -2,7 +2,8 @@ import React from 'react'
 import { MetricCard } from '../components/MetricCard'
 import { StatusBadge } from '../components/StatusBadge'
 import { ModeBanner } from '../components/ModeBanner'
-import { History, XCircle, Sparkles, Scale } from 'lucide-react'
+import { History, XCircle, Sparkles, Scale, TrendingDown } from 'lucide-react'
+import { V2_RESEARCH_STATUS, V4_VALIDATION_STATUS } from '../fixtures/syntheticDemoData'
 
 export const ResearchLab: React.FC = () => {
   return (
@@ -13,56 +14,167 @@ export const ResearchLab: React.FC = () => {
         <div>
           <h2>정량 연구실 및 가설 거버넌스 (Research Lab)</h2>
           <p className="page-subtitle">
-            사전등록된 마이크로스트럭처 알파 연구(CYCLE-01), 과거 전략 베이스라인 및 다중 검정 통계 거버넌스
+            V2 30시간 마이크로스트럭처 알파 연구 결과 및 V4 검증 상태
           </p>
         </div>
       </div>
 
-      {/* Section 1: Prospective Microstructure (P11.3) */}
+      {/* V2 Authoritative Research Results */}
+      <section className="section-block">
+        <h3 className="section-title">
+          <TrendingDown size={18} />
+          <span>V2 권위적 30시간 연구 결과 (Authoritative V2 30H Study)</span>
+        </h3>
+
+        <div className="card-surface prospective-card">
+          <div className="prospective-header">
+            <div>
+              <strong>데이터셋: <code>{V2_RESEARCH_STATUS.dataset}</code></strong>
+              <span className="badge-frozen">DEVELOPMENT / EXPLORATORY</span>
+            </div>
+            <StatusBadge
+              status={V2_RESEARCH_STATUS.status === 'COMPLETE' ? 'COMPLETE' : 'PENDING'}
+              label={V2_RESEARCH_STATUS.classification}
+            />
+          </div>
+
+          <p className="prospective-desc">
+            2,272 DATA_PRESENT 슬롯, 8 UNKNOWN_MISSING. 풀해상도 BTC/ETH/XRP 실행 완료.
+            실시간 퓨처북 실행. 48가지 시나리오 모두 음수.
+          </p>
+
+          <div className="status-grid">
+            <MetricCard
+              title="SOURCE OBJECTS"
+              value={V2_RESEARCH_STATUS.sourceObjects.toLocaleString()}
+              subtext={`${(V2_RESEARCH_STATUS.sourceBytes / 1024 / 1024).toFixed(1)} MB compressed`}
+              evidenceSource="MEASURED"
+            />
+            <MetricCard
+              title="H1-H3 FULL-RES"
+              value={V2_RESEARCH_STATUS.h1h3FullResolution}
+              subtext="BTC, ETH, XRP — real future-book execution"
+              status="success"
+              evidenceSource="MEASURED"
+            />
+            <MetricCard
+              title="BEST TAKER"
+              value={`${V2_RESEARCH_STATUS.bestTakerBps} bps`}
+              subtext={`${V2_RESEARCH_STATUS.bestTakerMarket} ${V2_RESEARCH_STATUS.bestTakerLatency} ${V2_RESEARCH_STATUS.bestTakerFee}`}
+              status="warning"
+              evidenceSource="MEASURED"
+            />
+            <MetricCard
+              title="VALIDATION"
+              value={V2_RESEARCH_STATUS.validationEntered ? 'ENTERED' : 'NOT ENTERED'}
+              subtext={V2_RESEARCH_STATUS.validationEntered ? 'Results available' : 'No DEV candidate survived execution'}
+              status={V2_RESEARCH_STATUS.validationEntered ? 'success' : 'default'}
+              evidenceSource="DECLARED"
+            />
+          </div>
+
+          <div className="feature-families-grid">
+            <div className="feature-card">
+              <span className="feat-code">H1: Orderbook Imbalance</span>
+              <span className="feat-title">호가창 불균형</span>
+              <p className="feat-desc">
+                XRP IC=0.33, ETH IC=0.29, BTC IC=0.17 @ 30s. 실행: COST_KILLED (-1.9 ~ -5.9 bps)
+              </p>
+              <div className="feat-status">
+                <StatusBadge status="COMPLETE" label="COST_KILLED" size="sm" />
+              </div>
+            </div>
+
+            <div className="feature-card">
+              <span className="feat-code">H2: ATI / Trade Flow</span>
+              <span className="feat-title">체결 강도 불균형</span>
+              <p className="feat-desc">
+                IC 0.09-0.24. 가장 강한 예측 신호. 실행 미완성 (무역 이벤트 기반).
+              </p>
+              <div className="feat-status">
+                <StatusBadge status="COMPLETE" label="PREDICTIVE_ONLY" size="sm" />
+              </div>
+            </div>
+
+            <div className="feature-card">
+              <span className="feat-code">H3: Microprice</span>
+              <span className="feat-title">마이크로 가격</span>
+              <p className="feat-desc">
+                XRP IC=0.27, ETH IC=0.28 @ 30s. 실행: COST_KILLED (-3.9 ~ -8.8 bps)
+              </p>
+              <div className="feat-status">
+                <StatusBadge status="COMPLETE" label="COST_KILLED" size="sm" />
+              </div>
+            </div>
+
+            <div className="feature-card">
+              <span className="feat-code">H4/H5: Cross-Exchange</span>
+              <span className="feat-title">크로스 거래소</span>
+              <p className="feat-desc">
+                Upbit 기준선 완료. Binance 오더북 미완성 (null exchange_ts).
+              </p>
+              <div className="feat-status">
+                <StatusBadge status="PARTIAL" label="INCOMPLETE" size="sm" />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* V4 Status */}
       <section className="section-block">
         <h3 className="section-title">
           <Sparkles size={18} />
-          <span>전향적 마이크로스트럭처 연구 (Prospective Microstructure CYCLE-01)</span>
+          <span>V4 검증 상태 (V4 Validation Status)</span>
         </h3>
 
+        <div className="status-grid">
+          <MetricCard
+            title="V4 PROCESS"
+            value={V4_VALIDATION_STATUS.status}
+            subtext={`Started: ${new Date(V4_VALIDATION_STATUS.actualStart).toLocaleString()}`}
+            status={V4_VALIDATION_STATUS.status === 'RUNNING' ? 'warning' : 'default'}
+            evidenceSource="MEASURED"
+          />
+          <MetricCard
+            title="V4 S3 COVERAGE"
+            value={`${V4_VALIDATION_STATUS.s3CoverageHoursVisible} hour visible`}
+            subtext={`Hour: ${V4_VALIDATION_STATUS.s3CoverageHour}. Raw data: ${V4_VALIDATION_STATUS.s3RawDataObjects} objects`}
+            status="warning"
+            evidenceSource="MEASURED"
+          />
+          <MetricCard
+            title="V4 FINAL VERDICT"
+            value={V4_VALIDATION_STATUS.finalVerdict}
+            subtext={V4_VALIDATION_STATUS.note}
+            status="default"
+            evidenceSource="NOT AVAILABLE"
+          />
+        </div>
+      </section>
+
+      {/* Original preregistration (historical) */}
+      <section className="section-block">
+        <h3 className="section-title">
+          <History size={18} />
+          <span>사전등록 이력 (Historical Preregistration)</span>
+        </h3>
         <div className="card-surface prospective-card">
           <div className="prospective-header">
             <div>
               <strong>사전등록 번호: <code>prereg-microstructure-20260905-v1</code></strong>
               <span className="badge-frozen">FROZEN BEFORE DATA INSPECTION</span>
             </div>
-            <StatusBadge status="PENDING" label="WAITING FOR QUALIFIED DATASET" />
+            <StatusBadge status="COMPLETE" label="SUPERSEDED BY V2" />
           </div>
-
           <p className="prospective-desc">
-            72시간 수집 데이터셋이 DQ_PASS로 정식 적격 승인된 이후에만 Discovery 24시간 표본에서 탐색을 시작합니다.
-            데이터 열람 전 가설, 목적함수, 피처 패밀리 명세가 동결되었습니다.
+            72시간 수집 기반 사전등록. V2 30시간 독립 데이터셋으로 실행 완료.
           </p>
-
-          <div className="feature-families-grid">
-            <div className="feature-card">
-              <span className="feat-code">OFI (Order Flow Imbalance)</span>
-              <span className="feat-title">주문 흐름 불균형</span>
-              <p className="feat-desc">호가창 깊이별 매수/매도 주문 유입량 차이 측정</p>
-              <div className="feat-status"><StatusBadge status="NOT_STARTED" label="DEFINED / NOT RUN" size="sm" /></div>
-            </div>
-
-            <div className="feature-card">
-              <span className="feat-code">ATI (Aggressor Trade Imbalance)</span>
-              <span className="feat-title">체결 강도 불균형</span>
-              <p className="feat-desc">시장가 체결(Taker buy/sell) 거래량 비대칭성 측정</p>
-              <div className="feat-status"><StatusBadge status="NOT_STARTED" label="DEFINED / NOT RUN" size="sm" /></div>
-            </div>
-
-            <div className="feature-card">
-              <span className="feat-code">MPQI (Micro-Price Queue Imbalance)</span>
-              <span className="feat-title">마이크로 가격 큐 불균형</span>
-              <p className="feat-desc">최우선 호가 잔량 가중 마이크로 프라이스 모멘텀</p>
-              <div className="feat-status"><StatusBadge status="NOT_STARTED" label="DEFINED / NOT RUN" size="sm" /></div>
-            </div>
-          </div>
         </div>
       </section>
+    </div>
+  )
+}
 
       {/* Section 2: Statistical Governance (P11.4) */}
       <section className="section-block">

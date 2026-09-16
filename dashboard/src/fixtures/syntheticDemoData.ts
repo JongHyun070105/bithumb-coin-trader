@@ -20,6 +20,39 @@ export const DEMO_PROJECT_SUMMARY: ProjectStateSummary = {
   syntheticVerification: 'PASS',
 }
 
+export const V2_RESEARCH_STATUS = {
+  status: 'COMPLETE',
+  classification: 'NO EXECUTABLE TAKER CANDIDATE',
+  dataset: 'aws-validation-30h-20260912-6576f63',
+  sourceObjects: 2272,
+  sourceBytes: 561782912,
+  dataPresent: 2272,
+  unknownMissing: 8,
+  h1h3FullResolution: 'COMPLETE (BTC/ETH/XRP)',
+  realFutureBookExecution: 'COMPLETE (48 scenarios)',
+  bestTakerBps: -1.94,
+  bestTakerMarket: 'KRW-BTC',
+  bestTakerLatency: '0ms',
+  bestTakerFee: 'promotional',
+  validationEntered: false,
+  internalTestEntered: false,
+  h4h5UpbitBaseline: 'COMPLETE',
+  h4h5BinanceOrderbook: 'INCOMPLETE (null exchange_ts)',
+}
+
+export const V4_VALIDATION_STATUS = {
+  status: 'RUNNING',
+  epoch: 'aws-validation-30h-20260915-v4',
+  runId: 'aws-validation-30h-run-20260915T061253Z-v4',
+  actualStart: '2026-09-15T10:26:33.652102Z',
+  plannedStop: '2026-09-16T17:00:00Z',
+  s3CoverageHoursVisible: 1,
+  s3CoverageHour: '2026-09-15_10',
+  s3RawDataObjects: 0,
+  finalVerdict: 'NOT YET AVAILABLE',
+  note: 'Process still RUNNING. Incomplete S3 visibility may be normal incremental behavior.',
+}
+
 export const DEMO_PIPELINE_STAGES: PipelineStage[] = [
   {
     id: 'infra',
