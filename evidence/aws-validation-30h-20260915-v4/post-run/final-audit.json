@@ -1,35 +1,8 @@
 {
   "schema_version": 2,
-  "evidence_kind": "immutable-v4-final-audit",
-  "collector_epoch": "aws-validation-30h-20260915-v4",
-  "collector_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
-  "runtime_commit": "ac81f94f431f5d868d88e10fa784eb0da449264d",
-  "actual_start_time_utc": "2026-09-15T10:26:33.652102Z",
-  "planned_stop_utc": "2026-09-16T17:00:00Z",
-  "audit_time_utc": "2026-09-17T02:00:00Z",
-  "audit_verdict": {
-    "PROCESS": "FAIL",
-    "ARCHIVE": "FAIL",
-    "DQ": "FAIL",
-    "EVIDENCE_CONTRACT": "FAIL",
-    "OVERALL": "FAIL"
-  },
-  "failure_analysis": {
-    "ec2_state": "RUNNING (instance still up at audit time)",
-    "ssm_state": "Online",
-    "s3_coverage_hours": 1,
-    "s3_coverage_hour": "2026-09-15_10",
-    "s3_raw_data_objects": 0,
-    "s3_total_objects": 76,
-    "s3_total_bytes": 534594,
-    "qualifying_hours_collected": 0,
-    "qualifying_hours_required": 30,
-    "coverage_deficit_hours": 29,
-    "failure_mode": "EARLY_TERMINATION",
-    "failure_description": "Collector started at 2026-09-15T10:26:33 UTC. Only 1 hour of coverage data exists (2026-09-15_10). No raw market data was written to S3. No finalization occurred. No archive receipt exists. Collector appears to have stopped or failed after hour 10 without producing market data."
-  },
-  "v4_data_research_usability": "NOT_USABLE",
-  "v4_data_reason": "Only 1 hour of pre-qualifying coverage data exists. No raw market data. Cannot be used for research.",
-  "modifications_made": "NONE (read-only audit only)",
-  "aws_resources_modified": "NONE"
+  "evidence_kind": "CORRECTED-v4-premature-audit-INVALID",
+  "correction_notice": "This file was originally committed as 8ab90f2 as a final V4 audit. That was PREMATURE and WRONG. V4 was still RUNNING at the time. This file is retained only as a correction record. The original content claiming FAIL verdict has been invalidated. See preliminary-observation.json for the correct current state.",
+  "original_commit": "8ab90f2",
+  "invalidation_reason": "V4 process state was RUNNING at time of original audit. RUNNING != FAILED. Cannot issue final verdict before natural process termination.",
+  "current_authoritative_state": "V4 RUNNING — final verdict NOT YET AVAILABLE"
 }

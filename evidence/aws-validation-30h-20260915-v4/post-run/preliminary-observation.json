@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "evidence_kind": "preliminary-v4-observation",
+  "collector_epoch": "aws-validation-30h-20260915-v4",
+  "observation_time_utc": "2026-09-17T02:00:00Z",
+  "v4_process_state": "RUNNING",
+  "final_verdict": "NOT_YET_AVAILABLE",
+  "current_s3_observation": {
+    "coverage_hours_visible": 1,
+    "coverage_hour": "2026-09-15_10",
+    "raw_data_objects": 0,
+    "total_objects": 76,
+    "total_bytes": 534594
+  },
+  "possible_causes": [
+    "incremental archive behavior (coverage written at end of hour, not continuously)",
+    "finalization not yet performed (collector still running, finalization happens after stop)",
+    "archive problem (data collected but not yet uploaded to S3)",
+    "collector problem (process running but not producing data)"
+  ],
+  "note": "DO NOT treat as final verdict. V4 is still RUNNING. Incomplete S3 visibility may be normal incremental behavior. Final audit requires natural process termination first."
+}
