@@ -191,26 +191,30 @@ def execution(fvs, labels, feat, hz):
                 if not m or m <= 0: continue
                 if not fv.best_bid or not fv.best_ask or fv.best_bid >= fv.best_ask: continue
                 ts = fv.timestamp_ns
+                # Use price-relative level offset (10% of price, min 1 tick)
+                lvl_off = max(fv.best_bid * 0.1, 0.0001)
                 sig_ev = CanonicalEvent(dataset_id=DS, source_run_id=None, collector_epoch=None,
                     source_file=None, source_file_offset=None, exchange="bithumb", market=fv.market,
                     event_kind=EventKind.ORDERBOOK, exchange_timestamp_ms=ts//1000000,
                     local_recv_timestamp_ms=ts//1000000, local_write_timestamp_ms=ts//1000000,
                     ordering_timestamp_ns=ts, exchange_timestamp_role="LOCAL_WRITE",
-                    payload={"bids": [[fv.best_bid, fv.best_bid_size or 1], [fv.best_bid-10000, 2]],
-                             "asks": [[fv.best_ask, fv.best_ask_size or 1], [fv.best_ask+10000, 2]],
+                    payload={"bids": [[fv.best_bid, fv.best_bid_size or 1], [fv.best_bid - lvl_off, 2]],
+                             "asks": [[fv.best_ask, fv.best_ask_size or 1], [fv.best_ask + lvl_off, 2]],
                              "is_snapshot": True})
                 buy = sim.execute_signal("BUY", sig_ev, fv.mid_price or 0)
                 if not buy: continue
                 att += 1
                 sp = (fv.best_ask or 0) - (fv.best_bid or 0)
                 ets = ts + hz * 1000000000
+                # Price-relative offset for exit levels
+                exit_lvl_off = max(m * 0.1, 0.0001)
                 ex_ev = CanonicalEvent(dataset_id=DS, source_run_id=None, collector_epoch=None,
                     source_file=None, source_file_offset=None, exchange="bithumb", market=fv.market,
                     event_kind=EventKind.ORDERBOOK, exchange_timestamp_ms=ets//1000000,
                     local_recv_timestamp_ms=ets//1000000, local_write_timestamp_ms=ets//1000000,
                     ordering_timestamp_ns=ets, exchange_timestamp_role="LOCAL_WRITE",
-                    payload={"bids": [[m-sp/2, 1], [m-sp/2-10000, 2]],
-                             "asks": [[m+sp/2, 1], [m+sp/2+10000, 2]], "is_snapshot": True})
+                    payload={"bids": [[m-sp/2, 1], [max(m-sp/2 - exit_lvl_off, 0.0001), 2]],
+                             "asks": [[m+sp/2, 1], [m+sp/2 + exit_lvl_off, 2]], "is_snapshot": True})
                 sell = sim.execute_signal("SELL", ex_ev, m)
                 if sell:
                     comp += 1; rpbs.append(_bps(buy.fill_price, sell.fill_price))

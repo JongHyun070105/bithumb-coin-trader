@@ -1,0 +1,80 @@
+{
+  "study": "V2 FULL-RESOLUTION DEV — BTC/ETH/XRP",
+  "dataset": "aws-validation-30h-20260912-6576f63",
+  "role": "DEVELOPMENT / EXPLORATORY ONLY",
+  "alpha": "UNPROVEN",
+  "v4_touched": false,
+  "resolution": "FULL (no subsampling)",
+  "execution": "REAL FUTURE-BOOK",
+  "status": "PARTIAL — BTC+ETH completed, XRP and H2 execution not completed due to runtime",
+  "predictive_results": {
+    "KRW-BTC": {
+      "H1": {
+        "depth_imbalance_l1": {"1s": {"ic": 0.0487, "hr": 0.062, "n": 728293}, "5s": {"ic": 0.0958, "hr": 0.163, "n": 728255}, "10s": {"ic": 0.1247, "hr": 0.251, "n": 728200}, "30s": {"ic": 0.1732, "hr": 0.413, "n": 727969}},
+        "qi_l1": {"30s": {"ic": 0.1732, "n": 727969}},
+        "qi_l3": {"30s": {"ic": 0.1453, "n": 727969}},
+        "qi_l5": {"30s": {"ic": 0.1418, "n": 727969}}
+      },
+      "H2": {
+        "ati_5s": {"1s": {"ic": 0.1201, "n": 9168}, "5s": {"ic": 0.1271, "n": 9167}, "10s": {"ic": 0.1518, "n": 9167}, "30s": {"ic": 0.1857, "n": 9166}},
+        "ati_30s": {"30s": {"ic": 0.1693, "n": 9166}},
+        "ati_60s": {"30s": {"ic": 0.1762, "n": 9166}}
+      },
+      "H3": {
+        "microprice_bias_bps": {"1s": {"ic": 0.0283, "n": 728293}, "5s": {"ic": 0.0491, "n": 728255}, "10s": {"ic": 0.0656, "n": 728200}, "30s": {"ic": 0.1001, "n": 727969}}
+      }
+    },
+    "KRW-ETH": {
+      "H1": {
+        "depth_imbalance_l1": {"1s": {"ic": 0.1149, "n": 682018}, "5s": {"ic": 0.1918, "n": 681979}, "10s": {"ic": 0.2323, "n": 681937}, "30s": {"ic": 0.2943, "n": 681754}},
+        "qi_l3": {"30s": {"ic": 0.2942, "n": 681754}},
+        "qi_l5": {"30s": {"ic": 0.2858, "n": 681754}}
+      },
+      "H2": {
+        "ati_5s": {"1s": {"ic": 0.1336, "n": 6558}, "5s": {"ic": 0.1070, "n": 6558}, "10s": {"ic": 0.1281, "n": 6558}, "30s": {"ic": 0.1346, "n": 6558}},
+        "signed_volume_30s": {"1s": {"ic": 0.1718, "n": 6558}}
+      },
+      "H3": {
+        "microprice_bias_bps": {"1s": {"ic": 0.1143, "n": 682018}, "5s": {"ic": 0.1849, "n": 681979}, "10s": {"ic": 0.2212, "n": 681937}, "30s": {"ic": 0.2773, "n": 681754}}
+      }
+    }
+  },
+  "execution_results": {
+    "KRW-BTC": {
+      "H1_depth_imbalance_l1_5s": [
+        {"lat": 0, "fee": "promotional", "complete": 72906, "net_krw": -1436645, "mean_bps": -1.94, "win_rate": 0.004},
+        {"lat": 0, "fee": "normal", "complete": 72906, "net_krw": -37886113, "mean_bps": -1.94, "win_rate": 0.004},
+        {"lat": 100, "fee": "promotional", "complete": 72906, "net_krw": -1452978, "mean_bps": -1.94},
+        {"lat": 250, "fee": "promotional", "complete": 72906, "net_krw": -1453033, "mean_bps": -1.94},
+        {"lat": 500, "fee": "promotional", "complete": 72906, "net_krw": -1455315, "mean_bps": -1.94}
+      ],
+      "H3_microprice_bias_5s": [
+        {"lat": 0, "fee": "promotional", "complete": 72870, "net_krw": -2819071, "mean_bps": -3.85, "win_rate": 0.004},
+        {"lat": 0, "fee": "normal", "complete": 72870, "net_krw": -39247056, "mean_bps": -3.85, "win_rate": 0.004}
+      ]
+    },
+    "KRW-ETH": {
+      "H1_depth_imbalance_l1_5s": [
+        {"lat": 0, "fee": "promotional", "complete": 68211, "net_krw": -3166364, "mean_bps": -4.61, "win_rate": 0.003},
+        {"lat": 0, "fee": "normal", "complete": 68211, "net_krw": -37264000, "mean_bps": -4.61, "win_rate": 0.003},
+        {"lat": 100, "fee": "promotional", "complete": 68211, "net_krw": -3269342, "mean_bps": -4.62},
+        {"lat": 250, "fee": "promotional", "complete": 68211, "net_krw": -3266827, "mean_bps": -4.62},
+        {"lat": 500, "fee": "promotional", "complete": 68211, "net_krw": -3272313, "mean_bps": -4.62}
+      ]
+    }
+  },
+  "anomaly_investigation": {
+    "min_bps_anomaly": {
+      "market": "KRW-SHIB",
+      "root_cause": "Orderbook construction used hardcoded price-10000 offset for second level, creating negative prices for low-price assets (SHIB price ~0.007 KRW). Sell fills at negative price produced -9.26B bps.",
+      "fix": "Changed to price-relative offset (max(price*0.1, 0.0001))",
+      "regression_test_needed": true,
+      "affected_results": "All markets with price < 10000 KRW in subsampled study"
+    }
+  },
+  "market_baselines": {
+    "KRW-BTC": {"ob_events": 728305, "trade_events": 9169, "spread_bps": 1.6},
+    "KRW-ETH": {"ob_events": 682026, "trade_events": 6558, "spread_bps": 2.9},
+    "KRW-XRP": {"ob_events": 681449, "trade_events": 10211, "spread_bps": 5.4}
+  }
+}
