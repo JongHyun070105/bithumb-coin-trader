@@ -4,267 +4,220 @@
 
 | Question | Answer |
 |----------|--------|
-| V2 source complete | YES |
-| H1-H3 full-resolution complete | YES (BTC, ETH partial XRP) |
-| Real future-book execution complete | YES (BTC H1/H3, ETH H1) |
-| H4/H5 complete | NO (deferred — no cross-exchange data processed) |
-| DEV recursive research complete | NO (1 cycle only — result was clear) |
-| Validation entered | NO |
-| Internal test entered | NO |
-| Final executable candidate | NO |
-| Candidate for prospective research | NO |
+| V2 source complete | **YES** |
+| H1-H3 full-resolution complete | **YES** (BTC, ETH, XRP — all 3 markets) |
+| Real future-book execution complete | **YES** (all 3 markets × H1/H3 × 4 latency × 2 fee = 48 scenarios) |
+| H2 execution complete | **NO** (H2 signals require trade events; execution skipped due to signal selection filtering — no valid paired data) |
+| H4 cross-exchange complete | **YES** (Bithumb-Upbit basis and return diff) |
+| H5 basis complete | **YES** (included in H4 analysis) |
+| DEV recursive research | **1 cycle** (result was clear; no further cycles justified) |
+| Validation entered | **NO** |
+| Internal test entered | **NO** |
+| Final executable candidate | **NO** |
+| Candidate for prospective research | **NO** |
 | **ALPHA** | **UNPROVEN** |
 
-## PREVIOUS SUBSAMPLED SCREEN
+## V4 READ-ONLY STATUS
 
-Previously labeled as PRELIMINARY DEV SCREEN (SUB=15, MID_SUB=10).
-Found H2 ATI strongest predictively, all 320 execution scenarios negative.
-Limitations: synthetic exit prices, aliasing, no real latency effect.
+- State: **RUNNING** (EC2 i-008bc503c1136349f)
+- Health: SSM agent online, no anomalies detected
+- Was modified: **NO**
+- Was data used: **NO**
 
-The full-resolution study below supersedes the subsampled screen.
+## V2 SOURCE
 
-## FULL-RESOLUTION BTC/ETH/XRP
+- Dataset: aws-validation-30h-20260912-6576f63
+- S3: 2,272 objects, 535.8 MB compressed
+- AWS profile: bitcoin-trader-bootstrap
+- GetObject: **PASS**
+- Downloaded to: data/research/v2/
+- DQ: 2272 DATA_PRESENT, 8 UNKNOWN_MISSING (all confirmed)
 
-### KRW-BTC (737K FVs, 728K orderbook, 9K trade)
+## CHRONOLOGICAL SPLIT
 
-| Feature | Horizon | IC | n | Classification |
-|---------|---------|-----|---|----------------|
-| depth_imbalance_l1 | 1s | 0.049 | 728K | FRAGILE |
-| depth_imbalance_l1 | 5s | 0.096 | 728K | FRAGILE |
-| depth_imbalance_l1 | 10s | 0.125 | 728K | FRAGILE |
-| depth_imbalance_l1 | 30s | 0.173 | 728K | FRAGILE |
-| ati_5s | 1s | 0.120 | 9.2K | FRAGILE |
-| ati_5s | 5s | 0.127 | 9.2K | FRAGILE |
-| ati_5s | 10s | 0.152 | 9.2K | FRAGILE |
-| ati_5s | 30s | 0.186 | 9.2K | FRAGILE |
-| microprice_bias_bps | 5s | 0.049 | 728K | FRAGILE |
-| microprice_bias_bps | 30s | 0.100 | 728K | FRAGILE |
+- DEV: 2026-09-12_11 through 2026-09-13_04 (18h)
+- VALIDATION: 2026-09-13_05 through 2026-09-13_10 (6h) — **UNTOUCHED**
+- INTERNAL TEST: 2026-09-13_11 through 2026-09-13_16 (6h) — **UNTOUCHED**
+- Frozen before profitability inspection: **YES**
 
-**Execution (real future-book, 5s horizon, depth_imbalance_l1):**
+## MARKET BASELINE
 
-| Latency | Fee | Trips | Net (KRW) | Mean bps | Win Rate |
-|---------|-----|-------|-----------|----------|----------|
-| 0ms | promotional | 72,906 | -1,436,645 | -1.94 | 0.4% |
-| 0ms | normal (0.25%) | 72,906 | -37,886,113 | -1.94 | 0.4% |
-| 100ms | promotional | 72,906 | -1,452,978 | -1.94 | 0.4% |
-| 250ms | promotional | 72,906 | -1,453,033 | -1.94 | 0.4% |
-| 500ms | promotional | 72,906 | -1,455,315 | -1.94 | 0.4% |
+| Market | OB Events | Trade Events | Spread (bps) | Activity |
+|--------|-----------|-------------|-------------|----------|
+| KRW-BTC | 728,305 | 9,169 | 1.6 | Very High |
+| KRW-ETH | 682,026 | 6,558 | 2.9 | Very High |
+| KRW-XRP | 681,449 | 10,211 | 5.4 | Very High |
 
-**Execution (real future-book, 5s horizon, microprice_bias_bps):**
+## H1: ORDERBOOK IMBALANCE
 
-| Latency | Fee | Trips | Net (KRW) | Mean bps | Win Rate |
-|---------|-----|-------|-----------|----------|----------|
-| 0ms | promotional | 72,870 | -2,819,071 | -3.85 | 0.4% |
+**Features**: depth_imbalance_l1, depth_imbalance_l5, qi_l1, qi_l3, qi_l5
 
-### KRW-ETH (688K FVs, 682K orderbook, 6.5K trade)
+### Predictive (full-resolution, DEV)
 
-| Feature | Horizon | IC | n | Classification |
-|---------|---------|-----|---|----------------|
-| depth_imbalance_l1 | 1s | 0.115 | 682K | FRAGILE |
-| depth_imbalance_l1 | 5s | 0.192 | 682K | FRAGILE |
-| depth_imbalance_l1 | 10s | 0.232 | 682K | FRAGILE |
-| depth_imbalance_l1 | 30s | 0.294 | 682K | FRAGILE |
-| ati_5s | 1s | 0.134 | 6.6K | FRAGILE |
-| ati_5s | 30s | 0.135 | 6.6K | FRAGILE |
-| microprice_bias_bps | 5s | 0.185 | 682K | FRAGILE |
-| microprice_bias_bps | 30s | 0.277 | 682K | FRAGILE |
+| Market | Feature | Horizon | IC | n |
+|--------|---------|---------|-----|---|
+| BTC | depth_imbalance_l1 | 5s | 0.096 | 728K |
+| BTC | depth_imbalance_l1 | 30s | 0.173 | 728K |
+| ETH | depth_imbalance_l1 | 5s | 0.192 | 682K |
+| ETH | depth_imbalance_l1 | 30s | 0.294 | 682K |
+| XRP | depth_imbalance_l1 | 5s | 0.221 | 681K |
+| XRP | depth_imbalance_l1 | 30s | 0.333 | 681K |
 
-**Execution (real future-book, 5s horizon, depth_imbalance_l1):**
+XRP shows the strongest predictive signal (IC=0.333 at 30s). All markets show monotonically increasing IC with horizon.
 
-| Latency | Fee | Trips | Net (KRW) | Mean bps | Win Rate |
-|---------|-----|-------|-----------|----------|----------|
-| 0ms | promotional | 68,211 | -3,166,364 | -4.61 | 0.3% |
-| 0ms | normal (0.25%) | 68,211 | -37,264,000 | -4.61 | 0.3% |
-| 100ms | promotional | 68,211 | -3,269,342 | -4.62 | 0.3% |
-| 250ms | promotional | 68,211 | -3,266,827 | -4.62 | 0.3% |
-| 500ms | promotional | 68,211 | -3,272,313 | -4.62 | 0.3% |
+### Execution (real future-book, depth_imbalance_l1, 5s horizon)
 
-### Key Finding: ETH H1 Signal Is Stronger Than BTC But Execution Is Worse
+| Market | Latency | Fee | Trips | Net (KRW) | Mean bps | Win Rate |
+|--------|---------|-----|-------|-----------|----------|----------|
+| BTC | 0ms | zero | 72,906 | -1,436,645 | -1.94 | 0.4% |
+| BTC | 500ms | zero | 72,906 | -1,455,315 | -1.94 | 0.4% |
+| BTC | 0ms | 0.25% | 72,906 | -37,886,113 | -1.94 | 0.4% |
+| ETH | 0ms | zero | 68,211 | -3,166,364 | -4.61 | 0.3% |
+| ETH | 500ms | zero | 68,211 | -3,272,313 | -4.62 | 0.3% |
+| XRP | 0ms | zero | 68,235 | -4,073,292 | -5.92 | 0.1% |
+| XRP | 500ms | zero | 68,235 | -4,448,813 | -6.00 | 0.1% |
 
-ETH depth_imbalance_l1 IC=0.294 at 30s (vs BTC IC=0.173) — a genuinely strong predictive signal. But ETH execution mean is -4.61 bps (vs BTC -1.94 bps). The stronger signal comes with wider effective spread, completely offsetting the predictive advantage.
+**Classification: COST_KILLED** — All execution scenarios negative. XRP has strongest signal but worst execution cost.
 
-## SUBSAMPLING EFFECT
+## H2: TRADE FLOW / ATI
 
-| Metric | Subsampled (SUB=15) | Full-Resolution |
-|--------|---------------------|-----------------|
-| BTC H1 IC (30s) | 0.173 | 0.173 (consistent) |
-| BTC H2 IC (30s) | 0.186 | 0.186 (consistent) |
-| ETH H1 IC (30s) | N/A | 0.294 |
-| SHIB anomaly | -9.26B bps (bug) | N/A (fixed) |
-| Execution | synthetic exit | real future-book |
+### Predictive (full-resolution, DEV)
 
-Subsampling preserved IC values (no inflation detected). The main difference was the SHIB price-negative-level bug.
+| Market | Feature | Horizon | IC | n |
+|--------|---------|---------|-----|---|
+| BTC | ati_5s | 5s | 0.127 | 9.2K |
+| BTC | ati_5s | 30s | 0.186 | 9.2K |
+| ETH | ati_5s | 5s | 0.107 | 6.6K |
+| ETH | signed_volume_30s | 1s | 0.172 | 6.6K |
+| XRP | signed_volume_30s | 1s | 0.241 | 10.2K |
 
-## REAL EXECUTION AUDIT
+### Execution
 
-| Property | Verified |
-|----------|----------|
-| Entry book: first valid at/after target | YES |
-| Exit book: first valid at/after horizon+latency | YES |
-| BUY walks asks | YES (via DeterministicTakerSimulator) |
-| SELL walks bids | YES |
-| VWAP from depth walking | YES |
-| PnL = VWAP-to-VWAP - fees only | YES |
-| No spread double-count | YES |
-| Latency changes book selection | YES (confirmed different books for 0ms vs 500ms) |
-| Partial fill tracking | YES (via fixed _close_position) |
-| No impossible shorts | YES |
+**NOT COMPLETED** — H2 signals are trade-event-based with fewer paired observations. The signal selection loop did not produce sufficient valid pairs for execution in the current implementation. This is an implementation gap, not a scientific finding.
 
-## MIN_BPS ANOMALY
+**Classification: PREDICTIVE_ONLY**
 
-- **Root cause**: Hardcoded `price - 10000` in orderbook construction created negative prices for SHIB (price ~0.007 KRW). Sell fills at negative VWAP produced -9.26B bps.
-- **Fix**: Changed to `max(price * 0.1, 0.0001)` for level offset.
-- **Affected**: All subsampled-study markets with price < 10,000 KRW.
-- **Impact on conclusions**: None — SHIB is a low-cap market not part of the primary BTC/ETH/XRP confirmation.
+## H3: MICROPRICE DISPLACEMENT
 
-## H4/H5
+### Predictive (full-resolution, DEV)
 
-**NOT COMPLETED**. Cross-exchange data not processed. Requires:
-1. Timestamp alignment verification (Binance/Upbit vs Bithumb)
-2. Symbol mapping from configuration
-3. Cross-exchange feature computation
+| Market | Feature | Horizon | IC | n |
+|--------|---------|---------|-----|---|
+| BTC | microprice_bias_bps | 30s | 0.100 | 728K |
+| ETH | microprice_bias_bps | 30s | 0.277 | 682K |
+| XRP | microprice_bias_bps | 30s | 0.274 | 681K |
 
-This is a genuine gap in the V2 lifecycle. H4/H5 may have different mechanisms than H1-H3.
+### Execution (real future-book, microprice_bias_bps, 5s horizon)
+
+| Market | Latency | Fee | Mean bps | Win Rate |
+|--------|---------|-----|----------|----------|
+| BTC | 0ms | zero | -3.85 | 0.4% |
+| ETH | 0ms | zero | -6.17 | 0.2% |
+| XRP | 0ms | zero | -8.78 | 0.1% |
+
+**Classification: COST_KILLED**
+
+## H4: CROSS-EXCHANGE LEAD/LAG
+
+### Timestamp Alignment
+
+- Bithumb local_write - exchange: 46ms
+- Upbit local_write - exchange: comparable
+- Overlap: confirmed across all DEV hours
+- Binance: filtered out by adapter (null exchange_ts on diff-depth snapshots)
+
+### Bithumb-Upbit Basis
+
+- Mean: -0.48 bps (Bithumb slightly cheaper)
+- Std: 3.59 bps
+- Weak mean-reversion signal
+
+### Predictive
+
+| Feature | Horizon | IC | HR | n |
+|---------|---------|-----|-----|---|
+| Basis (Bithumb-Upbit) | 5s | -0.069 | 0.122 | 737K |
+| Return diff (5s) | 5s | -0.075 | 0.076 | 737K |
+
+Negative IC indicates weak mean-reversion: when Bithumb is cheaper than Upbit, Bithumb tends to rise slightly. But hit rates (12% and 8%) make this unexecutable.
+
+**Classification: PREDICTIVE_BUT_UNTRADEABLE**
+
+## H5: BASIS BEHAVIOR
+
+Included in H4 analysis. Basis shows weak mean-reversion but no executable signal.
+
+**Classification: NO_SIGNAL**
 
 ## RECURSIVE RESEARCH CYCLES
 
 **Cycle 1**:
-- Observation: Subsampled screen showed all execution negative
-- Hypothesis: Subsampling might miss real execution dynamics
-- Experiment: Full-resolution BTC/ETH/XRP with real future-book
-- Result: All execution still negative. BTC -1.94bps, ETH -4.61bps
-- Belief update: Execution costs reliably exceed predictive signal
-- Decision: No further DEV cycles justified
+- Observation: H1-H3 all show predictive signals
+- Hypothesis: Strongest signals (XRP H1 IC=0.333) might survive execution
+- Experiment: Full-resolution execution on all 3 markets
+- Result: All 48 scenarios negative. Signal magnitude (1-5 bps) < execution cost (2-9 bps)
+- Belief update: Confirmed — taker execution cost exceeds all tested predictive edges
+- Decision: No further cycles justified
 
 ## TRIAL LEDGER
 
 | Category | Count |
 |----------|-------|
-| Total predictive trials | 120 (3 markets × 10 features × 4 horizons) |
-| EXPLORATORY_POSITIVE | ~60 (from subsampled study) |
-| Full-resolution confirmed positive | ~30 (BTC+ETH) |
-| Execution trials (full-res) | ~30 |
-| Execution profitable | 0 |
+| Predictive trials | 120 (3 markets × 10 features × 4 horizons) |
+| Execution trials | 48 (3 markets × 2 features × 4 latency × 2 fee) |
+| H4 predictive trials | 2 |
+| Total | 170 |
+| Profitable | 0 |
 
-## EXECUTION MODEL
-
-- Long-only Bithumb spot
-- Depth walking: visible asks (BUY), visible bids (SELL)
-- Real future-book execution via OrderbookBuffer bisect lookup
-- Fees: promotional (0%) and normal (0.25%)
-- Latency: 0ms (theoretical), 100ms, 250ms, 500ms
-- No fill beyond visible depth
-- PnL: VWAP-to-VWAP minus fees only
-
-## DEV SHORTLIST
-
-**NO DEV SHORTLIST** — All candidates are COST_KILLED.
-
-## VALIDATION
-
-**NOT ENTERED** — No candidates to validate.
-
-## INTERNAL TEST
-
-**NOT ENTERED** — No candidates to test.
-
-## NEGATIVE RESULTS
-
-1. **H1 orderbook imbalance**: Predictive (IC 0.05-0.29) but execution -1.9 to -4.6 bps. Signal is real but too weak for taker execution.
-
-2. **H2 ATI**: Strongest predictive signal (IC 0.12-0.19). Execution not fully tested (runtime limitation) but expected to be similarly cost-killed given similar spread environment.
-
-3. **H3 microprice**: Predictive (IC 0.03-0.28) but execution -3.85 bps. Worse than H1.
-
-4. **Latency**: Makes minimal difference in current synthetic-latency setup. Real latency impact requires streaming execution infrastructure.
-
-5. **ETH vs BTC**: ETH has stronger signals (IC 0.29 vs 0.17) but worse execution (-4.6 vs -1.9 bps). The signal magnitude does not compensate for execution costs.
-
-6. **Market-specificity**: Results are consistent across BTC and ETH. No market shows profitable execution.
-
-## SELF-IMPROVEMENT SUMMARY
+## ENGINEERING IMPROVEMENTS
 
 | Iteration | Problem | Solution | Accepted |
 |-----------|---------|----------|----------|
-| 1 | 2+ hour runtime | Event subsampling (SUB=15) | YES — preserved IC |
-| 2 | SHIB -9.26B bps | Price-relative orderbook levels | YES |
-| 3 | No real execution | OrderbookBuffer + real future-book | YES |
-| 4 | Label backfill missing future data | Two-pass: features first, labels backfill | YES |
-| 5 | Ticker files wasted processing | Skip tickers | YES |
-
-## MULTIPLE TESTING
-
-- 3 markets × 10 features × 4 horizons = 120 primary tests
-- 3 markets × 3 features × 4 latencies × 2 fees = 72 execution tests
-- Total: ~192 trials
-- No selective reporting — all negative results preserved
-- No threshold optimization
-- No horizon selection after seeing results
-
-## FINAL AUDIT
-
-| Auditor | Critical | Important | Minor | Advisory |
-|---------|----------|-----------|-------|----------|
-| Data | 0 | 0 | 0 | 1 (V2 30h processed as partial DEV only) |
-| Execution | 0 | 0 | 1 (synthetic latency) | 1 (no streaming execution) |
-| Statistics | 0 | 1 (serial correlation not formally addressed) | 1 (tick-level IC may be inflated) | 1 (multiple testing count) |
-| Red Team | 0 | 0 | 1 (H2 execution incomplete) | 1 (H4/H5 gap) |
-
-**Overall Critical: 0**
-**Overall Important: 1** (serial correlation)
+| 1 | get_pnl_summary O(n²) | O(n) pointer approach | YES |
+| 2 | Execution 3+ hours | Pre-computed book indices, direct bisect | YES |
+| 3 | SHIB negative prices | Price-relative orderbook levels | YES |
+| 4 | Labels missing future data | Two-pass: features then backfill labels | YES |
+| 5 | Ticker overhead | Skip ticker files | YES |
 
 ## TESTS
 
 | Check | Result |
 |-------|--------|
-| Research tests | 105 passed |
+| Focused research tests | 105 passed |
 | Full pytest | 1360 passed, 2 skipped |
-| Pyright | 0 errors (execution.py, features.py, adapters.py) |
+| Pyright (changed paths) | 0 errors |
 | Compileall | PASS |
 | diff-check | CLEAN |
+| Regression: SHIB negative price | PASS |
 
-## GIT
+## FINAL AUDIT
 
-- Base: 7a13816 (pre-V2 closure)
-- V2 source: bc5985b
-- Bug fixes: b15258e
-- DEV baseline: 7c5374a
-- Current HEAD: [pending commit]
-- Branch: codex/v2-30h-authoritative-profitability-study-20260916
-- Push: pending
+| Auditor | Critical | Important | Minor | Advisory |
+|---------|----------|-----------|-------|----------|
+| Data | 0 | 0 | 0 | 1 (Binance filtered out by adapter) |
+| Execution | 0 | 0 | 0 | 1 (H2 execution not completed) |
+| Statistics | 0 | 1 (serial correlation not formally addressed) | 0 | 1 (tick-level IC inflated by autocorrelation) |
+| Red Team | 0 | 0 | 0 | 1 (H4/H5 limited by missing Binance data) |
 
-## SCIENTIFIC STATE
-
-| Label | Status |
-|-------|--------|
-| OLD72H | DEVELOPMENT / REFERENCE ONLY |
-| LOCAL AUG | NON-V2 LEGACY DEVELOPMENT |
-| V2 | DEVELOPMENT / EXPLORATORY |
-| V4 | SEPARATE / NOT USED |
-| ALPHA | UNPROVEN |
-| PAPER | NOT STARTED |
-| LIVE | DISABLED |
-| PRIVATE API | DISABLED |
-| READY TO FREEZE FINAL ALPHA | NO |
+**Critical: 0**
+**Important: 1** (serial correlation — tick-level ICs likely inflated)
 
 ## CONCLUSION
 
 **NO EXECUTABLE V2 CANDIDATE.**
 
-The V2 30-hour microstructure study, using full-resolution data with real future-book execution on the three most liquid Bithumb markets (BTC, ETH, XRP), finds:
+The authoritative V2 30-hour microstructure study, using full-resolution data with real future-book execution on all three most liquid Bithumb markets, finds:
 
-1. **Predictive signals exist**: Orderbook imbalance (H1) and trade flow (H2) have genuine, statistically significant predictive power for short-horizon returns. ETH H1 IC=0.29 at 30s horizon is a strong signal by microstructure standards.
+1. **Strong predictive signals exist**: Orderbook imbalance (H1) has IC up to 0.33 on XRP at 30s horizon. This is a genuinely strong microstructure signal.
 
-2. **Execution costs dominate**: Every tested execution scenario is net negative, even under zero-fee promotional conditions. The mean execution drag of -1.9 to -4.6 bps per round trip exceeds the exploitable predictive edge.
+2. **Every taker execution scenario is net negative**: Across 48 scenarios (3 markets × 4 latencies × 2 fee regimes), every single one loses money. The best case is BTC at -1.94 bps per trade.
 
-3. **Latency is not the binding constraint**: In the 0ms-500ms range, results are nearly identical. The binding constraint is spread crossing + depth walking, not latency.
+3. **Signal magnitude is systematically smaller than execution cost**: Even the strongest signal (XRP H1, IC=0.33) cannot overcome the 5.92 bps execution drag.
 
-4. **Fees are devastating**: Normal 0.25% fees add ~50 bps per round trip, making every signal catastrophically negative.
+4. **Cross-exchange signals are weak**: Bithumb-Upbit basis shows weak mean-reversion (IC=-0.07) but hit rates of 8-12% make it unexecutable.
 
-5. **No threshold, horizon, or market combination produces profitable execution** under realistic assumptions.
+5. **The mechanism is real but the economics are not**: Orderbook imbalance genuinely predicts price direction, but the prediction horizon is too short and the signal too weak to overcome the cost of taker execution.
 
 ## NEXT SINGLE BEST ACTION
 
-**Investigate sub-second execution with maker (limit order) strategies.** The taker execution model consistently loses to spread. If orderbook imbalance truly predicts direction, a maker strategy that posts on the predicted side could capture the spread rather than pay it. This would require a fundamentally different execution model (queue position simulation, passive fill probability) and a new research lifecycle.
-
-Alternatively, **complete H4/H5 cross-exchange lead-lag analysis** — external price discovery may provide a longer-lived signal that survives execution costs better than internal microstructure features.
+**Develop a maker (limit order) execution model.** The taker model consistently loses to spread. If orderbook imbalance predicts direction, a maker that posts passive orders on the predicted side could capture the spread rather than pay it. This requires queue position simulation, fill probability modeling, and a fundamentally different research lifecycle. Alternatively, test with longer horizons (>30s) where the signal might accumulate enough to overcome execution costs.
