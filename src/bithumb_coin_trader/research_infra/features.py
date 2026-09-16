@@ -273,15 +273,17 @@ class FeatureEngine:
         object.__setattr__(fv, "depth_imbalance_l5",
                            (bid_depth_l5 - ask_depth_l5) / depth_sum_l5 if depth_sum_l5 > 0 else 0.0)
 
-        # Microprice
-        micro, qi = compute_mpqi(ob, depth=5)
+        # Microprice and Queue Imbalance at multiple depths
+        micro, qi5 = compute_mpqi(ob, depth=5)
+        _, qi1 = compute_mpqi(ob, depth=1)
+        _, qi3 = compute_mpqi(ob, depth=3)
         micro_bias_bps = (micro - mid) / mid * 10_000 if mid > 0 else 0.0
         object.__setattr__(fv, "microprice", micro)
         object.__setattr__(fv, "microprice_bias_bps", micro_bias_bps)
         object.__setattr__(fv, "microprice_displacement", micro - mid)
-        object.__setattr__(fv, "qi_l1", qi)
-        object.__setattr__(fv, "qi_l3", qi)
-        object.__setattr__(fv, "qi_l5", qi)
+        object.__setattr__(fv, "qi_l1", qi1)
+        object.__setattr__(fv, "qi_l3", qi3)
+        object.__setattr__(fv, "qi_l5", qi5)
 
         # OFI — incremental accumulator
         if len(self._ob_snapshots) >= 2:

@@ -449,19 +449,35 @@ class ResearchExecutionSimulator:
         )
 
     def _close_position(self, sell_trade: SimulatedTrade) -> None:
-        """Close the current long position and update equity curve.
+        """Close (or partially close) the current long position.
 
         Authoritative PnL accounting:
           executable_gross = (exit_vwap - entry_vwap) * Q_closed
-          net = executable_gross - entry_fee - exit_fee
+          net = executable_gross - entry_fee_on_closed - exit_fee
+
+        If sell fills less than entry quantity, residual inventory remains.
         """
+        closed_qty = min(sell_trade.fill_quantity, self._position.entry_quantity)
         entry_fee = self._position.cumulative_fee
         exit_fee = sell_trade.fee_krw
         gross_pnl = ((sell_trade.fill_price - self._position.entry_price)
-                      * sell_trade.fill_quantity)
+                      * closed_qty)
         net_pnl = gross_pnl - entry_fee - exit_fee
         self._initial_equity += net_pnl
-        self._position = PositionState(is_flat=True)
+
+        residual = self._position.entry_quantity - closed_qty
+        if residual > 1e-12:
+            # Partial close: reduce position
+            self._position = PositionState(
+                is_flat=False,
+                entry_price=self._position.entry_price,
+                entry_quantity=residual,
+                entry_notional=self._position.entry_price * residual,
+                entry_timestamp_ns=self._position.entry_timestamp_ns,
+                cumulative_fee=0.0,
+            )
+        else:
+            self._position = PositionState(is_flat=True)
         self._equity_curve.append((sell_trade.timestamp_ns, self._initial_equity))
 
     # ------------------------------------------------------------------
