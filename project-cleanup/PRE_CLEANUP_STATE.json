@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-09-16T14:00:00Z",
+  "current_branch": "codex/v2-30h-authoritative-profitability-study-20260916",
+  "current_head": "114fc8a",
+  "remote_branches_count": 42,
+  "local_branches_count": 16,
+  "worktree_count": 16,
+  "tag_count": 0,
+  "storage_total_gb": 76,
+  "v4_status": "AWS_SESSION_EXPIRED - needs re-authentication",
+  "scientific_state": {
+    "ALPHA": "UNPROVEN",
+    "PAPER": "NOT STARTED",
+    "LIVE": "DISABLED",
+    "PRIVATE_API": "DISABLED",
+    "V2": "DEVELOPMENT / EXPLORATORY - NO EXECUTABLE TAKER CANDIDATE",
+    "V4": "STATUS_UNKNOWN (AWS expired)"
+  }
+}

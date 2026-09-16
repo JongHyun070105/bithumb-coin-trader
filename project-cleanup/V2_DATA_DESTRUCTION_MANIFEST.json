@@ -1,0 +1,28 @@
+{
+  "dataset_epoch": "aws-validation-30h-20260912-6576f63",
+  "run_id": "aws-validation-30h-run-20260912T103507Z-6576f63",
+  "s3_prefix": "s3://bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-30h-20260912-6576f63/",
+  "logical_slots": 2280,
+  "data_present": 2272,
+  "unknown_missing": 8,
+  "physical_objects": 2272,
+  "total_bytes": 561782912,
+  "total_human": "535.8 MB",
+  "local_path": "data/research/v2/",
+  "local_file_count": 2272,
+  "research_code_sha": "114fc8a",
+  "split_manifest": "research-artifacts/v2-authoritative/splits/V2_SPLIT_MANIFEST.json",
+  "final_report": "research-artifacts/v2-authoritative/reports/V2_FINAL_REPORT.md",
+  "destruction_reason": "Bulk raw data no longer needed after V2 research closure. Reproducible from S3.",
+  "retained_evidence": [
+    "research-artifacts/v2-authoritative/reports/V2_FINAL_REPORT.md",
+    "research-artifacts/v2-authoritative/reports/V2_FULLRES_DEV_RESULTS.json",
+    "research-artifacts/v2-authoritative/reports/V2_PARTIAL_STATUS_CORRECTION.md",
+    "research-artifacts/v2-authoritative/source/V2_SOURCE_MANIFEST.json",
+    "research-artifacts/v2-authoritative/source/V2_PHYSICAL_INVENTORY.json",
+    "research-artifacts/v2-authoritative/dq/V2_DQ_SUMMARY.json",
+    "research-artifacts/v2-authoritative/splits/V2_SPLIT_MANIFEST.json",
+    "research-artifacts/v2-authoritative/audits/execution_audit.md",
+    "research-artifacts/v2-authoritative/audits/statistical_design.md"
+  ]
+}

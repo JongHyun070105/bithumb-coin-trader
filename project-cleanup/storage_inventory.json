@@ -1,0 +1,15 @@
+{
+  "timestamp": "2026-09-16T14:00:00Z",
+  "total_bytes": 81604468000,
+  "total_human": "76 GB",
+  "entries": [
+    {"path": "data/microstructure/raw/", "bytes": 79456894976, "human": "74 GB", "file_count": 5399, "purpose": "Legacy local_aug2026 raw microstructure JSONL data (4 days, 3 exchanges)", "tracked": false, "scientific_evidence": false, "reproducible": true, "cleanup_class": "DELETE_AFTER_RESEARCH"},
+    {"path": "data/research/v2/", "bytes": 566231040, "human": "540 MB", "file_count": 2272, "purpose": "Authoritative V2 30h dataset (zstd-compressed JSONL)", "tracked": false, "scientific_evidence": true, "reproducible": true, "cleanup_class": "DELETE_AFTER_RESEARCH"},
+    {"path": "infra/", "bytes": 823132160, "human": "785 MB", "file_count": null, "purpose": "Infrastructure configs (AWS, Terraform, systemd)", "tracked": true, "scientific_evidence": false, "reproducible": true, "cleanup_class": "KEEP_PERMANENTLY"},
+    {"path": ".venv/", "bytes": 117440512, "human": "112 MB", "file_count": null, "purpose": "Python virtual environment", "tracked": false, "scientific_evidence": false, "reproducible": true, "cleanup_class": "REGENERATABLE"},
+    {"path": ".git/", "bytes": 23068672, "human": "22 MB", "file_count": null, "purpose": "Git repository data", "tracked": false, "scientific_evidence": false, "reproducible": false, "cleanup_class": "KEEP_PERMANENTLY"},
+    {"path": "evidence/", "bytes": 2621440, "human": "2.5 MB", "file_count": null, "purpose": "AWS validation evidence (V2, V3, V4, Fresh45, 72h)", "tracked": true, "scientific_evidence": true, "reproducible": false, "cleanup_class": "KEEP_SMALL_EVIDENCE"},
+    {"path": "research-artifacts/", "bytes": 1468006, "human": "1.4 MB", "file_count": null, "purpose": "Research reports, audits, manifests", "tracked": true, "scientific_evidence": true, "reproducible": false, "cleanup_class": "KEEP_SMALL_EVIDENCE"},
+    {"path": "data/microstructure/manifests/", "bytes": 22020096, "human": "21 MB", "file_count": null, "purpose": "Data collection manifests", "tracked": false, "scientific_evidence": false, "reproducible": true, "cleanup_class": "DELETE_AFTER_RESEARCH"}
+  ]
+}
