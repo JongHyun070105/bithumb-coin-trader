@@ -68,12 +68,18 @@ def adapt_raw_record(
         local_recv_ts_str = record.get("local_recv_ts", "")
         local_write_ts_str = record.get("local_write_ts", "")
 
-        if not exchange_ts_str or not local_recv_ts_str:
+        if not local_recv_ts_str:
             return None
 
-        exchange_ms = parse_iso_to_ms(str(exchange_ts_str))
         local_recv_ms = parse_iso_to_ms(str(local_recv_ts_str))
         local_write_ms = parse_iso_to_ms(str(local_write_ts_str)) if local_write_ts_str else local_recv_ms
+
+        # exchange_ts may be null for some exchanges (e.g., Binance diff-depth).
+        # Use local_recv as causal availability time when exchange_ts is absent.
+        if exchange_ts_str:
+            exchange_ms = parse_iso_to_ms(str(exchange_ts_str))
+        else:
+            exchange_ms = local_recv_ms  # Earliest causal availability
 
         # Derive cohort from local_write timestamp
         local_write_dt = datetime.fromtimestamp(local_write_ms / 1000.0, tz=timezone.utc)
