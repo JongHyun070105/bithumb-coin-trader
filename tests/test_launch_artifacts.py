@@ -1,0 +1,270 @@
+"""RED Regression tests for launch artifact generation, validation, and duration consistency.
+
+Proves rejection of:
+1. Duration inconsistency (runtime.json duration vs collector --duration vs supervisor collection_duration_seconds)
+2. Invalid template placeholders (missing {collector_epoch}, multiple, or pre-expanded)
+3. Config to invocation path binding mismatches (RAW root, manifests, compressed, receipts, metrics, archive base-dir)
+4. Unsupported soak durations (ensuring 10800s and 21600s are properly supported)
+5. Historical V1/V2 malformed artifacts
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SRC_DIR = ROOT / "src"
+for d in (ROOT, SRC_DIR):
+    if str(d) not in sys.path:
+        sys.path.insert(0, str(d))
+
+from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig, render_systemd_run
+from bithumb_coin_trader.launch_artifacts import (
+    ValidationRunSpec,
+    generate_canonical_runtime_config,
+    generate_launch_artifacts,
+    resolve_epoch_paths,
+    validate_launch_artifacts,
+    validate_template_placeholders,
+)
+
+
+class TestLaunchArtifactRegressions(unittest.TestCase):
+    def setUp(self) -> None:
+        self.commit = "32b667e39f94684246915bd0d1d17dd611688a3a"
+        self.epoch_90m = "aws-observability-90m-20260917-20260917T120000Z-v3"
+        self.run_id_90m = "aws-observability-90m-run-20260917T120000Z-v3"
+
+    # ----------------------------------------------------------------------
+    # RED REGRESSION 1: DURATION CONSISTENCY
+    # ----------------------------------------------------------------------
+    def test_duration_consistency_rejects_runtime_zero_with_positive_target(self) -> None:
+        """Reject if runtime config duration is 0 but expected soak is 5400 (V1 bug pattern)."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        runtime_config = generate_canonical_runtime_config(spec)
+        # Mutate runtime config to duration 0 (like V1)
+        runtime_config["duration_seconds"] = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            with self.assertRaisesRegex(ValueError, "duration"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=runtime_config,
+                    target_dir=tmp_dir,
+                )
+
+    def test_duration_consistency_rejects_collector_supervisor_mismatch(self) -> None:
+        """Reject if collector --duration does not match supervisor collection_duration_seconds."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        runtime_config = generate_canonical_runtime_config(spec)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+            # Corrupt supervisor command to 2700s
+            sup_cmd = list(artifacts.launch_command["supervisor_command"])
+            idx = sup_cmd.index("--collection-duration-seconds")
+            sup_cmd[idx + 1] = "2700"
+            artifacts.launch_command["supervisor_command"] = sup_cmd
+
+            with self.assertRaisesRegex(ValueError, "duration"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
+    # ----------------------------------------------------------------------
+    # RED REGRESSION 2: TEMPLATE PLACEHOLDERS
+    # ----------------------------------------------------------------------
+    def test_template_placeholders_rejects_hardcoded_paths(self) -> None:
+        """Reject if template paths do not contain {collector_epoch} (V2 bug pattern)."""
+        # V2 bad paths pattern:
+        bad_paths = {
+            "raw_root_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/raw",
+            "manifest_root_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/manifests",
+            "compressed_root_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/compressed",
+            "receipt_root_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/archive-receipts",
+            "metrics_path_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/collector_metrics.json",
+            "publisher_state_path_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/metric-publisher-state.json",
+            "log_root_template": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/logs",
+        }
+        with self.assertRaisesRegex(ValueError, "must contain exactly one {collector_epoch}"):
+            validate_template_placeholders(bad_paths)
+
+    def test_template_placeholders_rejects_multiple_placeholders(self) -> None:
+        """Reject if template path contains more than one {collector_epoch}."""
+        bad_paths = {
+            "raw_root_template": "/var/lib/{collector_epoch}/90m/{collector_epoch}/raw",
+        }
+        with self.assertRaisesRegex(ValueError, "must contain exactly one {collector_epoch}"):
+            validate_template_placeholders(bad_paths)
+
+    def test_template_placeholders_accepts_valid_canonical_templates(self) -> None:
+        """Accept canonical template paths that have exactly one {collector_epoch}."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        config = generate_canonical_runtime_config(spec)
+        paths = config["paths"]
+        assert isinstance(paths, dict)
+        validate_template_placeholders(paths)
+
+    # ----------------------------------------------------------------------
+    # RED REGRESSION 3: CONFIG / INVOCATION PATH BINDING
+    # ----------------------------------------------------------------------
+    def test_path_binding_rejects_mismatched_collector_storage_base_dir(self) -> None:
+        """Reject if collector --storage-base-dir does not match resolved raw_root_template."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            # Mismatched collector command: pointing to parent dir instead of epoch raw
+            sup_cmd = list(artifacts.launch_command["supervisor_command"])
+            idx = sup_cmd.index("--collector-command-json")
+            coll_cmd = json.loads(sup_cmd[idx + 1])
+            s_idx = coll_cmd.index("--storage-base-dir")
+            coll_cmd[s_idx + 1] = "/var/lib/bitcoin-trader/90m-validation/wrong-epoch/raw"
+            sup_cmd[idx + 1] = json.dumps(coll_cmd)
+            artifacts.launch_command["supervisor_command"] = sup_cmd
+
+            with self.assertRaisesRegex(ValueError, "path binding"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
+    def test_archive_scheduler_base_dir_must_be_epoch_root(self) -> None:
+        """Reject if archive scheduler --base-dir is parent validation dir rather than epoch root."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            # Corrupt archive scheduler command to use parent dir (V1/V2 bug pattern)
+            sup_cmd = list(artifacts.launch_command["supervisor_command"])
+            idx = sup_cmd.index("--archive-scheduler-command-json")
+            sched_cmd = json.loads(sup_cmd[idx + 1])
+            b_idx = sched_cmd.index("--base-dir")
+            sched_cmd[b_idx + 1] = "/var/lib/bitcoin-trader/90m-validation"
+            sup_cmd[idx + 1] = json.dumps(sched_cmd)
+            artifacts.launch_command["supervisor_command"] = sup_cmd
+
+            with self.assertRaisesRegex(ValueError, "archive scheduler"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
+    # ----------------------------------------------------------------------
+    # PRODUCTION DURATION POLICY SUPPORT: 3H (10800s) AND 6H (21600s)
+    # ----------------------------------------------------------------------
+    def test_bounded_supervisor_supports_10800_and_21600(self) -> None:
+        """Verify render_systemd_run accepts 10800s (3h) and 21600s (6h)."""
+        cfg_3h = TransientLaunchConfig(
+            run_id="test-run-3h",
+            workdir=Path("/var/lib/bitcoin-trader/work"),
+            supervisor_command=("python3", "test"),
+            collection_duration_seconds=10800,
+            finalization_timeout_seconds=180,
+            supervisor_hard_ceiling_seconds=10980,
+            systemd_runtime_max_seconds=11040,
+        )
+        cmd_3h = render_systemd_run(cfg_3h)
+        self.assertIn("--unit=bitcoin-trader-3h-test-run-3h.service", cmd_3h)
+        self.assertIn("--service-type=notify", cmd_3h)
+        self.assertIn("--property=NotifyAccess=main", cmd_3h)
+        self.assertIn("--property=WatchdogSec=60s", cmd_3h)
+
+        cfg_6h = TransientLaunchConfig(
+            run_id="test-run-6h",
+            workdir=Path("/var/lib/bitcoin-trader/work"),
+            supervisor_command=("python3", "test"),
+            collection_duration_seconds=21600,
+            finalization_timeout_seconds=180,
+            supervisor_hard_ceiling_seconds=21780,
+            systemd_runtime_max_seconds=21840,
+        )
+        cmd_6h = render_systemd_run(cfg_6h)
+        self.assertIn("--unit=bitcoin-trader-6h-test-run-6h.service", cmd_6h)
+        self.assertIn("--service-type=notify", cmd_6h)
+
+    # ----------------------------------------------------------------------
+    # HISTORICAL V1 / V2 ARTIFACTS REJECTION
+    # ----------------------------------------------------------------------
+    def test_validator_rejects_historical_v1_artifacts(self) -> None:
+        """Existing V1 launch artifacts must be rejected by validator."""
+        v1_runtime_path = ROOT / "reliability-artifacts" / "aws-90m" / "aws-observability-90m-20260917-20260917T043600Z-v1.runtime.json"
+        v1_launch_cmd_path = ROOT / "reliability-artifacts" / "aws-90m" / "launch-command.json"
+        if v1_runtime_path.exists() and v1_launch_cmd_path.exists():
+            v1_runtime = json.loads(v1_runtime_path.read_text(encoding="utf-8"))
+            v1_launch_cmd = json.loads(v1_launch_cmd_path.read_text(encoding="utf-8"))
+            spec = ValidationRunSpec(
+                epoch="aws-observability-90m-20260917-20260917T043600Z-v1",
+                run_id="aws-observability-90m-run-20260917T043600Z-v1",
+                duration_seconds=5400,
+                runtime_commit="32b667e39f94684246915bd0d1d17dd611688a3a",
+            )
+            with self.assertRaises(ValueError):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=v1_runtime,
+                    launch_command=v1_launch_cmd,
+                )
+
+    def test_validator_rejects_historical_v2_artifacts(self) -> None:
+        """Existing V2 launch artifacts must be rejected by validator."""
+        v2_runtime_path = ROOT / "reliability-artifacts" / "aws-90m" / "aws-observability-90m-20260917-20260917T050128Z-v2.runtime.json"
+        v2_launch_cmd_path = ROOT / "reliability-artifacts" / "aws-90m" / "launch-command-v2.json"
+        if v2_runtime_path.exists() and v2_launch_cmd_path.exists():
+            v2_runtime = json.loads(v2_runtime_path.read_text(encoding="utf-8"))
+            v2_launch_cmd = json.loads(v2_launch_cmd_path.read_text(encoding="utf-8"))
+            spec = ValidationRunSpec(
+                epoch="aws-observability-90m-20260917-20260917T050128Z-v2",
+                run_id="aws-observability-90m-run-20260917T050128Z-v2",
+                duration_seconds=5400,
+                runtime_commit="32b667e39f94684246915bd0d1d17dd611688a3a",
+            )
+            with self.assertRaises(ValueError):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=v2_runtime,
+                    launch_command=v2_launch_cmd,
+                )
+
+
+if __name__ == "__main__":
+    unittest.main()

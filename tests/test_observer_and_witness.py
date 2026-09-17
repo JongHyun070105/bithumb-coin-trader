@@ -46,7 +46,7 @@ from bithumb_coin_trader.runtime_observer import (
     RuntimeObserver,
     parse_s3_location,
 )
-from terminal_witness import (
+from terminal_witness import (  # pyright: ignore[reportMissingImports]
     classify_terminal_outcome,
     record_terminal_receipt,
 )
@@ -477,6 +477,7 @@ class ObserverIntegrationAndEdgeCaseTests(unittest.TestCase):
             ],
             capture_output=True,
             text=True,
+            env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
         )
         self.assertEqual(res.returncode, 0, f"Observer CLI failed:\n{res.stdout}\n{res.stderr}")
         data = json.loads(res.stdout)

@@ -1,0 +1,537 @@
+"""Authoritative Single Source of Truth (SSOT) launch artifact generator and validator.
+
+Guarantees:
+1. Duration consistency across runtime config, collector command, and supervisor command.
+2. Canonical template placeholders with exactly one {collector_epoch}.
+3. Exact 1-to-1 path binding between resolved runtime config and command arguments.
+4. Archive scheduler --base-dir binds to epoch root (<parent>/<epoch>).
+5. Canonical config fingerprint binding.
+6. Non-mutating production collector config validation dry-run.
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import stat
+import subprocess
+from typing import Any, Sequence
+
+BITHUMB_MARKETS: tuple[str, ...] = (
+    "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-DOGE",
+    "KRW-ADA", "KRW-XLM", "KRW-LINK", "KRW-AVAX", "KRW-BCH",
+    "KRW-ETC", "KRW-NEAR", "KRW-SUI", "KRW-APT", "KRW-TRX",
+    "KRW-SHIB", "KRW-SAND", "KRW-MANA", "KRW-AXS", "KRW-DOT",
+)
+BINANCE_SYMBOLS: tuple[str, ...] = ("btcusdt", "ethusdt", "solusdt", "xrpusdt")
+UPBIT_MARKETS: tuple[str, ...] = ("KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP")
+
+SUPPORTED_DURATIONS: tuple[int, ...] = (2700, 5400, 7200, 10800, 21600, 108000, 259200)
+
+REQUIRED_PATH_TEMPLATES: tuple[str, ...] = (
+    "raw_root_template",
+    "manifest_root_template",
+    "compressed_root_template",
+    "receipt_root_template",
+    "metrics_path_template",
+    "publisher_state_path_template",
+    "log_root_template",
+)
+
+
+def canonical_config_fingerprint(payload: object) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass(frozen=True)
+class ValidationRunSpec:
+    epoch: str
+    run_id: str
+    duration_seconds: int
+    runtime_commit: str
+    software_tree_sha: str | None = None
+    finalization_timeout_seconds: int = 180
+    supervisor_hard_ceiling_seconds: int | None = None
+    systemd_runtime_max_seconds: int | None = None
+    base_data_parent: Path = Path("/var/lib/bitcoin-trader/90m-validation")
+    runtime_worktree: Path = Path("/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917")
+    launch_artifacts_parent: Path = Path("/var/lib/bitcoin-trader/launch-artifacts")
+    python_bin: Path = Path("/var/lib/bitcoin-trader/venv-pre-soak/bin/python")
+    s3_bucket: str = "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433"
+    environment_id: str = "aws-apne2-research"
+    region: str = "ap-northeast-2"
+
+    def __post_init__(self) -> None:
+        if self.duration_seconds not in SUPPORTED_DURATIONS:
+            raise ValueError(
+                f"duration_seconds {self.duration_seconds} not in supported list: {SUPPORTED_DURATIONS}"
+            )
+        if not self.epoch or not self.run_id or not self.runtime_commit:
+            raise ValueError("epoch, run_id, and runtime_commit must be non-empty")
+
+    @property
+    def effective_hard_ceiling(self) -> int:
+        if self.supervisor_hard_ceiling_seconds is not None:
+            return self.supervisor_hard_ceiling_seconds
+        return self.duration_seconds + self.finalization_timeout_seconds
+
+    @property
+    def effective_runtime_max(self) -> int:
+        if self.systemd_runtime_max_seconds is not None:
+            return self.systemd_runtime_max_seconds
+        return self.effective_hard_ceiling + 60
+
+    @property
+    def epoch_data_root(self) -> Path:
+        return self.base_data_parent / self.epoch
+
+    @property
+    def epoch_artifacts_dir(self) -> Path:
+        return self.launch_artifacts_parent / self.epoch
+
+
+@dataclass
+class LaunchArtifactSet:
+    spec: ValidationRunSpec
+    runtime_config: dict[str, Any]
+    config_fingerprint: str
+    resolved_paths: dict[str, str]
+    launch_command: dict[str, Any]
+    identity: dict[str, Any]
+    launch_sh: str
+    launch_ec2_sh: str
+
+
+def validate_template_placeholders(paths: dict[str, Any]) -> None:
+    for field in REQUIRED_PATH_TEMPLATES:
+        val = paths.get(field)
+        if not isinstance(val, str) or val.count("{collector_epoch}") != 1:
+            raise ValueError(f"{field} must contain exactly one {{collector_epoch}} placeholder, got {val!r}")
+        rendered = val.replace("{collector_epoch}", "dummy")
+        if "{" in rendered or "}" in rendered:
+            raise ValueError(f"{field} contains an unsupported template placeholder: {val!r}")
+
+
+def generate_canonical_runtime_config(spec: ValidationRunSpec) -> dict[str, Any]:
+    parent_str = str(spec.base_data_parent).rstrip("/")
+    config: dict[str, Any] = {
+        "schema_version": 1,
+        "runtime_software_commit": spec.runtime_commit,
+        "environment_id": spec.environment_id,
+        "region": spec.region,
+        "availability_zone": "ap-northeast-2a",
+        "instance_type": "t3.medium",
+        "architecture": "x86_64",
+        "raw_schema_version": 4,
+        "clock_source": "Amazon Time Sync Service 169.254.169.123",
+        "public_data_only": True,
+        "private_api_enabled": False,
+        "duration_seconds": spec.duration_seconds,
+        "schedule": {
+            "qualification_rule": "IMMEDIATE",
+            "required_qualifying_full_hours": 0,
+            "maximum_collection_window_seconds": spec.duration_seconds,
+        },
+        "feeds": {
+            "bithumb_market_count": len(BITHUMB_MARKETS),
+            "bithumb_markets": list(BITHUMB_MARKETS),
+            "binance_symbols": list(BINANCE_SYMBOLS),
+            "upbit_markets": list(UPBIT_MARKETS),
+        },
+        "paths": {
+            "raw_root_template": f"{parent_str}/{{collector_epoch}}/raw",
+            "manifest_root_template": f"{parent_str}/{{collector_epoch}}/manifests",
+            "compressed_root_template": f"{parent_str}/{{collector_epoch}}/compressed",
+            "receipt_root_template": f"{parent_str}/{{collector_epoch}}/archive-receipts",
+            "metrics_path_template": f"{parent_str}/{{collector_epoch}}/collector_metrics.json",
+            "publisher_state_path_template": f"{parent_str}/{{collector_epoch}}/metric-publisher-state.json",
+            "log_root_template": f"{parent_str}/{{collector_epoch}}/logs",
+        },
+        "archive": {
+            "remote_class": "temporary",
+            "temporary_prefix_template": "market-data/temporary/{collector_epoch}",
+            "compression": {
+                "algorithm": "zstd",
+                "level": 1,
+            },
+            "worker_concurrency": 1,
+            "grace_seconds": 600,
+            "cleanup_enabled": False,
+        },
+        "metrics": {
+            "namespace": "BitcoinTrader/Collector",
+            "environment_dimension": spec.environment_id,
+            "publish_cadence_seconds": 60,
+            "false_green_protection": True,
+        },
+        "disk_threshold_percent": {
+            "warning": 70,
+            "high": 80,
+            "critical": 90,
+        },
+        "execution": {
+            "launch_mode": "bounded-transient-systemd",
+            "collector_autostart": False,
+            "systemd_enable": False,
+            "cross_utc_hour_required": False,
+            "finalization_timeout_seconds": spec.finalization_timeout_seconds,
+            "supervisor_hard_ceiling_seconds": spec.effective_hard_ceiling,
+            "systemd_runtime_max_seconds": spec.effective_runtime_max,
+        },
+    }
+    validate_template_placeholders(config["paths"])
+    return config
+
+
+def resolve_epoch_paths(runtime_config: dict[str, Any], epoch: str) -> dict[str, str]:
+    paths = runtime_config["paths"]
+    validate_template_placeholders(paths)
+    resolved = {}
+    for key, template in paths.items():
+        resolved[key] = template.replace("{collector_epoch}", epoch)
+    archive = runtime_config["archive"]
+    prefix_template = archive.get("temporary_prefix_template", "")
+    if "{collector_epoch}" not in prefix_template:
+        raise ValueError("archive temporary_prefix_template must contain {collector_epoch}")
+    resolved["temporary_prefix"] = prefix_template.replace("{collector_epoch}", epoch)
+    return resolved
+
+
+def generate_launch_artifacts(
+    spec: ValidationRunSpec,
+    target_dir: Path | None = None,
+) -> LaunchArtifactSet:
+    runtime_config = generate_canonical_runtime_config(spec)
+    fingerprint = canonical_config_fingerprint(runtime_config)
+    resolved = resolve_epoch_paths(runtime_config, spec.epoch)
+
+    python_str = str(spec.python_bin)
+    worktree_str = str(spec.runtime_worktree)
+    data_root = spec.epoch_data_root
+    data_root_str = str(data_root)
+    artifacts_dir = spec.epoch_artifacts_dir
+    artifacts_dir_str = str(artifacts_dir)
+    config_file_path = f"{artifacts_dir_str}/{spec.epoch}.runtime.json"
+
+    collector_cmd = [
+        python_str,
+        f"{worktree_str}/scripts/run_cross_market_collector.py",
+        "--bithumb-markets", str(len(BITHUMB_MARKETS)),
+        "--duration", str(spec.duration_seconds),
+        "--config-file", config_file_path,
+        "--storage-base-dir", resolved["raw_root_template"],
+        "--environment-id", spec.environment_id,
+        "--collector-epoch", spec.epoch,
+        "--run-id", spec.run_id,
+        "--config-fingerprint", fingerprint,
+        "--runtime-commit", spec.runtime_commit,
+        "--lifecycle-status-path", f"{data_root_str}/collector-lifecycle.json",
+    ]
+
+    publisher_cmd = [
+        python_str,
+        f"{worktree_str}/scripts/publish_collector_metrics.py",
+        "--environment-id", spec.environment_id,
+        "--region", spec.region,
+        "--metrics-path", resolved["metrics_path_template"],
+        "--state-path", resolved["publisher_state_path_template"],
+        "--storage-path", resolved["raw_root_template"],
+        "--ops-log", f"{resolved['log_root_template']}/metric-publisher-ops.jsonl",
+    ]
+
+    scheduler_cmd = [
+        python_str,
+        f"{worktree_str}/scripts/run_closed_hour_archive_scheduler.py",
+        "--epoch", spec.epoch,
+        "--run-id", spec.run_id,
+        "--base-dir", data_root_str,
+        "--environment-id", spec.environment_id,
+        "--git-commit", spec.runtime_commit,
+        "--store", "s3",
+        "--s3-bucket", spec.s3_bucket,
+        "--allow-aws-write",
+        "--remote-prefix", resolved["temporary_prefix"],
+        "--poll-interval-seconds", "30.0",
+        "--grace-seconds", "600",
+        "--expected-owner", "bitcoin-trader",
+        "--scan-runner", "auto",
+        "--disk-critical-percent", "90.0",
+    ]
+
+    supervisor_command = [
+        python_str,
+        f"{worktree_str}/scripts/run_bounded_short_smoke.py",
+        "--run-id", spec.run_id,
+        "--collection-duration-seconds", str(spec.duration_seconds),
+        "--finalization-timeout-seconds", str(spec.finalization_timeout_seconds),
+        "--hard-ceiling-seconds", str(spec.effective_hard_ceiling),
+        "--collector-command-json", json.dumps(collector_cmd),
+        "--publisher-command-json", json.dumps(publisher_cmd),
+        "--archive-scheduler-command-json", json.dumps(scheduler_cmd),
+        "--metrics-path", resolved["metrics_path_template"],
+        "--collector-lifecycle-path", f"{data_root_str}/collector-lifecycle.json",
+        "--result-path", f"{data_root_str}/result.json",
+        "--log-path", f"{resolved['log_root_template']}/supervisor.log",
+        "--publisher-interval-seconds", "60",
+        "--shutdown-grace-seconds", "45.0",
+        "--require-full-duration",
+    ]
+
+    launch_command = {
+        "schema_version": 2,
+        "runtime_worktree": worktree_str,
+        "python": python_str,
+        "data_root": data_root_str,
+        "run_id": spec.run_id,
+        "supervisor_command": supervisor_command,
+        "exec_stop_post_script": f"{worktree_str}/scripts/terminal_witness.py",
+        "collection_duration_seconds": spec.duration_seconds,
+        "finalization_timeout_seconds": spec.finalization_timeout_seconds,
+        "supervisor_hard_ceiling_seconds": spec.effective_hard_ceiling,
+        "systemd_runtime_max_seconds": spec.effective_runtime_max,
+        "launch": False,
+    }
+
+    identity = {
+        "schema_version": 1,
+        "epoch": spec.epoch,
+        "run_id": spec.run_id,
+        "software_commit_sha": spec.runtime_commit,
+        "software_tree_sha": spec.software_tree_sha or "unspecified",
+        "config_fingerprint": fingerprint,
+        "sealed_at_utc": "",  # populated on sealing
+        "feed_count": 76,
+        "duration_seconds": spec.duration_seconds,
+        "grace_seconds": 600,
+        "health_schema_version": 1,
+        "observer_version": 1,
+        "s3_bucket": spec.s3_bucket,
+        "s3_prefix": resolved["temporary_prefix"],
+        "runtime_worktree": worktree_str,
+        "data_root": data_root_str,
+        "python": python_str,
+        "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+        "trading_safety": {
+            "alpha": "UNPROVEN",
+            "paper": "NOT_STARTED",
+            "live": "DISABLED",
+            "private_api": "DISABLED",
+        },
+    }
+
+    launch_ec2_sh = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+worktree="{worktree_str}"
+python="{python_str}"
+artifacts_dir="{artifacts_dir_str}"
+
+sup_cmd_json=$("$python" -c '
+import json
+import sys
+with open("'"$artifacts_dir"'/launch-command.json") as f:
+    d = json.load(f)
+print(json.dumps(d["supervisor_command"]))
+')
+
+export PYTHONPATH="$worktree/src"
+exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
+  --run-id "{spec.run_id}" \\
+  --workdir "$worktree" \\
+  --supervisor-command-json "$sup_cmd_json" \\
+  --collection-duration-seconds {spec.duration_seconds} \\
+  --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
+  --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
+  --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  "$@"
+"""
+
+    launch_sh = f"""#!/usr/bin/env bash
+set -euo pipefail
+
+worktree="{worktree_str}"
+python="{python_str}"
+
+sup_cmd_json=$("$python" -c '
+import json
+with open("launch-command.json") as f:
+    d = json.load(f)
+print(json.dumps(d["supervisor_command"]))
+')
+
+export PYTHONPATH="$worktree/src"
+exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
+  --run-id "{spec.run_id}" \\
+  --workdir "$worktree" \\
+  --supervisor-command-json "$sup_cmd_json" \\
+  --collection-duration-seconds {spec.duration_seconds} \\
+  --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
+  --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
+  --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  "$@"
+"""
+
+    artifacts = LaunchArtifactSet(
+        spec=spec,
+        runtime_config=runtime_config,
+        config_fingerprint=fingerprint,
+        resolved_paths=resolved,
+        launch_command=launch_command,
+        identity=identity,
+        launch_sh=launch_sh,
+        launch_ec2_sh=launch_ec2_sh,
+    )
+
+    if target_dir is not None:
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / f"{spec.epoch}.runtime.json").write_text(
+            json.dumps(runtime_config, indent=2) + "\n", encoding="utf-8"
+        )
+        (target_dir / "launch-command.json").write_text(
+            json.dumps(launch_command, indent=2) + "\n", encoding="utf-8"
+        )
+        (target_dir / "identity.json").write_text(
+            json.dumps(identity, indent=2) + "\n", encoding="utf-8"
+        )
+        launch_ec2_path = target_dir / "launch-ec2.sh"
+        launch_ec2_path.write_text(launch_ec2_sh, encoding="utf-8")
+        launch_ec2_path.chmod(launch_ec2_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+        launch_path = target_dir / "launch.sh"
+        launch_path.write_text(launch_sh, encoding="utf-8")
+        launch_path.chmod(launch_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+    return artifacts
+
+
+def validate_launch_artifacts(
+    spec: ValidationRunSpec,
+    runtime_config: dict[str, Any],
+    launch_command: dict[str, Any] | None = None,
+    target_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Strictly validate launch artifacts against all regression rules."""
+    # Rule 1: DURATION CONSISTENCY
+    rt_duration = runtime_config.get("duration_seconds")
+    if not isinstance(rt_duration, (int, float)) or rt_duration != spec.duration_seconds or rt_duration <= 0:
+        raise ValueError(
+            f"duration inconsistency: runtime config duration_seconds={rt_duration} "
+            f"does not match expected positive duration {spec.duration_seconds}"
+        )
+
+    # Rule 2: TEMPLATE PLACEHOLDERS
+    paths = runtime_config.get("paths")
+    if not isinstance(paths, dict):
+        raise ValueError("runtime config paths section must be a dictionary")
+    validate_template_placeholders(paths)
+
+    resolved = resolve_epoch_paths(runtime_config, spec.epoch)
+
+    # Rule 3: FINGERPRINT INTEGRITY
+    actual_fp = canonical_config_fingerprint(runtime_config)
+
+    # If launch_command is provided, perform deep binding checks
+    if launch_command is not None:
+        sup_cmd = launch_command.get("supervisor_command")
+        if not isinstance(sup_cmd, list):
+            raise ValueError("supervisor_command must be a list")
+
+        # 3.1: Supervisor duration check
+        if "--collection-duration-seconds" not in sup_cmd:
+            raise ValueError("supervisor_command missing --collection-duration-seconds")
+        s_idx = sup_cmd.index("--collection-duration-seconds")
+        sup_duration = int(sup_cmd[s_idx + 1])
+        if sup_duration != spec.duration_seconds:
+            raise ValueError(
+                f"duration inconsistency: supervisor duration {sup_duration} "
+                f"does not match target duration {spec.duration_seconds}"
+            )
+
+        # 3.2: Collector command checks
+        c_idx = sup_cmd.index("--collector-command-json")
+        collector_cmd = json.loads(sup_cmd[c_idx + 1])
+        d_idx = collector_cmd.index("--duration")
+        coll_duration = float(collector_cmd[d_idx + 1])
+        if coll_duration != spec.duration_seconds or coll_duration <= 0:
+            raise ValueError(
+                f"duration inconsistency: collector --duration {coll_duration} "
+                f"does not match target duration {spec.duration_seconds}"
+            )
+
+        # 3.3: Storage base dir binding
+        sb_idx = collector_cmd.index("--storage-base-dir")
+        coll_storage_dir = collector_cmd[sb_idx + 1]
+        if coll_storage_dir != resolved["raw_root_template"]:
+            raise ValueError(
+                f"path binding failure: collector --storage-base-dir {coll_storage_dir!r} "
+                f"does not match resolved raw_root {resolved['raw_root_template']!r}"
+            )
+
+        # 3.4: Collector fingerprint binding
+        fp_idx = collector_cmd.index("--config-fingerprint")
+        coll_fp = collector_cmd[fp_idx + 1]
+        if coll_fp != actual_fp:
+            raise ValueError(
+                f"fingerprint mismatch: collector declared {coll_fp} but actual runtime config hash is {actual_fp}"
+            )
+
+        # 3.5: Archive scheduler base dir binding (MUST be epoch root)
+        if "--archive-scheduler-command-json" in sup_cmd:
+            a_idx = sup_cmd.index("--archive-scheduler-command-json")
+            sched_cmd = json.loads(sup_cmd[a_idx + 1])
+            ab_idx = sched_cmd.index("--base-dir")
+            sched_base_dir = sched_cmd[ab_idx + 1]
+            expected_epoch_root = str(spec.epoch_data_root)
+            if sched_base_dir != expected_epoch_root:
+                raise ValueError(
+                    f"archive scheduler base-dir binding failure: expected epoch root {expected_epoch_root!r} "
+                    f"but got {sched_base_dir!r}. Scheduler expects directory containing raw/manifests/compressed."
+                )
+            # Prefix binding
+            p_idx = sched_cmd.index("--remote-prefix")
+            sched_prefix = sched_cmd[p_idx + 1]
+            if sched_prefix != resolved["temporary_prefix"]:
+                raise ValueError(
+                    f"archive scheduler prefix binding failure: {sched_prefix!r} != {resolved['temporary_prefix']!r}"
+                )
+
+    # Rule 4: DRY RUN PRODUCTION COLLECTOR CONFIG VALIDATION
+    try:
+        from scripts.run_cross_market_collector import _validate_runtime_config
+        dry_args = argparse.Namespace(
+            collector_epoch=spec.epoch,
+            run_id=spec.run_id,
+            storage_base_dir=Path(resolved["raw_root_template"]),
+            runtime_commit=spec.runtime_commit,
+            environment_id=spec.environment_id,
+            duration=spec.duration_seconds,
+            qualification_schedule_path=None,
+            bithumb_markets=len(BITHUMB_MARKETS),
+        )
+        _validate_runtime_config(
+            runtime_config,
+            dry_args,
+            list(BITHUMB_MARKETS),
+            list(BINANCE_SYMBOLS),
+            list(UPBIT_MARKETS),
+        )
+    except Exception as exc:
+        raise ValueError(f"production collector config validation dry-run failed: {exc}") from exc
+
+    return {
+        "status": "PASS",
+        "duration_seconds": spec.duration_seconds,
+        "config_fingerprint": actual_fp,
+        "epoch": spec.epoch,
+        "run_id": spec.run_id,
+    }

@@ -124,8 +124,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         prefix = "bitcoin-trader-30h"
     else:
         # Legacy duration path:
-        if config.collection_duration_seconds not in (2700, 5400, 7200, 108000, 259200):
-            raise ValueError("production supervisor duration must be exactly 2700, 5400, 7200, 108000, or 259200 seconds")
+        if config.collection_duration_seconds not in (2700, 5400, 7200, 10800, 21600, 108000, 259200):
+            raise ValueError("production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds")
         if config.supervisor_hard_ceiling_seconds < (
             config.collection_duration_seconds + config.finalization_timeout_seconds
         ):
@@ -134,6 +134,10 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             prefix = "bitcoin-trader-72h-soak"
         elif config.collection_duration_seconds == 108000:
             prefix = "bitcoin-trader-30h"
+        elif config.collection_duration_seconds == 21600:
+            prefix = "bitcoin-trader-6h"
+        elif config.collection_duration_seconds == 10800:
+            prefix = "bitcoin-trader-3h"
         elif config.collection_duration_seconds == 7200:
             prefix = "bitcoin-trader-120m"
         elif config.collection_duration_seconds == 5400:
@@ -355,6 +359,12 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
+                try:
+                    import systemd.daemon  # pyright: ignore[reportMissingImports]
+                    systemd.daemon.notify("READY=1")
+                except Exception:
+                    pass
+
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
                     now = time.monotonic()
@@ -390,6 +400,12 @@ class BoundedSupervisor:
                         archive_scheduler_exit = archive_scheduler.returncode
                         if archive_scheduler_exit != 0 and archive_scheduler_failure is None:
                             archive_scheduler_failure = archive_scheduler_exit
+
+                    try:
+                        import systemd.daemon  # pyright: ignore[reportMissingImports]
+                        systemd.daemon.notify("WATCHDOG=1")
+                    except Exception:
+                        pass
 
                     time.sleep(cfg.poll_interval_seconds)
 
