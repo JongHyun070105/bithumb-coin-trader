@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-90m-20260917-20260917T135000Z-v7",
+  "run_id": "aws-validation-observability-90m-run-20260917T135000Z-v7",
+  "software_commit_sha": "a0245ae3808755a65855e4714891d1700a0ab0dc",
+  "software_tree_sha": "61c2df386defddb6b86846c04ccd0bf0150ef7cb",
+  "config_fingerprint": "de45bc5d22ca7bd013e5968fcfb00bc0daa5a5f3f86f836c52c70147814d079b",
+  "sealed_at_utc": "2026-09-17T13:29:55.952455+00:00",
+  "feed_count": 76,
+  "duration_seconds": 5400,
+  "grace_seconds": 600,
+  "target_full_hours": 1,
+  "planned_start_utc": "2026-09-17T13:50:00+00:00",
+  "warmup_duration_seconds": 600.0,
+  "qualification_start_utc": "2026-09-17T14:00:00+00:00",
+  "qualifying_cohorts": [
+    "2026-09-17_14"
+  ],
+  "cohort_closure_utc": "2026-09-17T15:00:00+00:00",
+  "grace_expiry_utc": "2026-09-17T15:10:00+00:00",
+  "archive_settled_utc": "2026-09-17T15:13:00+00:00",
+  "total_pipeline_duration_seconds": 4980.0,
+  "partial_start_cohort": "2026-09-17_13",
+  "partial_end_cohort": "2026-09-17_15",
+  "health_schema_version": 1,
+  "observer_version": 1,
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-observability-90m-20260917-20260917T135000Z-v7",
+  "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+  "data_root": "/var/lib/bitcoin-trader/90m-validation/aws-validation-observability-90m-20260917-20260917T135000Z-v7",
+  "python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+  "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+  "trading_safety": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "sealed_artifact_hashes": {
+    "aws-validation-observability-90m-20260917-20260917T135000Z-v7.runtime.json": "bd680256369627b3a5ffbd90c49e9f0432f7bdb7d08d0397cd6e831dfcffc11b",
+    "launch-command.json": "a0d51de9c43b53a4f8bcd9f62d32feaf6ee11f5a03396af129a48298a0435b5f",
+    "launch-ec2.sh": "bde8d39500b0bc5e7d8e13054288104df199324fa0fd5049d8fb91a52d5c7285",
+    "launch.sh": "133835492fab8d9963b69ff45ed6891b42f2b1e7ccf09977f9b70239e24b721a"
+  }
+}

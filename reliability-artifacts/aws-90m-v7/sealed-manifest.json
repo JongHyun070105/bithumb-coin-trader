@@ -1,0 +1,12 @@
+{
+  "epoch": "aws-validation-observability-90m-20260917-20260917T135000Z-v7",
+  "run_id": "aws-validation-observability-90m-run-20260917T135000Z-v7",
+  "sealed_at_utc": "2026-09-17T13:29:55.952455+00:00",
+  "identity_sha256": "ad8cf57c0dc6c4cc0a94e4e39a319438c57dc1e352468c15f06522483830c033",
+  "artifact_hashes": {
+    "aws-validation-observability-90m-20260917-20260917T135000Z-v7.runtime.json": "bd680256369627b3a5ffbd90c49e9f0432f7bdb7d08d0397cd6e831dfcffc11b",
+    "launch-command.json": "a0d51de9c43b53a4f8bcd9f62d32feaf6ee11f5a03396af129a48298a0435b5f",
+    "launch-ec2.sh": "bde8d39500b0bc5e7d8e13054288104df199324fa0fd5049d8fb91a52d5c7285",
+    "launch.sh": "133835492fab8d9963b69ff45ed6891b42f2b1e7ccf09977f9b70239e24b721a"
+  }
+}
