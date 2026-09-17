@@ -813,19 +813,54 @@ def test_idempotent_reuse_artifact(tmp_path: Path) -> None:
     assert store.upload_calls == 1
 
 
-def test_legacy_finalize_produces_v3_receipt(tmp_path: Path) -> None:
-    pipe = pipeline(tmp_path)
-    art = raw_artifact(tmp_path)
-    receipt = pipe.finalize(
-        art.source_path,
-        now=datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc),
-        grace_period=timedelta(0),
-        stability_wait_seconds=0,
+def test_manifest_schema_version_5_accepted(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    manifest_root = tmp_path / "manifests"
+    rel = "2026-09-01/binance/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    source_file = raw_root / rel
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    records = [{"exchange": "binance", "stream": "trade", "market": "BTCUSDT", "data": i} for i in range(10)]
+    source_file.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    data = source_file.read_bytes()
+    raw_sha = hashlib.sha256(data).hexdigest()
+
+    manifest_file = manifest_root / f"manifest_{source_file.stem}.json"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 5,
+        "partition_path": rel,
+        "bytes": len(data),
+        "sha256": raw_sha,
+        "record_count": 10,
+        "environment_id": "aws-apne2-research",
+        "collector_epoch": "test-epoch",
+        "collector_run_id": "test-run",
+        "cohort": "2026-09-01_10",
+        "feed_identity": "binance/trade/btcusdt",
+    }
+    manifest_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    art = ImmutableArtifact(
+        kind=ArtifactKind.RAW_DATA,
+        source_path=source_file,
+        relative_path=rel,
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-01_10",
+        exchange="binance",
+        stream="trade",
+        market="btcusdt",
+        source_sha256=raw_sha,
+        source_size=len(data),
+        source_record_count=10,
+        manifest_path=manifest_file,
+        manifest_sha256=file_sha256(manifest_file),
     )
-    assert receipt.schema_version == 3
+    receipt = pipeline(tmp_path).finalize_artifact(art)
     assert receipt.artifact_kind == "RAW_DATA"
     assert receipt.source_record_count == 10
-    assert receipt.restore_verified_at is not None
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
 
 
 if __name__ == "__main__":

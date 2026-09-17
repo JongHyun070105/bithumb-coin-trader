@@ -927,7 +927,7 @@ class ArchivePipeline:
             if artifact.manifest_sha256 != actual_m_sha:
                 raise ValueError("manifest hash mismatch")
             payload = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("schema_version") != 4:
+            if not isinstance(payload, dict) or payload.get("schema_version") not in (4, 5):
                 raise ValueError("raw manifest is missing or unsupported")
             digest, size, records = _hash_file(artifact.source_path, count_records=True)
             if (
@@ -973,8 +973,9 @@ class ArchivePipeline:
     def _verify_raw(self, raw_path: Path, receipt: ArchiveReceiptV3) -> None:
         manifest_path = self._manifest_path(raw_path)
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict) or payload.get("schema_version") != 4:
+        if not isinstance(payload, dict) or payload.get("schema_version") not in (4, 5):
             raise ValueError("raw manifest is missing or unsupported")
+
         digest, size, records = _hash_file(raw_path, count_records=True)
         if (
             payload.get("sha256") != digest
