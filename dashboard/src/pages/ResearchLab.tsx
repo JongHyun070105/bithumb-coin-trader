@@ -131,10 +131,10 @@ export const ResearchLab: React.FC = () => {
         <div className="status-grid">
           <MetricCard
             title="V4 PROCESS"
-            value={V4_VALIDATION_STATUS.status}
-            subtext={`Started: ${new Date(V4_VALIDATION_STATUS.actualStart).toLocaleString()}`}
-            status={V4_VALIDATION_STATUS.status === 'RUNNING' ? 'warning' : 'default'}
-            evidenceSource="MEASURED"
+            value="NOT_VERIFIABLE"
+            subtext="SSM 미인가로 직접 프로세스 미검증 (S3 전송 중단 확인)"
+            status="warning"
+            evidenceSource="NOT AVAILABLE"
           />
           <MetricCard
             title="V4 S3 COVERAGE"
@@ -147,8 +147,8 @@ export const ResearchLab: React.FC = () => {
             title="V4 FINAL VERDICT"
             value={V4_VALIDATION_STATUS.finalVerdict}
             subtext={V4_VALIDATION_STATUS.note}
-            status="default"
-            evidenceSource="NOT AVAILABLE"
+            status="danger"
+            evidenceSource="MEASURED"
           />
         </div>
       </section>

@@ -48,16 +48,23 @@ class V2State:
 
 @dataclass
 class V4State:
-    ec2_state: str = "UNKNOWN"
-    ssm_agent: str = "UNKNOWN"
-    collector_process: str = "UNKNOWN"
-    lifecycle: str = "UNKNOWN"
-    s3_coverage_hours: int = 0
-    s3_objects: int = 0
-    final_verdict: str = "NOT_YET_AVAILABLE"
+    ec2_state: str = "running"
+    ssm_agent: str = "Online"
+    collector_process: str = "NOT_VERIFIABLE (DIRECT_PROCESS_UNVERIFIED)"
+    validation_outcome_finalized: bool = True
+    collector_terminal_process_directly_verified: bool = False
+    root_cause: str = "COLLECTION_OR_ARCHIVE_PIPELINE_FAILURE_AFTER_INITIAL_HOUR"
+    exact_process_failure_mode: str = "UNKNOWN"
+    lifecycle: str = "COMPLETED"
+    s3_coverage_hours: int = 1
+    s3_raw_objects: int = 0
+    s3_objects: int = 76
+    qualifying_hours: int = 0
+    required_hours: int = 30
+    final_verdict: str = "FAIL"
     dataset_research_usability: str = "NOT_RESEARCH_USABLE"
-    actual_start: str = ""
-    planned_stop: str = ""
+    actual_start: str = "2026-09-15T10:26:33.652102Z"
+    planned_stop: str = "2026-09-16T17:00:00Z"
 
 
 @dataclass
@@ -65,23 +72,31 @@ class MakerState:
     status: str = "COMPLETE"
     total_trials: int = 70
     cycles_evaluated: int = 3
-    classification: str = "MARKET_SPECIFIC_CANDIDATE"
-    best_candidate: str = "M1-XRP-CANCEL20S-QM0.5-CONS"
-    best_net_bps: float = 2.20
+    dataset_scope: str = "DEV Block D1 (6 hours)"
+    classification: str = "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD"
+    best_candidate: str = "MAKER-C3-XRP-Q0.5-C20S-CONS"
+    best_net_bps: float = 2.198
+    best_fill_rate: float = 0.01055
+    best_fills: int = 54
+    queue_multiplier: float = 0.5
+    queue_ahead_assumption: str = "0.5x DISPLAYED (OPTIMISTIC_POSITIONING)"
     general_alpha: str = "NOT_FOUND"
-    note: str = "Only XRP survives under wide spread conditions (5.4 bps) and >=20s exit window. BTC and ETH cost-killed."
+    note: str = "Retrospective DEV lead on XRP under optimistic queue assumption (q=0.5). Drops to 17 fills under strict FIFO (q=1.0). Not validated."
 
 
 @dataclass
 class CrossExchangeState:
     status: str = "COMPLETE"
     total_trials: int = 124
+    hypotheses_evaluated: str = "X1, X2, X5 (X3, X4 NOT RUN)"
+    dataset_scope: str = "DEV Block D1 (6 hours)"
     lead_confirmed_count: int = 72
     taker_viable_count: int = 0
-    classification: str = "CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY"
+    classification: str = "NO_LOOKAHEAD_PREDICTIVE_LEAD"
+    execution_mode: str = "HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)"
     max_pearson_ic: float = 0.3714
-    max_spearman_ic: float = 0.8458
-    note: str = "Binance and Upbit lead Bithumb causal return, but spread kills taker execution."
+    max_spearman_ic: float = 0.2312
+    note: str = "Predictive lead confirmed without lookahead, but heuristic screening and depth-walking execution confirm spread kills taker execution."
 
 
 @dataclass
@@ -185,15 +200,14 @@ def _resolve_v4() -> V4State:
     obs = _load_json(ROOT / "evidence" / "aws-validation-30h-20260915-v4" / "post-run" / "preliminary-observation.json")
     if obs:
         v4.actual_start = obs.get("actual_start", "2026-09-15T10:26:33.652102Z")
-        v4.s3_coverage_hours = obs.get("s3_coverage_hours_visible", 0)
-        v4.s3_objects = obs.get("s3_objects", 0)
+        v4.s3_coverage_hours = obs.get("s3_coverage_hours_visible", 1)
+        v4.s3_objects = obs.get("s3_objects", 76)
 
     final = _load_json(ROOT / "evidence" / "aws-validation-30h-20260915-v4" / "post-run" / "final-audit.json")
     if final:
         verdict = final.get("audit_verdict", {})
         if verdict:
             v4.final_verdict = verdict.get("OVERALL", "FAIL")
-            v4.lifecycle = verdict.get("PROCESS", "FAIL")
         v4.dataset_research_usability = final.get("dataset_research_usability", "NOT_RESEARCH_USABLE")
         term_ev = final.get("terminal_evidence", {})
         if term_ev:
@@ -205,7 +219,6 @@ def _resolve_v4() -> V4State:
         t_verdict = term.get("audit_verdict", {})
         if t_verdict:
             v4.final_verdict = t_verdict.get("OVERALL", "FAIL")
-            v4.lifecycle = t_verdict.get("PROCESS", "FAIL")
         v4.dataset_research_usability = term.get("dataset_research_usability", "NOT_RESEARCH_USABLE")
         t_ver = term.get("terminal_verification", {})
         if t_ver:
@@ -219,7 +232,15 @@ def _resolve_v4() -> V4State:
 
     v4.ec2_state = "running"
     v4.ssm_agent = "Online"
-    v4.collector_process = "HALTED (2026-09-15T11:01:37Z)"
+    v4.collector_process = "NOT_VERIFIABLE (DIRECT_PROCESS_UNVERIFIED)"
+    v4.validation_outcome_finalized = True
+    v4.collector_terminal_process_directly_verified = False
+    v4.root_cause = "COLLECTION_OR_ARCHIVE_PIPELINE_FAILURE_AFTER_INITIAL_HOUR"
+    v4.exact_process_failure_mode = "UNKNOWN"
+    v4.final_verdict = "FAIL"
+    v4.dataset_research_usability = "NOT_RESEARCH_USABLE"
+    v4.qualifying_hours = 0
+    v4.required_hours = 30
 
     return v4
 
@@ -232,7 +253,14 @@ def _resolve_maker() -> MakerState:
         maker.status = report.get("status", "COMPLETE")
         maker.total_trials = report.get("total_trials", 70)
         maker.cycles_evaluated = report.get("cycles_evaluated", 3)
-        maker.classification = report.get("classification", "MARKET_SPECIFIC_CANDIDATE")
+        maker.classification = report.get("classification", "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD")
+        best = report.get("best_candidate", {})
+        if best:
+            maker.best_candidate = best.get("trial_id", "MAKER-C3-XRP-Q0.5-C20S-CONS")
+            maker.best_net_bps = float(best.get("net_bps", 2.198))
+            maker.best_fill_rate = float(best.get("fill_rate", 0.01055))
+            maker.best_fills = int(best.get("fills", 54))
+            maker.queue_multiplier = float(best.get("queue_multiplier", 0.5))
     return maker
 
 
@@ -245,10 +273,12 @@ def _resolve_cross_exchange() -> CrossExchangeState:
             results = json.loads(report_path.read_text())
             cx.status = "COMPLETE"
             cx.total_trials = len(results)
-            cx.lead_confirmed_count = sum(1 for r in results if r.get("classification") == "CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY")
-            cx.taker_viable_count = sum(1 for r in results if "TAKER_VIABLE" in str(r.get("classification", "")))
+            cx.lead_confirmed_count = sum(1 for r in results if r.get("classification") in ("NO_LOOKAHEAD_PREDICTIVE_LEAD", "CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY"))
+            cx.taker_viable_count = sum(1 for r in results if "TAKER_VIABLE" in str(r.get("classification", "")) and "HEURISTIC" not in str(r.get("classification", "")))
             cx.max_pearson_ic = max((abs(r.get("pearson_ic") or 0.0) for r in results), default=0.0)
             cx.max_spearman_ic = max((abs(r.get("spearman_ic") or 0.0) for r in results), default=0.0)
+            cx.classification = "NO_LOOKAHEAD_PREDICTIVE_LEAD"
+            cx.execution_mode = "HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)"
         except Exception:
             pass
     return cx

@@ -388,7 +388,7 @@ class MakerSimulator:
         exit_events = [e for e in future_events if e.ordering_timestamp_ns >= exit_placement_ts]
         exit_fill = self.evaluate_order(exit_order, exit_events)
 
-        if exit_fill.status in (OrderStatus.FILLED, OrderStatus.PARTIAL) and exit_fill.fill_quantity > 0:
+        if exit_fill.status == OrderStatus.FILLED:
             qty = exit_fill.fill_quantity
             entry_val = entry_fill.fill_price * qty
             exit_val = exit_fill.fill_price * qty
@@ -414,6 +414,62 @@ class MakerSimulator:
                 holding_duration_s=(exit_fill.fill_timestamp_ns - entry_fill.fill_timestamp_ns) / 1_000_000_000.0,
                 success=net_bps > 0,
                 reason="PASSIVE_EXIT_FILLED",
+            )
+        elif exit_fill.status == OrderStatus.PARTIAL and exit_fill.fill_quantity > 0:
+            # Full position accounting: passive portion + forced taker unwind for remainder
+            qty_passive = exit_fill.fill_quantity
+            qty_unwind = entry_fill.fill_quantity - qty_passive
+
+            # Determine market exit price for remainder
+            unwind_price = 0.0
+            unwind_ts = exit_fill.fill_timestamp_ns
+            for event in future_events:
+                if event.ordering_timestamp_ns >= exit_fill.fill_timestamp_ns and event.event_kind == EventKind.ORDERBOOK:
+                    payload = event.payload
+                    if entry_fill.order.side == "BUY":
+                        bids = payload.get("bids", [])
+                        if bids:
+                            unwind_price = float(bids[0][0])
+                            unwind_ts = event.ordering_timestamp_ns
+                            break
+                    else:
+                        asks = payload.get("asks", [])
+                        if asks:
+                            unwind_price = float(asks[0][0])
+                            unwind_ts = event.ordering_timestamp_ns
+                            break
+
+            if unwind_price <= 0:
+                unwind_price = exit_fill.fill_price
+
+            entry_val = entry_fill.fill_price * entry_fill.fill_quantity
+            passive_val = exit_fill.fill_price * qty_passive
+            unwind_val = unwind_price * qty_unwind
+            total_exit_val = passive_val + unwind_val
+
+            gross_krw = (total_exit_val - entry_val) if entry_fill.order.side == "BUY" else (entry_val - total_exit_val)
+            entry_fee = entry_val * entry_fill.order.assumptions.maker_fee_rate
+            exit_fee = (passive_val * exit_fill.order.assumptions.maker_fee_rate) + (unwind_val * entry_fill.order.assumptions.taker_fee_rate)
+            net_krw = gross_krw - entry_fee - exit_fee
+            gross_bps = (gross_krw / entry_val) * 10_000.0 if entry_val > 0 else 0.0
+            net_bps = (net_krw / entry_val) * 10_000.0 if entry_val > 0 else 0.0
+
+            blended_exit = total_exit_val / entry_fill.fill_quantity if entry_fill.fill_quantity > 0 else exit_fill.fill_price
+            return MakerTradeRoundTrip(
+                variant="B",
+                entry_fill=entry_fill,
+                exit_fill=exit_fill,
+                exit_type="PARTIAL_PASSIVE_WITH_TAKER_UNWIND",
+                entry_price=entry_fill.fill_price,
+                exit_price=blended_exit,
+                quantity=entry_fill.fill_quantity,
+                gross_krw=gross_krw,
+                net_krw=net_krw,
+                gross_bps=gross_bps,
+                net_bps=net_bps,
+                holding_duration_s=(unwind_ts - entry_fill.fill_timestamp_ns) / 1_000_000_000.0,
+                success=net_bps > 0,
+                reason="PARTIAL_PASSIVE_EXIT_WITH_TAKER_UNWIND",
             )
         else:
             # Fallback to forced market unwind (FORCED_EXIT)

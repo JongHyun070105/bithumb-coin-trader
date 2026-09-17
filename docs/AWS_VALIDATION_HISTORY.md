@@ -25,7 +25,7 @@
 - **수집 기간**: 2026-09-12 11:00 UTC ~ 2026-09-13 16:00 UTC (30시간)
 - **수집 데이터**: 2,272개 원시 JSONL.ZST 파일 (561.8 MB), 8개 결측 (계약 허용 범위 내).
 - **데이터 품질 (DQ)**: 타임스탬프 역전 0건, 피드 슬롯 무결성 전수 검증 통과.
-- **연구 분할**: 18h DEV / 6h VAL / 6h TEST로 동결 분할. 본 프로젝트의 유일한 권위적 연구 데이터셋으로 활용됨.
+- **연구 분할**: 18h DEV / 6h VAL / 6h TEST로 동결 분할. 본 프로젝트의 유일한 권위적 연구 데이터셋으로 활용됨 (메이커 및 크로스 익스체인지 연구는 DEV 블록 D1 6시간 분할본을 기반으로 수행됨).
 
 ### 2) V4 최종 포렌식 감사 (`aws-validation-30h-20260915-v4`)
 - **실행 ID**: `aws-validation-30h-run-20260915T061253Z-v4`
@@ -34,11 +34,12 @@
 - **계획 종료 시각**: 2026-09-16 17:00:00 UTC
 - **감사 수행 시각**: 2026-09-17 00:30:00 UTC (계획 시각 7.5시간 경과 후)
 - **포렌식 사실 확인**:
-  - EC2 인스턴스는 `running`, SSM 에이전트는 `Online` 상태 유지.
-  - S3에 업로드된 객체는 10시 구간의 76개 커버리지 JSON 파일(534 KB)뿐이며, 마지막 S3 업로드 시각은 `2026-09-15T11:01:37Z`임.
+  - EC2 인스턴스는 `running`, SSM 에이전트는 `Online` 상태였으나, SSM SendCommand 권한 부재로 인스턴스 내부 프로세스 직접 조사는 수행할 수 없음 (`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = "NOT_VERIFIABLE (DIRECT_PROCESS_UNVERIFIED)"`, `exact_process_failure_mode = "UNKNOWN"`).
+  - S3에 업로드된 객체는 10시 구간의 76개 커버리지 JSON 파일(534 KB)뿐이며, 마지막 S3 업로드 시각은 `2026-09-15T11:01:37Z`임 (원인은 초기 1시간 이후 수집/아카이브 파이프라인 중단으로 확정).
   - 마켓 데이터 원시 파일(`RAW_MARKET_DATA`)은 S3에 **0건** 존재함.
 - **최종 판정**:
-  - `PROCESS: FAIL`, `ARCHIVE: FAIL`, `DQ: FAIL`, `EVIDENCE_CONTRACT: FAIL`, **`OVERALL: FAIL`**.
+  - 검증 결과 확정: **`VALIDATION_OUTCOME_FINALIZED = true`**
+  - 평가 항목: `PROCESS: NOT_VERIFIABLE (DIRECT_PROCESS_UNVERIFIED)`, `ARCHIVE: FAIL`, `DQ: FAIL`, `EVIDENCE_CONTRACT: FAIL`, **`OVERALL: FAIL`**.
   - 연구 유효성: **`NOT_RESEARCH_USABLE`**.
 - **조치**:
   - `evidence/aws-validation-30h-20260915-v4/post-run/v4-terminal-audit.json` 및 `final-audit.json` 작성 및 잠금.

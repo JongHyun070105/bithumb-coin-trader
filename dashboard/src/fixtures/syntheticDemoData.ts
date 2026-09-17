@@ -49,8 +49,11 @@ export const V4_VALIDATION_STATUS = {
   s3CoverageHoursVisible: 1,
   s3CoverageHour: '2026-09-15_10',
   s3RawDataObjects: 0,
+  collectorProcessState: 'NOT_VERIFIABLE (DIRECT_PROCESS_UNVERIFIED)',
+  validationOutcomeFinalized: true,
+  collectorTerminalProcessDirectlyVerified: false,
   finalVerdict: 'FAIL (NOT_RESEARCH_USABLE)',
-  note: 'Process halted after 1h coverage (76 objects, 0 raw data). Terminal audit confirmed OVERALL FAIL.',
+  note: 'Validation outcome finalized as FAIL (0 qualifying hours, 0 raw S3 data). Direct guest process exit mode unverified (SSM unauthorized).',
 }
 
 export const DEMO_PIPELINE_STAGES: PipelineStage[] = [

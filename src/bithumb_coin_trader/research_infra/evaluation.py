@@ -216,16 +216,30 @@ def compute_spearman_rank_ic(
     if len(pairs) < 10:
         return None, len(pairs)
 
-    def rankdata(xs: list[float]) -> list[float]:
+    def rankdata_average(xs: list[float]) -> list[float]:
+        """Compute ranks with average rank assigned to tied values.
+
+        Equivalent to scipy.stats.rankdata(xs, method='average').
+        Assigns 1-based ranks. Ties receive the mean of the ranks they would cover.
+        """
         n = len(xs)
-        indexed = sorted(enumerate(xs), key=lambda x: x[1])
+        if n == 0:
+            return []
+        indexed = sorted(range(n), key=lambda i: xs[i])
         ranks = [0.0] * n
-        for rank, (idx, _) in enumerate(indexed):
-            ranks[idx] = rank + 1.0
+        i = 0
+        while i < n:
+            j = i
+            while j + 1 < n and xs[indexed[j + 1]] == xs[indexed[i]]:
+                j += 1
+            avg_rank = (i + j + 2) / 2.0
+            for k in range(i, j + 1):
+                ranks[indexed[k]] = avg_rank
+            i = j + 1
         return ranks
 
-    feat_ranks = rankdata([f for f, _ in pairs])
-    target_ranks = rankdata([t for _, t in pairs])
+    feat_ranks = rankdata_average([f for f, _ in pairs])
+    target_ranks = rankdata_average([t for _, t in pairs])
 
     n = len(pairs)
     mean_f = sum(feat_ranks) / n
@@ -241,12 +255,113 @@ def compute_spearman_rank_ic(
     return cov / math.sqrt(var_f * var_t), n
 
 
+def rankdata_average(xs: list[float]) -> list[float]:
+    """Compute ranks with average rank assigned to tied values.
+
+    Public helper function equivalent to scipy.stats.rankdata(xs, method='average').
+    """
+    n = len(xs)
+    if n == 0:
+        return []
+    indexed = sorted(range(n), key=lambda i: xs[i])
+    ranks = [0.0] * n
+    i = 0
+    while i < n:
+        j = i
+        while j + 1 < n and xs[indexed[j + 1]] == xs[indexed[i]]:
+            j += 1
+        avg_rank = (i + j + 2) / 2.0
+        for k in range(i, j + 1):
+            ranks[indexed[k]] = avg_rank
+        i = j + 1
+    return ranks
+
+
+def compute_directional_diagnostics(
+    features: Sequence[float | None],
+    targets: Sequence[float | None],
+    threshold: float = 0.0,
+    expected_sign: str = "positive",
+) -> dict[str, Any]:
+    """Compute comprehensive directional and tie diagnostics.
+
+    Distinguishes active predictions from zero-return/stale orderbook samples.
+    """
+    pairs = [
+        (f, t) for f, t in zip(features, targets)
+        if f is not None and t is not None
+        and math.isfinite(f) and math.isfinite(t)
+    ]
+    total_valid = len(pairs)
+    if total_valid == 0:
+        return {
+            "total_samples": 0,
+            "nonzero_samples": 0,
+            "nonzero_directional_hit_rate": None,
+            "raw_hit_rate": None,
+            "zero_fraction_feature": 0.0,
+            "zero_fraction_target": 0.0,
+            "tie_rate_feature": 0.0,
+            "tie_rate_target": 0.0,
+        }
+
+    feats = [f for f, _ in pairs]
+    targs = [t for _, t in pairs]
+
+    zero_f = sum(1 for f in feats if abs(f) <= threshold)
+    zero_t = sum(1 for t in targs if abs(t) <= threshold)
+    unique_f = len(set(feats))
+    unique_t = len(set(targs))
+
+    # Raw hit rate (historical convention: counting t=0 as miss in denominator)
+    raw_correct = 0
+    # Nonzero hit rate: only evaluate when both |f| > threshold and |t| > threshold
+    nonzero_correct = 0
+    nonzero_count = 0
+
+    for f, t in pairs:
+        is_f_active = abs(f) > threshold
+        is_t_active = abs(t) > threshold
+
+        if expected_sign == "positive":
+            is_match = (f > 0 and t > 0) or (f < 0 and t < 0)
+        else:
+            is_match = (f > 0 and t < 0) or (f < 0 and t > 0)
+
+        if is_match:
+            raw_correct += 1
+
+        if is_f_active and is_t_active:
+            nonzero_count += 1
+            if is_match:
+                nonzero_correct += 1
+
+    nonzero_hit_rate = (nonzero_correct / nonzero_count) if nonzero_count > 0 else None
+    raw_hit_rate = raw_correct / total_valid
+
+    return {
+        "total_samples": total_valid,
+        "nonzero_samples": nonzero_count,
+        "nonzero_directional_hit_rate": nonzero_hit_rate,
+        "raw_hit_rate": raw_hit_rate,
+        "zero_fraction_feature": zero_f / total_valid,
+        "zero_fraction_target": zero_t / total_valid,
+        "tie_rate_feature": 1.0 - (unique_f / total_valid),
+        "tie_rate_target": 1.0 - (unique_t / total_valid),
+    }
+
+
 def compute_hit_rate(
     features: Sequence[float | None],
     targets: Sequence[float | None],
     expected_sign: str = "positive",
 ) -> tuple[float | None, int]:
-    """Compute directional hit rate: how often feature direction matches target."""
+    """Compute directional hit rate: how often feature direction matches target.
+
+    NOTE: Zero-target periods are included in the denominator but cannot match,
+    which lowers the raw hit rate in high-frequency data where prices frequently do not move.
+    For diagnostic breakdown, use compute_directional_diagnostics.
+    """
     pairs = [
         (f, t) for f, t in zip(features, targets)
         if f is not None and t is not None

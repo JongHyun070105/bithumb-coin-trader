@@ -19,7 +19,7 @@ export const Overview: React.FC = () => {
         <div>
           <h2>오프라인 증거 및 연구 콘솔 (Overview v0.3)</h2>
           <p className="page-subtitle">
-            Bithumb Coin Trader — V2 연구 완료 / V4 검증 진행 중
+            Bithumb Coin Trader — V2 연구 완료 / V4 검증 완료 (FAIL)
           </p>
         </div>
         <div className="repo-status-pill">
@@ -73,7 +73,7 @@ export const Overview: React.FC = () => {
             title="V4 STATUS"
             value={V4_VALIDATION_STATUS.status}
             subtext={`Started: ${new Date(V4_VALIDATION_STATUS.actualStart).toLocaleDateString()}`}
-            status={V4_VALIDATION_STATUS.status === 'RUNNING' ? 'warning' : 'default'}
+            status={V4_VALIDATION_STATUS.status === 'RUNNING' ? 'warning' : (V4_VALIDATION_STATUS.status === 'FAIL' ? 'danger' : 'default')}
             evidenceSource="MEASURED"
           />
           <MetricCard

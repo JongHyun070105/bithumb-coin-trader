@@ -72,8 +72,8 @@ class DashboardApiUnitTests(unittest.TestCase):
         data = get_research_state()
         self.assertEqual(data["scientific"]["alpha"], "UNPROVEN")
         self.assertEqual(data["datasets"]["v4"]["final_verdict"], "FAIL")
-        self.assertEqual(data["maker"]["classification"], "MARKET_SPECIFIC_CANDIDATE")
-        self.assertEqual(data["cross_exchange"]["classification"], "CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY")
+        self.assertEqual(data["maker"]["classification"], "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD (NOT VALIDATED)")
+        self.assertEqual(data["cross_exchange"]["classification"], "NO_LOOKAHEAD_PREDICTIVE_LEAD")
 
     def test_get_maker_research(self):
         data = get_maker_research()

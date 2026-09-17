@@ -27,7 +27,7 @@
 | **AWS Fresh 45m** | 45분 | **PASS** | 수집 검증 전용 | 인프라 및 수집 파이프라인 자율 복구 및 동시성 패치 검증 완료. |
 | **Authoritative V2 30h**<br>(`20260912-6576f63`) | 30시간 연속<br>(2,272 오브젝트, 535.8 MB) | **PASS** | **유효 (DEV 연구)** | 2,272 정상 수집, 8 누락. 18h DEV 분할을 통한 가설 연구 및 체결 시뮬레이션 완수. |
 | **AWS 30h V3**<br>(`20260915-v3`) | 0시간 | **FAIL** | 부적격 | 기동 인가 단계 후 프로세스 시작 실패. |
-| **AWS 30h V4**<br>(`20260915-v4`) | 1시간 수집 후 중단<br>(76 오브젝트, 0 원시) | **OVERALL: FAIL** | **부적격**<br>(`NOT_RESEARCH_USABLE`) | 자연 계획 시각(2026-09-16 17:00 UTC) 7.5시간 초과 후 최종 감사. 원시 데이터 부재로 최종 실패 판정. 태그 `archive/aws-v4-final` 보존. |
+| **AWS 30h V4**<br>(`20260915-v4`) | 1시간 수집 후 중단<br>(76 오브젝트, 0 원시) | **OVERALL: FAIL** | **부적격**<br>(`NOT_RESEARCH_USABLE`) | 자연 계획 시각(2026-09-16 17:00 UTC) 경과 후 검증 확정(`VALIDATION_OUTCOME_FINALIZED = true`). 76개 오브젝트(커버리지 1시간 534 KB), 원시 데이터 0건. SSM 권한 부재로 프로세스 직접 확인은 불가(`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = NOT_VERIFIABLE`), 초기 1시간 이후 파이프라인 중단으로 최종 실패 판정. 태그 `archive/aws-v4-final` 보존. |
 
 ---
 
@@ -40,19 +40,19 @@
   - 호가 스프레드(1.6 ~ 5.4 bps)와 수수료(0.4 bps)로 인해 모든 테이커 전략이 순손실(`-1.94 ~ -8.78 bps`) 기록.
 
 ### 2) 메이커(Maker) 연구 (Cycles 1, 2, 3)
-- **시뮬레이터 강화**: BUY/SELL 대칭 지원, 보수적 대기열 소진 모델, 12개 골든 테스트 100% PASS.
-- **총 실험 건수**: 70건
+- **시뮬레이터 강화**: BUY/SELL 대칭 지원, 보수적 대기열 소진 모델, 15개 골든 테스트 100% PASS, 부분 체결 후 잔여 미체결분 강제 청산 회계 버그 수정.
+- **총 실험 건수**: 70건 (Cycle 1: 54건, Cycle 2: 4건, Cycle 3: 12건).
 - **Cycle 1 (베이스라인)**: 54건 전멸 (`COST_KILLED`). 미체결 패시브 청산의 강제 시장가 정리로 손실 증폭.
 - **Cycle 2 (신호 고도화)**: OBI >= 0.8 필터링 및 15초 타임아웃. ETH 탈락, XRP 양수이나 체결수 부족 (n=3).
-- **Cycle 3 (변별력 검증)**: XRP 대상 파라미터 스윕. 20초 취소 한도 및 대기열 배수 0.5 조건에서 순이익 유지 (+1.80 bps Base, +2.20 bps Cons).
-- **판정**: **`MARKET_SPECIFIC_CANDIDATE`** (XRP 5.4 bps 광폭 스프레드 한정 후보, 보편적 알파 아님).
+- **Cycle 3 (변별력 검증)**: DEV Block D1(6시간: 2026-09-12 11:00-16:59 UTC) 대상 파라미터 스윕. XRP `MAKER-C3-XRP-Q0.5-C20S-CONS`에서 20초 취소 한도 및 대기열 배수 0.5(낙관적 대기열 가정: 표시 호가의 50%만 앞섬) 조건에서 순이익 유지 (+2.20 bps, 체결수 54건, 체결률 1.055%). 엄격한 FIFO 대기열(`queue_multiplier=1.0`) 적용 시 체결수 17건으로 급감.
+- **판정**: **`RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD (NOT VALIDATED)`** (동일 6시간 DEV 블록 대상 사후 파라미터 튜닝 결과이며, 홀드아웃 미검증 및 낙관적 대기열 가정에 의존하므로 독립 검증 전까지 실전 승격 불가).
 
-### 3) 크로스 익스체인지(Cross-Exchange) 인과성 연구 (X1 ~ X5)
+### 3) 크로스 익스체인지(Cross-Exchange) 예측 선행성 연구 (X1, X2, X5)
 - **타임스탬프 계약 수정**: Binance diff-depth의 `exchange_ts` 결측 문제를 `availability_timestamp_ns` 보존 및 Nullable 처리로 인과적 누출 완전 차단.
-- **총 실험 건수**: 124건
-- **인과성 검증**: Binance/Upbit 단기 가격 변동의 빗썸 미래 수익률 선행성 확증 (Pearson IC 최대 `+0.3714`, Spearman IC 최대 `+0.8458`).
-- **경제성 검증**: 테이커 실행 가능 후보 **0건** (`CROSS_EXCHANGE_TAKER_VIABLE = 0`). 빗썸 스프레드가 기대 예측 이익을 초과하여 테이커로는 거래 불가.
-- **판정**: **`CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY`** (정보 흐름은 실재하나, 단독 테이커가 아닌 메이커 호가 취소 신호로 활용 권고).
+- **총 실험 건수**: 124건 (가설 X1, X2, X5 평가 완료, X3 및 X4는 미실행).
+- **예측 선행성 검증**: Binance/Upbit 단기 가격 변동의 빗썸 미래 수익률 선행 예측 관계 확인 (타이 보정 Spearman IC 최대 `+0.12 ~ +0.16`, Pearson IC 최대 `+0.3714`, 0이 아닌 실제 가격 변동 구간 방향 적중률 92.86%, 원시 적중률 ~0.28%는 90% 이상 무변동 구간에 기인). 과거 시점 정렬(`causal_availability_ns`)을 통한 미래 누출 0건(LOOKAHEAD = NONE) 입증.
+- **경제성 검증**: 휴리스틱 스크리닝 프록시(`HEURISTIC_ECONOMIC_SCREEN`) 및 실 호가창 심도 워킹(Depth-walking) 확인 실행 결과, 빗썸 스프레드와 테이커 수수료로 인해 전 시나리오 순손실(`-11.41 ~ -17.82 bps`, 승률 0.0%) 기록 → **`COST_KILLED_BY_SPREAD_AND_FEES`**.
+- **판정**: **`NO_LOOKAHEAD_PREDICTIVE_LEAD_CONFIRMED (REAL_FUTURE_BOOK_EXECUTION = COST_KILLED)`** (선행 예측성은 실재하나 단독 테이커 진입은 비용 탈락. 향후 메이커 호가 취소 신호로의 설계 연계 연구 필요).
 
 ---
 

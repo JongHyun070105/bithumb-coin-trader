@@ -23,15 +23,15 @@
 - **테이커(Taker) 실행**: 48개 시나리오 전수 평가 결과, 호가 스프레드(1.6 ~ 5.4 bps)와 수수료로 인해 순손실 기록 → **`NO EXECUTABLE TAKER CANDIDATE`**.
 
 ### 2) 메이커(Maker) 미시구조 연구 (Cycles 1, 2, 3)
-- **실험 규모**: 70개 사전등록 시험 평가 완료 (`TRIAL_LEDGER.jsonl`).
-- **결론**: 짧은 취소 한도(<=10s)에서는 강제 시장가 청산으로 전멸(`COST_KILLED`). 단, **XRP(스프레드 5.4 bps)에서 20초 취소 한도 및 대기열 배수 0.5 적용 시 순이익 유지 (+1.80 ~ +2.20 bps)** 확인 → **`MARKET_SPECIFIC_CANDIDATE`**로 분류.
+- **실험 규모**: 70개 사전등록 시험 평가 완료 (Cycle 1: 54개, Cycle 2: 4개, Cycle 3: 12개, `TRIAL_LEDGER.jsonl`).
+- **결론**: 짧은 취소 한도(<=10s)에서는 강제 시장가 청산으로 전멸(`COST_KILLED`). 단, DEV Block D1(6시간)에서 **XRP(스프레드 5.4 bps) 20초 취소 한도 및 대기열 배수 0.5(낙관적 대기열 가정) 적용 시 순이익 유지 (+2.20 bps, 54회 체결, 체결률 1.055%)** 확인 → **`RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD (NOT VALIDATED)`**로 분류 (단, 엄격한 FIFO 대기열 `queue_multiplier=1.0` 적용 시 체결수 17회로 급감하며 독립 검증 전까지 실전 미승인).
 
-### 3) 크로스 익스체인지(Cross-Exchange) 인과성 연구 (X1 ~ X5)
-- **실험 규모**: 124개 시험 평가 완료. 엄격한 나노초 가용 시각(`causal_availability_ns`) 정렬로 미래 누출 0건 검증.
-- **결론**: Binance/Upbit의 빗썸 선행 인과성은 통계적으로 매우 강건(Pearson IC 최대 0.3714, Spearman IC 최대 0.8458)하나, 테이커 체결 가능 후보는 0건 → **`CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY`**.
+### 3) 크로스 익스체인지(Cross-Exchange) 예측 선행성 연구 (X1, X2, X5)
+- **실험 규모**: 124개 시험 평가 완료 (X1, X2, X5 평가 완료, X3 및 X4는 미실행). 엄격한 나노초 가용 시각(`causal_availability_ns`) 정렬로 미래 누출 0건(LOOKAHEAD = NONE) 검증.
+- **결론**: Binance/Upbit의 빗썸 선행 예측 관계 확인(타이 보정 Spearman IC ~0.12, 0이 아닌 가격 변동 시 방향 적중률 92.9%, 원시 적중률 ~0.28%는 90% 이상 무변동 샘플에 기인). 그러나 휴리스틱 스크리닝 및 실 호가창 심도 워킹(Depth-walking) 확인 실행 결과 스프레드와 테이커 수수료로 인해 순손실(-11 ~ -18 bps) 기록 → **`NO_LOOKAHEAD_PREDICTIVE_LEAD_CONFIRMED (REAL_FUTURE_BOOK_EXECUTION = COST_KILLED)`**.
 
 ### 4) AWS V4 30시간 검증 (`aws-validation-30h-20260915-v4`)
-- **터미널 포렌식**: 계획 종료 시각(2026-09-16 17:00 UTC) 이후 최종 감사 결과, 10시 구간 76개 커버리지(534 KB)만 존재하고 원시 데이터가 전무함.
+- **터미널 포렌식**: 계획 종료 시각(2026-09-16 17:00 UTC) 이후 검증 결과 확정(`VALIDATION_OUTCOME_FINALIZED = true`). 10시 구간 76개 커버리지(534 KB)만 존재하고 원시 데이터가 전무함. SSM 권한 부재로 프로세스 직접 확인은 불가(`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = NOT_VERIFIABLE`)하며, 원인은 초기 1시간 이후 수집/아카이브 파이프라인 중단으로 판정.
 - **최종 판정**: **`OVERALL: FAIL`**, **`NOT_RESEARCH_USABLE`** (태그 `archive/aws-v4-final` 보존).
 
 ---

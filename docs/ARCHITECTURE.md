@@ -55,8 +55,12 @@ flowchart TD
 - **`maker_simulator.py`**:
   - 패시브 대기열 시뮬레이터.
   - BUY/SELL 완벽 대칭 지원.
-  - 대기열 소진 모델: Optimistic, Base, Conservative (체결량 비율 q=0.5, q=1.0 지원).
+  - 대기열 소진 모델: Optimistic, Base, Conservative (대기열 앞선 물량 가정 배수 q=0.5, q=1.0 지원).
+  - 부분 체결(Partial fill) 발생 시 잔여 미체결 수량에 대한 안전한 테이커 강제 청산 및 포지션 회계 지원.
   - 지연시간(Latency) 및 취소 한도(Cancel Horizon) 스트레스 테스트 지원.
+- **`research_infra/evaluation.py`**:
+  - `compute_spearman_rank_ic`: 동점(Ties) 발생 시 평균 순위(`rankdata_average`)를 적용하여 왜곡 없는 순위 상관계수 산출.
+  - `compute_directional_diagnostics`: 0이 아닌 실제 가격 변동 표본에 대한 방향 적중률(`nonzero_directional_hit_rate`) 및 0값 비중(`zero_fraction`) 분리 진단.
 
 ### 2) 상태 해석 및 대시보드 API (`src/bithumb_coin_trader/`)
 - **`project_state.py`**:

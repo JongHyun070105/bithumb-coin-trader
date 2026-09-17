@@ -1,19 +1,28 @@
-"""Cross-Exchange Lead-Lag and Causality Research Runner.
+"""Cross-Exchange Lead-Lag and Predictive Research Runner.
 
-Tests Hypotheses X1 to X5:
+Tests Hypotheses X1, X2, X5 on DEV Block D1 (6 hours: 2026-09-12 11:00-16:59 UTC):
 - X1: Binance short return lead (lags: 100ms, 250ms, 500ms, 1s, 2s, 5s) -> Bithumb return
-- X2: Upbit short return lead (lags: 100ms, 250ms, 500ms, 1s, 2s, 5s) -> Bithumb return
-- X3: External aggressive flow (Binance/Upbit signed trade volume) -> Bithumb return
-- X4: External lead * local OBI interaction -> Bithumb return
-- X5: Basis dislocation (Bithumb vs Upbit) mean-reversion
+- X2: Upbit short return lead (lags: 500ms, 1s, 2s) -> Bithumb return
+- X5: Basis dislocation (Bithumb vs Upbit) mean-reversion (30s horizon)
 
-Strict Causal Alignment:
+NOTE ON HYPOTHESIS COMPLETENESS:
+- X1 (96 trials), X2 (24 trials), X5 (4 trials) are fully evaluated (124 total trials).
+- X3 (aggressive trade flow) and X4 (external lead * local OBI interaction) were NOT run
+  due to missing high-resolution trade tape synchronization on the DEV slice.
+
+NOTE ON EXECUTION MODEL:
+- Execution figures (taker_heuristic_score_bps) are LINEAR HEURISTIC SCREENS ONLY.
+- Real future-orderbook execution simulation was NOT run in this screening script;
+  real depth-walking confirmation execution is performed separately in
+  run_cross_exchange_confirmation_execution.py.
+
+Strict As-Of Alignment:
 - external_availability_ns <= bithumb_decision_time_ns (no future leakage, backward as-of only)
 - execution venue: BITHUMB ONLY
 
 Outputs:
 - research-artifacts/cross-exchange/reports/CROSS_EXCHANGE_RESULTS.json
-- appends to research-artifacts/current/TRIAL_LEDGER.jsonl
+- appends/updates research-artifacts/current/TRIAL_LEDGER.jsonl
 """
 
 from __future__ import annotations
@@ -40,9 +49,11 @@ from bithumb_coin_trader.maker_simulator import (
 from bithumb_coin_trader.research_infra.adapters import iter_raw_jsonl_file
 from bithumb_coin_trader.research_infra.canonical_events import CanonicalEvent, EventKind
 from bithumb_coin_trader.research_infra.evaluation import (
+    compute_directional_diagnostics,
     compute_hit_rate,
     compute_information_coefficient,
     compute_spearman_rank_ic,
+    rankdata_average,
 )
 
 V2_DATA = ROOT / "data" / "research" / "v2"
@@ -69,8 +80,16 @@ class CrossExchangeResult:
     pearson_ic: float | None
     spearman_ic: float | None
     hit_rate: float | None
+    nonzero_hit_rate: float | None
+    zero_fraction_feature: float | None
+    zero_fraction_target: float | None
+    tie_rate_feature: float | None
+    tie_rate_target: float | None
+    taker_heuristic_score_bps: float | None
+    maker_heuristic_score_bps: float | None
     bithumb_taker_net_bps: float | None
     bithumb_maker_net_bps: float | None
+    execution_mode: str
     classification: str
     leakage_check_passed: bool
 
@@ -250,22 +269,22 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                         p_ic, _ = compute_information_coefficient(binance_signals, bithumb_returns)
                         s_ic, _ = compute_spearman_rank_ic(binance_signals, bithumb_returns)
                         hr, _ = compute_hit_rate(binance_signals, bithumb_returns, expected_sign="positive")
+                        diag = compute_directional_diagnostics(binance_signals, bithumb_returns, threshold=0.0, expected_sign="positive")
 
-                        # Economic test: if IC is positive, does taker trading on Bithumb survive spread?
-                        # Bithumb spread is ~1.6 bps for BTC, 5.4 bps for XRP
+                        # Heuristic economic screening proxy (NOT real future-book execution)
+                        # Bithumb spread is ~1.6 bps for BTC, 2.9 bps for ETH, 5.4 bps for XRP/SOL
                         bithumb_spread_bps = 1.6 if mkt == "BTC" else (2.9 if mkt == "ETH" else 5.4)
-                        # Expected gross edge ~ p_ic * volatility * return std (approx 0.5 to 1.5 bps)
                         taker_net = (p_ic * 15.0 - bithumb_spread_bps - 0.4) if p_ic else -99.0
                         maker_net = (p_ic * 15.0 - 0.4) if p_ic else -99.0
 
                         if p_ic and p_ic > 0.05 and taker_net > 0:
-                            classification = "CROSS_EXCHANGE_TAKER_VIABLE"
+                            classification = "HEURISTIC_TAKER_VIABLE_NEEDS_CONFIRMATION"
                         elif p_ic and p_ic > 0.05:
-                            classification = "CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY"
+                            classification = "NO_LOOKAHEAD_PREDICTIVE_LEAD"
                         elif p_ic and p_ic > 0.02:
-                            classification = "WEAK_CAUSAL_LEAD"
+                            classification = "WEAK_PREDICTIVE_LEAD"
                         else:
-                            classification = "NO_CAUSAL_LEAD"
+                            classification = "NO_PREDICTIVE_LEAD"
 
                         trial_id = f"X1-BINANCE-LEAD-{mkt}-LAG{lag_ms}MS-HZ{int(hz_s)}S"
                         res = CrossExchangeResult(
@@ -279,8 +298,16 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                             pearson_ic=p_ic,
                             spearman_ic=s_ic,
                             hit_rate=hr,
+                            nonzero_hit_rate=diag["nonzero_directional_hit_rate"],
+                            zero_fraction_feature=diag["zero_fraction_feature"],
+                            zero_fraction_target=diag["zero_fraction_target"],
+                            tie_rate_feature=diag["tie_rate_feature"],
+                            tie_rate_target=diag["tie_rate_target"],
+                            taker_heuristic_score_bps=round(taker_net, 2) if taker_net > -90 else None,
+                            maker_heuristic_score_bps=round(maker_net, 2) if maker_net > -90 else None,
                             bithumb_taker_net_bps=round(taker_net, 2) if taker_net > -90 else None,
                             bithumb_maker_net_bps=round(maker_net, 2) if maker_net > -90 else None,
+                            execution_mode="HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)",
                             classification=classification,
                             leakage_check_passed=leakage_violations == 0,
                         )
@@ -327,6 +354,7 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                         p_ic, _ = compute_information_coefficient(upbit_signals, bithumb_returns)
                         s_ic, _ = compute_spearman_rank_ic(upbit_signals, bithumb_returns)
                         hr, _ = compute_hit_rate(upbit_signals, bithumb_returns, expected_sign="positive")
+                        diag = compute_directional_diagnostics(upbit_signals, bithumb_returns, threshold=0.0, expected_sign="positive")
 
                         trial_id = f"X2-UPBIT-LEAD-{mkt}-LAG{lag_ms}MS-HZ{int(hz_s)}S"
                         res = CrossExchangeResult(
@@ -340,9 +368,17 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                             pearson_ic=p_ic,
                             spearman_ic=s_ic,
                             hit_rate=hr,
+                            nonzero_hit_rate=diag["nonzero_directional_hit_rate"],
+                            zero_fraction_feature=diag["zero_fraction_feature"],
+                            zero_fraction_target=diag["zero_fraction_target"],
+                            tie_rate_feature=diag["tie_rate_feature"],
+                            tie_rate_target=diag["tie_rate_target"],
+                            taker_heuristic_score_bps=None,
+                            maker_heuristic_score_bps=None,
                             bithumb_taker_net_bps=None,
                             bithumb_maker_net_bps=None,
-                            classification="CAUSAL_LEAD_CONFIRMED_PREDICTIVE_ONLY" if p_ic and p_ic > 0.05 else "WEAK_CAUSAL_LEAD",
+                            execution_mode="HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)",
+                            classification="NO_LOOKAHEAD_PREDICTIVE_LEAD" if p_ic and p_ic > 0.05 else "WEAK_PREDICTIVE_LEAD",
                             leakage_check_passed=leakage_violations == 0,
                         )
                         all_results.append(res)
@@ -377,7 +413,7 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
             if len(basis_signals) >= 50:
                 p_ic, _ = compute_information_coefficient(basis_signals, bithumb_future_returns)
                 s_ic, _ = compute_spearman_rank_ic(basis_signals, bithumb_future_returns)
-                # Mean reversion implies negative IC (high Bithumb price relative to Upbit reverts downward)
+                diag = compute_directional_diagnostics(basis_signals, bithumb_future_returns, threshold=0.0, expected_sign="negative")
                 trial_id = f"X5-BASIS-DISLOCATION-{mkt}-30S"
                 res = CrossExchangeResult(
                     trial_id=trial_id,
@@ -389,9 +425,17 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                     n_observations=len(basis_signals),
                     pearson_ic=p_ic,
                     spearman_ic=s_ic,
-                    hit_rate=None,
+                    hit_rate=diag["raw_hit_rate"],
+                    nonzero_hit_rate=diag["nonzero_directional_hit_rate"],
+                    zero_fraction_feature=diag["zero_fraction_feature"],
+                    zero_fraction_target=diag["zero_fraction_target"],
+                    tie_rate_feature=diag["tie_rate_feature"],
+                    tie_rate_target=diag["tie_rate_target"],
+                    taker_heuristic_score_bps=None,
+                    maker_heuristic_score_bps=None,
                     bithumb_taker_net_bps=None,
                     bithumb_maker_net_bps=None,
+                    execution_mode="HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)",
                     classification="PREDICTIVE_BUT_UNTRADEABLE" if p_ic and abs(p_ic) > 0.03 else "NO_MEAN_REVERSION",
                     leakage_check_passed=True,
                 )
@@ -403,34 +447,49 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
     out_file.write_text(json.dumps([r.to_dict() for r in all_results], indent=2))
     print(f"\nWrote {len(all_results)} cross-exchange results to {out_file}")
 
-    # Append to TRIAL_LEDGER
-    with open(TRIAL_LEDGER_PATH, "a") as f:
-        for r in all_results:
-            ledger_entry = {
-                "trial_id": r.trial_id,
-                "cycle": 1,
-                "dataset": DS,
-                "market": r.market,
-                "hypothesis": r.hypothesis,
-                "feature": f"{r.signal_exchange}_lag{r.lag_ms}ms",
-                "horizon": f"{r.target_horizon_s}s",
-                "threshold": "causal_return",
-                "regime": "causal_as_of",
-                "entry_model": "CROSS_EXCHANGE_SIGNAL",
-                "exit_model": "FIXED_HORIZON",
-                "queue_model": "NONE",
-                "latency_ms": r.lag_ms,
-                "fees": "N/A",
-                "signals": r.n_observations,
-                "fills": r.n_observations,
-                "fill_rate": 1.0,
-                "gross_bps": round((r.pearson_ic or 0.0) * 10.0, 3),
-                "net_bps": round(r.bithumb_taker_net_bps or 0.0, 3) if r.bithumb_taker_net_bps is not None else 0.0,
-                "classification": r.classification,
-                "pre_registered": True,
-                "artifact": str(out_file.relative_to(ROOT)),
-            }
-            f.write(json.dumps(ledger_entry) + "\n")
+    # Update TRIAL_LEDGER without duplicate trial_ids
+    existing_entries: list[dict[str, Any]] = []
+    if TRIAL_LEDGER_PATH.exists():
+        with open(TRIAL_LEDGER_PATH, "r", encoding="utf-8") as f:
+            for line in f:
+                if line.strip():
+                    try:
+                        existing_entries.append(json.loads(line))
+                    except Exception:
+                        pass
+
+    # Index by trial_id, preserving existing non-cross-exchange records
+    ledger_map = {e["trial_id"]: e for e in existing_entries}
+    for r in all_results:
+        ledger_entry = {
+            "trial_id": r.trial_id,
+            "cycle": 1,
+            "dataset": DS,
+            "market": r.market,
+            "hypothesis": r.hypothesis,
+            "feature": f"{r.signal_exchange}_lag{r.lag_ms}ms",
+            "horizon": f"{r.target_horizon_s}s",
+            "threshold": "causal_return",
+            "regime": "causal_as_of",
+            "entry_model": "CROSS_EXCHANGE_SIGNAL",
+            "exit_model": "FIXED_HORIZON",
+            "queue_model": "NONE",
+            "latency_ms": r.lag_ms,
+            "fees": "N/A",
+            "signals": r.n_observations,
+            "fills": r.n_observations,
+            "fill_rate": 1.0,
+            "gross_bps": round((r.pearson_ic or 0.0) * 10.0, 3),
+            "net_bps": round(r.taker_heuristic_score_bps or 0.0, 3) if r.taker_heuristic_score_bps is not None else 0.0,
+            "classification": r.classification,
+            "pre_registered": True,
+            "artifact": str(out_file.relative_to(ROOT)),
+        }
+        ledger_map[r.trial_id] = ledger_entry
+
+    with open(TRIAL_LEDGER_PATH, "w", encoding="utf-8") as f:
+        for entry in ledger_map.values():
+            f.write(json.dumps(entry) + "\n")
 
     # Update JOURNAL
     with open(JOURNAL_PATH, "a") as f:
@@ -442,7 +501,9 @@ def run_cross_exchange_study() -> list[CrossExchangeResult]:
                 "trials_evaluated": len(all_results),
                 "strongest_lead": max(all_results, key=lambda r: abs(r.pearson_ic or 0.0)).trial_id if all_results else None,
                 "max_pearson_ic": max((abs(r.pearson_ic or 0.0) for r in all_results), default=0.0),
-                "conclusion": "Causal lead confirmed from Binance and Upbit to Bithumb, but exploitable edge remains insufficient to cross Bithumb spread profitably.",
+                "max_spearman_ic": max((abs(r.spearman_ic or 0.0) for r in all_results), default=0.0),
+                "execution_mode": "HEURISTIC_ECONOMIC_SCREEN (REAL_FUTURE_BOOK_EXECUTION = NOT RUN)",
+                "conclusion": "Predictive lead confirmed from Binance and Upbit to Bithumb without lookahead, but heuristic economic screening indicates taker execution remains insufficient to cross Bithumb spread profitably.",
             })
             + "\n"
         )

@@ -1,12 +1,13 @@
 {
   "title": "Maker Execution Research Consolidated Results (Cycles 1, 2, 3)",
   "status": "COMPLETE",
-  "total_trials": 23,
+  "total_trials": 70,
   "cycles_evaluated": 3,
-  "classification": "MARKET_SPECIFIC_CANDIDATE",
+  "dataset_scope": "DEV Block D1 (6 hours: 2026-09-12 11:00-16:59 UTC)",
+  "classification": "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD (NOT VALIDATED)",
   "findings": {
     "cycle1_baseline": {
-      "trials": 7,
+      "trials": 54,
       "verdict": "COST_KILLED (Unfulfilled passive exits trigger forced market unwinds)",
       "markets": [
         "BTC",
@@ -24,20 +25,25 @@
     },
     "cycle3_discriminating": {
       "trials": 12,
-      "verdict": "MARKET_SPECIFIC_CANDIDATE for XRP with 20s cancel horizon (+1.80 bps Base, +2.20 bps Cons q=0.5)",
+      "verdict": "RETROSPECTIVE_DEV_LEAD for XRP with 20s cancel horizon (+1.80 bps Base, +2.20 bps Cons q=0.5; drops to 17 fills with strict FIFO q=1.0)",
       "markets": [
         "XRP"
       ]
     }
   },
   "best_candidate": {
-    "trial_id": "M1-XRP-CANCEL20S-QM0.5-CONS",
+    "trial_id": "MAKER-C3-XRP-Q0.5-C20S-CONS",
     "market": "XRP",
-    "net_bps": 2.2,
+    "net_bps": 2.19785,
     "fills": 54,
-    "fill_rate": 0.021,
+    "fill_rate": 0.010553,
     "queue_multiplier": 0.5,
-    "cancel_horizon_s": 20.0
+    "queue_ahead_assumption": "0.5x DISPLAYED (OPTIMISTIC_QUEUE_POSITION)",
+    "fill_rule": "CONSERVATIVE",
+    "cancel_horizon_s": 20.0,
+    "hour_consistency": 0.6667,
+    "dataset_scope": "DEV Block D1 (6 hours: 2026-09-12 11:00-16:59 UTC)",
+    "scientific_status": "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD (Requires prospective test on sealed VAL; drops to 17 fills under strict FIFO queue_multiplier=1.0)"
   },
   "cycles": {
     "cycle1": {
@@ -1847,7 +1853,7 @@
         "total_net_krw": 0.22073600000003538,
         "inventory_duration_s_mean": 10.81875925925926,
         "hour_consistency": 0.6666666666666666,
-        "classification": "MAKER_CANDIDATE"
+        "classification": "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD"
       },
       {
         "trial_id": "MAKER-C3-XRP-Q1.0-C5S-BASE",
@@ -1987,7 +1993,7 @@
         "total_net_krw": 8.555540000000875,
         "inventory_duration_s_mean": 11.812867318982388,
         "hour_consistency": 1.0,
-        "classification": "MAKER_CANDIDATE"
+        "classification": "RETROSPECTIVE_DEV_MARKET_SPECIFIC_LEAD"
       },
       {
         "trial_id": "MAKER-C3-XRP-Q1.0-C20S-CONS",

@@ -20,6 +20,7 @@ from bithumb_coin_trader.maker_simulator import (
     MakerAssumptions,
     FillModel,
     OrderStatus,
+    MakerFill,
 )
 from bithumb_coin_trader.research_infra.canonical_events import (
     CanonicalEvent,
@@ -377,3 +378,89 @@ class TestMakerSimulatorSellSymmetry:
         assert fill.order.side == "SELL"
         assert fill.fill_quantity == 1.0
         assert fill.fill_price == 100_000_000
+
+
+class TestMakerResearchArtifactIntegrity:
+    """Verify Maker research artifacts consistency and accounting integrity."""
+
+    def test_maker_total_trials_aggregation_equals_70(self):
+        """Regression test for the 23 vs 70 aggregation bug."""
+        import json
+        from pathlib import Path
+
+        report_path = Path("research-artifacts/maker/reports/MAKER_RESULTS.json")
+        assert report_path.exists(), "MAKER_RESULTS.json must exist"
+
+        with open(report_path) as f:
+            data = json.load(f)
+
+        assert data["total_trials"] == 70, f"Expected 70 total trials, got {data['total_trials']}"
+        assert data["findings"]["cycle1_baseline"]["trials"] == 54
+        assert data["findings"]["cycle2_refinement"]["trials"] == 4
+        assert data["findings"]["cycle3_discriminating"]["trials"] == 12
+
+        # Verify sum across cycles (cycle1 is dict with 'results', cycle2 and cycle3 are lists of scenarios)
+        cycle1_count = len(data["cycles"]["cycle1"]["results"])
+        cycle2_count = len(data["cycles"]["cycle2"]) if isinstance(data["cycles"]["cycle2"], list) else len(data["cycles"]["cycle2"]["results"])
+        cycle3_count = len(data["cycles"]["cycle3"]) if isinstance(data["cycles"]["cycle3"], list) else len(data["cycles"]["cycle3"]["results"])
+        assert cycle1_count == 54
+        assert cycle2_count == 4
+        assert cycle3_count == 12
+        assert cycle1_count + cycle2_count + cycle3_count == 70
+
+    def test_maker_best_xrp_candidate_metrics(self):
+        """Verify best candidate trial ID and exact metrics."""
+        import json
+        from pathlib import Path
+
+        report_path = Path("research-artifacts/maker/reports/MAKER_RESULTS.json")
+        with open(report_path) as f:
+            data = json.load(f)
+
+        best = data["best_candidate"]
+        assert best["trial_id"] == "MAKER-C3-XRP-Q0.5-C20S-CONS"
+        assert best["fills"] == 54
+        assert abs(best["fill_rate"] - 0.010553) < 1e-4
+        assert abs(best["net_bps"] - 2.19785) < 1e-3
+        assert best["queue_multiplier"] == 0.5
+
+    def test_maker_partial_fill_accounting_no_dropped_position(self):
+        """Verify partial passive exit unwinds remainder with taker exit without dropping quantity."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.CONSERVATIVE,
+            latency_ms=10.0,
+            cancellation_horizon_s=0.1,  # 100ms cancel horizon
+            holding_horizon_s=0.5,
+            maker_fee_rate=0.0,
+            taker_fee_rate=0.0004,
+        ))
+        t0 = 1_000_000_000_000
+
+        # Entry fill: 1.0 BTC at 100_000_000
+        entry = MakerFill(
+            order=sim.create_order("BUY", 100_000_000, 1.0, t0),
+            status=OrderStatus.FILLED,
+            fill_price=100_000_000.0,
+            fill_quantity=1.0,
+            fill_timestamp_ns=t0 + 50_000_000,
+        )
+
+        # Future events:
+        # 1. Orderbook at t0 + 60ms setting ask at 100_020_000 with depth 0.4
+        # 2. Trade at t0 + 80ms (after effective ts t0+60ms) buying 0.4 at 100_020_000 -> partial fill
+        # 3. Orderbook at t0 + 200ms (after cancel ts t0+160ms) with bid at 100_010_000 for remainder market unwind
+        events = [
+            _make_ob(t0 + 60_000_000, [[100_000_000, 1.0]], [[100_020_000, 0.4]]),
+            _make_trade(t0 + 80_000_000, 100_020_000, 0.4, "BUY"),
+            _make_ob(t0 + 200_000_000, [[100_010_000, 2.0]], [[100_030_000, 2.0]]),
+        ]
+
+        trip = sim.simulate_variant_b(entry, events)
+        # Quantity must be full 1.0 (not truncated to 0.4)
+        assert trip.quantity == 1.0
+        assert trip.exit_type == "PARTIAL_PASSIVE_WITH_TAKER_UNWIND"
+        assert trip.entry_price == 100_000_000.0
+        # Blended exit price: (0.4 * 100_020_000 + 0.6 * 100_010_000) / 1.0 = 100_014_000.0
+        assert abs(trip.exit_price - 100_014_000.0) < 1e-3
+        assert trip.gross_bps > 0
+
