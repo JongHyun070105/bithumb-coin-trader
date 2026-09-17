@@ -1,0 +1,13 @@
+{
+  "engineering_complete": true,
+  "local_failure_injection_pass": true,
+  "accelerated_boundary_test_pass": true,
+  "aws_90m_soak": "NOT_RUN",
+  "aws_3h_soak": "NOT_RUN",
+  "aws_6h_soak": "NOT_RUN",
+  "observer_verified_independent": true,
+  "terminal_witness_verified": true,
+  "hour_close_canary_verified": true,
+  "final_full_test_gate": true,
+  "v5_30h_go_no_go": "NOT_DECIDED"
+}

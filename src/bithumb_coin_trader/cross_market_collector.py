@@ -25,6 +25,20 @@ import uuid
 
 import websockets
 
+from bithumb_coin_trader.collector_state_model import (
+    CollectorHealth,
+    ComponentHealthState,
+    CurrentCohortHealth,
+    EvidenceHealth,
+    LastExceptionInfo,
+    ResourceTelemetry,
+    RuntimeHealthSnapshot,
+    SupervisorHealth,
+    WriterHealth,
+    compute_exception_hash,
+    utc_iso_now,
+    write_health_snapshot_atomic,
+)
 from bithumb_coin_trader.feed_hour_coverage import (
     DataArtifactBinding,
     FeedHourCoverage,
@@ -218,6 +232,9 @@ class MultiExchangeMicrostructureCollector:
         collector_config_fingerprint: str = "NOT-SEALED",
         collector_git_commit: str = "HEAD",
         utc_now: Callable[[], datetime] | None = None,
+        health_path: Path | str | None = None,
+        runtime_dir: Path | str | None = None,
+        health_interval_seconds: float = 10.0,
     ) -> None:
         run_id = collector_run_id or uuid.uuid4().hex
         if not SEALED_IDENTIFIER.fullmatch(environment_id):
@@ -244,6 +261,29 @@ class MultiExchangeMicrostructureCollector:
         self.collector_git_commit = collector_git_commit
         self._utc_now = utc_now or (lambda: datetime.now(timezone.utc))
         self.is_running = False
+        self.health_interval_seconds = float(health_interval_seconds)
+
+        if health_path is not None:
+            self.health_path: Path = Path(health_path)
+        elif runtime_dir is not None:
+            self.health_path = Path(runtime_dir) / "health" / "latest.json"
+        else:
+            self.health_path = self.storage.base_dir.parent / "health" / "latest.json"
+
+        self._last_loop_heartbeat: str | None = None
+        self._last_canonical_event: str | None = None
+        self.last_websocket_activity: dict[str, str | None] = {
+            "bithumb": None,
+            "binance": None,
+            "upbit": None,
+        }
+        self.websocket_sessions: dict[str, str] = {
+            "bithumb": "DISCONNECTED",
+            "binance": "DISCONNECTED",
+            "upbit": "DISCONNECTED",
+        }
+        self._last_dequeue_time: str | None = None
+        self._last_local_raw_write: str | None = None
 
         self.metrics: dict[str, CollectorMetrics] = {
             "bithumb": CollectorMetrics(exchange="bithumb"),
@@ -321,6 +361,9 @@ class MultiExchangeMicrostructureCollector:
         if self._write_queue.full():
             metric.queue_backpressure_events += 1
             logger.warning("[%s] Write queue full; applying backpressure.", exchange.capitalize())
+        recv_iso = recv_ts.isoformat()
+        self._last_canonical_event = recv_iso
+        self.last_websocket_activity[exchange] = recv_iso
         await self._write_queue.put(
             (
                 exchange,
@@ -399,6 +442,190 @@ class MultiExchangeMicrostructureCollector:
             ),
         )
 
+    def _get_latest_websocket_activity(self) -> str | None:
+        valid_ts = [ts for ts in self.last_websocket_activity.values() if ts is not None]
+        if not valid_ts:
+            return None
+        return max(valid_ts)
+
+    def emit_health_snapshot(self) -> RuntimeHealthSnapshot:
+        """Atomically emit a RuntimeHealthSnapshot to self.health_path."""
+        now_dt = self._utc_now()
+        now_iso = now_dt.isoformat()
+        self._last_loop_heartbeat = now_iso
+
+        # 1. Collector status
+        if self._fatal_writer_error is not None:
+            collector_status = ComponentHealthState.FAILED.value
+        elif self.is_running:
+            active_sessions = [
+                self.websocket_sessions.get("bithumb", "DISCONNECTED"),
+            ]
+            if self.enable_binance:
+                active_sessions.append(self.websocket_sessions.get("binance", "DISCONNECTED"))
+            if self.enable_upbit:
+                active_sessions.append(self.websocket_sessions.get("upbit", "DISCONNECTED"))
+
+            if all(s == "CONNECTED" for s in active_sessions):
+                collector_status = ComponentHealthState.HEALTHY.value
+            elif any(s == "CONNECTED" for s in active_sessions):
+                collector_status = ComponentHealthState.DEGRADED.value
+            else:
+                collector_status = ComponentHealthState.DEGRADED.value
+        else:
+            collector_status = ComponentHealthState.UNKNOWN.value
+
+        total_reconnects = sum(m.reconnect_count for m in self.metrics.values())
+        fatal_error_str = (
+            f"{type(self._fatal_writer_error).__name__}: {self._fatal_writer_error}"
+            if self._fatal_writer_error is not None
+            else None
+        )
+
+        collector_health = CollectorHealth(
+            status=collector_status,
+            last_loop_heartbeat=self._last_loop_heartbeat,
+            last_websocket_activity=self._get_latest_websocket_activity(),
+            last_canonical_event=self._last_canonical_event,
+            websocket_sessions=dict(self.websocket_sessions),
+            reconnect_count=total_reconnects,
+            fatal_error=fatal_error_str,
+        )
+
+        # 2. Writer status
+        if self._fatal_writer_error is not None:
+            writer_status = ComponentHealthState.FAILED.value
+        elif self.is_running:
+            if self._write_queue.full():
+                writer_status = ComponentHealthState.DEGRADED.value
+            else:
+                writer_status = ComponentHealthState.HEALTHY.value
+        else:
+            writer_status = ComponentHealthState.UNKNOWN.value
+
+        total_writer_errors = sum(m.writer_errors for m in self.metrics.values())
+        writer_health = WriterHealth(
+            status=writer_status,
+            queue_depth=self._write_queue.qsize(),
+            max_queue_depth=self._write_queue.maxsize,
+            last_dequeue=self._last_dequeue_time,
+            last_local_raw_write=self._last_local_raw_write,
+            current_open_raw_count=len(self._current_active_partition_files()),
+            unpersisted_count=self._unpersisted_event_count,
+            writer_errors=total_writer_errors,
+        )
+
+        # 3. Evidence & Current cohort
+        evidence_health = EvidenceHealth(
+            status=ComponentHealthState.HEALTHY.value if self.is_running else ComponentHealthState.UNKNOWN.value,
+            current_hour_expected_slots=len(self.configured_feeds),
+            current_hour_terminal_slots=len(self._frozen_observations),
+        )
+
+        current_cohort = CurrentCohortHealth(
+            utc_hour=now_dt.strftime("%Y-%m-%d_%H"),
+            observed_feed_count=len(self._latest_partition_by_feed),
+            expected_feed_count=len(self.configured_feeds),
+        )
+
+        # 4. Resources
+        rss_bytes = 0
+        try:
+            import resource
+            import sys
+            ru = resource.getrusage(resource.RUSAGE_SELF)
+            if sys.platform == "darwin":
+                rss_bytes = int(ru.ru_maxrss)
+            else:
+                rss_bytes = int(ru.ru_maxrss * 1024)
+        except Exception:
+            pass
+
+        disk_free = 0
+        disk_used = 0
+        try:
+            import shutil
+            usage = shutil.disk_usage(self.storage.base_dir)
+            disk_free = int(usage.free)
+            disk_used = int(usage.used)
+        except Exception:
+            pass
+
+        fd_count = 0
+        try:
+            proc_fd_dir = f"/proc/{os.getpid()}/fd"
+            if os.path.isdir(proc_fd_dir):
+                fd_count = len(os.listdir(proc_fd_dir))
+            else:
+                import resource as _resource
+                fd_count = _resource.getrlimit(_resource.RLIMIT_NOFILE)[0]
+        except Exception:
+            pass
+
+        resources = ResourceTelemetry(
+            rss_bytes=rss_bytes,
+            fd_count=fd_count,
+            disk_free_bytes=disk_free,
+            disk_used_bytes=disk_used,
+        )
+
+        # 5. Last Exception
+        last_exception = LastExceptionInfo()
+        if self._fatal_writer_error is not None:
+            last_exception = LastExceptionInfo(
+                component="writer",
+                type=type(self._fatal_writer_error).__name__,
+                message_hash=compute_exception_hash(str(self._fatal_writer_error)),
+                timestamp=now_iso,
+            )
+
+        snapshot = RuntimeHealthSnapshot(
+            schema_version=1,
+            epoch=self.collector_epoch,
+            run_id=self._collector_run_id,
+            software_sha=self.collector_git_commit,
+            config_fingerprint=self.collector_config_fingerprint,
+            observed_at=now_iso,
+            supervisor=SupervisorHealth(
+                pid=os.getpid(),
+                process_start=self._collector_started_at,
+                active_state="active" if self.is_running else "inactive",
+            ),
+            collector=collector_health,
+            writer=writer_health,
+            evidence=evidence_health,
+            resources=resources,
+            current_cohort=current_cohort,
+            last_exception=last_exception,
+        )
+
+        if self.health_path is not None:
+            write_health_snapshot_atomic(self.health_path, snapshot)
+
+        return snapshot
+
+    async def _health_worker(self) -> None:
+        loop = asyncio.get_event_loop()
+        while self.is_running or not self._write_queue.empty():
+            try:
+                await loop.run_in_executor(None, self.emit_health_snapshot)
+            except Exception as error:
+                logger.error("Failed to emit health snapshot: %s", error)
+            # systemd watchdog notification (best-effort, no-op if not running under systemd)
+            try:
+                import systemd.daemon  # pyright: ignore[reportMissingImports]
+                systemd.daemon.notify("WATCHDOG=1")
+            except Exception:
+                pass
+            try:
+                await asyncio.sleep(self.health_interval_seconds)
+            except asyncio.CancelledError:
+                break
+        try:
+            self.emit_health_snapshot()
+        except Exception as error:
+            logger.error("Failed to emit final health snapshot: %s", error)
+
     async def _process_writer_item(
         self,
         item: tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str],
@@ -418,6 +645,7 @@ class MultiExchangeMicrostructureCollector:
             write_ts = write_ts.replace(tzinfo=timezone.utc)
         else:
             write_ts = write_ts.astimezone(timezone.utc)
+        self._last_dequeue_time = write_ts.isoformat()
 
         cohort_utc = write_ts.strftime("%Y-%m-%d_%H")
 
@@ -467,6 +695,7 @@ class MultiExchangeMicrostructureCollector:
             collector_run_id,
             write_ts=write_ts,
         )
+        self._last_local_raw_write = write_ts.isoformat()
 
         # POST-APPEND: record persisted event in FeedHourCoverageTracker only AFTER append succeeds
         self.coverage_tracker.record_persisted_event(feed_id, write_ts)
@@ -733,6 +962,7 @@ class MultiExchangeMicrostructureCollector:
                     timeout_val = float(timeout) if timeout > 0 else 0.001
                     await asyncio.wait_for(pong_waiter, timeout=timeout_val)
                     now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    self.last_websocket_activity[exchange] = self._utc_now().isoformat()
                     self.session_evidence.record_heartbeat(session_id, now_utc, kind="PING_PONG")
                 except (asyncio.TimeoutError, TimeoutError):
                     now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -766,88 +996,98 @@ class MultiExchangeMicrostructureCollector:
             for stream in ("orderbook", "trade", "ticker")
         ]
 
-        while self.is_running:
-            ticket = f"bithumb_v9_{uuid.uuid4().hex[:8]}"
-            payload = json.dumps([
-                {"ticket": ticket},
-                {"type": "orderbook", "codes": self.bithumb_markets},
-                {"type": "trade", "codes": self.bithumb_markets},
-                {"type": "ticker", "codes": self.bithumb_markets},
-                {"format": "DEFAULT"},
-            ])
-            try:
-                m.connected_at = time.time()
-                now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                prev_session_id = session_id
-                session_id = self.session_evidence.open_session("bithumb", requested_feeds, now_str)
-                if prev_session_id is not None:
-                    prev_sess = self.session_evidence._sessions.get(prev_session_id)
-                    if prev_sess is not None and prev_sess.reconnect_successor_id is None:
-                        prev_sess.reconnect_successor_id = session_id
+        try:
+            while self.is_running:
+                self.websocket_sessions["bithumb"] = "RECONNECTING"
+                ticket = f"bithumb_v9_{uuid.uuid4().hex[:8]}"
+                payload = json.dumps([
+                    {"ticket": ticket},
+                    {"type": "orderbook", "codes": self.bithumb_markets},
+                    {"type": "trade", "codes": self.bithumb_markets},
+                    {"type": "ticker", "codes": self.bithumb_markets},
+                    {"format": "DEFAULT"},
+                ])
+                try:
+                    m.connected_at = time.time()
+                    now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    prev_session_id = session_id
+                    session_id = self.session_evidence.open_session("bithumb", requested_feeds, now_str)
+                    if prev_session_id is not None:
+                        prev_sess = self.session_evidence._sessions.get(prev_session_id)
+                        if prev_sess is not None and prev_sess.reconnect_successor_id is None:
+                            prev_sess.reconnect_successor_id = session_id
 
-                async with websockets.connect(BITHUMB_WS_URL, ping_interval=None) as ws:
-                    logger.info(f"[Bithumb] Connected. Subscribing {len(self.bithumb_markets)} markets...")
-                    await ws.send(payload)
-                    backoff = 1.0
-                    hb_task = asyncio.create_task(self._heartbeat_loop(ws, "bithumb", session_id))
+                    async with websockets.connect(BITHUMB_WS_URL, ping_interval=None) as ws:
+                        self.websocket_sessions["bithumb"] = "CONNECTED"
+                        logger.info(f"[Bithumb] Connected. Subscribing {len(self.bithumb_markets)} markets...")
+                        await ws.send(payload)
+                        backoff = 1.0
+                        hb_task = asyncio.create_task(self._heartbeat_loop(ws, "bithumb", session_id))
 
-                    try:
-                        while self.is_running:
-                            try:
-                                msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
-                            except asyncio.TimeoutError:
-                                logger.warning("[Bithumb] Connection-level stale stream (30s timeout). Reconnecting...")
-                                m.last_reconnect_reason = "connection_stale_30s"
-                                m.disconnect_count += 1
-                                m.reconnect_count += 1
-                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                                if session_id is not None:
-                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
-                                break
+                        try:
+                            while self.is_running:
+                                try:
+                                    msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                                except asyncio.TimeoutError:
+                                    logger.warning("[Bithumb] Connection-level stale stream (30s timeout). Reconnecting...")
+                                    m.last_reconnect_reason = "connection_stale_30s"
+                                    m.disconnect_count += 1
+                                    m.reconnect_count += 1
+                                    self.websocket_sessions["bithumb"] = "DISCONNECTED"
+                                    now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                    if session_id is not None:
+                                        self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
+                                    break
 
-                            recv_ts = self._utc_now()
-                            recv_monotonic_ns = time.monotonic_ns()
-                            raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
-                            m.total_messages_received += 1
-                            m.total_bytes_received += len(raw_bytes)
-                            m.last_connection_event_time = time.time()
+                                recv_ts = self._utc_now()
+                                recv_monotonic_ns = time.monotonic_ns()
+                                self.last_websocket_activity["bithumb"] = recv_ts.isoformat()
+                                raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
+                                m.total_messages_received += 1
+                                m.total_bytes_received += len(raw_bytes)
+                                m.last_connection_event_time = time.time()
 
-                            try:
-                                stream, market, data, exch_ts = parse_bithumb_message(raw_bytes)
-                                if stream == "trade":
-                                    m.trade_messages += 1
-                                elif stream == "orderbook":
-                                    m.orderbook_messages += 1
-                                elif stream == "ticker":
-                                    m.ticker_messages += 1
+                                try:
+                                    stream, market, data, exch_ts = parse_bithumb_message(raw_bytes)
+                                    if stream == "trade":
+                                        m.trade_messages += 1
+                                    elif stream == "orderbook":
+                                        m.orderbook_messages += 1
+                                    elif stream == "ticker":
+                                        m.ticker_messages += 1
 
-                                self.session_evidence.record_heartbeat(
-                                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
-                                )
-                                self._confirm_bithumb_feed(session_id, stream, market, data)
+                                    self.session_evidence.record_heartbeat(
+                                        session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                                    )
+                                    self._confirm_bithumb_feed(session_id, stream, market, data)
 
-                                await self._enqueue(
-                                    "bithumb", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
-                                )
-                            except Exception as e:
-                                m.malformed_quarantined += 1
-                                self.storage.quarantine_malformed_record("bithumb", raw_bytes, str(e), recv_ts)
-                    finally:
-                        hb_task.cancel()
-                        await asyncio.gather(hb_task, return_exceptions=True)
+                                    await self._enqueue(
+                                        "bithumb", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
+                                    )
+                                except Exception as e:
+                                    m.malformed_quarantined += 1
+                                    self.storage.quarantine_malformed_record("bithumb", raw_bytes, str(e), recv_ts)
+                        finally:
+                            self.websocket_sessions["bithumb"] = "DISCONNECTED"
+                            hb_task.cancel()
+                            await asyncio.gather(hb_task, return_exceptions=True)
 
-            except Exception as e:
-                m.disconnect_count += 1
-                m.last_reconnect_reason = str(e)
-                if session_id is not None:
-                    sess = self.session_evidence._sessions.get(session_id)
-                    if sess is not None and sess.disconnected_at_utc is None:
-                        disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                        self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
-                logger.warning(f"[Bithumb] Disconnected: {e}. Backoff {backoff:.1f}s...")
-                await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
-                backoff = min(30.0, backoff * 2.0)
-                m.reconnect_count += 1
+                except Exception as e:
+                    self.websocket_sessions["bithumb"] = "DISCONNECTED"
+                    m.disconnect_count += 1
+                    m.last_reconnect_reason = str(e)
+                    if session_id is not None:
+                        sess = self.session_evidence._sessions.get(session_id)
+                        if sess is not None and sess.disconnected_at_utc is None:
+                            disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                            self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
+                    logger.warning(f"[Bithumb] Disconnected: {e}. Backoff {backoff:.1f}s...")
+                    self.websocket_sessions["bithumb"] = "RECONNECTING"
+                    await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
+                    backoff = min(30.0, backoff * 2.0)
+                    m.reconnect_count += 1
+        finally:
+            self.websocket_sessions["bithumb"] = "DISCONNECTED"
 
     # -------------------------------------------------------------------------
     # Binance WebSocket Loop
@@ -855,6 +1095,7 @@ class MultiExchangeMicrostructureCollector:
     async def _binance_loop(self) -> None:
         m = self.metrics["binance"]
         if not self.enable_binance or not self.binance_symbols:
+            self.websocket_sessions["binance"] = "DISCONNECTED"
             return
 
         backoff = 1.0
@@ -868,80 +1109,90 @@ class MultiExchangeMicrostructureCollector:
             for stream in ("trade", "orderbook")
         ]
 
-        while self.is_running:
-            try:
-                m.connected_at = time.time()
-                now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                prev_session_id = session_id
-                session_id = self.session_evidence.open_session("binance", requested_feeds, now_str)
-                if prev_session_id is not None:
-                    prev_sess = self.session_evidence._sessions.get(prev_session_id)
-                    if prev_sess is not None and prev_sess.reconnect_successor_id is None:
-                        prev_sess.reconnect_successor_id = session_id
+        try:
+            while self.is_running:
+                self.websocket_sessions["binance"] = "RECONNECTING"
+                try:
+                    m.connected_at = time.time()
+                    now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    prev_session_id = session_id
+                    session_id = self.session_evidence.open_session("binance", requested_feeds, now_str)
+                    if prev_session_id is not None:
+                        prev_sess = self.session_evidence._sessions.get(prev_session_id)
+                        if prev_sess is not None and prev_sess.reconnect_successor_id is None:
+                            prev_sess.reconnect_successor_id = session_id
 
-                async with websockets.connect(combined_url, ping_interval=None) as ws:
-                    logger.info(f"[Binance] Connected to {len(self.binance_symbols)} benchmark streams...")
-                    backoff = 1.0
+                    async with websockets.connect(combined_url, ping_interval=None) as ws:
+                        self.websocket_sessions["binance"] = "CONNECTED"
+                        logger.info(f"[Binance] Connected to {len(self.binance_symbols)} benchmark streams...")
+                        backoff = 1.0
 
-                    req_id = req_counter
-                    req_counter += 1
-                    await self._confirm_binance_subscriptions(ws, session_id, req_id)
+                        req_id = req_counter
+                        req_counter += 1
+                        await self._confirm_binance_subscriptions(ws, session_id, req_id)
 
-                    hb_task = asyncio.create_task(self._heartbeat_loop(ws, "binance", session_id))
-                    try:
-                        while self.is_running:
-                            try:
-                                msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
-                            except asyncio.TimeoutError:
-                                logger.warning("[Binance] Connection-level stale stream (30s timeout). Reconnecting...")
-                                m.last_reconnect_reason = "connection_stale_30s"
-                                m.disconnect_count += 1
-                                m.reconnect_count += 1
-                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                                if session_id is not None:
-                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
-                                break
+                        hb_task = asyncio.create_task(self._heartbeat_loop(ws, "binance", session_id))
+                        try:
+                            while self.is_running:
+                                try:
+                                    msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                                except asyncio.TimeoutError:
+                                    logger.warning("[Binance] Connection-level stale stream (30s timeout). Reconnecting...")
+                                    m.last_reconnect_reason = "connection_stale_30s"
+                                    m.disconnect_count += 1
+                                    m.reconnect_count += 1
+                                    self.websocket_sessions["binance"] = "DISCONNECTED"
+                                    now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                    if session_id is not None:
+                                        self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
+                                    break
 
-                            recv_ts = self._utc_now()
-                            recv_monotonic_ns = time.monotonic_ns()
-                            raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
-                            m.total_messages_received += 1
-                            m.total_bytes_received += len(raw_bytes)
-                            m.last_connection_event_time = time.time()
+                                recv_ts = self._utc_now()
+                                recv_monotonic_ns = time.monotonic_ns()
+                                self.last_websocket_activity["binance"] = recv_ts.isoformat()
+                                raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
+                                m.total_messages_received += 1
+                                m.total_bytes_received += len(raw_bytes)
+                                m.last_connection_event_time = time.time()
 
-                            try:
-                                stream_name, sym, data, exch_ts = parse_binance_message(raw_bytes)
-                                if stream_name == "trade":
-                                    m.trade_messages += 1
-                                else:
-                                    m.orderbook_messages += 1
+                                try:
+                                    stream_name, sym, data, exch_ts = parse_binance_message(raw_bytes)
+                                    if stream_name == "trade":
+                                        m.trade_messages += 1
+                                    else:
+                                        m.orderbook_messages += 1
 
-                                self.session_evidence.record_heartbeat(
-                                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
-                                )
+                                    self.session_evidence.record_heartbeat(
+                                        session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                                    )
 
-                                await self._enqueue(
-                                    "binance", stream_name, sym, data, recv_ts, exch_ts, recv_monotonic_ns
-                                )
-                            except Exception as e:
-                                m.malformed_quarantined += 1
-                                self.storage.quarantine_malformed_record("binance", raw_bytes, str(e), recv_ts)
-                    finally:
-                        hb_task.cancel()
-                        await asyncio.gather(hb_task, return_exceptions=True)
+                                    await self._enqueue(
+                                        "binance", stream_name, sym, data, recv_ts, exch_ts, recv_monotonic_ns
+                                    )
+                                except Exception as e:
+                                    m.malformed_quarantined += 1
+                                    self.storage.quarantine_malformed_record("binance", raw_bytes, str(e), recv_ts)
+                        finally:
+                            self.websocket_sessions["binance"] = "DISCONNECTED"
+                            hb_task.cancel()
+                            await asyncio.gather(hb_task, return_exceptions=True)
 
-            except Exception as e:
-                m.disconnect_count += 1
-                m.last_reconnect_reason = str(e)
-                if session_id is not None:
-                    sess = self.session_evidence._sessions.get(session_id)
-                    if sess is not None and sess.disconnected_at_utc is None:
-                        disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                        self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
-                logger.warning(f"[Binance] Disconnected: {e}. Backoff {backoff:.1f}s...")
-                await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
-                backoff = min(30.0, backoff * 2.0)
-                m.reconnect_count += 1
+                except Exception as e:
+                    self.websocket_sessions["binance"] = "DISCONNECTED"
+                    m.disconnect_count += 1
+                    m.last_reconnect_reason = str(e)
+                    if session_id is not None:
+                        sess = self.session_evidence._sessions.get(session_id)
+                        if sess is not None and sess.disconnected_at_utc is None:
+                            disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                            self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
+                    logger.warning(f"[Binance] Disconnected: {e}. Backoff {backoff:.1f}s...")
+                    self.websocket_sessions["binance"] = "RECONNECTING"
+                    await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
+                    backoff = min(30.0, backoff * 2.0)
+                    m.reconnect_count += 1
+        finally:
+            self.websocket_sessions["binance"] = "DISCONNECTED"
 
     # -------------------------------------------------------------------------
     # Upbit WebSocket Loop
@@ -949,6 +1200,7 @@ class MultiExchangeMicrostructureCollector:
     async def _upbit_loop(self) -> None:
         m = self.metrics["upbit"]
         if not self.enable_upbit or not self.upbit_markets:
+            self.websocket_sessions["upbit"] = "DISCONNECTED"
             return
 
         backoff = 1.0
@@ -960,93 +1212,104 @@ class MultiExchangeMicrostructureCollector:
             for stream in ("orderbook", "trade")
         ]
 
-        while self.is_running:
-            ticket = f"upbit_v9_{uuid.uuid4().hex[:8]}"
-            payload = json.dumps([
-                {"ticket": ticket},
-                {"type": "orderbook", "codes": self.upbit_markets},
-                {"type": "trade", "codes": self.upbit_markets},
-                {"format": "DEFAULT"},
-            ])
-            try:
-                m.connected_at = time.time()
-                now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                prev_session_id = session_id
-                session_id = self.session_evidence.open_session("upbit", requested_feeds, now_str)
-                if prev_session_id is not None:
-                    prev_sess = self.session_evidence._sessions.get(prev_session_id)
-                    if prev_sess is not None and prev_sess.reconnect_successor_id is None:
-                        prev_sess.reconnect_successor_id = session_id
+        try:
+            while self.is_running:
+                self.websocket_sessions["upbit"] = "RECONNECTING"
+                ticket = f"upbit_v9_{uuid.uuid4().hex[:8]}"
+                payload = json.dumps([
+                    {"ticket": ticket},
+                    {"type": "orderbook", "codes": self.upbit_markets},
+                    {"type": "trade", "codes": self.upbit_markets},
+                    {"format": "DEFAULT"},
+                ])
+                try:
+                    m.connected_at = time.time()
+                    now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    prev_session_id = session_id
+                    session_id = self.session_evidence.open_session("upbit", requested_feeds, now_str)
+                    if prev_session_id is not None:
+                        prev_sess = self.session_evidence._sessions.get(prev_session_id)
+                        if prev_sess is not None and prev_sess.reconnect_successor_id is None:
+                            prev_sess.reconnect_successor_id = session_id
 
-                async with websockets.connect(UPBIT_WS_URL, ping_interval=None) as ws:
-                    logger.info(f"[Upbit] Connected to {len(self.upbit_markets)} benchmark streams...")
-                    await ws.send(payload)
-                    backoff = 1.0
+                    async with websockets.connect(UPBIT_WS_URL, ping_interval=None) as ws:
+                        self.websocket_sessions["upbit"] = "CONNECTED"
+                        logger.info(f"[Upbit] Connected to {len(self.upbit_markets)} benchmark streams...")
+                        await ws.send(payload)
+                        backoff = 1.0
 
-                    list_ticket = f"upbit_list_{ticket}"
-                    await self._confirm_upbit_subscriptions(ws, session_id, list_ticket)
+                        list_ticket = f"upbit_list_{ticket}"
+                        await self._confirm_upbit_subscriptions(ws, session_id, list_ticket)
 
-                    hb_task = asyncio.create_task(self._heartbeat_loop(ws, "upbit", session_id))
-                    try:
-                        while self.is_running:
-                            try:
-                                msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
-                            except asyncio.TimeoutError:
-                                logger.warning("[Upbit] Connection-level stale stream (30s timeout). Reconnecting...")
-                                m.last_reconnect_reason = "connection_stale_30s"
-                                m.disconnect_count += 1
-                                m.reconnect_count += 1
-                                now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                                if session_id is not None:
-                                    self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
-                                break
+                        hb_task = asyncio.create_task(self._heartbeat_loop(ws, "upbit", session_id))
+                        try:
+                            while self.is_running:
+                                try:
+                                    msg = await asyncio.wait_for(ws.recv(), timeout=30.0)
+                                except asyncio.TimeoutError:
+                                    logger.warning("[Upbit] Connection-level stale stream (30s timeout). Reconnecting...")
+                                    m.last_reconnect_reason = "connection_stale_30s"
+                                    m.disconnect_count += 1
+                                    m.reconnect_count += 1
+                                    self.websocket_sessions["upbit"] = "DISCONNECTED"
+                                    now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                                    if session_id is not None:
+                                        self.session_evidence.close_session(session_id, now_utc, reason="connection_stale_30s")
+                                    break
 
-                            recv_ts = self._utc_now()
-                            recv_monotonic_ns = time.monotonic_ns()
-                            raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
-                            m.total_messages_received += 1
-                            m.total_bytes_received += len(raw_bytes)
-                            m.last_connection_event_time = time.time()
+                                recv_ts = self._utc_now()
+                                recv_monotonic_ns = time.monotonic_ns()
+                                self.last_websocket_activity["upbit"] = recv_ts.isoformat()
+                                raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
+                                m.total_messages_received += 1
+                                m.total_bytes_received += len(raw_bytes)
+                                m.last_connection_event_time = time.time()
 
-                            try:
-                                stream, market, data, exch_ts = parse_upbit_message(raw_bytes)
-                                if stream == "trade":
-                                    m.trade_messages += 1
-                                else:
-                                    m.orderbook_messages += 1
+                                try:
+                                    stream, market, data, exch_ts = parse_upbit_message(raw_bytes)
+                                    if stream == "trade":
+                                        m.trade_messages += 1
+                                    else:
+                                        m.orderbook_messages += 1
 
-                                self.session_evidence.record_heartbeat(
-                                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
-                                )
+                                    self.session_evidence.record_heartbeat(
+                                        session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                                    )
 
-                                await self._enqueue(
-                                    "upbit", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
-                                )
-                            except Exception as e:
-                                m.malformed_quarantined += 1
-                                self.storage.quarantine_malformed_record("upbit", raw_bytes, str(e), recv_ts)
-                    finally:
-                        hb_task.cancel()
-                        await asyncio.gather(hb_task, return_exceptions=True)
+                                    await self._enqueue(
+                                        "upbit", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
+                                    )
+                                except Exception as e:
+                                    m.malformed_quarantined += 1
+                                    self.storage.quarantine_malformed_record("upbit", raw_bytes, str(e), recv_ts)
+                        finally:
+                            self.websocket_sessions["upbit"] = "DISCONNECTED"
+                            hb_task.cancel()
+                            await asyncio.gather(hb_task, return_exceptions=True)
 
-            except Exception as e:
-                m.disconnect_count += 1
-                m.last_reconnect_reason = str(e)
-                if session_id is not None:
-                    sess = self.session_evidence._sessions.get(session_id)
-                    if sess is not None and sess.disconnected_at_utc is None:
-                        disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
-                        self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
-                logger.warning(f"[Upbit] Disconnected: {e}. Backoff {backoff:.1f}s...")
-                await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
-                backoff = min(30.0, backoff * 2.0)
-                m.reconnect_count += 1
+                except Exception as e:
+                    self.websocket_sessions["upbit"] = "DISCONNECTED"
+                    m.disconnect_count += 1
+                    m.last_reconnect_reason = str(e)
+                    if session_id is not None:
+                        sess = self.session_evidence._sessions.get(session_id)
+                        if sess is not None and sess.disconnected_at_utc is None:
+                            disc_ts = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                            self.session_evidence.close_session(session_id, disc_ts, reason=str(e))
+                    logger.warning(f"[Upbit] Disconnected: {e}. Backoff {backoff:.1f}s...")
+                    self.websocket_sessions["upbit"] = "RECONNECTING"
+                    await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
+                    backoff = min(30.0, backoff * 2.0)
+                    m.reconnect_count += 1
+        finally:
+            self.websocket_sessions["upbit"] = "DISCONNECTED"
 
     async def run_collector(self, max_duration_seconds: float | None = None) -> None:
         self.is_running = True
         self._accepting_partition_writes = True
         writer_task = asyncio.create_task(self._writer_worker())
         metrics_task = asyncio.create_task(self._metrics_worker())
+        health_task = asyncio.create_task(self._health_worker())
         tasks = [
             asyncio.create_task(self._bithumb_loop()),
             asyncio.create_task(self._binance_loop()),
@@ -1089,6 +1352,11 @@ class MultiExchangeMicrostructureCollector:
             await asyncio.gather(writer_task, return_exceptions=True)
             metrics_task.cancel()
             await asyncio.gather(metrics_task, return_exceptions=True)
+            health_task.cancel()
+            await asyncio.gather(health_task, return_exceptions=True)
+
+            for exch in self.websocket_sessions:
+                self.websocket_sessions[exch] = "DISCONNECTED"
 
             # Close any open sessions upon shutdown
             now_str = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -1115,6 +1383,11 @@ class MultiExchangeMicrostructureCollector:
                 self._persist_metrics()
             except OSError as error:
                 logger.error("Failed to persist final collector metrics: %s", error)
+
+            try:
+                self.emit_health_snapshot()
+            except Exception as error:
+                logger.error("Failed to emit final health snapshot: %s", error)
         if self._fatal_writer_error is not None:
             raise RuntimeError(
                 "Collector stopped after writer failure; "
