@@ -36,6 +36,26 @@ export const Overview: React.FC = () => {
         </h3>
         <div className="status-grid">
           <MetricCard
+            title="PROJECT MODE"
+            value={projectSummary.projectMode}
+            subtext="격리 오프라인 연구 모드"
+            evidenceSource="DECLARED"
+          />
+          <MetricCard
+            title="72H SOAK STATUS"
+            value={projectSummary.soak72hStatus}
+            subtext={projectSummary.soak72hStatus === 'PENDING' ? 'AWS 자율 구동 중 (결과 대기)' : '259,200s 수집 완료 증거 확인'}
+            status={projectSummary.soak72hStatus === 'PASS' ? 'success' : 'warning'}
+            evidenceSource={projectSummary.soak72hStatus === 'PASS' ? 'MEASURED' : 'NOT AVAILABLE'}
+          />
+          <MetricCard
+            title="REAL DATA DQ"
+            value={projectSummary.realDqStatus}
+            subtext={projectSummary.realDqStatus === 'NOT RUN' ? '원시 데이터 수신 후 감사 예정' : '심층 타임스탬프 감사 통과'}
+            status={projectSummary.realDqStatus === 'PASS' ? 'success' : projectSummary.realDqStatus === 'DEGRADED' ? 'warning' : 'default'}
+            evidenceSource={projectSummary.realDqStatus === 'PASS' ? 'MEASURED' : 'NOT VERIFIED'}
+          />
+          <MetricCard
             title="ALPHA"
             value="UNPROVEN"
             subtext="가설 사전등록 동결 (피처 검정 전)"

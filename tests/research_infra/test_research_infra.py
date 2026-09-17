@@ -1752,8 +1752,9 @@ class TestBinanceAdapter(unittest.TestCase):
     """Test Binance orderbook adapter with null exchange_ts and bids/asks format."""
 
     def test_binance_orderbook_null_exchange_ts(self):
-        """Binance orderbook with null exchange_ts must parse using local_recv as fallback."""
+        """Binance orderbook with null exchange_ts must preserve None for exchange_ts and record causal availability."""
         from bithumb_coin_trader.research_infra.adapters import adapt_raw_record
+        from bithumb_coin_trader.research_infra.canonical_events import TimestampRole
         record = {
             "exchange": "binance",
             "stream": "orderbook",
@@ -1771,6 +1772,12 @@ class TestBinanceAdapter(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.exchange, "binance")
         self.assertEqual(event.market, "BTCUSDT")
+        # Critical scientific invariant: exchange_timestamp_ms is None, NOT conflated with local_recv
+        self.assertIsNone(event.exchange_timestamp_ms)
+        self.assertEqual(event.exchange_timestamp_role, TimestampRole.NONE_AVAILABLE)
+        # Causal observation time is preserved in availability_timestamp_ns
+        self.assertEqual(event.availability_timestamp_ns, event.local_recv_timestamp_ms * 1_000_000)
+        self.assertEqual(event.causal_availability_ns, event.local_recv_timestamp_ms * 1_000_000)
         bids = event.payload["bids"]
         asks = event.payload["asks"]
         self.assertEqual(len(bids), 2)
@@ -1781,6 +1788,7 @@ class TestBinanceAdapter(unittest.TestCase):
     def test_binance_orderbook_with_exchange_ts(self):
         """Binance orderbook with valid exchange_ts uses exchange time."""
         from bithumb_coin_trader.research_infra.adapters import adapt_raw_record
+        from bithumb_coin_trader.research_infra.canonical_events import TimestampRole
         record = {
             "exchange": "binance",
             "stream": "orderbook",
@@ -1798,6 +1806,9 @@ class TestBinanceAdapter(unittest.TestCase):
         self.assertIsNotNone(event)
         self.assertEqual(event.exchange, "binance")
         self.assertEqual(event.market, "ETHUSDT")
+        self.assertIsNotNone(event.exchange_timestamp_ms)
+        self.assertEqual(event.exchange_timestamp_role, TimestampRole.EXCHANGE_EVENT)
+        self.assertEqual(event.availability_timestamp_ns, event.local_recv_timestamp_ms * 1_000_000)
 
 
 if __name__ == "__main__":

@@ -41,7 +41,7 @@ export const V2_RESEARCH_STATUS = {
 }
 
 export const V4_VALIDATION_STATUS = {
-  status: 'RUNNING',
+  status: 'FAIL',
   epoch: 'aws-validation-30h-20260915-v4',
   runId: 'aws-validation-30h-run-20260915T061253Z-v4',
   actualStart: '2026-09-15T10:26:33.652102Z',
@@ -49,8 +49,8 @@ export const V4_VALIDATION_STATUS = {
   s3CoverageHoursVisible: 1,
   s3CoverageHour: '2026-09-15_10',
   s3RawDataObjects: 0,
-  finalVerdict: 'NOT YET AVAILABLE',
-  note: 'Process still RUNNING. Incomplete S3 visibility may be normal incremental behavior.',
+  finalVerdict: 'FAIL (NOT_RESEARCH_USABLE)',
+  note: 'Process halted after 1h coverage (76 objects, 0 raw data). Terminal audit confirmed OVERALL FAIL.',
 }
 
 export const DEMO_PIPELINE_STAGES: PipelineStage[] = [

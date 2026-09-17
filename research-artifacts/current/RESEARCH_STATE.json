@@ -1,0 +1,18 @@
+{
+  "phase": "RETROSPECTIVE_RESEARCH_AND_METHOD_DEVELOPMENT",
+  "dataset": "v2-authoritative",
+  "dataset_identity": "aws-validation-30h-20260912-6576f63",
+  "split_hash": "26969fd16eace76f9458a0a26d28c10a90a17923e84012b8e73a5ac0c8676138",
+  "dev_unlocked": true,
+  "validation_unlocked": false,
+  "internal_test_unlocked": false,
+  "trial_count": 0,
+  "cycle": 1,
+  "active_hypotheses": ["M1", "M2", "M3", "X1", "X2", "X3", "X4", "X5"],
+  "rejected_hypotheses": [],
+  "candidate_count": 0,
+  "best_result": null,
+  "biggest_uncertainty": "Can passive maker execution (Base/Conservative) overcome the 2-6 bps adverse selection and queue delay to yield positive net economic edge?",
+  "next_action": "Execute Cycle 1 Maker baseline (M1, M2, M3) across BTC, ETH, XRP under Base and Conservative queue models",
+  "last_checkpoint_sha": "d4940d7"
+}

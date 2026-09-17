@@ -73,13 +73,21 @@ def adapt_raw_record(
 
         local_recv_ms = parse_iso_to_ms(str(local_recv_ts_str))
         local_write_ms = parse_iso_to_ms(str(local_write_ts_str)) if local_write_ts_str else local_recv_ms
+        availability_ns = local_recv_ms * 1_000_000
 
         # exchange_ts may be null for some exchanges (e.g., Binance diff-depth).
-        # Use local_recv as causal availability time when exchange_ts is absent.
-        if exchange_ts_str is not None and str(exchange_ts_str).strip():
-            exchange_ms = parse_iso_to_ms(str(exchange_ts_str))
+        # We preserve None for exchange_timestamp_ms so as not to conflate exchange time
+        # with local reception time, and record causal local arrival in availability_timestamp_ns.
+        if (
+            exchange_ts_str is not None
+            and str(exchange_ts_str).strip()
+            and str(exchange_ts_str).strip().lower() != "none"
+        ):
+            exchange_ms: int | None = parse_iso_to_ms(str(exchange_ts_str))
+            exchange_role = TimestampRole.EXCHANGE_EVENT
         else:
-            exchange_ms = local_recv_ms  # Earliest causal availability
+            exchange_ms = None
+            exchange_role = TimestampRole.NONE_AVAILABLE
 
         # Derive cohort from local_write timestamp
         local_write_dt = datetime.fromtimestamp(local_write_ms / 1000.0, tz=timezone.utc)
@@ -185,7 +193,8 @@ def adapt_raw_record(
             local_recv_timestamp_ms=local_recv_ms,
             local_write_timestamp_ms=local_write_ms,
             ordering_timestamp_ns=local_write_ms * 1_000_000,
-            exchange_timestamp_role=TimestampRole.EXCHANGE_EVENT,
+            availability_timestamp_ns=availability_ns,
+            exchange_timestamp_role=exchange_role,
             cohort_utc=cohort_utc,
             dq_status="DATA_PRESENT",
             dq_flags=dq_flags,

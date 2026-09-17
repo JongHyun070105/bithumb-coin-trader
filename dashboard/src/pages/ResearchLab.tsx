@@ -172,9 +172,6 @@ export const ResearchLab: React.FC = () => {
           </p>
         </div>
       </section>
-    </div>
-  )
-}
 
       {/* Section 2: Statistical Governance (P11.4) */}
       <section className="section-block">

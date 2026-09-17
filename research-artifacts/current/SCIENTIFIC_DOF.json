@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "created_at_utc": "2026-09-17T00:32:00Z",
+  "dof_counts": {
+    "hypotheses_count": 8,
+    "hypotheses": ["M1", "M2", "M3", "X1", "X2", "X3", "X4", "X5"],
+    "markets_count": 4,
+    "markets": ["KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL"],
+    "horizons_count": 4,
+    "horizons_s": [1, 5, 10, 30],
+    "thresholds_count": 2,
+    "thresholds": [0.8, 0.9],
+    "lags_count": 6,
+    "lags_ms": [100, 250, 500, 1000, 2000, 5000],
+    "queue_models_count": 3,
+    "queue_models": ["OPTIMISTIC", "BASE", "CONSERVATIVE"],
+    "cancel_windows_count": 2,
+    "cancel_windows_s": [2.0, 5.0],
+    "regimes_count": 2,
+    "regimes": ["zero_fee_promo", "standard_fee"]
+  },
+  "guardrails": {
+    "max_scientific_cycles": 5,
+    "max_maker_cycles": 3,
+    "max_new_hypotheses_per_cycle": 3,
+    "headline_models": ["BASE", "CONSERVATIVE"],
+    "optimistic_only_rule": "FRAGILE_OPTIMISTIC_ONLY"
+  }
+}

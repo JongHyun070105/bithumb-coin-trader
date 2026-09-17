@@ -1,8 +1,20 @@
-"""Tests for conservative maker execution simulator."""
+"""Deterministic Golden Tests for Conservative Maker Execution Simulator.
+
+Verifies the 11 required Golden Tests:
+1. NO_FILL
+2. TOUCH_NO_FILL
+3. QUEUE_NOT_CLEARED
+4. PARTIAL_FILL
+5. FULL_FILL
+6. CANCELLED
+7. STALE
+8. ADVERSE_SELECTION
+9. PASSIVE_ENTRY_TAKER_EXIT
+10. PASSIVE_ENTRY_PASSIVE_EXIT
+11. FORCED_EXIT
+"""
 
 import pytest
-from datetime import datetime, timezone
-
 from bithumb_coin_trader.maker_simulator import (
     MakerSimulator,
     MakerAssumptions,
@@ -10,206 +22,358 @@ from bithumb_coin_trader.maker_simulator import (
     OrderStatus,
 )
 from bithumb_coin_trader.research_infra.canonical_events import (
-    CanonicalEvent, EventKind, TimestampRole,
+    CanonicalEvent,
+    EventKind,
+    TimestampRole,
 )
 
 
-def _make_ob(ts_ns: int, bids: list, asks: list, market="KRW-BTC") -> CanonicalEvent:
+def _make_ob(ts_ns: int, bids: list, asks: list, market: str = "KRW-BTC") -> CanonicalEvent:
     return CanonicalEvent(
-        dataset_id="test", source_run_id=None, collector_epoch=None,
-        source_file=None, source_file_offset=None,
-        exchange="bithumb", market=market,
+        dataset_id="test",
+        source_run_id=None,
+        collector_epoch=None,
+        source_file=None,
+        source_file_offset=None,
+        exchange="bithumb",
+        market=market,
         event_kind=EventKind.ORDERBOOK,
         exchange_timestamp_ms=ts_ns // 1_000_000,
         local_recv_timestamp_ms=ts_ns // 1_000_000,
         local_write_timestamp_ms=ts_ns // 1_000_000,
         ordering_timestamp_ns=ts_ns,
+        availability_timestamp_ns=ts_ns,
         exchange_timestamp_role=TimestampRole.EXCHANGE_EVENT,
         payload={"bids": bids, "asks": asks, "is_snapshot": True},
     )
 
 
-def _make_trade(ts_ns: int, price: float, qty: float, side: str) -> CanonicalEvent:
+def _make_trade(ts_ns: int, price: float, qty: float, side: str, market: str = "KRW-BTC") -> CanonicalEvent:
     return CanonicalEvent(
-        dataset_id="test", source_run_id=None, collector_epoch=None,
-        source_file=None, source_file_offset=None,
-        exchange="bithumb", market="KRW-BTC",
+        dataset_id="test",
+        source_run_id=None,
+        collector_epoch=None,
+        source_file=None,
+        source_file_offset=None,
+        exchange="bithumb",
+        market=market,
         event_kind=EventKind.TRADE,
         exchange_timestamp_ms=ts_ns // 1_000_000,
         local_recv_timestamp_ms=ts_ns // 1_000_000,
         local_write_timestamp_ms=ts_ns // 1_000_000,
         ordering_timestamp_ns=ts_ns,
+        availability_timestamp_ns=ts_ns,
         exchange_timestamp_role=TimestampRole.EXCHANGE_EVENT,
         payload={"price": price, "quantity": qty, "aggressor_side": side},
     )
 
 
-class TestMakerSimulatorBasic:
-    """Basic maker simulator tests."""
+class TestMakerGoldenSuite:
+    """11 Deterministic Golden Tests for Maker Execution."""
 
-    def test_no_fill_expired(self):
-        """Order expires if no fill within cancellation horizon."""
-        sim = MakerSimulator(MakerAssumptions(cancellation_horizon_s=1.0))
+    def test_golden_01_no_fill(self):
+        """1. NO_FILL: Prices never reach limit order before events exhaust."""
+        sim = MakerSimulator(MakerAssumptions(latency_ms=50.0, cancellation_horizon_s=5.0))
         t0 = 1_000_000_000_000
+        # Limit buy at 100_000_000. Book stays above at 100_010_000 / 100_020_000.
         events = [
-            _make_ob(t0 + 500_000_000,  # 500ms later
-                     [[100_000_000, 1.0]], [[100_010_000, 1.0]])
+            _make_ob(t0 + 100_000_000, [[100_010_000, 1.0]], [[100_020_000, 1.0]]),
+            _make_trade(t0 + 200_000_000, 100_015_000, 0.5, "BUY"),
         ]
-        result = sim.evaluate_passive_buy(
+        fill = sim.evaluate_passive_buy(
             limit_price=100_000_000,
             quantity_btc=1.0,
             placement_ts=t0,
             future_events=events,
-            reference_mid_at_placement=100_005_000,
+            reference_mid_at_placement=100_015_000,
         )
-        assert result.status == OrderStatus.EXPIRED
-        assert result.fill_quantity == 0.0
+        assert fill.status == OrderStatus.EXPIRED
+        assert fill.fill_quantity == 0.0
 
-    def test_cancelled_no_fill(self):
-        """Order cancelled at horizon if no fill."""
-        sim = MakerSimulator(MakerAssumptions(cancellation_horizon_s=1.0))
-        t0 = 1_000_000_000_000
-        # Event after cancellation
-        events = [
-            _make_ob(t0 + 2_000_000_000,
-                     [[100_000_000, 1.0]], [[100_010_000, 1.0]])
-        ]
-        result = sim.evaluate_passive_buy(
-            limit_price=100_000_000,
-            quantity_btc=1.0,
-            placement_ts=t0,
-            future_events=events,
-            reference_mid_at_placement=100_005_000,
-        )
-        assert result.status == OrderStatus.CANCELLED
-
-    def test_base_model_fill_on_ask_cross(self):
-        """BASE model fills when best ask crosses through limit."""
-        sim = MakerSimulator(MakerAssumptions(
-            fill_model=FillModel.BASE, cancellation_horizon_s=5.0
-        ))
-        t0 = 1_000_000_000_000
-        events = [
-            # Ask drops to our limit price
-            _make_ob(t0 + 100_000_000,
-                     [[100_000_000, 1.0]], [[100_000_000, 2.0]])
-        ]
-        result = sim.evaluate_passive_buy(
-            limit_price=100_000_000,
-            quantity_btc=1.0,
-            placement_ts=t0,
-            future_events=events,
-            reference_mid_at_placement=100_005_000,
-        )
-        assert result.status == OrderStatus.FILLED
-        assert result.fill_quantity == 1.0
-        assert result.fill_price == 100_000_000
-
-    def test_trade_fill_sell_aggressor(self):
-        """SELL aggressor trade at/through limit triggers fill."""
-        sim = MakerSimulator(MakerAssumptions(
-            fill_model=FillModel.BASE, cancellation_horizon_s=5.0
-        ))
-        t0 = 1_000_000_000_000
-        events = [
-            _make_trade(t0 + 100_000_000, 100_000_000, 0.5, "SELL")
-        ]
-        result = sim.evaluate_passive_buy(
-            limit_price=100_000_000,
-            quantity_btc=1.0,
-            placement_ts=t0,
-            future_events=events,
-            reference_mid_at_placement=100_005_000,
-        )
-        assert result.status == OrderStatus.PARTIAL
-        assert abs(result.fill_quantity - 0.5) < 1e-8
-
-    def test_conervative_model_requires_volume(self):
-        """CONSERVATIVE model requires volume exceeding queue."""
+    def test_golden_02_touch_no_fill(self):
+        """2. TOUCH_NO_FILL: In CONSERVATIVE model, orderbook touch alone without trades does NOT fill."""
         sim = MakerSimulator(MakerAssumptions(
             fill_model=FillModel.CONSERVATIVE,
+            latency_ms=50.0,
+            cancellation_horizon_s=5.0,
+        ))
+        t0 = 1_000_000_000_000
+        # Ask touches limit at 100_000_000, but no trade-through and no trades occur
+        events = [
+            _make_ob(t0 + 100_000_000, [[99_990_000, 1.0]], [[100_000_000, 2.0]])
+        ]
+        fill = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_005_000,
+        )
+        assert fill.status == OrderStatus.EXPIRED
+        assert fill.fill_quantity == 0.0
+
+    def test_golden_03_queue_not_cleared(self):
+        """3. QUEUE_NOT_CLEARED: Trade volume is <= queue ahead, so our order gets no fill."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.CONSERVATIVE,
+            latency_ms=50.0,
             queue_multiplier=1.0,
             cancellation_horizon_s=5.0,
         ))
         t0 = 1_000_000_000_000
+        # Initial book at placement has 2.0 BTC ahead at 100_000_000
+        initial_book = _make_ob(t0, [[100_000_000, 2.0]], [[100_010_000, 1.0]])
+        # Incoming SELL trade is only 1.5 BTC (does not clear 2.0 queue)
         events = [
-            # Ask at limit with only 1 BTC available
-            _make_ob(t0 + 100_000_000,
-                     [[100_000_000, 1.0]], [[100_000_000, 1.0]])
+            _make_trade(t0 + 100_000_000, 100_000_000, 1.5, "SELL")
         ]
-        result = sim.evaluate_passive_buy(
+        fill = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_005_000,
+            initial_book=initial_book,
+        )
+        assert fill.status == OrderStatus.EXPIRED
+        assert fill.fill_quantity == 0.0
+
+    def test_golden_04_partial_fill(self):
+        """4. PARTIAL_FILL: Trade volume clears queue and fills part of our order."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.CONSERVATIVE,
+            latency_ms=50.0,
+            queue_multiplier=1.0,
+            cancellation_horizon_s=5.0,
+        ))
+        t0 = 1_000_000_000_000
+        # 1.0 BTC ahead in queue. Order is for 2.0 BTC. Trade is 2.2 BTC.
+        # Queue takes 1.0, remaining 1.2 fills our order (partial: 1.2 < 2.0).
+        initial_book = _make_ob(t0, [[100_000_000, 1.0]], [[100_010_000, 1.0]])
+        events = [
+            _make_trade(t0 + 100_000_000, 100_000_000, 2.2, "SELL")
+        ]
+        fill = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=2.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_005_000,
+            initial_book=initial_book,
+        )
+        assert fill.status == OrderStatus.PARTIAL
+        assert abs(fill.fill_quantity - 1.2) < 1e-8
+        assert fill.fill_price == 100_000_000
+
+    def test_golden_05_full_fill(self):
+        """5. FULL_FILL: Trade volume clears queue and satisfies entire order."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.CONSERVATIVE,
+            latency_ms=50.0,
+            queue_multiplier=1.0,
+            cancellation_horizon_s=5.0,
+        ))
+        t0 = 1_000_000_000_000
+        # 1.0 BTC ahead in queue. Order is for 1.0 BTC. Trade is 2.5 BTC.
+        initial_book = _make_ob(t0, [[100_000_000, 1.0]], [[100_010_000, 1.0]])
+        events = [
+            _make_trade(t0 + 100_000_000, 100_000_000, 2.5, "SELL")
+        ]
+        fill = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_005_000,
+            initial_book=initial_book,
+        )
+        assert fill.status == OrderStatus.FILLED
+        assert fill.fill_quantity == 1.0
+        assert fill.fill_price == 100_000_000
+        assert fill.reason == "FULL_FILL"
+
+    def test_golden_06_cancelled(self):
+        """6. CANCELLED: Cancellation horizon elapses without fill."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.BASE,
+            latency_ms=50.0,
+            cancellation_horizon_s=1.0,
+        ))
+        t0 = 1_000_000_000_000
+        # Event happens at t0 + 2.0s (after 1.0s cancel boundary)
+        events = [
+            _make_ob(t0 + 2_000_000_000, [[100_000_000, 1.0]], [[100_000_000, 1.0]])
+        ]
+        fill = sim.evaluate_passive_buy(
             limit_price=100_000_000,
             quantity_btc=1.0,
             placement_ts=t0,
             future_events=events,
             reference_mid_at_placement=100_005_000,
         )
-        # Conservative: queue_ahead = 1.0 * 1.0 = 1.0, fillable = 1.0 - 1.0 = 0
-        assert result.status == OrderStatus.EXPIRED
+        assert fill.status == OrderStatus.CANCELLED
+        assert fill.fill_quantity == 0.0
 
-    def test_no_short_simulation(self):
-        """Buy orders cannot produce short positions."""
-        sim = MakerSimulator()
+    def test_golden_07_stale(self):
+        """7. STALE: Event stream has an initial gap exceeding max_staleness_ms."""
+        sim = MakerSimulator(MakerAssumptions(
+            max_staleness_ms=1000.0,  # 1s max staleness
+        ))
         t0 = 1_000_000_000_000
-        # No events - just verify structure
-        result = sim.evaluate_passive_buy(
+        # First event is 5.0s after placement
+        events = [
+            _make_ob(t0 + 5_000_000_000, [[100_000_000, 1.0]], [[100_010_000, 1.0]])
+        ]
+        fill = sim.evaluate_passive_buy(
             limit_price=100_000_000,
             quantity_btc=1.0,
             placement_ts=t0,
-            future_events=[],
+            future_events=events,
             reference_mid_at_placement=100_005_000,
         )
-        assert result.status == OrderStatus.EXPIRED
-        assert result.fill_quantity == 0.0
+        assert fill.status == OrderStatus.STALE
 
-    def test_adverse_selection_measurement(self):
-        """Adverse selection correctly measured."""
-        sim = MakerSimulator(MakerAssumptions(
-            fill_model=FillModel.BASE, cancellation_horizon_s=5.0
-        ))
+    def test_golden_08_adverse_selection(self):
+        """8. ADVERSE_SELECTION: Correct calculation of adverse selection against reference mid."""
+        sim = MakerSimulator(MakerAssumptions(fill_model=FillModel.BASE))
         t0 = 1_000_000_000_000
-        ref_mid = 100_005_000
+        ref_mid = 100_000_000.0
+        # Buy limit is 99_900_000. Filled at 99_900_000.
         events = [
-            # Ask drops well below mid
-            _make_ob(t0 + 100_000_000,
-                     [[99_990_000, 1.0]], [[100_000_000, 1.0]])
+            _make_trade(t0 + 100_000_000, 99_900_000, 1.0, "SELL")
         ]
-        result = sim.evaluate_passive_buy(
-            limit_price=100_000_000,
+        fill = sim.evaluate_passive_buy(
+            limit_price=99_900_000,
             quantity_btc=1.0,
             placement_ts=t0,
             future_events=events,
             reference_mid_at_placement=ref_mid,
         )
-        assert result.status == OrderStatus.FILLED
-        # Adverse selection: mid(100_005_000) - fill(100_000_000) = 5000
-        # bps = 5000 / 100_005_000 * 10000 ≈ 0.5 bps
-        assert result.adverse_selection_bps > 0  # Buy filled below mid = good
+        assert fill.status == OrderStatus.FILLED
+        # Favorable execution: bought 100_000 below mid -> +10 bps
+        expected_bps = (ref_mid - 99_900_000) / ref_mid * 10_000.0
+        assert abs(fill.adverse_selection_bps - expected_bps) < 1e-4
 
-
-class TestMakerFillModel:
-    """Test fill model differences."""
-
-    def test_optimistic_fills_on_touch(self):
-        """OPTIMISTIC fills when price touches level."""
-        sim = MakerSimulator(MakerAssumptions(fill_model=FillModel.OPTIMISTIC))
+    def test_golden_09_passive_entry_taker_exit(self):
+        """9. PASSIVE_ENTRY_TAKER_EXIT (Variant A): Passive entry filled, then taker exit at holding horizon."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.BASE,
+            holding_horizon_s=2.0,
+            maker_fee_rate=0.0,
+            taker_fee_rate=0.0004,  # 4 bps taker exit
+        ))
         t0 = 1_000_000_000_000
         events = [
-            _make_ob(t0 + 100_000_000,
-                     [[100_000_000, 1.0]], [[100_000_000, 1.0]])
+            # Entry fill at t0 + 100ms
+            _make_trade(t0 + 100_000_000, 100_000_000, 1.0, "SELL"),
+            # Holding period book at t0 + 1.0s
+            _make_ob(t0 + 1_000_000_000, [[100_020_000, 1.0]], [[100_030_000, 1.0]]),
+            # Horizon exit book at t0 + 2.1s (>= entry + 2.0s)
+            _make_ob(t0 + 2_150_000_000, [[100_050_000, 1.0]], [[100_060_000, 1.0]]),
         ]
-        result = sim.evaluate_passive_buy(
+        entry = sim.evaluate_passive_buy(
             limit_price=100_000_000,
             quantity_btc=1.0,
             placement_ts=t0,
             future_events=events,
-            reference_mid_at_placement=100_005_000,
+            reference_mid_at_placement=100_000_000,
         )
-        assert result.status == OrderStatus.FILLED
+        assert entry.status == OrderStatus.FILLED
 
-    def test_buy_only_no_sell(self):
-        """Only BUY side implemented (long-only spot)."""
-        sim = MakerSimulator()
-        # Verify only BUY is available
-        assert hasattr(sim, 'evaluate_passive_buy')
-        # SELL passive would be needed for round trips but is separate
+        trip = sim.simulate_variant_a(entry, events)
+        assert trip.variant == "A"
+        assert trip.exit_type == "TAKER"
+        assert trip.entry_price == 100_000_000
+        assert trip.exit_price == 100_050_000  # Sold into best bid at exit
+        # Gross gain: 50_000 KRW = +5 bps
+        assert abs(trip.gross_bps - 5.0) < 1e-4
+        # Net gain: gross (50,000 KRW) - taker exit fee (100,050,000 * 0.0004 = 40,020 KRW) = 9,980 KRW (0.998 bps)
+        assert abs(trip.net_bps - 0.998) < 1e-4
+        assert trip.success is True
+
+    def test_golden_10_passive_entry_passive_exit(self):
+        """10. PASSIVE_ENTRY_PASSIVE_EXIT (Variant B): Passive entry filled, then passive exit filled at ask."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.BASE,
+            maker_fee_rate=0.0,  # Zero maker fee on both legs!
+            taker_fee_rate=0.0004,
+        ))
+        t0 = 1_000_000_000_000
+        events = [
+            # Entry fill at t0 + 100ms
+            _make_trade(t0 + 100_000_000, 100_000_000, 1.0, "SELL"),
+            # Book establishing best ask at 100_040_000
+            _make_ob(t0 + 150_000_000, [[100_000_000, 1.0]], [[100_040_000, 1.0]]),
+            # Incoming aggressive BUY trade at 100_040_000 filling our passive exit ask
+            _make_trade(t0 + 300_000_000, 100_040_000, 1.0, "BUY"),
+        ]
+        entry = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_000_000,
+        )
+        assert entry.status == OrderStatus.FILLED
+
+        trip = sim.simulate_variant_b(entry, events)
+        assert trip.variant == "B"
+        assert trip.exit_type == "PASSIVE"
+        assert trip.entry_price == 100_000_000
+        assert trip.exit_price == 100_040_000
+        # Captures full 4 bps spread with 0 fees!
+        assert abs(trip.gross_bps - 4.0) < 1e-4
+        assert abs(trip.net_bps - 4.0) < 1e-4
+        assert trip.success is True
+
+    def test_golden_11_forced_exit(self):
+        """11. FORCED_EXIT: Passive exit unfulfilled falls back to forced taker unwind."""
+        sim = MakerSimulator(MakerAssumptions(
+            fill_model=FillModel.BASE,
+            cancellation_horizon_s=0.5,
+            holding_horizon_s=1.0,
+            maker_fee_rate=0.0,
+            taker_fee_rate=0.0004,
+        ))
+        t0 = 1_000_000_000_000
+        events = [
+            # Entry fill
+            _make_trade(t0 + 100_000_000, 100_000_000, 1.0, "SELL"),
+            # Passive exit posted at 100_040_000, but no trades hit it
+            _make_ob(t0 + 150_000_000, [[100_000_000, 1.0]], [[100_040_000, 1.0]]),
+            # Market drops to 99_980_000 after exit cancel horizon (forced taker exit)
+            _make_ob(t0 + 1_200_000_000, [[99_980_000, 1.0]], [[99_990_000, 1.0]]),
+        ]
+        entry = sim.evaluate_passive_buy(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=100_000_000,
+        )
+        trip = sim.simulate_variant_b(entry, events)
+        assert trip.exit_type == "FORCED_UNWIND"
+        assert trip.exit_price == 99_980_000
+        assert trip.gross_bps < 0  # Loss due to adverse price move before forced unwind
+
+
+class TestMakerSimulatorSellSymmetry:
+    """Verify BUY and SELL symmetry."""
+
+    def test_passive_sell_full_fill(self):
+        sim = MakerSimulator(MakerAssumptions(fill_model=FillModel.BASE))
+        t0 = 1_000_000_000_000
+        events = [
+            _make_trade(t0 + 100_000_000, 100_000_000, 1.0, "BUY")
+        ]
+        fill = sim.evaluate_passive_sell(
+            limit_price=100_000_000,
+            quantity_btc=1.0,
+            placement_ts=t0,
+            future_events=events,
+            reference_mid_at_placement=99_990_000,
+        )
+        assert fill.status == OrderStatus.FILLED
+        assert fill.order.side == "SELL"
+        assert fill.fill_quantity == 1.0
+        assert fill.fill_price == 100_000_000

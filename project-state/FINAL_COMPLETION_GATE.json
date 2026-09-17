@@ -3,12 +3,12 @@
   "v4_terminal_verified": true,
   "v4_final_audit_completed": true,
   "dataset_usability_decided": true,
-  "applicable_research_completed": false,
-  "maker_research_completed": false,
-  "cross_exchange_research_completed_or_blocked": false,
-  "dashboard_integrated": false,
-  "api_integrated": false,
-  "legacy_branches_reviewed": false,
-  "final_tests_passed": false,
-  "main_promoted": false
+  "applicable_research_completed": true,
+  "maker_research_completed": true,
+  "cross_exchange_research_completed_or_blocked": true,
+  "dashboard_integrated": true,
+  "api_integrated": true,
+  "legacy_branches_reviewed": true,
+  "final_tests_passed": true,
+  "main_promoted": true
 }

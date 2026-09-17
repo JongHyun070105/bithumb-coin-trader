@@ -33,6 +33,7 @@ class TimestampRole(str, Enum):
     LOCAL_RECEIVE = "LOCAL_RECEIVE"
     LOCAL_WRITE = "LOCAL_WRITE"
     FEATURE_AVAILABILITY = "FEATURE_AVAILABILITY"  # = LOCAL_WRITE
+    NONE_AVAILABLE = "NONE_AVAILABLE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,7 @@ class CanonicalEvent:
     - cross-exchange as-of joins
 
     It is set to local_write_timestamp (when the event was persisted).
+    availability_timestamp_ns tracks when the event was causally observed locally.
     """
 
     # Identity
@@ -63,13 +65,14 @@ class CanonicalEvent:
     event_kind: EventKind
 
     # Timestamps
-    exchange_timestamp_ms: int
+    exchange_timestamp_ms: int | None
     local_recv_timestamp_ms: int
     local_write_timestamp_ms: int
     ordering_timestamp_ns: int  # = local_write_timestamp_ms * 1_000_000
 
     # Timestamp documentation
     exchange_timestamp_role: TimestampRole
+    availability_timestamp_ns: int | None = None
     ordering_timestamp_role: TimestampRole = TimestampRole.LOCAL_WRITE
 
     # Cohort
@@ -85,6 +88,12 @@ class CanonicalEvent:
     # Payload (event-specific, stored as dict for flexibility)
     payload: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def causal_availability_ns(self) -> int:
+        if self.availability_timestamp_ns is not None and self.availability_timestamp_ns > 0:
+            return self.availability_timestamp_ns
+        return self.local_recv_timestamp_ms * 1_000_000
+
     def to_dict(self) -> dict[str, Any]:
         d = {
             "dataset_id": self.dataset_id,
@@ -99,6 +108,7 @@ class CanonicalEvent:
             "local_recv_timestamp_ms": self.local_recv_timestamp_ms,
             "local_write_timestamp_ms": self.local_write_timestamp_ms,
             "ordering_timestamp_ns": self.ordering_timestamp_ns,
+            "availability_timestamp_ns": self.causal_availability_ns,
             "exchange_timestamp_role": self.exchange_timestamp_role.value,
             "ordering_timestamp_role": self.ordering_timestamp_role.value,
             "cohort_utc": self.cohort_utc,
