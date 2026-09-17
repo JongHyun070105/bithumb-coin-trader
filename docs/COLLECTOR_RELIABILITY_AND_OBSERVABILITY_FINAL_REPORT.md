@@ -119,10 +119,12 @@ IAM permissions insufficient:
 - `bitcoin-trader-bootstrap`: No EC2, no S3 PutObject, no SSM
 - `bitcoin-trader-provisioner`: No S3 PutObject (explicit deny), no SSM SendCommand
 
-**Required**: Human grants IAM permissions, then:
+**Required**: A human IAM principal with `ssm:StartSession` access to the managed instance, or narrowly scoped `ssm:StartSession` authorization. The two tested profiles are both denied. Whether an already-authorized principal exists has not been verified.
+
+**Soak identities** (when access is obtained):
 - aws-observability-90m-20260917-v1
-- aws-observability-3h-20260917-v1 (if90m PASS)
-- aws-observability-6h-20260917-v1 (if3h PASS)
+- aws-observability-3h-20260917-v1 (if 90m PASS)
+- aws-observability-6h-20260917-v1 (if 3h PASS)
 
 ---
 
@@ -209,4 +211,4 @@ Local engineering is complete and verified. Soak progression requires human IAM 
 
 ## 17. Next Single Best Action
 
-**Grant `ssm:SendCommand` and `s3:PutObject` to the bitcoin-trader-provisioner IAM role**, then launch `aws-observability-90m-20260917T040000Z-v1` soak test.
+**Determine whether an already-authorized human IAM principal with `ssm:StartSession` access exists**. If yes, use it to open an SSM session and deploy. If not, obtain narrowly scoped `ssm:StartSession` authorization for `i-008bc503c1136349f`.

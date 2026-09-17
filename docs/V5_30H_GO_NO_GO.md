@@ -15,9 +15,13 @@ All local engineering gaps are closed. However, the EC2 instance is accessible *
 
 ### Minimum Human Action
 
-Open an interactive SSM session to `i-008bc503c1136349f` (ap-northeast-2) via AWS Console or an authorized IAM principal, then execute the deployment commands documented below.
+Use an already-authorized human IAM principal with `ssm:StartSession` access to the managed instance `i-008bc503c1136349f` (ap-northeast-2), OR obtain narrowly scoped authorization for `ssm:StartSession` on that instance.
 
-**No IAM policy changes are required** if the human uses an already-authorized principal (e.g., the root account or an admin role with SSM access).
+AWS Session Manager has two separate permission sides:
+1. **Managed instance side** — the EC2 instance profile permits SSM Agent to communicate with Systems Manager (already satisfied).
+2. **Human / caller side** — the IAM principal opening the session must itself be authorized for `ssm:StartSession`. The AWS Console does not bypass caller IAM. The two tested profiles (`bitcoin-trader-bootstrap`, `bitcoin-trader-provisioner`) are both denied `ssm:StartSession`.
+
+Whether an already-authorized human principal exists has not been verified. Do not assume IAM policy changes are unnecessary.
 
 ---
 
@@ -104,13 +108,12 @@ This enables interactive SSM sessions (the established deployment method). No Se
 
 If the EC2 instance has network access to GitHub and git credentials, deployment could work by:
 1. Push code to `develop` branch (done)
-2. Human opens SSM session (Console or authorized principal)
-3. On EC2: `cd /var/lib/bitcoin-trader && git fetch origin && git worktree add ...`
+2. Human with SSM access opens a session and executes git fetch/worktree commands on EC2
 
-This avoids any new IAM permissions if the human uses the AWS Console's "Connect → Session Manager" feature (which uses the EC2 instance role, not the provisioner role).
+This still requires a human IAM principal with `ssm:StartSession` authorization.
 
 ---
 
 ## Next Single Best Action
 
-**Human opens an SSM session to `i-008bc503c1136349f` via AWS Console** (Connect → Session Manager) and executes the deployment sequence. The AWS Console uses the EC2 instance's own IAM role for SSM, which is already authorized.
+**Determine whether an already-authorized human IAM principal with `ssm:StartSession` access exists** (e.g., root account, admin role). If yes, use it to open an SSM session and deploy. If not, obtain narrowly scoped `ssm:StartSession` authorization for `i-008bc503c1136349f`.
