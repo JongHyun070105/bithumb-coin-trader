@@ -1,0 +1,134 @@
+{
+  "handoff_time_utc": "2026-09-17T05:20:00Z",
+  "coordinator": "MiMo",
+  "handoff_reason": "Weekly model quota approaching. Both 90m launch attempts failed due to launch artifact configuration bugs. No active soak running.",
+
+  "local_branch": "develop",
+  "local_head": "32b667e39f94684246915bd0d1d17dd611688a3a",
+  "local_tree": "6827a573cbce5ef88d9ddbf5b54fa89ad8eebe49",
+  "origin_develop": "32b667e39f94684246915bd0d1d17dd611688a3a",
+  "origin_main": "0b819eaa7af39b9a30e74ddadef67e8a677fc6be",
+  "working_tree_clean": true,
+  "untracked_files": ["reliability-artifacts/", "scripts/ssm_exec.py", "scripts/ssm_run.py", "test-results/"],
+
+  "aws_auth": {
+    "bootstrap_authenticated": true,
+    "bootstrap_arn": "arn:aws:iam::080109295433:user/bitcoin-trader-bootstrap",
+    "provisioner_authenticated": true,
+    "provisioner_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+    "ssm_start_session": "PASS",
+    "ssm_send_command": "FAIL",
+    "s3_put_object_bootstrap": "FAIL",
+    "s3_put_object_provisioner": "FAIL",
+    "s3_put_object_instance_role": "PASS",
+    "auth_method": "aws login (browser-based IAM user login via aws-cli-login plugin)",
+    "reauth_command": "aws login --profile bitcoin-trader-bootstrap"
+  },
+
+  "ec2": {
+    "instance_id": "i-008bc503c1136349f",
+    "region": "ap-northeast-2",
+    "ec2_state": "running",
+    "ssm_agent_state": "Online",
+    "disk_free_bytes": 108000000000,
+    "disk_total_bytes": 214748364800,
+    "os": "Amazon Linux 2023 (x86_64)",
+    "hostname": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+    "active_collector_processes": 0,
+    "active_bitcoin_trader_services": 0
+  },
+
+  "runtime": {
+    "worktree_path": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+    "software_sha": "32b667e39f94684246915bd0d1d17dd611688a3a",
+    "tree_sha": "6827a573cbce5ef88d9ddbf5b54fa89ad8eebe49",
+    "venv_path": "/var/lib/bitcoin-trader/venv-pre-soak",
+    "python_version": "3.11.16",
+    "runtime_user": "bitcoin-trader",
+    "ssm_user": "ssm-user",
+    "note": "All SSM commands require sudo. Data dir ownership was chown'd to bitcoin-trader."
+  },
+
+  "v1_90m": {
+    "epoch": "aws-observability-90m-20260917-20260917T043600Z-v1",
+    "run_id": "aws-observability-90m-run-20260917T043600Z-v1",
+    "prefix": "market-data/temporary/aws-observability-90m-20260917-20260917T043600Z-v1",
+    "software_sha": "32b667e39f94684246915bd0d1d17dd611688a3a",
+    "state": "FAILED_TO_START",
+    "failure_reason": "collector --duration 0 causes ValueError: duration must be positive",
+    "collector_exit_code": 1,
+    "elapsed_seconds": 0.42,
+    "consumed": true,
+    "reusable": false,
+    "launch_artifacts_dir": "/var/lib/bitcoin-trader/launch-artifacts/aws-observability-90m-20260917-20260917T043600Z-v1",
+    "systemd_unit": "bitcoin-trader-90m-aws-observability-90m-run-20260917T043600Z-v1.service"
+  },
+
+  "v2_90m": {
+    "epoch": "aws-observability-90m-20260917-20260917T050128Z-v2",
+    "run_id": "aws-observability-90m-run-20260917T050128Z-v2",
+    "prefix": "market-data/temporary/aws-observability-90m-20260917-20260917T050128Z-v2",
+    "software_sha": "32b667e39f94684246915bd0d1d17dd611688a3a",
+    "state": "FAILED_TO_START",
+    "failure_reason": "runtime.json raw_root_template missing {collector_epoch} placeholder; runtime config paths do not match collector invocation",
+    "collector_exit_code": 1,
+    "elapsed_seconds": 0.42,
+    "started_at_utc": "2026-09-17T05:15:23.976819Z",
+    "ended_at_utc": "2026-09-17T05:15:24.401086Z",
+    "consumed": true,
+    "reusable": false,
+    "launch_artifacts_dir": "/var/lib/bitcoin-trader/launch-artifacts/aws-observability-90m-20260917-20260917T050128Z-v2",
+    "systemd_unit": "bitcoin-trader-90m-aws-observability-90m-run-20260917T050128Z-v2.service",
+    "health_snapshot_written": true,
+    "health_state": "UNKNOWN (never left startup)"
+  },
+
+  "collected_evidence": {
+    "health_dir": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/health/",
+    "files_present": ["latest.json", "archiver_latest.json", "observer_latest.json"],
+    "result_json": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/result.json",
+    "supervisor_log": "/var/lib/bitcoin-trader/90m-validation/aws-observability-90m-20260917/logs/supervisor.log"
+  },
+
+  "local_achievements": {
+    "tests_pass": 1498,
+    "tests_fail": 0,
+    "tests_skip": 2,
+    "pyright_clean": true,
+    "compileall_clean": true,
+    "commits_on_develop": [
+      "a9cc3f8 feat(observability): add independent collector reliability evidence layer",
+      "61399e6 docs: add V5 GO/NO-GO verdict and final reliability report",
+      "3fc8f50 fix(observability): close all local reliability engineering gaps",
+      "b51153f docs(aws): correct Session Manager caller authorization semantics",
+      "32b667e fix(supervisor): allow 5400s (90m) duration for observability soak"
+    ]
+  },
+
+  "aws_achievements": {
+    "session_manager_access_restored": true,
+    "ec2_recovery_audited": true,
+    "worktree_deployed": true,
+    "all_observability_modules_import_on_ec2": true,
+    "observer_one_shot_verified": true,
+    "terminal_witness_cli_verified": true,
+    "health_snapshot_write_verified": true,
+    "prelaunch_gates_all_pass": true,
+    "systemd_unit_rendered_with_watchdog": true,
+    "iam_runtime_s3_put_verified": true
+  },
+
+  "v3_launch_requirements": {
+    "must_fix": [
+      "The runtime.json config file must be generated from the V4 template with correct {collector_epoch} placeholders in raw_root_template, manifest_root_template, compressed_root_template, receipt_root_template",
+      "The collector-command --config-file path must point to the correctly templated runtime.json",
+      "All path arguments in collector-command-json must match the runtime.json paths exactly"
+    ],
+    "approach": "Read the V4 runtime.json template: sudo cat /var/lib/bitcoin-trader/launch-artifacts/aws-validation-30h-20260915-v4/aws-validation-30h-20260915-v4.runtime.json — then adapt epoch/run_id/paths for v3 identity while preserving the template placeholder structure",
+    "new_identity_pattern": "aws-observability-90m-20260917-<UTCSTAMP>-v3",
+    "reuse_data_dir": true,
+    "reuse_worktree": true
+  },
+
+  "next_action": "Fix runtime.json template configuration (must preserve {collector_epoch} placeholders from V4 template), create v3 identity, relaunch. The code itself is correct — only launch artifact configuration is wrong."
+}
