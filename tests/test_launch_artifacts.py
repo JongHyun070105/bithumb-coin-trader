@@ -300,6 +300,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             # 2. launch_ec2_sh guarantees OBSERVER_START <= COLLECTOR_START
             ec2_sh = artifacts.launch_ec2_sh
             self.assertIn("OBSERVER_START <= COLLECTOR_START", ec2_sh)
+            self.assertIn("must be executed with root/sudo privileges", ec2_sh)
             self.assertIn("bitcoin-trader-obs-", ec2_sh)
             self.assertIn("systemd-run", ec2_sh)
             self.assertIn("--uid=bitcoin-trader", ec2_sh)

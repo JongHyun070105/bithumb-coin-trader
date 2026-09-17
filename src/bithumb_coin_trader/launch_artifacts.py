@@ -411,6 +411,11 @@ def generate_launch_artifacts(
     launch_ec2_sh = f"""#!/usr/bin/env bash
 set -euo pipefail
 
+if [ "$(id -u)" -ne 0 ]; then
+  echo "[ERROR] launch-ec2.sh must be executed with root/sudo privileges so systemd-run can register units. (Observer/collector units are strictly pinned to --uid=bitcoin-trader)." >&2
+  exit 1
+fi
+
 worktree="{worktree_str}"
 python="{python_str}"
 artifacts_dir="{artifacts_dir_str}"
