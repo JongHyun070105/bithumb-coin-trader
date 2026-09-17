@@ -124,8 +124,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         prefix = "bitcoin-trader-30h"
     else:
         # Legacy duration path:
-        if config.collection_duration_seconds not in (2700, 7200, 108000, 259200):
-            raise ValueError("production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds")
+        if config.collection_duration_seconds not in (2700, 5400, 7200, 108000, 259200):
+            raise ValueError("production supervisor duration must be exactly 2700, 5400, 7200, 108000, or 259200 seconds")
         if config.supervisor_hard_ceiling_seconds < (
             config.collection_duration_seconds + config.finalization_timeout_seconds
         ):
@@ -136,6 +136,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             prefix = "bitcoin-trader-30h"
         elif config.collection_duration_seconds == 7200:
             prefix = "bitcoin-trader-120m"
+        elif config.collection_duration_seconds == 5400:
+            prefix = "bitcoin-trader-90m"
         else:
             prefix = "bitcoin-trader-short-smoke"
     if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
