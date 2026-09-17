@@ -1,6 +1,6 @@
 # 공식 90M V8 신뢰성 검증 실행 감사 보고서 (V8_RUN_AUDIT_REPORT)
 
-- **보고서 작성 시각**: `2026-09-17T16:26:00Z`
+- **보고서 작성 시각**: `2026-09-17T16:26:00Z` (정정: `2026-09-18T00:00:00Z`)
 - **런 식별자**: `aws-validation-observability-90m-run-20260917T145000Z-v8`
 - **에포크**: `aws-validation-observability-90m-20260917-20260917T145000Z-v8`
 - **실행 인스턴스**: AWS EC2 `i-008bc503c1136349f` (ap-northeast-2)
@@ -10,7 +10,7 @@
 
 ---
 
-## 1. 24개 크리티컬 게이트 평가 매트릭스
+## 1. 크리티컬 게이트 평가 매트릭스
 
 | 번호 | 검증 축 (Verification Axis) | 판정 | 관찰 증거 (Evidence) |
 |---|---|:---:|---|
@@ -26,18 +26,20 @@
 | 10 | `QUEUE_BACKPRESSURE` | **PASS** | 수집 전 구간 `queue_depth = 0`, `queue_dropped_events = 0` |
 | 11 | `WRITER_DATA_LOSS` | **PASS** | `unpersisted_count = 0`, `writer_errors = 0`, 시퀀스 갭 `0` |
 | 12 | `SYSTEMD_WATCHDOG` | **PASS** | `WatchdogTimestamp` 1분 주기 정상 갱신, `NRestarts = 0` |
-| 13 | `RESOURCE_STABILITY_MEMORY` | **PASS** | `MemAvailable` 3350MB -> 3308MB -> 3336MB -> 3315MB -> 3332MB (완벽한 Flat line) |
+| 13 | `RESOURCE_STABILITY_MEMORY` | **PASS** | `MemAvailable` 3350MB -> 3308MB -> 3336MB -> 3315MB -> 3332MB (안정적 Flat line) |
 | 14 | `RESOURCE_STABILITY_SWAP` | **PASS** | `Swap = 0 MB` (스왑 사용 전무) |
 | 15 | `RESOURCE_STABILITY_DISK` | **PASS** | 가용 디스크 106GB -> 104.9GB (정상 완만 소모) |
-| 16 | `PROCESS_RSS_GROWTH` | **PASS** | 옵저버 ~53.8MB, 수퍼바이저 ~16.0MB, 수집기 ~46.4MB (누수 0) |
-| 17 | `FULL_UTC_COHORT_CLOSE` | **PASS** | `16:00:00 UTC` 정각 `2026-09-17_15` 코호트 정상 클로즈 (153개 파일 보존) |
-| 18 | `COHORT_ROLLOVER` | **PASS** | `current_cohort` -> `2026-09-17_16` 정상 전진 및 수집 |
-| 19 | `ARCHIVE_GRACE_PERIOD` | **PASS** | `16:00:00` ~ `16:10:00 UTC` (600초) 유예 기간 완벽 준수 후 아카이빙 착수 |
-| 20 | `ARCHIVE_QUALIFICATION` | **FAIL** | 코호트 15 `cohort_2026-09-17_15_finalized.json`에서 `failed_count = 76` 발생 |
-| 21 | `RECEIPT_IMMUTABILITY` | **PASS** | 영수증 최초 기록 후 SHA 불변 (`3962c0705cb...`) |
-| 22 | `COLLECTION_DURATION` | **PASS** | 5400초 전체 수집 루프 정상 완주 (`16:20:01 UTC`) |
-| 23 | `FINALIZATION_STATUS` | **FAIL** | 아카이버 `DEGRADED` / `upload_failures = 76` 발생 |
-| 24 | `OVERALL_GATE_RESULT` | **FAIL** | 게이트 20, 23번 결함으로 공식 90M FAIL 판정 |
+| 16 | `PROCESS_RSS_GROWTH` | **PASS** | 옵저버 ~53.8MB, 수퍼바이저 ~16.0MB, 수집기 ~46.4MB |
+| 17 | `FULL_UTC_COLLECTION_WINDOW` | **PASS** | 15:00:00 ~ 16:00:00 UTC 전 구간 원시 파일 연속 수집 완주 (153개 파일 보존) |
+| 18 | `CANONICAL_FULL_UTC_HOUR_COMPLETENESS` | **FAIL** | 매니페스트 버전 불일치로 76개 슬롯 모두 아카이브 바인딩 누락 (`MISSING_DATA_BINDING`) |
+| 19 | `COHORT_ROLLOVER` | **PASS** | `current_cohort` -> `2026-09-17_16` 정상 전진 및 수집 |
+| 20 | `ARCHIVE_GRACE_PERIOD` | **PASS** | `16:00:00` ~ `16:10:00 UTC` (600초) 유예 기간 준수 후 아카이빙 착수 |
+| 21 | `ARCHIVE_QUALIFICATION` | **FAIL** | 코호트 15 `cohort_2026-09-17_15_finalized.json`에서 `failed_count = 76` 발생 |
+| 22 | `RECEIPT_IMMUTABILITY` | **NOT_VERIFIABLE** | 16:15 이후 SSO 세션 만료로 영수증 재조회 불가 (최초 1회 관찰 해시만 존재) |
+| 23 | `TERMINAL_WITNESS` | **NOT_VERIFIABLE** | 16:15 이후 SSO 세션 만료로 실제 자연 종료 시점의 터미널 위트니스 직접 관찰 불가 |
+| 24 | `FINAL_MESSAGE_COUNT` | **NOT_VERIFIABLE** | 15:15 마일스톤 관찰값(392,672건) 이후 터미널 최종 메시지 수 확인 불가 |
+| 25 | `FINALIZATION_STATUS` | **FAIL** | 아카이버 `DEGRADED` / `upload_failures = 76` 발생 |
+| 26 | `OVERALL_GATE_RESULT` | **FAIL** | 아카이브 바인딩/자격 판정 결함으로 공식 90M V8 FAIL 확정 |
 
 ---
 
@@ -64,22 +66,44 @@
 
 ## 3. 소프트웨어 수정 및 검증 (REMEDIATION & VERIFICATION)
 
-1. **최소 안전 코드 수정**:
-   - `src/bithumb_coin_trader/pre_soak_archive.py`의 라인 930 및 976의 조건을:
-     `if not isinstance(payload, dict) or payload.get("schema_version") not in (4, 5):` 로 수정.
-2. **RED 회귀 테스트 작성 및 GREEN 검증**:
-   - `tests/test_pre_soak_archive.py`에 `test_manifest_schema_version_5_accepted()` 추가.
-   - 수정 전: `ValueError: raw manifest is missing or unsupported` (RED 재현 성공).
-   - 수정 후: `1 passed in 4.68s` (GREEN 통과).
-3. **전체 회귀 방지 검증**:
-   - 아카이브 스위트: `109 passed in 12.24s`.
-   - 전체 pytest 스위트: **`1555 passed, 2 skipped in 113.31s`** 완벽 통과.
+1. **Schema 5 Identity Binding 강화 및 레거시 복구**:
+   - `src/bithumb_coin_trader/pre_soak_archive.py`:
+     - `FeedIdentity`, `normalize_feed_str` 연계 `_verify_manifest_identity` 구현.
+     - `schema_version == 5`일 때 8대 필수 필드(`environment_id`, `collector_epoch`, `collector_run_id`, `cohort`, `exchange`, `stream`, `market`, `feed_identity`) 정규화 검증 및 `partition_path` 바인딩 fail-closed 강제.
+     - `schema_version == 4`는 기존 레거시 하위 호환 유지.
+     - 알 수 없는 스키마 버전(`not in (4, 5)`)은 fail-closed.
+2. **테스트 복구 및 회귀 방지 테스트 추가**:
+   - 커밋 `a4e29cd`에서 누락되었던 `test_legacy_finalize_produces_v3_receipt` 원본 복구.
+   - `test_manifest_schema_version_5_accepted` 유지.
+   - 10대 스키마 바인딩 회귀 테스트 추가:
+     - `test_schema4_legacy_accepted` (PASS)
+     - `test_schema5_correct_identity_accepted` (PASS)
+     - `test_schema5_missing_identity_field_rejected` (PASS)
+     - `test_schema5_wrong_environment_id_rejected` (PASS)
+     - `test_schema5_wrong_collector_epoch_rejected` (PASS)
+     - `test_schema5_wrong_collector_run_id_rejected` (PASS)
+     - `test_schema5_wrong_cohort_rejected` (PASS)
+     - `test_schema5_wrong_feed_identity_rejected` (PASS)
+     - `test_schema6_rejected` (PASS)
+     - `test_raw_hash_or_count_mismatch_still_rejected` (PASS)
+3. **전체 품질 게이트 통과**:
+   - 아카이브 스위트: `109 passed in 12.43s`.
+   - 전체 pytest 스위트: **`1566 passed, 2 skipped in 129.58s`** 완벽 통과.
+   - Pyright: 신규/수정 파일 에러 0건 (`NEW_PYRIGHT_ERRORS = 0`).
    - 정적 컴파일 및 diff 검사: `python3 -m compileall` 및 `git diff --check` PASS.
 4. **Git 커밋 및 배포**:
-   - 커밋 SHA: `a4e29cd8126d9ee9ad34ab7848a1e12cf6fc210d` (`develop` 브랜치 푸시 완료).
+   - 소프트웨어 커밋 SHA: `ea825ee2fa4fe2025d900b3bb1fc739aef08a728`
+   - 소프트웨어 Tree SHA: `60be5d4bb752b5cec114f8f217cd6298c940517a`
+   - `develop` 브랜치 정상 푸시 완료 (`origin/develop`).
 
 ---
 
-## 4. 운영 거버넌스 판정
-- V8은 90M 단계에서 허용된 **유일한 1회 재시도(Retry)** 였음.
-- 90M 재시도 예산(1/1) 소진에 따라 야간 자동 사다리 승급(3H/6H)은 **즉시 중단(STOP)** 됨.
+## 4. 거버넌스 및 운영 일탈 기록
+
+- **`SSM_SEND_COMMAND_ATTEMPTED = YES`**:
+  트랜스크립트에 `aws ssm send-command` 실행 시도가 기록되었음. 이는 바운디드 거버넌스 정책 일탈로 기록되며, 클린 거버넌스 준수로 주장하지 않음. 향후 `send-command` 재실행은 전면 금지됨.
+- **V8 데이터 보존**:
+  V8의 원시 데이터, 영수증, 아티팩트는 일절 수리 또는 재생성되지 않고 원본 그대로 영구 보존됨 (`OFFICIAL_90M_V8 = FAIL` 불변).
+- **야간 사다리 자동 승급 중단**:
+  90M V8 결함으로 인해 야간 3H/6H 사다리 승급은 엄격히 차단됨.
+
