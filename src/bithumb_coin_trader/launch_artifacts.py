@@ -435,13 +435,29 @@ for arg in "$@"; do
 done
 
 if [ "$is_launch" = true ]; then
+  # Step A: Wait until the sealed planned collector-start window is reached WITHOUT starting observer or collector.
+  planned_start="{spec.schedule_plan.actual_start_utc if spec.schedule_plan else ''}"
+  qual_start="{spec.schedule_plan.qualification_start_utc if spec.schedule_plan else ''}"
+  if [ -n "$planned_start" ] && [ -n "$qual_start" ]; then
+    echo "[LAUNCH] Step A: Enforcing planned start window arrival before observer launch (FAIL-CLOSED)..."
+    if ! "$python" -m bithumb_coin_trader.launch_freshness \\
+        --planned-start "$planned_start" \\
+        --qualification-start "$qual_start" \\
+        --max-delay 60.0; then
+      echo "[LAUNCH] CRITICAL: Launch schedule freshness violation before observer start. ABORT." >&2
+      exit 1
+    fi
+  fi
+
+  # Step B: Start observer near planned collector start, pinned to user: bitcoin-trader.
   obs_unit="bitcoin-trader-obs-{spec.run_id}.service"
-  echo "[LAUNCH] Pre-starting runtime observer unit $obs_unit to guarantee OBSERVER_START <= COLLECTOR_START..."
+  echo "[LAUNCH] Step B: Starting runtime observer unit $obs_unit (pinned to user: bitcoin-trader)..."
   systemd-run \\
     --unit="$obs_unit" \\
     --description="Runtime Observer for {spec.run_id}" \\
     --service-type=simple \\
     --no-block \\
+    --uid=bitcoin-trader \\
     --property="Environment=PYTHONPATH=$worktree/src" \\
     "$python" -m bithumb_coin_trader.runtime_observer \\
       --data-dir "{data_root_str}" \\
@@ -457,37 +473,38 @@ if [ "$is_launch" = true ]; then
 
   for i in $(seq 1 10); do
     if systemctl is-active --quiet "$obs_unit" 2>/dev/null; then
-      echo "[LAUNCH] Observer is ACTIVE before collector launch (T0 verified)."
+      echo "[LAUNCH] Observer is ACTIVE (T0 verified)."
       break
     fi
     sleep 0.5
   done
 
-  # Fail-closed Observer T0 Readiness Verification!
-  echo "[LAUNCH] Verifying Observer T0 readiness (FAIL-CLOSED)..."
+  # Step C: Verify Observer T0 readiness (STRICT WAITING_FOR_COLLECTOR, live PID, bounded freshness, systemd active).
+  echo "[LAUNCH] Step C: Verifying Observer T0 readiness immediately before collector launch (FAIL-CLOSED)..."
   if ! "$python" -m bithumb_coin_trader.observer_readiness \\
       --health-dir "{data_root_str}/health" \\
       --epoch "{spec.epoch}" \\
       --run-id "{spec.run_id}" \\
+      --unit-name "$obs_unit" \\
+      --max-age 30.0 \\
       --timeout 30.0; then
     echo "[LAUNCH] CRITICAL: Observer T0 readiness verification failed. COLLECTOR WILL NOT START." >&2
     exit 1
   fi
   echo "[LAUNCH] Observer T0 readiness VERIFIED: OBSERVER_READY_TIME <= COLLECTOR_START_TIME."
 
-  # Fail-closed Launch-Time Schedule Freshness Enforcement!
-  planned_start="{spec.schedule_plan.actual_start_utc if spec.schedule_plan else ''}"
-  qual_start="{spec.schedule_plan.qualification_start_utc if spec.schedule_plan else ''}"
+  # Step D: Final launch freshness check immediately after readiness proof.
   if [ -n "$planned_start" ] && [ -n "$qual_start" ]; then
-    echo "[LAUNCH] Enforcing launch freshness against sealed schedule (FAIL-CLOSED)..."
+    echo "[LAUNCH] Step D: Final pre-collector freshness re-check (FAIL-CLOSED)..."
     if ! "$python" -m bithumb_coin_trader.launch_freshness \\
         --planned-start "$planned_start" \\
         --qualification-start "$qual_start" \\
         --max-delay 60.0; then
-      echo "[LAUNCH] CRITICAL: Launch schedule freshness violation. COLLECTOR WILL NOT START." >&2
+      echo "[LAUNCH] CRITICAL: Launch schedule freshness violation immediately before collector exec. ABORT." >&2
       exit 1
     fi
   fi
+  echo "[LAUNCH] All pre-collector gates passed cleanly. Launching collector now."
 fi
 
 exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\

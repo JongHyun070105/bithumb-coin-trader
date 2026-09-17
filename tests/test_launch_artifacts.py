@@ -292,6 +292,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             # 1. observer_command present in launch_command
             obs_cmd = artifacts.launch_command.get("observer_command")
             self.assertIsNotNone(obs_cmd)
+            assert obs_cmd is not None
             self.assertIn("bithumb_coin_trader.runtime_observer", obs_cmd)
             self.assertIn("--data-dir", obs_cmd)
             self.assertIn("--allow-s3-write", obs_cmd)
@@ -301,7 +302,10 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             self.assertIn("OBSERVER_START <= COLLECTOR_START", ec2_sh)
             self.assertIn("bitcoin-trader-obs-", ec2_sh)
             self.assertIn("systemd-run", ec2_sh)
+            self.assertIn("--uid=bitcoin-trader", ec2_sh)
             self.assertIn("systemctl is-active", ec2_sh)
+            self.assertIn("Step A: Enforcing planned start window arrival", ec2_sh)
+            self.assertIn("Step D: Final pre-collector freshness re-check", ec2_sh)
 
             # 3. Validator passes cleanly
             res = validate_launch_artifacts(

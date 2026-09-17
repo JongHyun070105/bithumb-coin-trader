@@ -48,10 +48,12 @@ def _write_mock_observer_snapshot(
     return path
 
 
-def test_observer_readiness_passes_when_snapshot_valid(tmp_path: Path) -> None:
+def test_observer_readiness_passes_with_waiting_for_collector_and_live_pid(tmp_path: Path) -> None:
     epoch = "test_epoch"
     run_id = "test_run"
-    _write_mock_observer_snapshot(tmp_path, epoch, run_id)
+    import os
+    live_pid = os.getpid()  # current process is guaranteed alive
+    _write_mock_observer_snapshot(tmp_path, epoch, run_id, collector_status="WAITING_FOR_COLLECTOR", observer_pid=live_pid)
 
     proof = verify_observer_readiness(
         health_dir=tmp_path,
@@ -63,9 +65,104 @@ def test_observer_readiness_passes_when_snapshot_valid(tmp_path: Path) -> None:
     assert isinstance(proof, ObserverReadinessProof)
     assert proof.epoch == epoch
     assert proof.run_id == run_id
-    assert proof.observer_pid == 12345
+    assert proof.observer_pid == live_pid
     assert proof.collector_observed_status == "WAITING_FOR_COLLECTOR"
     assert proof.observer_status == "HEALTHY"
+    assert proof.pid_liveness_verified is True
+
+
+def test_observer_readiness_fails_when_collector_status_healthy_before_launch(tmp_path: Path) -> None:
+    """Pre-collector readiness must strictly reject HEALTHY and require WAITING_FOR_COLLECTOR."""
+    import os
+    _write_mock_observer_snapshot(tmp_path, "test_epoch", "test_run", collector_status="HEALTHY", observer_pid=os.getpid())
+
+    with pytest.raises(ObserverReadinessTimeoutError, match="strictly expected 'WAITING_FOR_COLLECTOR'"):
+        verify_observer_readiness(
+            health_dir=tmp_path,
+            expected_epoch="test_epoch",
+            expected_run_id="test_run",
+            timeout_seconds=0.2,
+            poll_interval_seconds=0.05,
+        )
+
+
+def test_observer_readiness_fails_when_pid_nonexistent(tmp_path: Path) -> None:
+    """Positive but nonexistent PID must fail closed."""
+    # 99999999 is extraordinarily unlikely to exist as a PID
+    _write_mock_observer_snapshot(tmp_path, "test_epoch", "test_run", observer_pid=99999999)
+
+    with pytest.raises(ObserverReadinessTimeoutError, match="dead / not signalable on host"):
+        verify_observer_readiness(
+            health_dir=tmp_path,
+            expected_epoch="test_epoch",
+            expected_run_id="test_run",
+            timeout_seconds=0.2,
+            poll_interval_seconds=0.05,
+        )
+
+
+def test_observer_readiness_fails_when_pid_dead(tmp_path: Path) -> None:
+    """Dead PID confirmed via liveness checker must fail closed."""
+    _write_mock_observer_snapshot(tmp_path, "test_epoch", "test_run", observer_pid=12345)
+
+    with pytest.raises(ObserverReadinessTimeoutError, match="dead / not signalable on host"):
+        verify_observer_readiness(
+            health_dir=tmp_path,
+            expected_epoch="test_epoch",
+            expected_run_id="test_run",
+            timeout_seconds=0.2,
+            poll_interval_seconds=0.05,
+            pid_liveness_fn=lambda pid: False,
+        )
+
+
+def test_observer_readiness_fails_when_snapshot_stale(tmp_path: Path) -> None:
+    """Snapshot older than max_snapshot_age_seconds must fail closed."""
+    import os
+    stale_dt = datetime.now(timezone.utc) - timedelta(seconds=45.0)
+    health_dir = tmp_path
+    health_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "epoch": "test_epoch",
+        "run_id": "test_run",
+        "observed_at": stale_dt.isoformat(),
+        "collector": {"status": "WAITING_FOR_COLLECTOR"},
+        "observer": {"status": "HEALTHY", "observer_pid": os.getpid()},
+    }
+    (health_dir / "observer_latest.json").write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ObserverReadinessTimeoutError, match="snapshot is stale"):
+        verify_observer_readiness(
+            health_dir=tmp_path,
+            expected_epoch="test_epoch",
+            expected_run_id="test_run",
+            max_snapshot_age_seconds=30.0,
+            timeout_seconds=0.2,
+            poll_interval_seconds=0.05,
+        )
+
+
+def test_observer_readiness_fails_when_observed_at_missing(tmp_path: Path) -> None:
+    """Missing observed_at must fail closed and never fall back to now."""
+    import os
+    health_dir = tmp_path
+    health_dir.mkdir(parents=True, exist_ok=True)
+    snapshot = {
+        "epoch": "test_epoch",
+        "run_id": "test_run",
+        "collector": {"status": "WAITING_FOR_COLLECTOR"},
+        "observer": {"status": "HEALTHY", "observer_pid": os.getpid()},
+    }
+    (health_dir / "observer_latest.json").write_text(json.dumps(snapshot), encoding="utf-8")
+
+    with pytest.raises(ObserverReadinessTimeoutError, match="observed_at timestamp missing"):
+        verify_observer_readiness(
+            health_dir=tmp_path,
+            expected_epoch="test_epoch",
+            expected_run_id="test_run",
+            timeout_seconds=0.2,
+            poll_interval_seconds=0.05,
+        )
 
 
 def test_observer_readiness_fails_on_identity_mismatch(tmp_path: Path) -> None:
