@@ -813,6 +813,21 @@ def test_idempotent_reuse_artifact(tmp_path: Path) -> None:
     assert store.upload_calls == 1
 
 
+def test_legacy_finalize_produces_v3_receipt(tmp_path: Path) -> None:
+    pipe = pipeline(tmp_path)
+    art = raw_artifact(tmp_path)
+    receipt = pipe.finalize(
+        art.source_path,
+        now=datetime(2026, 9, 2, 12, 0, tzinfo=timezone.utc),
+        grace_period=timedelta(0),
+        stability_wait_seconds=0,
+    )
+    assert receipt.schema_version == 3
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.restore_verified_at is not None
+
+
 def test_manifest_schema_version_5_accepted(tmp_path: Path) -> None:
     raw_root = tmp_path / "raw"
     manifest_root = tmp_path / "manifests"
@@ -861,6 +876,150 @@ def test_manifest_schema_version_5_accepted(tmp_path: Path) -> None:
     assert receipt.artifact_kind == "RAW_DATA"
     assert receipt.source_record_count == 10
     assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def _create_test_raw_and_manifest(
+    tmp_path: Path,
+    *,
+    schema_version: int = 5,
+    payload_overrides: dict[str, Any] | None = None,
+    corrupt_hash: bool = False,
+    corrupt_count: bool = False,
+) -> tuple[ArchivePipeline, ImmutableArtifact]:
+    raw_root = tmp_path / "raw"
+    manifest_root = tmp_path / "manifests"
+    rel = "2026-09-01/binance/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    source_file = raw_root / rel
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    records = [{"exchange": "binance", "stream": "trade", "market": "BTCUSDT", "data": i} for i in range(10)]
+    source_file.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    data = source_file.read_bytes()
+    raw_sha = hashlib.sha256(data).hexdigest()
+
+    manifest_file = manifest_root / f"manifest_{source_file.stem}.json"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    if schema_version == 4:
+        payload: dict[str, Any] = {
+            "schema_version": 4,
+            "partition_path": rel,
+            "bytes": len(data),
+            "sha256": raw_sha if not corrupt_hash else "badhash" * 8,
+            "record_count": 10 if not corrupt_count else 99,
+        }
+    else:
+        payload = {
+            "schema_version": schema_version,
+            "partition_path": rel,
+            "bytes": len(data),
+            "sha256": raw_sha if not corrupt_hash else "badhash" * 8,
+            "record_count": 10 if not corrupt_count else 99,
+            "environment_id": "aws-apne2-research",
+            "collector_epoch": "test-epoch",
+            "collector_run_id": "test-run",
+            "cohort": "2026-09-01_10",
+            "feed_identity": "binance/trade/btcusdt",
+        }
+    if payload_overrides:
+        for k, v in payload_overrides.items():
+            if v is None:
+                payload.pop(k, None)
+            else:
+                payload[k] = v
+
+    manifest_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    art = ImmutableArtifact(
+        kind=ArtifactKind.RAW_DATA,
+        source_path=source_file,
+        relative_path=rel,
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-01_10",
+        exchange="binance",
+        stream="trade",
+        market="btcusdt",
+        source_sha256=raw_sha,
+        source_size=len(data),
+        source_record_count=10,
+        manifest_path=manifest_file,
+        manifest_sha256=file_sha256(manifest_file),
+    )
+    pipe = pipeline(tmp_path)
+    return pipe, art
+
+
+def test_schema4_legacy_accepted(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=4)
+    receipt = pipe.finalize_artifact(art)
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def test_schema5_correct_identity_accepted(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5)
+    receipt = pipe.finalize_artifact(art)
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def test_schema5_missing_identity_field_rejected(tmp_path: Path) -> None:
+    required = ["environment_id", "collector_epoch", "collector_run_id", "cohort", "feed_identity"]
+    for missing_field in required:
+        sub = tmp_path / missing_field
+        pipe, art = _create_test_raw_and_manifest(sub, schema_version=5, payload_overrides={missing_field: None})
+        with pytest.raises(ValueError, match="missing required identity field"):
+            pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_environment_id_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"environment_id": "wrong-env"})
+    with pytest.raises(ValueError, match="manifest environment_id mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_collector_epoch_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"collector_epoch": "wrong-epoch"})
+    with pytest.raises(ValueError, match="manifest collector_epoch mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_collector_run_id_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"collector_run_id": "wrong-run"})
+    with pytest.raises(ValueError, match="manifest collector_run_id mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_cohort_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"cohort": "2026-09-01_99"})
+    with pytest.raises(ValueError, match="manifest cohort mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_feed_identity_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"feed_identity": "bithumb/orderbook/KRW-BTC"})
+    with pytest.raises(ValueError, match="manifest feed_identity mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema6_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=6)
+    with pytest.raises(ValueError, match="raw manifest is missing or unsupported"):
+        pipe.finalize_artifact(art)
+
+
+def test_raw_hash_or_count_mismatch_still_rejected(tmp_path: Path) -> None:
+    sub1 = tmp_path / "bad_hash"
+    pipe1, art1 = _create_test_raw_and_manifest(sub1, schema_version=5, corrupt_hash=True)
+    with pytest.raises(ValueError, match="raw partition does not match its manifest"):
+        pipe1.finalize_artifact(art1)
+
+    sub2 = tmp_path / "bad_count"
+    pipe2, art2 = _create_test_raw_and_manifest(sub2, schema_version=5, corrupt_count=True)
+    with pytest.raises(ValueError, match="raw partition does not match its manifest"):
+        pipe2.finalize_artifact(art2)
 
 
 if __name__ == "__main__":

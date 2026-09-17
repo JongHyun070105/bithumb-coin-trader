@@ -25,6 +25,7 @@ import zstandard
 from .archive_cohort import ArchiveCohortId
 from .evidence_hashing import canonical_sha256, file_sha256
 from .microstructure_io import CompressedInputError, iter_zstd_decompressed_chunks
+from .session_evidence import FeedIdentity, normalize_feed_str
 
 
 RECEIPT_SCHEMA_VERSION = 3
@@ -582,6 +583,103 @@ def is_closed_stable_partition(
     )
 
 
+def _verify_manifest_identity(
+    payload: dict[str, Any],
+    *,
+    environment_id: str,
+    collector_epoch: str,
+    collector_run_id: str,
+    cohort: str,
+    exchange: str,
+    stream: str,
+    market: str,
+    source_path: Path,
+    relative_path: str | None = None,
+) -> None:
+    schema_version = payload.get("schema_version")
+    if schema_version not in (4, 5):
+        raise ValueError("raw manifest is missing or unsupported")
+    if schema_version == 4:
+        return
+
+    required_fields = (
+        "environment_id",
+        "collector_epoch",
+        "collector_run_id",
+        "cohort",
+        "feed_identity",
+    )
+    for field_name in required_fields:
+        val = payload.get(field_name)
+        if val is None or (isinstance(val, str) and not val.strip()):
+            raise ValueError(f"schema 5 manifest missing required identity field: {field_name}")
+
+    if str(payload["environment_id"]) != environment_id:
+        raise ValueError(
+            f"manifest environment_id mismatch: {payload['environment_id']} != {environment_id}"
+        )
+    if str(payload["collector_epoch"]) != collector_epoch:
+        raise ValueError(
+            f"manifest collector_epoch mismatch: {payload['collector_epoch']} != {collector_epoch}"
+        )
+    if str(payload["collector_run_id"]) != collector_run_id:
+        raise ValueError(
+            f"manifest collector_run_id mismatch: {payload['collector_run_id']} != {collector_run_id}"
+        )
+    if str(payload["cohort"]) != cohort:
+        raise ValueError(
+            f"manifest cohort mismatch: {payload['cohort']} != {cohort}"
+        )
+
+    expected_feed = FeedIdentity(exchange=exchange, stream=stream, market=market)
+    manifest_feed_str = str(payload["feed_identity"])
+    parts = manifest_feed_str.split("/")
+    if len(parts) != 3:
+        raise ValueError(f"invalid manifest feed_identity format: {manifest_feed_str}")
+
+    manifest_feed = FeedIdentity(exchange=parts[0], stream=parts[1], market=parts[2])
+    if manifest_feed != expected_feed:
+        raise ValueError(
+            f"manifest feed_identity mismatch: {manifest_feed.canonical} != {expected_feed.canonical}"
+        )
+    if normalize_feed_str(manifest_feed_str) != expected_feed.canonical:
+        raise ValueError(
+            f"manifest feed_identity normalization mismatch: {manifest_feed_str} != {expected_feed.canonical}"
+        )
+
+    if "exchange" in payload:
+        p_exch = payload["exchange"]
+        if not p_exch or not isinstance(p_exch, str) or p_exch.lower() != expected_feed.exchange:
+            raise ValueError(f"manifest exchange mismatch: {p_exch} != {expected_feed.exchange}")
+    if "stream" in payload:
+        p_stream = payload["stream"]
+        if not p_stream or not isinstance(p_stream, str) or p_stream.lower() != expected_feed.stream:
+            raise ValueError(f"manifest stream mismatch: {p_stream} != {expected_feed.stream}")
+    if "market" in payload:
+        p_market = payload["market"]
+        if not p_market or not isinstance(p_market, str):
+            raise ValueError(f"manifest market invalid: {p_market}")
+        p_mkt_norm = FeedIdentity(exchange=exchange, stream=stream, market=p_market).market
+        if p_mkt_norm != expected_feed.market:
+            raise ValueError(f"manifest market mismatch: {p_market} != {expected_feed.market}")
+
+    partition_path = payload.get("partition_path")
+    if partition_path is not None:
+        if not isinstance(partition_path, str) or not partition_path.strip():
+            raise ValueError("invalid manifest partition_path")
+        if Path(partition_path).name != source_path.name:
+            raise ValueError(
+                f"manifest partition_path filename mismatch: {Path(partition_path).name} != {source_path.name}"
+            )
+        if relative_path is not None and "/" in partition_path:
+            clean_part = partition_path.lstrip("/")
+            clean_rel = relative_path.lstrip("/")
+            if clean_part != clean_rel and Path(clean_part).name != Path(clean_rel).name:
+                raise ValueError(
+                    f"manifest partition_path mismatch: {partition_path} != {relative_path}"
+                )
+
+
 class ArchivePipeline:
     def __init__(
         self,
@@ -927,8 +1025,20 @@ class ArchivePipeline:
             if artifact.manifest_sha256 != actual_m_sha:
                 raise ValueError("manifest hash mismatch")
             payload = json.loads(artifact.manifest_path.read_text(encoding="utf-8"))
-            if not isinstance(payload, dict) or payload.get("schema_version") not in (4, 5):
+            if not isinstance(payload, dict):
                 raise ValueError("raw manifest is missing or unsupported")
+            _verify_manifest_identity(
+                payload,
+                environment_id=artifact.environment_id,
+                collector_epoch=artifact.collector_epoch,
+                collector_run_id=artifact.collector_run_id,
+                cohort=artifact.cohort,
+                exchange=artifact.exchange,
+                stream=artifact.stream,
+                market=artifact.market,
+                source_path=artifact.source_path,
+                relative_path=artifact.relative_path,
+            )
             digest, size, records = _hash_file(artifact.source_path, count_records=True)
             if (
                 payload.get("sha256") != digest
@@ -973,8 +1083,21 @@ class ArchivePipeline:
     def _verify_raw(self, raw_path: Path, receipt: ArchiveReceiptV3) -> None:
         manifest_path = self._manifest_path(raw_path)
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        if not isinstance(payload, dict) or payload.get("schema_version") not in (4, 5):
+        if not isinstance(payload, dict):
             raise ValueError("raw manifest is missing or unsupported")
+
+        _verify_manifest_identity(
+            payload,
+            environment_id=receipt.environment_id,
+            collector_epoch=receipt.collector_epoch,
+            collector_run_id=receipt.run_id,
+            cohort=receipt.cohort,
+            exchange=receipt.exchange,
+            stream=receipt.stream,
+            market=receipt.market,
+            source_path=raw_path,
+            relative_path=receipt.source_path,
+        )
 
         digest, size, records = _hash_file(raw_path, count_records=True)
         if (
