@@ -36,8 +36,8 @@ from bithumb_coin_trader.launch_artifacts import (
 class TestLaunchArtifactRegressions(unittest.TestCase):
     def setUp(self) -> None:
         self.commit = "32b667e39f94684246915bd0d1d17dd611688a3a"
-        self.epoch_90m = "aws-observability-90m-20260917-20260917T120000Z-v3"
-        self.run_id_90m = "aws-observability-90m-run-20260917T120000Z-v3"
+        self.epoch_90m = "aws-validation-observability-90m-20260917-20260917T120000Z-v3"
+        self.run_id_90m = "aws-validation-observability-90m-run-20260917T120000Z-v3"
 
     # ----------------------------------------------------------------------
     # RED REGRESSION 1: DURATION CONSISTENCY
@@ -237,6 +237,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                 run_id="aws-observability-90m-run-20260917T043600Z-v1",
                 duration_seconds=5400,
                 runtime_commit="32b667e39f94684246915bd0d1d17dd611688a3a",
+                s3_bucket="local-test",
             )
             with self.assertRaises(ValueError):
                 validate_launch_artifacts(
@@ -257,6 +258,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                 run_id="aws-observability-90m-run-20260917T050128Z-v2",
                 duration_seconds=5400,
                 runtime_commit="32b667e39f94684246915bd0d1d17dd611688a3a",
+                s3_bucket="local-test",
             )
             with self.assertRaises(ValueError):
                 validate_launch_artifacts(
@@ -264,6 +266,16 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     runtime_config=v2_runtime,
                     launch_command=v2_launch_cmd,
                 )
+
+    def test_s3_iam_prefix_enforced_for_research_bucket(self) -> None:
+        """Research bucket requires epoch to start with aws-validation- for IAM PutObject policy."""
+        with self.assertRaisesRegex(ValueError, "aws-validation-"):
+            ValidationRunSpec(
+                epoch="aws-observability-90m-20260917-v3",
+                run_id="run-v3",
+                duration_seconds=5400,
+                runtime_commit=self.commit,
+            )
 
 
 if __name__ == "__main__":

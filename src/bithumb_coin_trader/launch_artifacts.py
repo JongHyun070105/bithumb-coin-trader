@@ -78,6 +78,11 @@ class ValidationRunSpec:
             )
         if not self.epoch or not self.run_id or not self.runtime_commit:
             raise ValueError("epoch, run_id, and runtime_commit must be non-empty")
+        if self.s3_bucket == "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433" and not self.epoch.startswith("aws-validation-"):
+            raise ValueError(
+                f"S3 IAM policy for research bucket only permits 'market-data/temporary/aws-validation-*/*'; "
+                f"epoch {self.epoch!r} must start with 'aws-validation-'"
+            )
 
     @property
     def effective_hard_ceiling(self) -> int:
@@ -353,6 +358,8 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
+  --data-dir "{data_root_str}" \\
   "$@"
 """
 
@@ -378,6 +385,8 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
+  --data-dir "{data_root_str}" \\
   "$@"
 """
 
