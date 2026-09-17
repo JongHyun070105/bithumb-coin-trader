@@ -1,8 +1,25 @@
 {
-  "schema_version": 2,
-  "evidence_kind": "CORRECTED-v4-premature-audit-INVALID",
-  "correction_notice": "This file was originally committed as 8ab90f2 as a final V4 audit. That was PREMATURE and WRONG. V4 was still RUNNING at the time. This file is retained only as a correction record. The original content claiming FAIL verdict has been invalidated. See preliminary-observation.json for the correct current state.",
-  "original_commit": "8ab90f2",
-  "invalidation_reason": "V4 process state was RUNNING at time of original audit. RUNNING != FAILED. Cannot issue final verdict before natural process termination.",
-  "current_authoritative_state": "V4 RUNNING — final verdict NOT YET AVAILABLE"
+  "schema_version": 3,
+  "evidence_kind": "v4-final-authoritative-audit",
+  "audit_timestamp_utc": "2026-09-17T00:30:00Z",
+  "collector_epoch": "aws-validation-30h-20260915-v4",
+  "collector_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
+  "audit_verdict": {
+    "PROCESS": "FAIL",
+    "ARCHIVE": "FAIL",
+    "DQ": "FAIL",
+    "EVIDENCE_CONTRACT": "FAIL",
+    "OVERALL": "FAIL"
+  },
+  "dataset_research_usability": "NOT_RESEARCH_USABLE",
+  "terminal_evidence": {
+    "planned_stop_utc": "2026-09-16T17:00:00Z",
+    "audited_at_utc": "2026-09-17T00:30:00Z",
+    "hours_past_planned_stop": 7.5,
+    "s3_coverage_hours": 1,
+    "s3_raw_objects": 0,
+    "total_s3_objects": 76,
+    "qualifying_hours": 0
+  },
+  "notes": "Natural runtime has expired (planned stop 2026-09-16T17:00:00Z passed by >7 hours). Only 1 hour of coverage (76 objects) and 0 raw data files were published to S3. Final terminal audit confirms OVERALL FAIL and NOT_RESEARCH_USABLE."
 }

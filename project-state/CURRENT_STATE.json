@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "recovered_at_utc": "2026-09-17T00:28:30Z",
+  "git": {
+    "current_branch": "develop",
+    "head_sha": "4580ba0",
+    "main_sha": "4580ba0",
+    "develop_sha": "4580ba0",
+    "ahead_behind": "up_to_date",
+    "uncommitted_changes": false,
+    "untracked_notes": "test-results/ strictly preserved and untouched",
+    "remote_branches": [
+      "origin/HEAD -> origin/main",
+      "origin/codex/aws-30h-v4-remediation-preparation-20260915-3e7bcd9",
+      "origin/develop",
+      "origin/gemini/dashboard-local-api-ledger-e2e-20260908",
+      "origin/main"
+    ],
+    "archive_tags": [
+      "archive/aws-72h-final",
+      "archive/aws-v2-failure",
+      "archive/aws-v3-failed-start",
+      "archive/aws-v3-launch-auth",
+      "archive/fresh45-final",
+      "archive/pre-v2-research-infra",
+      "archive/v2-research-final"
+    ]
+  },
+  "scientific_state": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "v2_state": {
+    "dataset_id": "aws-validation-30h-20260912-6576f63",
+    "total_objects": 2272,
+    "dq_status": "2272 DATA_PRESENT, 8 UNKNOWN_MISSING",
+    "split": "18h DEV / 6h VAL / 6h TEST",
+    "result": "NO EXECUTABLE TAKER CANDIDATE",
+    "validation_entered": false,
+    "internal_test_entered": false
+  },
+  "v4_state": {
+    "epoch": "aws-validation-30h-20260915-v4",
+    "run_id": "aws-validation-30h-run-20260915T061253Z-v4",
+    "instance_id": "i-008bc503c1136349f",
+    "ec2_state": "running",
+    "ssm_ping": "Online",
+    "actual_start_utc": "2026-09-15T10:26:33.652102Z",
+    "planned_stop_utc": "2026-09-16T17:00:00Z",
+    "s3_coverage_hours": 1,
+    "s3_coverage_hour": "2026-09-15_10",
+    "s3_objects_total": 76,
+    "s3_raw_objects": 0,
+    "historical_correction": "Commit 8ab90f2 premature FAIL was invalidated by 6cb81a0. Wall-clock is now >7h past planned stop; terminal forensics required."
+  },
+  "maker_state": {
+    "module": "src/bithumb_coin_trader/maker_simulator.py",
+    "supported_sides": ["BUY"],
+    "supported_fill_models": ["OPTIMISTIC", "BASE", "CONSERVATIVE"],
+    "audit_status": "NEEDS_AUDIT_AND_SELL_SUPPORT"
+  },
+  "cross_exchange_state": {
+    "binance_adapter_status": "MODIFIED (exchange_ts fallback to local_recv)",
+    "timestamp_conflation_flaw": "Adapters incorrectly set exchange_timestamp_ms = local_recv_ms when null",
+    "remediation_needed": "Make exchange_timestamp_ms nullable, preserve availability_timestamp_ns explicitly"
+  },
+  "dashboard_state": {
+    "backend": "src/bithumb_coin_trader/dashboard_api.py",
+    "frontend": "dashboard/",
+    "single_source_of_truth": "src/bithumb_coin_trader/project_state.py",
+    "api_port": 8787
+  },
+  "storage_state": {
+    "reclaimed": "74.8 GB (98.4%)",
+    "current_repo_size": "approx 890 MB"
+  },
+  "next_phase": "PHASE 1 — V4 TERMINAL FORENSIC"
+}

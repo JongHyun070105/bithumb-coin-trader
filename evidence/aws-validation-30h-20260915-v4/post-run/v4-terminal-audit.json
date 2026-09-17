@@ -1,0 +1,51 @@
+{
+  "schema_version": 3,
+  "evidence_kind": "v4-terminal-forensic-audit",
+  "audit_timestamp_utc": "2026-09-17T00:30:00Z",
+  "audit_status": "FINAL_TERMINAL_AUTHORITATIVE",
+  "run_identity": {
+    "collector_epoch": "aws-validation-30h-20260915-v4",
+    "collector_run_id": "aws-validation-30h-run-20260915T061253Z-v4",
+    "runtime_commit": "ac81f94f431f5d868d88e10fa784eb0da449264d",
+    "runtime_config_fingerprint": "4229274b582598bb869aafd4d0c139949559ebffab837546613be651ee60b2fa",
+    "actual_start_time_utc": "2026-09-15T10:26:33.652102Z",
+    "planned_stop_time_utc": "2026-09-16T17:00:00Z",
+    "instance_id": "i-008bc503c1136349f"
+  },
+  "terminal_verification": {
+    "wall_clock_at_audit_utc": "2026-09-17T00:30:00Z",
+    "hours_past_planned_stop": 7.5,
+    "ec2_state": "running",
+    "ssm_agent_state": "Online",
+    "collector_process_state": "NOT_VERIFIABLE (SSM SendCommand not authorized)",
+    "last_s3_data_activity_utc": "2026-09-15T11:01:37Z",
+    "total_s3_objects": 76,
+    "total_s3_bytes": 534594,
+    "s3_raw_data_objects": 0,
+    "s3_coverage_hours_count": 1,
+    "s3_coverage_hours": ["2026-09-15_10"],
+    "qualifying_hours_collected": 0,
+    "qualifying_hours_required": 30
+  },
+  "forensic_classification": {
+    "PROCESS": "FAIL",
+    "ARCHIVE": "FAIL",
+    "DQ": "FAIL",
+    "EVIDENCE_CONTRACT": "FAIL",
+    "OVERALL": "FAIL"
+  },
+  "research_usability": {
+    "DATASET_RESEARCH_USABILITY": "NOT_RESEARCH_USABLE",
+    "reason": "Collector stopped publishing after initial pre-qualifying hour 2026-09-15_10. Zero raw market data objects were uploaded to S3. Qualifying hours: 0/30. Dataset lacks any usable microstructure ticks, orderbook snapshots, or trade records for research."
+  },
+  "root_cause_analysis": {
+    "failure_mode": "STALLED_COLLECTION_OR_ARCHIVE_PIPELINE_AFTER_HOUR_10",
+    "evidence": [
+      "EC2 instance remained running and SSM ping online throughout.",
+      "First hour (2026-09-15_10) uploaded 76 coverage objects ending at 2026-09-15T11:01:37Z.",
+      "No subsequent hours were uploaded to S3 over the remaining 30+ hours.",
+      "No finalization manifest or run receipt was written.",
+      "No raw data files exist in the S3 prefix."
+    ]
+  }
+}
