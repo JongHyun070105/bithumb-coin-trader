@@ -338,6 +338,105 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     target_dir=tmp_dir,
                 )
 
+    # ----------------------------------------------------------------------
+    # RED REGRESSION 6: ARTIFACT SEAL & IMMUTABILITY INTEGRITY
+    # ----------------------------------------------------------------------
+    def test_sealed_artifact_integrity_passes_intact_artifacts(self) -> None:
+        """Validator verifies sealed_at_utc and artifact hashes correctly."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            res = validate_launch_artifacts(
+                spec=spec,
+                runtime_config=artifacts.runtime_config,
+                launch_command=artifacts.launch_command,
+                target_dir=tmp_dir,
+            )
+            self.assertEqual(res["status"], "PASS")
+            self.assertTrue(res.get("sealed_artifact_hashes_verified"))
+            self.assertIsNotNone(res.get("sealed_at_utc"))
+
+    def test_sealed_artifact_integrity_rejects_missing_sealed_at_utc(self) -> None:
+        """Validator rejects identity.json if sealed_at_utc is missing or empty."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            id_file = tmp_dir / "identity.json"
+            id_data = json.loads(id_file.read_text(encoding="utf-8"))
+            id_data["sealed_at_utc"] = ""
+            id_file.write_text(json.dumps(id_data), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "missing or empty sealed_at_utc"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
+    def test_sealed_artifact_integrity_rejects_tampered_artifact(self) -> None:
+        """Validator rejects artifacts if a sealed file hash was tampered with."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            # Tamper with launch-ec2.sh
+            ec2_path = tmp_dir / "launch-ec2.sh"
+            ec2_path.write_text(ec2_path.read_text() + "\n# tampered line", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "hash mismatch"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
+    def test_sealed_artifact_integrity_rejects_tampered_identity_vs_manifest(self) -> None:
+        """Validator rejects when identity.json is tampered relative to sealed-manifest.json."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            id_file = tmp_dir / "identity.json"
+            id_data = json.loads(id_file.read_text(encoding="utf-8"))
+            id_data["note"] = "unauthorized edit"
+            id_file.write_text(json.dumps(id_data), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "sealed-manifest.json identity_sha256 mismatch"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

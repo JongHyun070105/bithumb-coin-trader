@@ -462,6 +462,32 @@ if [ "$is_launch" = true ]; then
     fi
     sleep 0.5
   done
+
+  # Fail-closed Observer T0 Readiness Verification!
+  echo "[LAUNCH] Verifying Observer T0 readiness (FAIL-CLOSED)..."
+  if ! "$python" -m bithumb_coin_trader.observer_readiness \\
+      --health-dir "{data_root_str}/health" \\
+      --epoch "{spec.epoch}" \\
+      --run-id "{spec.run_id}" \\
+      --timeout 30.0; then
+    echo "[LAUNCH] CRITICAL: Observer T0 readiness verification failed. COLLECTOR WILL NOT START." >&2
+    exit 1
+  fi
+  echo "[LAUNCH] Observer T0 readiness VERIFIED: OBSERVER_READY_TIME <= COLLECTOR_START_TIME."
+
+  # Fail-closed Launch-Time Schedule Freshness Enforcement!
+  planned_start="{spec.schedule_plan.actual_start_utc if spec.schedule_plan else ''}"
+  qual_start="{spec.schedule_plan.qualification_start_utc if spec.schedule_plan else ''}"
+  if [ -n "$planned_start" ] && [ -n "$qual_start" ]; then
+    echo "[LAUNCH] Enforcing launch freshness against sealed schedule (FAIL-CLOSED)..."
+    if ! "$python" -m bithumb_coin_trader.launch_freshness \\
+        --planned-start "$planned_start" \\
+        --qualification-start "$qual_start" \\
+        --max-delay 60.0; then
+      echo "[LAUNCH] CRITICAL: Launch schedule freshness violation. COLLECTOR WILL NOT START." >&2
+      exit 1
+    fi
+  fi
 fi
 
 exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
@@ -504,6 +530,9 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   "$@"
 """
 
+    sealed_at = datetime.now(timezone.utc).isoformat()
+    identity["sealed_at_utc"] = sealed_at
+
     artifacts = LaunchArtifactSet(
         spec=spec,
         runtime_config=runtime_config,
@@ -523,9 +552,6 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
         (target_dir / "launch-command.json").write_text(
             json.dumps(launch_command, indent=2) + "\n", encoding="utf-8"
         )
-        (target_dir / "identity.json").write_text(
-            json.dumps(identity, indent=2) + "\n", encoding="utf-8"
-        )
         launch_ec2_path = target_dir / "launch-ec2.sh"
         launch_ec2_path.write_text(launch_ec2_sh, encoding="utf-8")
         launch_ec2_path.chmod(launch_ec2_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
@@ -533,6 +559,32 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
         launch_path = target_dir / "launch.sh"
         launch_path.write_text(launch_sh, encoding="utf-8")
         launch_path.chmod(launch_path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+        # Compute SHA-256 for sealed artifacts and bind into identity
+        rt_hash = hashlib.sha256((target_dir / f"{spec.epoch}.runtime.json").read_bytes()).hexdigest()
+        cmd_hash = hashlib.sha256((target_dir / "launch-command.json").read_bytes()).hexdigest()
+        ec2_hash = hashlib.sha256(launch_ec2_path.read_bytes()).hexdigest()
+        sh_hash = hashlib.sha256(launch_path.read_bytes()).hexdigest()
+
+        identity["sealed_artifact_hashes"] = {
+            f"{spec.epoch}.runtime.json": rt_hash,
+            "launch-command.json": cmd_hash,
+            "launch-ec2.sh": ec2_hash,
+            "launch.sh": sh_hash,
+        }
+
+        identity_bytes = (json.dumps(identity, indent=2) + "\n").encode("utf-8")
+        (target_dir / "identity.json").write_bytes(identity_bytes)
+        identity_hash = hashlib.sha256(identity_bytes).hexdigest()
+
+        manifest = {
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "sealed_at_utc": sealed_at,
+            "identity_sha256": identity_hash,
+            "artifact_hashes": identity["sealed_artifact_hashes"],
+        }
+        (target_dir / "sealed-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
     return artifacts
 
@@ -680,6 +732,54 @@ def validate_launch_artifacts(
             if rt_schedule.get("target_full_hours") != spec.target_full_hours:
                 raise ValueError("schedule target_full_hours mismatch between spec and runtime config")
 
+    # Rule 6: ARTIFACT SEAL AND IMMUTABILITY INTEGRITY
+    verified_sealed_hashes = False
+    sealed_at = None
+    if target_dir is not None:
+        target_dir = Path(target_dir)
+        identity_path = target_dir / "identity.json"
+        if identity_path.exists():
+            try:
+                id_data = json.loads(identity_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                raise ValueError(f"identity.json unreadable in {target_dir}: {exc}") from exc
+
+            sealed_at = id_data.get("sealed_at_utc")
+            if not sealed_at or not isinstance(sealed_at, str) or not sealed_at.strip():
+                raise ValueError(f"identity.json in {target_dir} missing or empty sealed_at_utc")
+
+            sealed_hashes = id_data.get("sealed_artifact_hashes")
+            if sealed_hashes:
+                if not isinstance(sealed_hashes, dict):
+                    raise ValueError(f"identity.json in {target_dir} sealed_artifact_hashes must be a dictionary")
+                for fname, expected_hash in sealed_hashes.items():
+                    fpath = target_dir / fname
+                    if not fpath.exists():
+                        raise ValueError(f"sealed artifact {fname} missing from {target_dir}")
+                    actual_file_hash = hashlib.sha256(fpath.read_bytes()).hexdigest()
+                    if actual_file_hash != expected_hash:
+                        raise ValueError(
+                            f"sealed artifact {fname} hash mismatch: recorded {expected_hash} but found {actual_file_hash}"
+                        )
+                verified_sealed_hashes = True
+
+            manifest_path = target_dir / "sealed-manifest.json"
+            if manifest_path.exists():
+                try:
+                    m_data = json.loads(manifest_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    raise ValueError(f"sealed-manifest.json unreadable in {target_dir}: {exc}") from exc
+                actual_id_hash = hashlib.sha256(identity_path.read_bytes()).hexdigest()
+                if m_data.get("identity_sha256") != actual_id_hash:
+                    raise ValueError(
+                        f"sealed-manifest.json identity_sha256 mismatch: recorded {m_data.get('identity_sha256')} "
+                        f"but identity.json actual sha256 is {actual_id_hash}"
+                    )
+                if sealed_hashes and m_data.get("artifact_hashes") != sealed_hashes:
+                    raise ValueError(
+                        "sealed-manifest.json artifact_hashes does not match identity.json sealed_artifact_hashes"
+                    )
+
     ret = {
         "status": "PASS",
         "duration_seconds": spec.duration_seconds,
@@ -687,6 +787,10 @@ def validate_launch_artifacts(
         "epoch": spec.epoch,
         "run_id": spec.run_id,
     }
+    if sealed_at:
+        ret["sealed_at_utc"] = sealed_at
+    if verified_sealed_hashes:
+        ret["sealed_artifact_hashes_verified"] = True
     if spec.schedule_plan is not None:
         ret["target_full_hours"] = spec.target_full_hours
         ret["qualification_start_utc"] = spec.schedule_plan.qualification_start_utc
