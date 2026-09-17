@@ -283,7 +283,27 @@ class SessionEvidenceTracker:
         session = self._sessions.get(session_id)
         if session is None:
             raise KeyError(f"Session {session_id} not found")
+        # Throttle / deduplicate: do not append identical timestamps (sub-second frames)
+        if session.heartbeat_observations_utc and session.heartbeat_observations_utc[-1] == observed_at_utc:
+            return
         session.heartbeat_observations_utc.append(observed_at_utc)
+
+    def prune_older_than(self, threshold_utc: str) -> int:
+        """Prune heartbeats older than threshold_utc to bound memory, retaining 1 boundary point for gap calculations."""
+        pruned_count = 0
+        for session in self._sessions.values():
+            hb = session.heartbeat_observations_utc
+            if not hb:
+                continue
+            idx = 0
+            while idx < len(hb) and hb[idx] < threshold_utc:
+                idx += 1
+            # Keep one element before threshold if available to preserve gap measurement across boundary
+            keep_from = max(0, idx - 1) if idx > 0 else 0
+            if keep_from > 0:
+                session.heartbeat_observations_utc = hb[keep_from:]
+                pruned_count += keep_from
+        return pruned_count
 
     def close_session(
         self,

@@ -44,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--artifacts-parent", type=Path, default=Path("/var/lib/bitcoin-trader/launch-artifacts"))
     parser.add_argument("--python-bin", type=Path, default=Path("/var/lib/bitcoin-trader/venv-pre-soak/bin/python"))
     parser.add_argument("--s3-bucket", default="bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433")
+    parser.add_argument("--target-full-hours", type=int, default=1, help="Target qualifying full UTC hours (default: 1)")
+    parser.add_argument("--planned-start-time", help="Planned start time in ISO format (e.g. 2026-09-17T21:00:00Z)")
     args = parser.parse_args(argv)
 
     spec = ValidationRunSpec(
@@ -52,6 +54,8 @@ def main(argv: list[str] | None = None) -> int:
         duration_seconds=args.duration,
         runtime_commit=args.runtime_commit,
         software_tree_sha=args.software_tree_sha,
+        target_full_hours=args.target_full_hours,
+        planned_start_time=args.planned_start_time,
         base_data_parent=args.data_parent,
         runtime_worktree=args.worktree,
         launch_artifacts_parent=args.artifacts_parent,

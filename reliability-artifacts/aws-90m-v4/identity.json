@@ -5,6 +5,8 @@
   "software_commit_sha": "140412e87428adb583bc76c90a97bde0368bf054",
   "software_tree_sha": "69b1a337b8052f0c9ebed37a4e6e17b8db2dd247",
   "config_fingerprint": "0d76f018e9e7b10f5ff644f42eb3bcf63087f3e2fb60d5fd3ccedb665b248e6a",
+  "status": "PREPARED_NOT_LAUNCHED_SUPERSEDED",
+  "superseded_reason": "Remediated software memory leak and integrated full UTC hour schedule planning into official launch path",
   "sealed_at_utc": "",
   "feed_count": 76,
   "duration_seconds": 5400,

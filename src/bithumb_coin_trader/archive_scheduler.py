@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import fcntl
+import gc
 import json
 import os
 from pathlib import Path
@@ -538,6 +539,7 @@ class ClosedHourArchiveScheduler:
         iterations = 0
         while not event.is_set():
             self.run_once()
+            gc.collect()
             iterations += 1
             if max_iterations is not None and iterations >= max_iterations:
                 break

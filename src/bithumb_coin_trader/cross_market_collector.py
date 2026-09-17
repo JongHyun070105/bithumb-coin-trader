@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import gc
 import json
 import logging
 import os
@@ -664,6 +665,10 @@ class MultiExchangeMicrostructureCollector:
                 save_frozen_journal(obs_seq, self.journals_dir)
                 self._frozen_observations.extend(obs_seq)
             self.finalizer.finalize_pending()
+            # Prune heartbeats older than boundary_dt to keep collector memory strictly bounded
+            boundary_utc_str = boundary_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            self.session_evidence.prune_older_than(boundary_utc_str)
+            gc.collect()
 
         self._current_writer_cohort = cohort_utc
 

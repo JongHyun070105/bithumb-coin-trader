@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+from datetime import datetime, timezone
 import hashlib
 import json
 import os
@@ -20,6 +21,11 @@ from pathlib import Path
 import stat
 import subprocess
 from typing import Any, Sequence
+
+from bithumb_coin_trader.utc_schedule_planner import (
+    UtcSchedulePlan,
+    compute_full_utc_hour_schedule,
+)
 
 BITHUMB_MARKETS: tuple[str, ...] = (
     "KRW-BTC", "KRW-ETH", "KRW-XRP", "KRW-SOL", "KRW-DOGE",
@@ -60,6 +66,8 @@ class ValidationRunSpec:
     duration_seconds: int
     runtime_commit: str
     software_tree_sha: str | None = None
+    target_full_hours: int = 1
+    planned_start_time: str | None = None
     finalization_timeout_seconds: int = 180
     supervisor_hard_ceiling_seconds: int | None = None
     systemd_runtime_max_seconds: int | None = None
@@ -104,6 +112,16 @@ class ValidationRunSpec:
     def epoch_artifacts_dir(self) -> Path:
         return self.launch_artifacts_parent / self.epoch
 
+    @property
+    def schedule_plan(self) -> UtcSchedulePlan | None:
+        if self.planned_start_time is None:
+            return None
+        dt_str = self.planned_start_time.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(dt_str)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return compute_full_utc_hour_schedule(dt, target_full_hours=self.target_full_hours)
+
 
 @dataclass
 class LaunchArtifactSet:
@@ -142,11 +160,27 @@ def generate_canonical_runtime_config(spec: ValidationRunSpec) -> dict[str, Any]
         "public_data_only": True,
         "private_api_enabled": False,
         "duration_seconds": spec.duration_seconds,
-        "schedule": {
-            "qualification_rule": "IMMEDIATE",
-            "required_qualifying_full_hours": 0,
-            "maximum_collection_window_seconds": spec.duration_seconds,
-        },
+        "schedule": (
+            {
+                "qualification_rule": "IMMEDIATE" if spec.schedule_plan is None else "FULL_UTC_HOUR",
+                "target_full_hours": spec.target_full_hours,
+                "required_qualifying_full_hours": spec.target_full_hours if spec.schedule_plan is not None else 0,
+                "maximum_collection_window_seconds": spec.duration_seconds,
+                **({
+                    "planned_start_utc": spec.schedule_plan.actual_start_utc,
+                    "warmup_duration_seconds": spec.schedule_plan.warmup_duration_seconds,
+                    "qualification_start_utc": spec.schedule_plan.qualification_start_utc,
+                    "qualifying_cohorts": list(spec.schedule_plan.qualifying_cohorts),
+                    "cohort_closure_utc": spec.schedule_plan.cohort_closure_utc,
+                    "grace_seconds": spec.schedule_plan.grace_seconds,
+                    "grace_expiry_utc": spec.schedule_plan.grace_expiry_utc,
+                    "archive_settled_utc": spec.schedule_plan.archive_settled_utc,
+                    "total_pipeline_duration_seconds": spec.schedule_plan.total_pipeline_duration_seconds,
+                    "partial_start_cohort": spec.schedule_plan.partial_start_cohort,
+                    "partial_end_cohort": spec.schedule_plan.partial_end_cohort,
+                } if spec.schedule_plan is not None else {}),
+            }
+        ),
         "feeds": {
             "bithumb_market_count": len(BITHUMB_MARKETS),
             "bithumb_markets": list(BITHUMB_MARKETS),
@@ -345,6 +379,19 @@ def generate_launch_artifacts(
         "feed_count": 76,
         "duration_seconds": spec.duration_seconds,
         "grace_seconds": 600,
+        "target_full_hours": spec.target_full_hours,
+        **({
+            "planned_start_utc": spec.schedule_plan.actual_start_utc,
+            "warmup_duration_seconds": spec.schedule_plan.warmup_duration_seconds,
+            "qualification_start_utc": spec.schedule_plan.qualification_start_utc,
+            "qualifying_cohorts": list(spec.schedule_plan.qualifying_cohorts),
+            "cohort_closure_utc": spec.schedule_plan.cohort_closure_utc,
+            "grace_expiry_utc": spec.schedule_plan.grace_expiry_utc,
+            "archive_settled_utc": spec.schedule_plan.archive_settled_utc,
+            "total_pipeline_duration_seconds": spec.schedule_plan.total_pipeline_duration_seconds,
+            "partial_start_cohort": spec.schedule_plan.partial_start_cohort,
+            "partial_end_cohort": spec.schedule_plan.partial_end_cohort,
+        } if spec.schedule_plan is not None else {}),
         "health_schema_version": 1,
         "observer_version": 1,
         "s3_bucket": spec.s3_bucket,
@@ -615,10 +662,36 @@ def validate_launch_artifacts(
     except Exception as exc:
         raise ValueError(f"production collector config validation dry-run failed: {exc}") from exc
 
-    return {
+    # Rule 5: FULL UTC HOUR SCHEDULE CONSISTENCY
+    if spec.planned_start_time is not None:
+        plan = spec.schedule_plan
+        if plan is not None:
+            if spec.duration_seconds < plan.total_pipeline_duration_seconds:
+                raise ValueError(
+                    f"INSUFFICIENT_DURATION_FOR_FULL_UTC_HOUR: planned start {spec.planned_start_time} "
+                    f"requires at least {plan.total_pipeline_duration_seconds:.0f}s for {spec.target_full_hours} "
+                    f"full UTC hour(s) (warmup={plan.warmup_duration_seconds:.0f}s, "
+                    f"full_hours={plan.full_hours_duration_seconds}s, grace={plan.grace_seconds}s, "
+                    f"settle={plan.post_grace_settle_seconds}s), but spec duration_seconds is {spec.duration_seconds}s"
+                )
+            rt_schedule = runtime_config.get("schedule", {})
+            if rt_schedule.get("qualification_start_utc") != plan.qualification_start_utc:
+                raise ValueError("schedule qualification_start_utc mismatch between spec and runtime config")
+            if rt_schedule.get("target_full_hours") != spec.target_full_hours:
+                raise ValueError("schedule target_full_hours mismatch between spec and runtime config")
+
+    ret = {
         "status": "PASS",
         "duration_seconds": spec.duration_seconds,
         "config_fingerprint": actual_fp,
         "epoch": spec.epoch,
         "run_id": spec.run_id,
     }
+    if spec.schedule_plan is not None:
+        ret["target_full_hours"] = spec.target_full_hours
+        ret["qualification_start_utc"] = spec.schedule_plan.qualification_start_utc
+        ret["qualifying_cohorts"] = list(spec.schedule_plan.qualifying_cohorts)
+        ret["cohort_closure_utc"] = spec.schedule_plan.cohort_closure_utc
+        ret["grace_expiry_utc"] = spec.schedule_plan.grace_expiry_utc
+        ret["archive_settled_utc"] = spec.schedule_plan.archive_settled_utc
+    return ret

@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import gc
 import json
 import logging
 import os
@@ -439,6 +440,7 @@ class RuntimeObserver:
         while not self._shutdown_requested:
             try:
                 self.run_cycle()
+                gc.collect()
             except Exception as exc:
                 self.observer_errors += 1
                 logger.error("Unexpected error in observer loop: %s", exc, exc_info=True)

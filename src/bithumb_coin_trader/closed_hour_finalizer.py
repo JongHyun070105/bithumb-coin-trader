@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+import gc
 import json
 from pathlib import Path
 from typing import Any
@@ -754,9 +755,12 @@ class ClosedHourFinalizer:
             raise ValueError(f"Cohort journal validation failed: {'; '.join(err_parts)}")
 
         results: list[ClosedSlotResult] = []
-        for feed in SEALED_FEED_UNIVERSE:
+        for idx, feed in enumerate(SEALED_FEED_UNIVERSE, start=1):
             obs = obs_by_feed[feed.canonical][0]
             slot_res = self.finalize_slot(obs)
             results.append(slot_res)
+            if idx % 10 == 0:
+                gc.collect()
 
+        gc.collect()
         return tuple(results)
