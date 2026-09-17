@@ -221,13 +221,16 @@ class RuntimeObserver:
         elif eval_snapshot.collector.fatal_error:
             eval_snapshot.collector.status = ComponentHealthState.FAILED.value
         else:
-            # Distinguish STALE from quiet market
+            # Distinguish STALE from quiet market and unstarted collector
             dt_heartbeat = _parse_utc_iso(eval_snapshot.collector.last_loop_heartbeat)
             if dt_heartbeat is None:
-                # If unit is active and never gave heartbeat, or snapshot empty
-                eval_snapshot.collector.status = (
-                    ComponentHealthState.UNKNOWN.value if snapshot is None else ComponentHealthState.STALE.value
-                )
+                # If unit is inactive, activating, or snapshot does not exist while unit is monitored
+                if unit_active_state in ("inactive", "activating", "deactivating") or (snapshot is None and self.config.unit_name):
+                    eval_snapshot.collector.status = ComponentHealthState.WAITING_FOR_COLLECTOR.value
+                elif snapshot is None:
+                    eval_snapshot.collector.status = ComponentHealthState.UNKNOWN.value
+                else:
+                    eval_snapshot.collector.status = ComponentHealthState.STALE.value
             else:
                 heartbeat_age = (now - dt_heartbeat).total_seconds()
                 if heartbeat_age > self.config.stale_heartbeat_threshold_seconds:

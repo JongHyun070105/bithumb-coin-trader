@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "epoch": "aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+    "run_id": "aws-validation-observability-90m-run-20260917T062500Z-v3",
+    "launch_attempt_number": "90M_ATTEMPT_4",
+    "semantic_label": "V3B",
+    "software_git_commit": "46065a4b3f1c55095ade902cbe953ab723086208",
+    "software_tree_sha": "4dbbb0f443ac8b23a8dd3d473538eb1599cd30f6",
+    "config_fingerprint": "003ce993a9d6fa165d8410951b6a613079d0e7a029bf563c03c57677f9147424"
+  },
+  "lifecycle_timestamps": {
+    "collector_started_at_utc": "2026-09-17T06:25:56.906990Z",
+    "collector_duration_seconds_target": 5400.0,
+    "actual_collection_stop_utc": "2026-09-17T07:55:56.933383Z",
+    "collection_uptime_seconds": 5397.47,
+    "full_duration_satisfied": true,
+    "supervisor_started_at_utc": "2026-09-17T06:25:56.717563Z",
+    "supervisor_ended_at_utc": "2026-09-17T07:57:03.971024Z",
+    "elapsed_seconds_total": 5467.253169
+  },
+  "runtime_summary": {
+    "total_ticks_received": 842277,
+    "exchange_ticks": {
+      "binance": 434665,
+      "bithumb": 286621,
+      "upbit": 120991
+    },
+    "disconnect_counts": {
+      "binance": 0,
+      "bithumb": 0,
+      "upbit": 0
+    },
+    "reconnect_counts": {
+      "binance": 0,
+      "bithumb": 0,
+      "upbit": 0
+    },
+    "writer_errors": 0,
+    "queue_drops": 0,
+    "unpersisted_events_at_exit": 0,
+    "raw_files_count": 152,
+    "raw_cohorts": [
+      "2026-09-17_06",
+      "2026-09-17_07"
+    ]
+  },
+  "systemd_and_watchdog": {
+    "unit_name": "bitcoin-trader-90m-aws-validation-observability-90m-run-20260917T062500Z-v3.service",
+    "service_result": "oom-kill",
+    "n_restarts": 0,
+    "watchdog_configured_usec": "1min",
+    "watchdog_final_timestamp": "Thu 2026-09-17 07:56:12 UTC",
+    "watchdog_final_monotonic": "1393782558870",
+    "watchdog_status": "PASS"
+  },
+  "observer_gap_evidence": {
+    "collector_start_utc": "2026-09-17T06:25:56.906990Z",
+    "first_observer_s3_witness_utc": "2026-09-17T06:29:16Z",
+    "persistent_observer_unit_start_utc": "2026-09-17T06:29:30.128689Z",
+    "gap_to_first_witness_seconds": 199.1,
+    "gap_to_daemon_start_seconds": 213.2,
+    "total_minute_witnesses_uploaded": 91,
+    "last_minute_witness_s3_key": "market-data/temporary/aws-validation-observability-90m-20260917-20260917T062500Z-v3/observability/minute/20260917T075849Z.json",
+    "observer_from_t0": "FAIL",
+    "observer_after_start": "PASS"
+  },
+  "boundary_and_cohort_evidence": {
+    "utc_boundary_transition_time": "2026-09-17T07:00:00Z",
+    "utc_boundary_transition_verdict": "PASS",
+    "full_utc_hour_completeness_verdict": "NOT_TESTED",
+    "cohort_06_type": "PARTIAL_START_COHORT",
+    "cohort_07_type": "PARTIAL_END_COHORT"
+  },
+  "archive_contract_audit": {
+    "archive_grace_contract": "FAIL",
+    "archive_grace_failure_reason": "V3 journal branch bypassed 600s grace period and executed at 07:03:25 UTC",
+    "archive_qualification_contract": "FAIL",
+    "archive_qualification_failure_reason": "TOUCHED_PARTIAL cohort was submitted to full-hour validation producing 76 false full-hour errors",
+    "archive_final_receipt_immutability": "FAIL",
+    "archive_final_receipt_failure_reason": "cohort_2026-09-17_06_finalized.json was rewritten on every 30s scheduler poll mutating finalized_at_utc",
+    "failed_archive_remote_evidence": "FAIL",
+    "failed_archive_remote_evidence_reason": "Failure receipts remained isolated on EC2 disk with no off-instance S3 representation",
+    "archiver_data_pipeline": "FAIL"
+  },
+  "memory_and_termination_audit": {
+    "instance_type": "t4g.medium",
+    "ram_total_kb": 3926536,
+    "swap_total_kb": 0,
+    "collector_rss_at_oom_kb": 2155248,
+    "archiver_rss_kb": 1468116,
+    "observer_rss_bytes": 1281597440,
+    "total_concurrent_process_memory_gb": 4.9,
+    "oom_trigger_utc": "2026-09-17T07:56:48Z",
+    "oom_killed_pid": 808666,
+    "collector_exit_code": -9,
+    "supervisor_overall_status": "INTERRUPTED",
+    "resource_stability": "FAIL"
+  },
+  "final_classification": {
+    "COLLECTOR_RUNTIME": "PASS",
+    "WRITER": "PASS",
+    "WATCHDOG_RUNTIME": "PASS",
+    "OBSERVER_AFTER_START": "PASS",
+    "OBSERVER_FROM_T0": "FAIL",
+    "UTC_BOUNDARY_TRANSITION": "PASS",
+    "FULL_UTC_HOUR_COMPLETENESS": "NOT_TESTED",
+    "ARCHIVE_GRACE_CONTRACT": "FAIL",
+    "ARCHIVE_QUALIFICATION_CONTRACT": "FAIL",
+    "ARCHIVE_FINAL_RECEIPT_IMMUTABILITY": "FAIL",
+    "FAILED_ARCHIVE_REMOTE_EVIDENCE": "FAIL",
+    "ARCHIVER_DATA_PIPELINE": "FAIL",
+    "TERMINAL_WITNESS": "PASS",
+    "FINALIZATION": "FAIL",
+    "RESOURCE_STABILITY": "FAIL",
+    "TECHNICAL_ENGINEERING_SOAK_RESULT": "PASS",
+    "OFFICIAL_90M_GATE": "REQUIRES_NEW_OFFICIAL_RUN"
+  }
+}

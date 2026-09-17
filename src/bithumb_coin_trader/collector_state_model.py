@@ -31,6 +31,7 @@ class ComponentHealthState(str, Enum):
     STALE = "STALE"
     FAILED = "FAILED"
     UNKNOWN = "UNKNOWN"
+    WAITING_FOR_COLLECTOR = "WAITING_FOR_COLLECTOR"
 
 
 def utc_iso_now() -> str:

@@ -292,6 +292,32 @@ def generate_launch_artifacts(
         "--require-full-duration",
     ]
 
+    if spec.duration_seconds == 5400:
+        unit_prefix = "bitcoin-trader-90m"
+    elif spec.duration_seconds == 10800:
+        unit_prefix = "bitcoin-trader-3h"
+    elif spec.duration_seconds == 21600:
+        unit_prefix = "bitcoin-trader-6h"
+    elif spec.duration_seconds == 2700:
+        unit_prefix = "bitcoin-trader-short-smoke"
+    else:
+        unit_prefix = "bitcoin-trader-transient"
+
+    observer_cmd = [
+        python_str,
+        "-m", "bithumb_coin_trader.runtime_observer",
+        "--data-dir", data_root_str,
+        "--epoch", spec.epoch,
+        "--run-id", spec.run_id,
+        "--unit-name", f"{unit_prefix}-{spec.run_id}.service",
+        "--poll-interval", "15.0",
+        "--s3-publish-interval", "60.0",
+        "--stale-threshold", "30.0",
+        "--s3-bucket", spec.s3_bucket,
+        "--s3-prefix", resolved["temporary_prefix"],
+        "--allow-s3-write",
+    ]
+
     launch_command = {
         "schema_version": 2,
         "runtime_worktree": worktree_str,
@@ -299,6 +325,7 @@ def generate_launch_artifacts(
         "data_root": data_root_str,
         "run_id": spec.run_id,
         "supervisor_command": supervisor_command,
+        "observer_command": observer_cmd,
         "exec_stop_post_script": f"{worktree_str}/scripts/terminal_witness.py",
         "collection_duration_seconds": spec.duration_seconds,
         "finalization_timeout_seconds": spec.finalization_timeout_seconds,
@@ -350,6 +377,46 @@ print(json.dumps(d["supervisor_command"]))
 ')
 
 export PYTHONPATH="$worktree/src"
+
+# T0 Observer Sequencing Contract: Ensure OBSERVER_START <= COLLECTOR_START
+is_launch=false
+for arg in "$@"; do
+  if [ "$arg" = "--launch" ]; then
+    is_launch=true
+    break
+  fi
+done
+
+if [ "$is_launch" = true ]; then
+  obs_unit="bitcoin-trader-obs-{spec.run_id}.service"
+  echo "[LAUNCH] Pre-starting runtime observer unit $obs_unit to guarantee OBSERVER_START <= COLLECTOR_START..."
+  systemd-run \\
+    --unit="$obs_unit" \\
+    --description="Runtime Observer for {spec.run_id}" \\
+    --service-type=simple \\
+    --no-block \\
+    --property="Environment=PYTHONPATH=$worktree/src" \\
+    "$python" -m bithumb_coin_trader.runtime_observer \\
+      --data-dir "{data_root_str}" \\
+      --epoch "{spec.epoch}" \\
+      --run-id "{spec.run_id}" \\
+      --unit-name "{unit_prefix}-{spec.run_id}.service" \\
+      --poll-interval 15.0 \\
+      --s3-publish-interval 60.0 \\
+      --stale-threshold 30.0 \\
+      --s3-bucket "{spec.s3_bucket}" \\
+      --s3-prefix "{resolved['temporary_prefix']}" \\
+      --allow-s3-write
+
+  for i in $(seq 1 10); do
+    if systemctl is-active --quiet "$obs_unit" 2>/dev/null; then
+      echo "[LAUNCH] Observer is ACTIVE before collector launch (T0 verified)."
+      break
+    fi
+    sleep 0.5
+  done
+fi
+
 exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --run-id "{spec.run_id}" \\
   --workdir "$worktree" \\
@@ -513,6 +580,17 @@ def validate_launch_artifacts(
                 raise ValueError(
                     f"archive scheduler prefix binding failure: {sched_prefix!r} != {resolved['temporary_prefix']!r}"
                 )
+
+        # 3.6: Observer command checks (T0 observer sequencing)
+        obs_cmd = launch_command.get("observer_command")
+        if obs_cmd is not None:
+            if not isinstance(obs_cmd, list):
+                raise ValueError("observer_command must be a list")
+            if "--data-dir" not in obs_cmd or "--epoch" not in obs_cmd or "--run-id" not in obs_cmd:
+                raise ValueError("observer_command missing essential flags")
+            o_data_idx = obs_cmd.index("--data-dir")
+            if obs_cmd[o_data_idx + 1] != str(spec.epoch_data_root):
+                raise ValueError("observer_command data-dir binding failure")
 
     # Rule 4: DRY RUN PRODUCTION COLLECTOR CONFIG VALIDATION
     try:

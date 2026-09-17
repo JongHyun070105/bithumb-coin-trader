@@ -1,0 +1,176 @@
+{
+  "epoch": "bitcoin-trader-90m",
+  "exit_code": "exited",
+  "exit_status": "143",
+  "hostname": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+  "last_known_health": {
+    "archiver": {
+      "archive_errors": 0,
+      "archive_queue_depth": 0,
+      "last_closed_cohort": null,
+      "last_compression": null,
+      "last_receipt": null,
+      "last_s3_put": null,
+      "status": "UNKNOWN",
+      "upload_failures": 0
+    },
+    "collector": {
+      "fatal_error": null,
+      "last_canonical_event": "2026-09-17T07:55:56.933383+00:00",
+      "last_loop_heartbeat": "2026-09-17T07:55:56.955142+00:00",
+      "last_websocket_activity": "2026-09-17T07:55:56.933383+00:00",
+      "reconnect_count": 0,
+      "status": "UNKNOWN",
+      "websocket_sessions": {
+        "binance": "DISCONNECTED",
+        "bithumb": "DISCONNECTED",
+        "upbit": "DISCONNECTED"
+      }
+    },
+    "config_fingerprint": "003ce993a9d6fa165d8410951b6a613079d0e7a029bf563c03c57677f9147424",
+    "current_cohort": {
+      "expected_feed_count": 76,
+      "observed_feed_count": 76,
+      "utc_hour": "2026-09-17_07"
+    },
+    "epoch": "aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+    "evidence": {
+      "current_hour_expected_slots": 76,
+      "current_hour_terminal_slots": 76,
+      "last_coverage_evidence": null,
+      "last_heartbeat_evidence": null,
+      "last_manifest_update": null,
+      "status": "UNKNOWN"
+    },
+    "last_exception": {
+      "component": null,
+      "message_hash": null,
+      "timestamp": null,
+      "type": null
+    },
+    "observed_at": "2026-09-17T07:55:56.955142+00:00",
+    "observer": {
+      "observer_errors": 0,
+      "observer_last_cycle": null,
+      "observer_pid": null,
+      "observer_started_at": null,
+      "status": "UNKNOWN"
+    },
+    "resources": {
+      "disk_free_bytes": 106002747392,
+      "disk_used_bytes": 108665905152,
+      "fd_count": 9,
+      "rss_bytes": 1281597440
+    },
+    "run_id": "aws-validation-observability-90m-run-20260917T062500Z-v3",
+    "schema_version": 1,
+    "software_sha": "46065a4b3f1c55095ade902cbe953ab723086208",
+    "supervisor": {
+      "active_state": "inactive",
+      "invocation_id": "",
+      "pid": 808666,
+      "process_start": "2026-09-17T06:25:56.906990+00:00",
+      "sub_state": "UNKNOWN",
+      "unit": ""
+    },
+    "writer": {
+      "current_open_raw_count": 0,
+      "last_dequeue": "2026-09-17T07:55:56.933522+00:00",
+      "last_local_raw_write": "2026-09-17T07:55:56.933522+00:00",
+      "max_queue_depth": 50000,
+      "queue_depth": 0,
+      "status": "UNKNOWN",
+      "unpersisted_count": 0,
+      "writer_errors": 0
+    }
+  },
+  "last_observer_health": {
+    "archiver": {
+      "archive_errors": 1,
+      "archive_queue_depth": 0,
+      "last_closed_cohort": null,
+      "last_compression": null,
+      "last_receipt": null,
+      "last_s3_put": "2026-09-17T07:56:48.689477+00:00",
+      "status": "DEGRADED",
+      "upload_failures": 76
+    },
+    "collector": {
+      "fatal_error": null,
+      "last_canonical_event": "2026-09-17T07:55:56.933383+00:00",
+      "last_loop_heartbeat": "2026-09-17T07:55:56.955142+00:00",
+      "last_websocket_activity": "2026-09-17T07:55:56.933383+00:00",
+      "reconnect_count": 0,
+      "status": "STALE",
+      "websocket_sessions": {
+        "binance": "DISCONNECTED",
+        "bithumb": "DISCONNECTED",
+        "upbit": "DISCONNECTED"
+      }
+    },
+    "config_fingerprint": "003ce993a9d6fa165d8410951b6a613079d0e7a029bf563c03c57677f9147424",
+    "current_cohort": {
+      "expected_feed_count": 76,
+      "observed_feed_count": 76,
+      "utc_hour": "2026-09-17_07"
+    },
+    "epoch": "aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+    "evidence": {
+      "current_hour_expected_slots": 76,
+      "current_hour_terminal_slots": 76,
+      "last_coverage_evidence": null,
+      "last_heartbeat_evidence": null,
+      "last_manifest_update": null,
+      "status": "HEALTHY"
+    },
+    "last_exception": {
+      "component": null,
+      "message_hash": null,
+      "timestamp": null,
+      "type": null
+    },
+    "observed_at": "2026-09-17T07:56:48.689477+00:00",
+    "observer": {
+      "observer_errors": 0,
+      "observer_last_cycle": "2026-09-17T07:56:48.689477+00:00",
+      "observer_pid": 809164,
+      "observer_started_at": "2026-09-17T06:29:30.128689+00:00",
+      "status": "HEALTHY"
+    },
+    "resources": {
+      "disk_free_bytes": 106086891520,
+      "disk_used_bytes": 108581761024,
+      "fd_count": 9,
+      "rss_bytes": 1281597440
+    },
+    "run_id": "aws-validation-observability-90m-run-20260917T062500Z-v3",
+    "schema_version": 1,
+    "software_sha": "46065a4b3f1c55095ade902cbe953ab723086208",
+    "supervisor": {
+      "active_state": "active",
+      "invocation_id": "efc79df7368648a99898463d1665b9b9",
+      "pid": 808665,
+      "process_start": "Thu 2026-09-17 06:25:56 UTC",
+      "sub_state": "running",
+      "unit": "bitcoin-trader-90m-aws-validation-observability-90m-run-20260917T062500Z-v3.service"
+    },
+    "writer": {
+      "current_open_raw_count": 0,
+      "last_dequeue": "2026-09-17T07:55:56.933522+00:00",
+      "last_local_raw_write": "2026-09-17T07:55:56.933522+00:00",
+      "max_queue_depth": 50000,
+      "queue_depth": 0,
+      "status": "HEALTHY",
+      "unpersisted_count": 0,
+      "writer_errors": 0
+    }
+  },
+  "recorded_at": "2026-09-17T07:57:04.269687+00:00",
+  "run_id": "aws-validation-observability-90m-run-20260917T062500Z-v3",
+  "s3_key": null,
+  "s3_uploaded": false,
+  "schema_version": 1,
+  "service_result": "oom-kill",
+  "terminal_classification": "PROCESS_EXIT_ERROR_143",
+  "witness_pid": 816083
+}

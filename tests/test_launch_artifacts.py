@@ -277,6 +277,67 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                 runtime_commit=self.commit,
             )
 
+    def test_observer_command_and_t0_sequencing_in_launch_artifacts(self) -> None:
+        """Verify observer_command is generated and launch_ec2_sh pre-starts observer before collector."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            # 1. observer_command present in launch_command
+            obs_cmd = artifacts.launch_command.get("observer_command")
+            self.assertIsNotNone(obs_cmd)
+            self.assertIn("bithumb_coin_trader.runtime_observer", obs_cmd)
+            self.assertIn("--data-dir", obs_cmd)
+            self.assertIn("--allow-s3-write", obs_cmd)
+
+            # 2. launch_ec2_sh guarantees OBSERVER_START <= COLLECTOR_START
+            ec2_sh = artifacts.launch_ec2_sh
+            self.assertIn("OBSERVER_START <= COLLECTOR_START", ec2_sh)
+            self.assertIn("bitcoin-trader-obs-", ec2_sh)
+            self.assertIn("systemd-run", ec2_sh)
+            self.assertIn("systemctl is-active", ec2_sh)
+
+            # 3. Validator passes cleanly
+            res = validate_launch_artifacts(
+                spec=spec,
+                runtime_config=artifacts.runtime_config,
+                launch_command=artifacts.launch_command,
+                target_dir=tmp_dir,
+            )
+            self.assertEqual(res["status"], "PASS")
+
+    def test_validator_rejects_mismatched_observer_data_dir(self) -> None:
+        """Validator rejects launch_command if observer --data-dir does not match epoch root."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_dir = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=tmp_dir)
+
+            # Corrupt observer command data-dir
+            obs_cmd = list(artifacts.launch_command["observer_command"])
+            idx = obs_cmd.index("--data-dir")
+            obs_cmd[idx + 1] = "/var/lib/bitcoin-trader/wrong-epoch"
+            artifacts.launch_command["observer_command"] = obs_cmd
+
+            with self.assertRaisesRegex(ValueError, "observer_command data-dir binding failure"):
+                validate_launch_artifacts(
+                    spec=spec,
+                    runtime_config=artifacts.runtime_config,
+                    launch_command=artifacts.launch_command,
+                    target_dir=tmp_dir,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

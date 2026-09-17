@@ -229,7 +229,10 @@ class ClosedHourArchiveScheduler:
                 try:
                     data = json.loads(report_path.read_text(encoding="utf-8"))
                     if data.get("cohort") == cohort.key:
-                        if data.get("status") != "PASS":
+                        st = data.get("status")
+                        if st in ("SKIPPED_NON_QUALIFYING", "INELIGIBLE_PARTIAL"):
+                            return True
+                        if st != "PASS":
                             return False
                         return self._full_scan_passed(cohort)
                 except Exception:
@@ -342,7 +345,17 @@ class ClosedHourArchiveScheduler:
                 if cohort.key in active_cohort_keys:
                     continue
 
-                # In V3, writer fence is closed and active paths empty, so no 600-second grace is needed.
+                try:
+                    closed_at = datetime.fromisoformat(
+                        f"{cohort.date_str}T{cohort.hour_str}:00:00+00:00"
+                    ) + timedelta(hours=1)
+                except ValueError:
+                    continue
+
+                # Defect A: Enforce 600-second grace period past hour closure
+                if current_now < closed_at + timedelta(seconds=self.config.grace_seconds):
+                    continue
+
                 verify_runtime_ownership((jf,), expected_owner=self.config.expected_owner)
 
                 matching_files = []
@@ -355,13 +368,6 @@ class ClosedHourArchiveScheduler:
 
                 if matching_files:
                     verify_runtime_ownership(tuple(matching_files), expected_owner=self.config.expected_owner)
-
-                try:
-                    closed_at = datetime.fromisoformat(
-                        f"{cohort.date_str}T{cohort.hour_str}:00:00+00:00"
-                    ) + timedelta(hours=1)
-                except ValueError:
-                    continue
 
                 eligible.append(EligibleHour(
                     cohort=cohort,
@@ -485,9 +491,14 @@ class ClosedHourArchiveScheduler:
                 run_full_scan=cfg.run_full_scan,
                 dry_run=cfg.dry_run,
                 disk_critical_percent=cfg.disk_critical_percent,
+                now=(now or self._now_fn()),
             )
             archive_failures = res.get("archive_job_failures", 0)
-            status = "PASS" if archive_failures == 0 else "FAIL"
+            res_status = res.get("status")
+            if res_status in ("SKIPPED_NON_QUALIFYING", "INELIGIBLE_PARTIAL", "WAITING_FOR_GRACE"):
+                status = res_status
+            else:
+                status = "PASS" if archive_failures == 0 else "FAIL"
             result = {
                 "status": status,
                 "processed_cohort": target.cohort.key,

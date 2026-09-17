@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+  "run_id": "aws-validation-observability-90m-run-20260917T062500Z-v3",
+  "software_commit_sha": "46065a4b3f1c55095ade902cbe953ab723086208",
+  "software_tree_sha": "4dbbb0f443ac8b23a8dd3d473538eb1599cd30f6",
+  "config_fingerprint": "003ce993a9d6fa165d8410951b6a613079d0e7a029bf563c03c57677f9147424",
+  "sealed_at_utc": "",
+  "feed_count": 76,
+  "duration_seconds": 5400,
+  "grace_seconds": 600,
+  "health_schema_version": 1,
+  "observer_version": 1,
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+  "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+  "data_root": "/var/lib/bitcoin-trader/90m-validation/aws-validation-observability-90m-20260917-20260917T062500Z-v3",
+  "python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+  "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+  "trading_safety": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  }
+}

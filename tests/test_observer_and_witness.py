@@ -249,6 +249,48 @@ class ObserverHealthClassificationTests(unittest.TestCase):
         self.assertEqual(evaluated.collector.status, ComponentHealthState.UNKNOWN.value)
         self.assertEqual(evaluated.observer.status, ComponentHealthState.HEALTHY.value)
 
+    def test_collector_waiting_for_collector_when_unit_inactive(self) -> None:
+        """Before collector starts, observer correctly classifies status as WAITING_FOR_COLLECTOR."""
+        mock_query = MagicMock(return_value={
+            "ActiveState": "inactive",
+            "SubState": "dead",
+            "Result": "success",
+            "MainPID": "0",
+        })
+        config = ObserverConfig(
+            data_dir=self.data_dir,
+            epoch="epoch_wait",
+            run_id="run_wait",
+            unit_name="bitcoin-trader-test.service",
+        )
+        observer = RuntimeObserver(config=config, systemd_query_fn=mock_query)
+        evaluated = observer.run_cycle(now=self.now)
+
+        self.assertEqual(evaluated.supervisor.active_state, "inactive")
+        self.assertEqual(evaluated.collector.status, ComponentHealthState.WAITING_FOR_COLLECTOR.value)
+        self.assertEqual(evaluated.observer.status, ComponentHealthState.HEALTHY.value)
+
+    def test_collector_waiting_for_collector_when_unit_activating_no_heartbeat(self) -> None:
+        """During collector startup (activating/active before first heartbeat), status is WAITING_FOR_COLLECTOR."""
+        mock_query = MagicMock(return_value={
+            "ActiveState": "activating",
+            "SubState": "start-pre",
+            "Result": "success",
+            "MainPID": "1234",
+        })
+        config = ObserverConfig(
+            data_dir=self.data_dir,
+            epoch="epoch_wait2",
+            run_id="run_wait2",
+            unit_name="bitcoin-trader-test.service",
+        )
+        observer = RuntimeObserver(config=config, systemd_query_fn=mock_query)
+        evaluated = observer.run_cycle(now=self.now)
+
+        self.assertEqual(evaluated.supervisor.active_state, "activating")
+        self.assertEqual(evaluated.collector.status, ComponentHealthState.WAITING_FOR_COLLECTOR.value)
+        self.assertEqual(evaluated.observer.status, ComponentHealthState.HEALTHY.value)
+
 
 class ObserverSelfObservationTests(unittest.TestCase):
     def setUp(self) -> None:

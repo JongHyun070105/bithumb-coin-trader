@@ -538,16 +538,20 @@ class ArchiveSchedulerTests(unittest.TestCase):
             observations.append(obs)
         return save_frozen_journal(observations, journals_dir)
 
-    def test_scheduler_v3_journal_driven_discovery_no_grace_needed(self) -> None:
+    def test_scheduler_v3_journal_driven_discovery_respects_grace(self) -> None:
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
         # Hour 05 closed at 06:00:00 UTC. Test time is 06:00:05 UTC (only 5s after closure, < 600s).
-        # In V3, writer fence is closed so no 600-second grace is required!
-        test_now = datetime(2026, 9, 4, 6, 0, 5, tzinfo=timezone.utc)
-        scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
+        # In V3, grace period is still strictly enforced: not eligible before grace expiry.
+        test_now_early = datetime(2026, 9, 4, 6, 0, 5, tzinfo=timezone.utc)
+        scheduler_early = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now_early)
+        self.assertEqual(len(scheduler_early.discover_eligible_hours()), 0)
 
-        eligible = scheduler.discover_eligible_hours()
+        # After grace expiry (06:10:00 UTC), cohort becomes eligible.
+        test_now_ready = datetime(2026, 9, 4, 6, 10, 0, tzinfo=timezone.utc)
+        scheduler_ready = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now_ready)
+        eligible = scheduler_ready.discover_eligible_hours()
         self.assertEqual(len(eligible), 1)
         self.assertEqual(eligible[0].date_str, "2026-09-04")
         self.assertEqual(eligible[0].hour_str, "05")
@@ -569,7 +573,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
-        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        test_now = datetime(2026, 9, 4, 6, 10, 1, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(dry_run=True), now_fn=lambda: test_now)
 
         result = scheduler.run_once()
@@ -585,7 +589,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
-        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        test_now = datetime(2026, 9, 4, 6, 10, 1, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
 
         res1 = scheduler.run_once()
