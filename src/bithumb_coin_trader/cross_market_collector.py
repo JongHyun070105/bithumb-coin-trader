@@ -618,6 +618,12 @@ class MultiExchangeMicrostructureCollector:
             except Exception:
                 pass
             try:
+                from bithumb_coin_trader.bounded_supervisor import sd_notify
+
+                sd_notify("WATCHDOG=1")
+            except Exception:
+                pass
+            try:
                 await asyncio.sleep(self.health_interval_seconds)
             except asyncio.CancelledError:
                 break
@@ -1311,6 +1317,9 @@ class MultiExchangeMicrostructureCollector:
             systemd.daemon.notify("READY=1")
         except Exception:
             pass
+        from bithumb_coin_trader.bounded_supervisor import sd_notify
+
+        sd_notify("READY=1")
         self.is_running = True
         self._accepting_partition_writes = True
         writer_task = asyncio.create_task(self._writer_worker())

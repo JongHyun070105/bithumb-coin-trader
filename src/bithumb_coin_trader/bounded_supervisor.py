@@ -21,6 +21,28 @@ if TYPE_CHECKING:
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
+def sd_notify(state: str) -> bool:
+    """Send state notification to systemd via NOTIFY_SOCKET or systemd-notify CLI."""
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return False
+    try:
+        import socket
+
+        addr = "\0" + notify_socket[1:] if notify_socket.startswith("@") else notify_socket
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(state.encode("utf-8"), addr)
+        return True
+    except Exception:
+        try:
+            import subprocess
+
+            subprocess.run(["systemd-notify", state], check=False, timeout=2.0)
+            return True
+        except Exception:
+            return False
+
+
 @dataclass(frozen=True)
 class V3ScheduleConfig:
     required_qualifying_full_hours: int
@@ -359,11 +381,7 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
-                try:
-                    import systemd.daemon  # pyright: ignore[reportMissingImports]
-                    systemd.daemon.notify("READY=1")
-                except Exception:
-                    pass
+                sd_notify("READY=1")
 
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
@@ -401,11 +419,7 @@ class BoundedSupervisor:
                         if archive_scheduler_exit != 0 and archive_scheduler_failure is None:
                             archive_scheduler_failure = archive_scheduler_exit
 
-                    try:
-                        import systemd.daemon  # pyright: ignore[reportMissingImports]
-                        systemd.daemon.notify("WATCHDOG=1")
-                    except Exception:
-                        pass
+                    sd_notify("WATCHDOG=1")
 
                     time.sleep(cfg.poll_interval_seconds)
 

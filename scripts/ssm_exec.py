@@ -23,12 +23,12 @@ def run_commands(commands: list[str]) -> list[str]:
     for i, cmd in enumerate(commands):
         marker = f"__M{i}__"
         proc.stdin.write(f"echo {marker}\n".encode()); proc.stdin.flush(); time.sleep(1)
-        proc.stdin.write(f"{cmd}\n".encode()); proc.stdin.flush(); time.sleep(1.5)
+        proc.stdin.write(f"{cmd}\n".encode()); proc.stdin.flush(); time.sleep(2.5)
         proc.stdin.write(f"echo {marker}END\n".encode()); proc.stdin.flush(); time.sleep(1)
 
     proc.stdin.write(b"exit\n"); proc.stdin.flush()
     try:
-        stdout, _ = proc.communicate(timeout=15)
+        stdout, _ = proc.communicate(timeout=30)
     except subprocess.TimeoutExpired:
         proc.kill(); stdout, _ = proc.communicate()
 

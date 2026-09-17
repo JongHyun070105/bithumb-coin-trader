@@ -9,6 +9,7 @@ import tempfile
 import textwrap
 
 import pytest
+from typing import Any
 
 
 # ---------------------------------------------------------------------------
@@ -63,9 +64,9 @@ class TestRenderSystemdRunWatchdog:
     """Verify render_systemd_run emits watchdog and notify properties."""
 
     @staticmethod
-    def _base_config(**overrides):
+    def _base_config(**overrides: Any) -> Any:
         from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig
-        defaults = dict(
+        defaults: dict[str, Any] = dict(
             run_id="test-run-001",
             workdir=Path("/opt/bitcoin-trader/work"),
             supervisor_command=("python3", "-m", "supervisor"),
@@ -75,7 +76,7 @@ class TestRenderSystemdRunWatchdog:
             systemd_runtime_max_seconds=2880,
         )
         defaults.update(overrides)
-        return TransientLaunchConfig(**defaults)
+        return TransientLaunchConfig(**defaults)  # type: ignore[arg-type]
 
     def test_service_type_is_notify(self) -> None:
         from bithumb_coin_trader.bounded_supervisor import render_systemd_run
@@ -219,3 +220,42 @@ class TestPatternConsistency:
                 f"{label} missing parent dir open"
             )
             assert "os.fsync(parent_fd)" in src_text, f"{label} missing parent dir fsync"
+
+
+class TestSdNotify:
+    """Verify native socket-based sd_notify implementation."""
+
+    def test_sd_notify_no_socket_returns_false(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import sd_notify
+        import os
+        old = os.environ.pop("NOTIFY_SOCKET", None)
+        try:
+            assert sd_notify("READY=1") is False
+        finally:
+            if old is not None:
+                os.environ["NOTIFY_SOCKET"] = old
+
+    def test_sd_notify_sends_datagram(self) -> None:
+        import socket
+        import os
+        import uuid
+        from bithumb_coin_trader.bounded_supervisor import sd_notify
+
+        sock_path = f"/tmp/sd_{uuid.uuid4().hex[:8]}.sock"
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        server.bind(sock_path)
+        old = os.environ.get("NOTIFY_SOCKET")
+        os.environ["NOTIFY_SOCKET"] = sock_path
+        try:
+            result = sd_notify("READY=1")
+            assert result is True
+            data, _ = server.recvfrom(1024)
+            assert data == b"READY=1"
+        finally:
+            server.close()
+            if os.path.exists(sock_path):
+                os.remove(sock_path)
+            if old is not None:
+                os.environ["NOTIFY_SOCKET"] = old
+            else:
+                os.environ.pop("NOTIFY_SOCKET", None)
