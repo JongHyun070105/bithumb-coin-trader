@@ -105,6 +105,8 @@ class TransientLaunchConfig:
     systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
     maximum_collection_window_seconds: int | None = None
+    exec_stop_post_script: str | None = None
+    data_dir: Path | None = None
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
@@ -139,22 +141,32 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
         raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     unit_name = f"{prefix}-{config.run_id}.service"
-    return [
+    cmd = [
         "systemd-run",
         f"--unit={unit_name}",
         "--no-block",
         "--collect",
-        "--service-type=exec",
+        "--service-type=notify",
         "--uid=bitcoin-trader",
         f"--setenv=PYTHONPATH={config.pythonpath}",
         "--property=Restart=no",
         "--property=KillMode=mixed",
         f"--property=RuntimeMaxSec={config.systemd_runtime_max_seconds}s",
         "--property=TimeoutStopSec=55s",
+        "--property=WatchdogSec=60s",
+        "--property=NotifyAccess=main",
         f"--working-directory={config.workdir}",
-        "--",
-        *config.supervisor_command,
     ]
+    if config.exec_stop_post_script is not None:
+        effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
+        cmd.append(
+            f"--property=ExecStopPost={config.exec_stop_post_script}"
+            f" --data-dir={effective_data_dir}"
+            f" --epoch={prefix}"
+            f" --run-id={config.run_id}"
+        )
+    cmd.extend(["--", *config.supervisor_command])
+    return cmd
 
 
 def _utc_iso() -> str:

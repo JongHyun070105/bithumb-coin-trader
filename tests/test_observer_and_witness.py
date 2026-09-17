@@ -216,6 +216,21 @@ class ObserverHealthClassificationTests(unittest.TestCase):
         )
         self._write_collector_snapshot(snapshot)
 
+        # Write archiver sidecar with upload_failures (the real source of archiver health)
+        archiver_snapshot = RuntimeHealthSnapshot(
+            epoch="epoch_test",
+            run_id="run_007",
+            observed_at=self.now.isoformat(),
+            archiver=ArchiverHealth(
+                status=ComponentHealthState.DEGRADED.value,
+                upload_failures=1,
+            ),
+        )
+        write_health_snapshot_atomic(
+            self.data_dir / "health" / "archiver_latest.json",
+            archiver_snapshot,
+        )
+
         config = ObserverConfig(data_dir=self.data_dir, epoch="epoch_test", run_id="run_007")
         observer = RuntimeObserver(config=config)
         evaluated = observer.run_cycle(now=self.now)

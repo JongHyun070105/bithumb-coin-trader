@@ -26,7 +26,7 @@ from typing import Any, Mapping
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
-from bithumb_coin_trader.evidence_hashing import canonical_sha256
+from bithumb_coin_trader.evidence_hashing import canonical_sha256, file_sha256
 from bithumb_coin_trader.feed_hour_coverage import load_feed_hour_coverage
 from bithumb_coin_trader.session_evidence import FeedIdentity
 
@@ -57,6 +57,7 @@ class FeedCanaryStatus:
     receipts_terminal: bool
     is_verified_zero: bool
     unknown_missing: bool
+    binding_verified: bool = False
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -68,6 +69,7 @@ class FeedCanaryStatus:
             "receipts_terminal": self.receipts_terminal,
             "is_verified_zero": self.is_verified_zero,
             "unknown_missing": self.unknown_missing,
+            "binding_verified": self.binding_verified,
             "details": self.details,
         }
 
@@ -310,6 +312,7 @@ class HourCloseCanary:
     ) -> tuple[FeedCanaryStatus, datetime | None]:
         details: dict[str, Any] = {}
         ts_candidates: list[datetime] = []
+        cov_binding = None  # [BINDING] Initialize for downstream use
 
         # 1. Coverage Evidence Inspection
         cov_path = find_coverage_path(self.coverage_root, cohort, feed)
@@ -322,6 +325,13 @@ class HourCloseCanary:
                 cov = load_feed_hour_coverage(cov_path)
                 details["coverage_state"] = cov.coverage_state
                 details["event_count"] = cov.event_count
+
+                # [BINDING] Extract coverage binding metadata
+                cov_binding = cov.data_artifact_binding
+                details["data_artifact_binding_present"] = cov_binding is not None
+                if cov.coverage_state == "DATA_PRESENT" and cov_binding is None:
+                    details["binding_warning"] = "DATA_PRESENT_WITHOUT_BINDING"
+
                 if cov.coverage_state in ("DATA_PRESENT", "VERIFIED_ZERO_EVENT"):
                     coverage_terminal = True
                     is_verified_zero = (cov.coverage_state == "VERIFIED_ZERO_EVENT")
@@ -342,13 +352,29 @@ class HourCloseCanary:
             # Contract: verified zero events produce no raw file, which is validly terminal
             raw_terminal = True
             details["raw_state"] = "VERIFIED_ZERO_CONTRACT"
+            # [BINDING] VERIFIED_ZERO should not claim raw data exists
+            if cov_binding is not None and cov_binding.raw_size > 0:
+                details["binding_warning"] = "VERIFIED_ZERO_WITH_RAW_BINDING"
         else:
             raw_path = find_raw_path(self.raw_root, cohort, feed)
             if raw_path is not None and raw_path.is_file() and raw_path.stat().st_size > 0:
                 raw_terminal = True
                 details["raw_path"] = str(raw_path)
                 details["raw_state"] = "PRESENT"
+                # [BINDING] Verify raw file checksum against binding
+                if cov_binding is not None:
+                    actual_hash = file_sha256(raw_path)
+                    if actual_hash != cov_binding.raw_sha256:
+                        details["raw_state"] = "CHECKSUM_MISMATCH"
+                        details["raw_sha256_actual"] = actual_hash
+                        details["raw_sha256_expected"] = cov_binding.raw_sha256
+                        raw_terminal = False
+                    else:
+                        details["raw_sha256_verified"] = True
             else:
+                # [BINDING] Raw missing but binding claims it exists
+                if cov_binding is not None and cov_binding.raw_size > 0:
+                    details["binding_warning"] = "RAW_MISSING_BINDING_EXISTS"
                 # Check if raw partition was already archived and cleaned up via valid receipt
                 raw_rec_path = find_raw_receipt_path(self.receipt_root, cohort, feed)
                 if raw_rec_path is not None and raw_rec_path.is_file():
@@ -442,6 +468,11 @@ class HourCloseCanary:
                                 pass
                     else:
                         details["receipt_state"] = f"NON_QUALIFYING: {raw_rec_data.get('state')}"
+                    # [BINDING] Cross-reference receipt source_sha256 against coverage binding
+                    if cov_binding is not None:
+                        if raw_rec_data.get("source_sha256") != cov_binding.raw_sha256:
+                            details["receipt_binding_mismatch"] = True
+                            receipts_terminal = False
                 except Exception as exc:
                     details["receipt_error"] = str(exc)
             else:
@@ -449,6 +480,13 @@ class HourCloseCanary:
 
         # 5. Unknown missing
         unknown_missing = not (coverage_terminal or raw_terminal or compressed_terminal or receipts_terminal)
+
+        # [BINDING] Determine overall binding verification status
+        binding_ok = (
+            cov_binding is not None
+            and details.get("coverage_state") == "DATA_PRESENT"
+            and details.get("raw_sha256_verified") is True
+        )
 
         feed_status = FeedCanaryStatus(
             feed=feed,
@@ -458,6 +496,7 @@ class HourCloseCanary:
             receipts_terminal=receipts_terminal,
             is_verified_zero=is_verified_zero,
             unknown_missing=unknown_missing,
+            binding_verified=binding_ok,
             details=details,
         )
         feed_ts = max(ts_candidates) if ts_candidates else None

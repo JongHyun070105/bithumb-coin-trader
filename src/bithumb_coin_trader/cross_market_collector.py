@@ -1305,6 +1305,12 @@ class MultiExchangeMicrostructureCollector:
             self.websocket_sessions["upbit"] = "DISCONNECTED"
 
     async def run_collector(self, max_duration_seconds: float | None = None) -> None:
+        # Notify systemd that the service is ready (required for Type=notify)
+        try:
+            import systemd.daemon  # pyright: ignore[reportMissingImports]
+            systemd.daemon.notify("READY=1")
+        except Exception:
+            pass
         self.is_running = True
         self._accepting_partition_writes = True
         writer_task = asyncio.create_task(self._writer_worker())

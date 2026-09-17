@@ -77,6 +77,15 @@ def write_receipt_atomic(path: Path, payload: dict[str, Any]) -> None:
             f.flush()
             os.fsync(f.fileno())
         os.replace(temp_path, path)
+        # fsync parent directory for crash safety (POSIX metadata durability)
+        try:
+            parent_fd = os.open(str(path.parent), os.O_RDONLY)
+            try:
+                os.fsync(parent_fd)
+            finally:
+                os.close(parent_fd)
+        except OSError:
+            pass
     except Exception:
         if os.path.exists(temp_path):
             try:

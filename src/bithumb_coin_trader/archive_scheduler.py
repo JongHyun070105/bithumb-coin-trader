@@ -29,6 +29,12 @@ for d in (ROOT, SCRIPTS_DIR):
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
+from bithumb_coin_trader.collector_state_model import (
+    ArchiverHealth,
+    ComponentHealthState,
+    RuntimeHealthSnapshot,
+    write_health_snapshot_atomic,
+)
 from bithumb_coin_trader.pre_soak_archive import (
     ArchiveState,
     verify_runtime_ownership,
@@ -66,6 +72,12 @@ class ArchiveSchedulerConfig:
     run_full_scan: bool = True
     disk_critical_percent: float = 90.0
     dry_run: bool = False
+    health_path: Optional[Path] = None
+
+    def get_health_path(self) -> Path:
+        if self.health_path is not None:
+            return self.health_path
+        return self.base_dir / "health" / "archiver_latest.json"
 
 
 @dataclass(frozen=True)
@@ -95,6 +107,61 @@ class ClosedHourArchiveScheduler:
 
     def stop(self) -> None:
         self._stop_event.set()
+
+    def _write_archiver_health(
+        self,
+        result: Dict[str, Any],
+        eligible: List[EligibleHour],
+    ) -> None:
+        """Write archiver health snapshot as sidecar JSON after each run_once() cycle."""
+        status = result.get("status", "IDLE")
+        now = self._now_fn()
+        ts = now.isoformat()
+
+        archiver = ArchiverHealth()
+        pending_cohorts = result.get("pending_cohorts", [])
+        archiver.archive_queue_depth = len(pending_cohorts)
+
+        if status == "PASS":
+            archiver.status = ComponentHealthState.HEALTHY.value
+            target_key = result.get("processed_cohort")
+            if target_key:
+                archiver.last_closed_cohort = target_key
+            archiver.last_compression = ts
+            archiver.last_receipt = ts
+            # If S3 store was used, record the S3 put timestamp
+            if self.config.store_type == "s3" and self.config.s3_bucket:
+                archiver.last_s3_put = ts
+        elif status == "FAIL":
+            archiver.status = ComponentHealthState.DEGRADED.value
+            archiver.archive_errors = 1
+            res = result.get("backlog", {})
+            archiver.upload_failures = res.get("archive_job_failures", 0)
+        elif status == "ERROR":
+            archiver.status = ComponentHealthState.FAILED.value
+            archiver.archive_errors = 1
+        elif status == "IDLE":
+            # No progress: check if stale (no progress for >600s)
+            # Only set STALE if there are pending cohorts but nothing is happening
+            if pending_cohorts:
+                archiver.status = ComponentHealthState.STALE.value
+            else:
+                archiver.status = ComponentHealthState.HEALTHY.value
+        elif status in ("STOPPED", "LOCKED"):
+            archiver.status = ComponentHealthState.DEGRADED.value
+        else:
+            archiver.status = ComponentHealthState.UNKNOWN.value
+
+        snapshot = RuntimeHealthSnapshot(
+            epoch=self.config.epoch,
+            run_id=self.config.run_id,
+            observed_at=ts,
+            archiver=archiver,
+        )
+        try:
+            write_health_snapshot_atomic(self.config.get_health_path(), snapshot)
+        except Exception:
+            pass  # Health writes must never crash the scheduler
 
     def is_full_scan_running(self) -> bool:
         return is_global_full_scan_running(self.config.receipt_root)
@@ -354,41 +421,49 @@ class ClosedHourArchiveScheduler:
 
     def run_once(self, now: Optional[datetime] = None) -> Dict[str, Any]:
         if self._stop_event.is_set():
-            return {
+            result: Dict[str, Any] = {
                 "status": "STOPPED",
                 "processed_cohort": None,
                 "pending_cohorts": [],
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, [])
+            return result
         eligible = self.discover_eligible_hours(now=now)
         if not eligible:
-            return {
+            result = {
                 "status": "IDLE",
                 "processed_cohort": None,
                 "pending_cohorts": [],
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
 
         target = eligible[0]
         pending_cohorts = [e.cohort.key for e in eligible]
 
         if self._stop_event.is_set():
-            return {
+            result = {
                 "status": "STOPPED",
                 "processed_cohort": None,
                 "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
 
         # Check concurrency locks: orchestrator or full-scan
         if self.is_orchestrator_running() or (self.config.run_full_scan and self.is_full_scan_running()):
-            return {
+            result = {
                 "status": "LOCKED",
                 "processed_cohort": None,
                 "target_cohort": target.cohort.key,
                 "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
 
         cfg = self.config
         try:
@@ -413,29 +488,35 @@ class ClosedHourArchiveScheduler:
             )
             archive_failures = res.get("archive_job_failures", 0)
             status = "PASS" if archive_failures == 0 else "FAIL"
-            return {
+            result = {
                 "status": status,
                 "processed_cohort": target.cohort.key,
                 "pending_cohorts": [e.cohort.key for e in eligible[1:]],
                 "backlog": res,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
         except OrchestratorConcurrencyError:
-            return {
+            result = {
                 "status": "LOCKED",
                 "processed_cohort": None,
                 "target_cohort": target.cohort.key,
                 "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
         except Exception as exc:
-            return {
+            result = {
                 "status": "ERROR",
                 "processed_cohort": target.cohort.key,
                 "error": str(exc),
                 "pending_cohorts": pending_cohorts,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self._write_archiver_health(result, eligible)
+            return result
 
     def run_loop(
         self,

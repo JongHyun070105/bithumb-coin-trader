@@ -366,6 +366,31 @@ class RuntimeObserver:
         # 3. Evaluate health states
         evaluated = self.evaluate_health(existing_snapshot, unit_props, actual_now)
 
+        # 3b. Read archiver health sidecar and merge into evaluated archiver
+        archiver_health_path = self.config.data_dir / "health" / "archiver_latest.json"
+        archiver_snapshot = read_health_snapshot(archiver_health_path)
+        if archiver_snapshot is not None:
+            archiver_data = archiver_snapshot.archiver
+            # Check staleness: if observed_at is > 5 minutes ago, mark STALE
+            observed_dt = _parse_utc_iso(archiver_snapshot.observed_at)
+            age_seconds = (actual_now - observed_dt).total_seconds() if observed_dt else float("inf")
+            if age_seconds > 300:
+                evaluated.archiver.status = ComponentHealthState.STALE.value
+                evaluated.archiver.archive_queue_depth = archiver_data.archive_queue_depth
+            else:
+                # Merge real archiver fields from scheduler
+                evaluated.archiver.status = archiver_data.status
+                evaluated.archiver.archive_queue_depth = archiver_data.archive_queue_depth
+                evaluated.archiver.last_closed_cohort = archiver_data.last_closed_cohort
+                evaluated.archiver.last_compression = archiver_data.last_compression
+                evaluated.archiver.last_s3_put = archiver_data.last_s3_put
+                evaluated.archiver.last_receipt = archiver_data.last_receipt
+                evaluated.archiver.archive_errors = archiver_data.archive_errors
+                evaluated.archiver.upload_failures = archiver_data.upload_failures
+        else:
+            # No archiver health file at all -> STALE
+            evaluated.archiver.status = ComponentHealthState.STALE.value
+
         # 4. Check if S3 upload window reached (every 60 seconds)
         should_upload_s3 = (
             self.last_s3_upload_mono == 0.0
