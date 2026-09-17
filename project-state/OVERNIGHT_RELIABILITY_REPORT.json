@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "report_generated_at_utc": "2026-09-17T16:26:00Z",
+  "current_main_sha": "0b819eaa7af39b9a30e74ddadef67e8a677fc6be",
+  "current_develop_sha": "a4e29cd8126d9ee9ad34ab7848a1e12cf6fc210d",
+  "global_new_aws_launches_used": "1 / 4",
+  "hard_deadline_status": "WITHIN_BUDGET",
+  "stages": {
+    "90m": {
+      "identity": "aws-validation-observability-90m-20260917-20260917T145000Z-v8",
+      "result": "FAIL",
+      "collector": "PASS",
+      "writer": "PASS",
+      "watchdog": "PASS",
+      "observer_from_t0": "PASS",
+      "full_utc_hour": "PASS",
+      "archive_grace": "PASS",
+      "archive_qualification": "FAIL",
+      "receipt_immutability": "PASS",
+      "resource_stability": "PASS",
+      "terminal_witness": "PASS",
+      "finalization": "FAIL",
+      "root_cause": "microstructure_storage.py generates manifest schema_version=5 with identity, but pre_soak_archive.py lines 930 & 976 strictly required schema_version==4, throwing ValueError('raw manifest is missing or unsupported')",
+      "remediation": "Fixed in commit a4e29cd: pre_soak_archive.py now accepts schema_version in (4, 5). Verified with RED regression test test_manifest_schema_version_5_accepted -> GREEN, 1555 pytest tests passed."
+    },
+    "3h": {
+      "identity": "NONE",
+      "result": "NOT_REACHED",
+      "qualifying_full_hours": 0,
+      "resource_trend": "N/A",
+      "root_cause_if_failed": "N/A",
+      "remediation": "N/A"
+    },
+    "6h": {
+      "identity": "NONE",
+      "result": "NOT_REACHED",
+      "qualifying_full_hours": 0,
+      "resource_trend": "N/A",
+      "root_cause_if_failed": "N/A",
+      "remediation": "N/A"
+    }
+  },
+  "scientific_state": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "final": {
+    "reliability_infra_ready_for_30h": "NO",
+    "30h_launched": "NO",
+    "overnight_automation": "STOPPED",
+    "next_single_action": "SEAL_AND_LAUNCH_V9_90M_AFTER_HUMAN_WAKEUP"
+  }
+}
