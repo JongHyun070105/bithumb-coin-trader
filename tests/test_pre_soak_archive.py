@@ -1109,5 +1109,148 @@ def test_raw_hash_or_count_mismatch_still_rejected(tmp_path: Path) -> None:
         pipe2.finalize_artifact(art2)
 
 
+def _setup_realistic_producer_env(tmp_path: Path):
+    from types import SimpleNamespace
+    from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
+
+    # Realistic layout:
+    # /var/lib/bitcoin-trader/90m-validation/test-epoch/raw/
+    #   2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl
+    base_dir = tmp_path / "var" / "lib" / "bitcoin-trader" / "90m-validation" / "test-epoch" / "raw"
+    rel_path = "2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl"
+    file_path = base_dir / rel_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rec = {
+        "exchange": "binance",
+        "stream": "orderbook",
+        "market": "btcusdt",
+        "exchange_ts": "2026-09-18T01:00:00Z",
+        "local_recv_ts": "2026-09-18T01:00:00.010Z",
+        "local_write_ts": "2026-09-18T01:00:00.012Z",
+        "payload": {"bids": [], "asks": []},
+    }
+    file_path.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+
+    storage = RawMicrostructureStorage(base_dir=base_dir)
+    identity = SimpleNamespace(
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        feed_identity="binance/orderbook/btcusdt",
+    )
+    return storage, file_path, rel_path, identity
+
+
+def test_schema5_producer_partition_path_relative_to_raw_root(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert manifest.partition_path == "2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl"
+    assert manifest.partition_path == rel_path
+
+
+def test_schema5_producer_does_not_include_epoch_prefix(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert "test-epoch" not in manifest.partition_path
+
+
+def test_schema5_producer_does_not_include_raw_prefix(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert not manifest.partition_path.startswith("raw/")
+    assert "/raw/" not in manifest.partition_path
+
+
+def test_schema5_producer_manifest_passes_archive_identity_verifier(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    _verify_manifest_identity(
+        manifest.to_dict(),
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        source_path=file_path,
+        relative_path=rel_path,
+    )
+
+
+def test_schema5_wrong_epoch_prefixed_partition_path_rejected(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    payload = manifest.to_dict()
+    payload["partition_path"] = f"test-epoch/raw/{rel_path}"
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        _verify_manifest_identity(
+            payload,
+            environment_id="aws-apne2-research",
+            collector_epoch="test-epoch",
+            collector_run_id="test-run",
+            cohort="2026-09-18_01",
+            exchange="binance",
+            stream="orderbook",
+            market="btcusdt",
+            source_path=file_path,
+            relative_path=rel_path,
+        )
+
+
+def test_schema5_wrong_directory_same_filename_rejected(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    payload = manifest.to_dict()
+    payload["partition_path"] = f"2026-09-18/bithumb/orderbook/{file_path.name}"
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        _verify_manifest_identity(
+            payload,
+            environment_id="aws-apne2-research",
+            collector_epoch="test-epoch",
+            collector_run_id="test-run",
+            cohort="2026-09-18_01",
+            exchange="binance",
+            stream="orderbook",
+            market="btcusdt",
+            source_path=file_path,
+            relative_path=rel_path,
+        )
+
+
+def test_schema4_legacy_behavior_remains_accepted(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, _ = _setup_realistic_producer_env(tmp_path)
+    manifest4 = storage.generate_partition_manifest(file_path, identity=None)
+    assert manifest4.schema_version == 4
+    # Legacy schema 4 preserves relative_to(base_dir.parent.parent)
+    assert "test-epoch/raw/" in manifest4.partition_path
+    # Schema 4 verifier accepts legacy partition_path
+    _verify_manifest_identity(
+        manifest4.to_dict(),
+        environment_id="any",
+        collector_epoch="any",
+        collector_run_id="any",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        source_path=file_path,
+        relative_path=rel_path,
+    )
+
+
 if __name__ == "__main__":
     unittest.main()
