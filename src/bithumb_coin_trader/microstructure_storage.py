@@ -360,9 +360,9 @@ class RawMicrostructureStorage:
 
         manifest = PartitionManifest(
             partition_path=partition_path,
-            exchange=exchange,
-            stream=stream,
-            market=market,
+            exchange=getattr(identity, "exchange", exchange) or exchange,
+            stream=getattr(identity, "stream", stream) or stream,
+            market=getattr(identity, "market", market) or market,
             record_count=count,
             first_exchange_ts=first_exch,
             last_exchange_ts=last_exch,

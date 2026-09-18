@@ -583,6 +583,15 @@ def is_closed_stable_partition(
     )
 
 
+def _normalize_partition_relative_path(path_str: str) -> str:
+    clean = path_str.strip().lstrip("/")
+    if clean.startswith("data/microstructure/raw/"):
+        clean = clean[len("data/microstructure/raw/"):]
+    elif clean.startswith("raw/"):
+        clean = clean[len("raw/"):]
+    return Path(clean).as_posix()
+
+
 def _verify_manifest_identity(
     payload: dict[str, Any],
     *,
@@ -602,11 +611,15 @@ def _verify_manifest_identity(
     if schema_version == 4:
         return
 
+    # Schema 5: enforce all 8 mandatory identity fields
     required_fields = (
         "environment_id",
         "collector_epoch",
         "collector_run_id",
         "cohort",
+        "exchange",
+        "stream",
+        "market",
         "feed_identity",
     )
     for field_name in required_fields:
@@ -614,30 +627,51 @@ def _verify_manifest_identity(
         if val is None or (isinstance(val, str) and not val.strip()):
             raise ValueError(f"schema 5 manifest missing required identity field: {field_name}")
 
-    if str(payload["environment_id"]) != environment_id:
+    if str(payload["environment_id"]).strip() != environment_id:
         raise ValueError(
             f"manifest environment_id mismatch: {payload['environment_id']} != {environment_id}"
         )
-    if str(payload["collector_epoch"]) != collector_epoch:
+    if str(payload["collector_epoch"]).strip() != collector_epoch:
         raise ValueError(
             f"manifest collector_epoch mismatch: {payload['collector_epoch']} != {collector_epoch}"
         )
-    if str(payload["collector_run_id"]) != collector_run_id:
+    if str(payload["collector_run_id"]).strip() != collector_run_id:
         raise ValueError(
             f"manifest collector_run_id mismatch: {payload['collector_run_id']} != {collector_run_id}"
         )
-    if str(payload["cohort"]) != cohort:
+    if str(payload["cohort"]).strip() != cohort:
         raise ValueError(
             f"manifest cohort mismatch: {payload['cohort']} != {cohort}"
         )
 
     expected_feed = FeedIdentity(exchange=exchange, stream=stream, market=market)
-    manifest_feed_str = str(payload["feed_identity"])
+
+    p_exch = str(payload["exchange"]).strip().lower()
+    if p_exch != expected_feed.exchange:
+        raise ValueError(f"manifest exchange mismatch: {payload['exchange']} != {expected_feed.exchange}")
+
+    p_stream = str(payload["stream"]).strip().lower()
+    if p_stream != expected_feed.stream:
+        raise ValueError(f"manifest stream mismatch: {payload['stream']} != {expected_feed.stream}")
+
+    p_market_raw = str(payload["market"]).strip()
+    try:
+        p_market_norm = FeedIdentity(exchange=exchange, stream=stream, market=p_market_raw).market
+    except Exception as exc:
+        raise ValueError(f"manifest market malformed: {p_market_raw}") from exc
+    if p_market_norm != expected_feed.market:
+        raise ValueError(f"manifest market mismatch: {payload['market']} != {expected_feed.market}")
+
+    manifest_feed_str = str(payload["feed_identity"]).strip()
     parts = manifest_feed_str.split("/")
     if len(parts) != 3:
         raise ValueError(f"invalid manifest feed_identity format: {manifest_feed_str}")
 
-    manifest_feed = FeedIdentity(exchange=parts[0], stream=parts[1], market=parts[2])
+    try:
+        manifest_feed = FeedIdentity(exchange=parts[0], stream=parts[1], market=parts[2])
+    except Exception as exc:
+        raise ValueError(f"malformed feed_identity in manifest: {manifest_feed_str}") from exc
+
     if manifest_feed != expected_feed:
         raise ValueError(
             f"manifest feed_identity mismatch: {manifest_feed.canonical} != {expected_feed.canonical}"
@@ -647,37 +681,25 @@ def _verify_manifest_identity(
             f"manifest feed_identity normalization mismatch: {manifest_feed_str} != {expected_feed.canonical}"
         )
 
-    if "exchange" in payload:
-        p_exch = payload["exchange"]
-        if not p_exch or not isinstance(p_exch, str) or p_exch.lower() != expected_feed.exchange:
-            raise ValueError(f"manifest exchange mismatch: {p_exch} != {expected_feed.exchange}")
-    if "stream" in payload:
-        p_stream = payload["stream"]
-        if not p_stream or not isinstance(p_stream, str) or p_stream.lower() != expected_feed.stream:
-            raise ValueError(f"manifest stream mismatch: {p_stream} != {expected_feed.stream}")
-    if "market" in payload:
-        p_market = payload["market"]
-        if not p_market or not isinstance(p_market, str):
-            raise ValueError(f"manifest market invalid: {p_market}")
-        p_mkt_norm = FeedIdentity(exchange=exchange, stream=stream, market=p_market).market
-        if p_mkt_norm != expected_feed.market:
-            raise ValueError(f"manifest market mismatch: {p_market} != {expected_feed.market}")
-
+    # Validate partition_path binding
     partition_path = payload.get("partition_path")
-    if partition_path is not None:
-        if not isinstance(partition_path, str) or not partition_path.strip():
-            raise ValueError("invalid manifest partition_path")
-        if Path(partition_path).name != source_path.name:
+    if partition_path is None or not isinstance(partition_path, str) or not partition_path.strip():
+        raise ValueError("manifest partition_path is required for schema 5")
+
+    # Filename must match
+    if Path(partition_path).name != source_path.name:
+        raise ValueError(
+            f"manifest partition_path filename mismatch: {Path(partition_path).name} != {source_path.name}"
+        )
+
+    # When relative_path is available, normalized relative paths must bind exactly
+    if relative_path is not None:
+        norm_manifest_rel = _normalize_partition_relative_path(partition_path)
+        norm_expected_rel = _normalize_partition_relative_path(relative_path)
+        if norm_manifest_rel != norm_expected_rel:
             raise ValueError(
-                f"manifest partition_path filename mismatch: {Path(partition_path).name} != {source_path.name}"
+                f"manifest partition_path mismatch: {norm_manifest_rel} != {norm_expected_rel}"
             )
-        if relative_path is not None and "/" in partition_path:
-            clean_part = partition_path.lstrip("/")
-            clean_rel = relative_path.lstrip("/")
-            if clean_part != clean_rel and Path(clean_part).name != Path(clean_rel).name:
-                raise ValueError(
-                    f"manifest partition_path mismatch: {partition_path} != {relative_path}"
-                )
 
 
 class ArchivePipeline:

@@ -851,6 +851,9 @@ def test_manifest_schema_version_5_accepted(tmp_path: Path) -> None:
         "collector_epoch": "test-epoch",
         "collector_run_id": "test-run",
         "cohort": "2026-09-01_10",
+        "exchange": "binance",
+        "stream": "trade",
+        "market": "btcusdt",
         "feed_identity": "binance/trade/btcusdt",
     }
     manifest_file.write_text(json.dumps(payload), encoding="utf-8")
@@ -917,6 +920,9 @@ def _create_test_raw_and_manifest(
             "collector_epoch": "test-epoch",
             "collector_run_id": "test-run",
             "cohort": "2026-09-01_10",
+            "exchange": "binance",
+            "stream": "trade",
+            "market": "btcusdt",
             "feed_identity": "binance/trade/btcusdt",
         }
     if payload_overrides:
@@ -966,12 +972,93 @@ def test_schema5_correct_identity_accepted(tmp_path: Path) -> None:
 
 
 def test_schema5_missing_identity_field_rejected(tmp_path: Path) -> None:
-    required = ["environment_id", "collector_epoch", "collector_run_id", "cohort", "feed_identity"]
+    required = [
+        "environment_id",
+        "collector_epoch",
+        "collector_run_id",
+        "cohort",
+        "exchange",
+        "stream",
+        "market",
+        "feed_identity",
+    ]
     for missing_field in required:
         sub = tmp_path / missing_field
         pipe, art = _create_test_raw_and_manifest(sub, schema_version=5, payload_overrides={missing_field: None})
         with pytest.raises(ValueError, match="missing required identity field"):
             pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_exchange_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"exchange": None})
+    with pytest.raises(ValueError, match="missing required identity field: exchange"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_stream_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"stream": None})
+    with pytest.raises(ValueError, match="missing required identity field: stream"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_market_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"market": None})
+    with pytest.raises(ValueError, match="missing required identity field: market"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_exchange_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"exchange": "bithumb"})
+    with pytest.raises(ValueError, match="manifest exchange mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_stream_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"stream": "orderbook"})
+    with pytest.raises(ValueError, match="manifest stream mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_market_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"market": "ethusdt"})
+    with pytest.raises(ValueError, match="manifest market mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_partition_directory_same_filename_rejected(tmp_path: Path) -> None:
+    wrong_dir_same_name = "2026-09-01/bithumb/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    pipe, art = _create_test_raw_and_manifest(
+        tmp_path,
+        schema_version=5,
+        payload_overrides={"partition_path": wrong_dir_same_name},
+    )
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_correct_partition_path_accepted(tmp_path: Path) -> None:
+    # 1. Exact canonical relative path
+    pipe1, art1 = _create_test_raw_and_manifest(tmp_path / "case1", schema_version=5)
+    r1 = pipe1.finalize_artifact(art1)
+    assert r1.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+    # 2. Path prefixed with raw/
+    pipe2, art2 = _create_test_raw_and_manifest(
+        tmp_path / "case2",
+        schema_version=5,
+        payload_overrides={"partition_path": f"raw/{art1.relative_path}"},
+    )
+    r2 = pipe2.finalize_artifact(art2)
+    assert r2.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+    # 3. Path prefixed with data/microstructure/raw/
+    pipe3, art3 = _create_test_raw_and_manifest(
+        tmp_path / "case3",
+        schema_version=5,
+        payload_overrides={"partition_path": f"data/microstructure/raw/{art1.relative_path}"},
+    )
+    r3 = pipe3.finalize_artifact(art3)
+    assert r3.state == ArchiveState.CLEANUP_ELIGIBLE.value
 
 
 def test_schema5_wrong_environment_id_rejected(tmp_path: Path) -> None:
