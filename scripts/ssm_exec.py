@@ -7,7 +7,7 @@ import time
 
 INSTANCE = "i-008bc503c1136349f"
 REGION = "ap-northeast-2"
-PROFILE = "bitcoin-trader-bootstrap"
+PROFILE = "bitcoin-trader-provisioner"
 
 def strip_ansi(text: str) -> str:
     return re.sub(r'\x1b\[[0-9;]*[a-zA-Z]|\x1b\[\?[0-9]*[a-z]', '', text)

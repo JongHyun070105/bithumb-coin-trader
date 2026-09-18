@@ -346,6 +346,51 @@ class MultiExchangeMicrostructureCollector:
             for mkt in self.bithumb_markets
             for stream in ("orderbook", "trade", "ticker")
         )
+        self._background_tasks: set[asyncio.Task[Any]] = set()
+        self._finalization_lock = asyncio.Lock()
+
+    def _trigger_background_finalization(self, cohort: str) -> asyncio.Task[None]:
+        """Trigger incremental manifest finalization for completed cohort in background without blocking event loop."""
+        async def _async_finalize() -> None:
+            async with self._finalization_lock:
+                loop = asyncio.get_running_loop()
+                try:
+                    summary = await loop.run_in_executor(
+                        None,
+                        self.finalizer.finalize_cohort,
+                        cohort,
+                    )
+                    logger.info(
+                        "Incremental manifest finalization completed in background for cohort %s: "
+                        "recomputed=%d, reused=%d, failed=%d, pending=%d",
+                        cohort,
+                        summary.recomputed_count,
+                        summary.reused_count,
+                        summary.failed_count,
+                        summary.pending_count,
+                    )
+                except Exception as exc:
+                    logger.error("Background finalization failed for cohort %s: %s", cohort, exc, exc_info=True)
+
+        task = asyncio.create_task(_async_finalize(), name=f"bg_finalizer_{cohort}")
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+        return task
+
+    async def drain_background_tasks(self, timeout: float = 120.0) -> None:
+        """Wait for all active background finalization tasks to complete."""
+        if not self._background_tasks:
+            return
+        logger.info("Draining %d active background finalization task(s)...", len(self._background_tasks))
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*list(self._background_tasks), return_exceptions=True),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Timed out waiting for background finalization tasks to complete after %.1fs", timeout)
+        except Exception as exc:
+            logger.error("Error while draining background finalization tasks: %s", exc)
 
     async def _enqueue(
         self,
@@ -658,13 +703,14 @@ class MultiExchangeMicrostructureCollector:
 
         # Cohort boundary fence: when writer detects cohort crossing, freeze and finalize
         if self._current_writer_cohort is not None and cohort_utc != self._current_writer_cohort:
+            completed_cohort = self._current_writer_cohort
             boundary_dt = write_ts.replace(minute=0, second=0, microsecond=0)
             health = self._get_writer_health_snapshot()
             obs_seq = self.coverage_tracker.freeze_completed(boundary_dt, self.session_evidence, health)
             if obs_seq:
                 save_frozen_journal(obs_seq, self.journals_dir)
                 self._frozen_observations.extend(obs_seq)
-            self.finalizer.finalize_pending()
+            self._trigger_background_finalization(completed_cohort)
             # Prune heartbeats older than boundary_dt to keep collector memory strictly bounded
             boundary_utc_str = boundary_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
             self.session_evidence.prune_older_than(boundary_utc_str)
@@ -1383,6 +1429,9 @@ class MultiExchangeMicrostructureCollector:
             for sid, sess in self.session_evidence._sessions.items():
                 if sess.disconnected_at_utc is None:
                     self.session_evidence.close_session(sid, now_str, reason="COLLECTOR_SHUTDOWN")
+
+            # Drain any background finalization tasks before tail shutdown finalization
+            await self.drain_background_tasks()
 
             # Freeze shutdown tails and finalize pending
             try:
