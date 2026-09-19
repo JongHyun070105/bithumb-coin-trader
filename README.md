@@ -99,3 +99,22 @@ cd dashboard && npm run dev
 - **Fail-Closed**: 모든 불확실한 상태에서 신규 거래 진입은 원천 차단됩니다.
 - **Fact-First**: 추측이나 사후적 재해석을 배제하고 오직 추적된 증거와 체크섬만을 사실로 인정합니다.
 - **Protected Test Results**: `test-results/` 디렉터리는 영구 보호 구역으로 절대 수정, 스테이징, 삭제하지 않습니다.
+
+---
+
+## 7. 수집기 신뢰성 검증 상태 (Collector Reliability Validation)
+
+> **범위 및 한계 (Scope & Limitation)**: 아래 표는 **수집기 인프라 신뢰성**(AWS ap-northeast-2에서 EC2 t3.medium로 운영되는 빗썸/바이낸스/업비트 시장 데이터 수집·아카이브·관측 파이프라인의 기술적 지속 가능성)만을 평가합니다. 인프라 수집 신뢰성은 **연구 유효성(research validity)**이나 **거래 알파(profitable alpha)**를 증명하지 않습니다.
+> - 알파(Alpha): **UNPROVEN** · 실거래(Live): **DISABLED** · 개인 API(Private): **DISABLED** · 모의 거래(Paper): **NOT STARTED**
+> - 상세 검증 이력은 [AWS 유효성 검증 이력](docs/AWS_VALIDATION_HISTORY.md)을 참조하십시오.
+
+| 단계 | 검증 ID (런타임 커밋) | 크기 | 게이트 판정 | 비고 |
+| :--- | :--- | :---: | :---: | :--- |
+| 45m (Fresh) | aws-validation-45m-20260911-1976f0f (1976f0f) | 45분 | **PASS** | 이전 45m S3 Race 실패 → 동시성 패치 재검증 합격 |
+| 3h (Fresh) | aws-observability-3h-20260918-…-v1 (e752c3d) | 10,800s | **PASS** | 2,247,583건 / 2코호트×76피드 0실패, 거버넌스 격리 Clean |
+| 6h (Fresh) | aws-observability-6h-20260919-…-v3 (4fcdd819) | 21,600s | **TECHNICAL PASS** | 380/380 슬롯(5코호트×76피드) 0실패, 7,287,432건, CLEAN_SUCCESS, exit code 0 |
+| 30h (Fresh) | aws-observability-30h-20260919-…-v2 (4fcdd819) | 108,000s | **RUNNING / PENDING** | 29 적격 풀 아워 목표, 2026-09-20T15:50 UTC 예정 종료, 결과 미공개 |
+
+**6h-v3 (2026-09-19 기동)**: 21,600초 무중단 수집 완수. collector / archive-scheduler / publisher 모두 exit code 0, NRestarts 0, final queue 0, `full_duration_satisfied=true`, terminal witness `CLEAN_SUCCESS`, receipt immutability 5/5 PASS, 5/5 qualifying cohorts, 380/380 qualifying slots, 0 failed feeds, 검증 레코드 7,287,432건. 커밋된 증거는 `reliability-artifacts/aws-6h-v3/` sealed launch manifest(런타임 `4fcdd819`, tree `68dab6731f52e1aca51237410ea9f7b469869086`); terminal 영수증은 EC2/S3 인스턴스에 보관. **인프라 신뢰성만 증명** — 알파/수익 가능성은 불증명.
+
+**30h-v2 (진행 중)**: 2026-09-19 18:50 KST (09:50 UTC) 기동. 6h-v3 검증 런타임(`4fcdd819`) 재사용, 108,000초(30시간) 수집 예정, 29 적격 풀 아워 목표, 자연 종료 2026-09-20T15:50 UTC. 30h는 **PENDING**(미검증)이므로 "인프라 검증 완료"라는 한 단어도 철하기 전까지 절대 주장하지 않습니다.
