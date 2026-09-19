@@ -321,7 +321,7 @@ class MultiExchangeMicrostructureCollector:
         self.configured_feeds: tuple[FeedIdentity, ...] = tuple(all_feeds)
 
         self.session_evidence = SessionEvidenceTracker(epoch=self.collector_epoch, run_id=self._collector_run_id)
-        self.heartbeat_policy = HeartbeatPolicy(heartbeat_probe_interval_seconds=10, heartbeat_timeout_seconds=10)
+        self.heartbeat_policy = HeartbeatPolicy(heartbeat_probe_interval_seconds=10, heartbeat_timeout_seconds=25)
         self.coverage_tracker = FeedHourCoverageTracker(
             feeds=self.configured_feeds,
             epoch=self.collector_epoch,
@@ -1022,7 +1022,25 @@ class MultiExchangeMicrostructureCollector:
                     self.last_websocket_activity[exchange] = self._utc_now().isoformat()
                     self.session_evidence.record_heartbeat(session_id, now_utc, kind="PING_PONG")
                 except (asyncio.TimeoutError, TimeoutError):
-                    now_utc = self._utc_now().strftime("%Y-%m-%dT%H:%M:%SZ")
+                    now_ts = self._utc_now()
+                    now_utc = now_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    last_act_str = self.last_websocket_activity.get(exchange)
+                    is_active = False
+                    if last_act_str:
+                        try:
+                            last_act = datetime.fromisoformat(last_act_str)
+                            if (now_ts - last_act).total_seconds() < timeout:
+                                is_active = True
+                        except Exception:
+                            pass
+                    if is_active:
+                        logger.info(
+                            "[%s] Heartbeat ping timed out but data frames are actively arriving; retaining session %s",
+                            exchange.capitalize(),
+                            session_id,
+                        )
+                        continue
+
                     logger.warning("[%s] Heartbeat timeout on session %s", exchange.capitalize(), session_id)
                     sess = self.session_evidence._sessions.get(session_id)
                     if sess is not None and sess.disconnected_at_utc is None:

@@ -482,3 +482,41 @@ def test_frozen_journal_save_and_load_roundtrip(tmp_path: Path) -> None:
 def test_frozen_journal_empty_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="cannot save empty observations"):
         save_frozen_journal([], tmp_path / "coverage" / "journals")
+
+
+def test_to_segment_effective_gap_bounds() -> None:
+    tracker = SessionEvidenceTracker(epoch="test", run_id="run1")
+    sid = tracker.open_session("binance", ["binance/trade/btcusdt"], "2026-09-14T11:50:00Z")
+    # Record heartbeats during 12:00 to 12:20
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:05Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:10:00Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:20:00Z")
+    tracker.close_session(sid, "2026-09-14T12:20:05Z", reason="TEST")
+
+    sess = tracker._sessions[sid]
+    seg = sess.to_segment("2026-09-14T12:00:00Z", "2026-09-14T13:00:00Z")
+    # The max gap should NOT include the remaining time from 12:20 to 13:00 (2400s)
+    # Gaps: (12:00:05 - 12:00:00) = 5s, (12:10:00 - 12:00:05) = 595s, (12:20:00 - 12:10:00) = 600s, (12:20:05 - 12:20:00) = 5s
+    assert seg.maximum_heartbeat_gap_seconds is not None
+    assert seg.maximum_heartbeat_gap_seconds <= 600.0
+
+
+def test_mid_hour_reconnect_segment_not_late_confirmation() -> None:
+    f = _make_feed("binance", "trade", "btcusdt")
+    # Segment 2 connected and confirmed mid-hour
+    seg = _make_segment(
+        f,
+        connected_at_utc="2026-09-14T12:20:05Z",
+        disconnected_at_utc=None,
+    )
+    seg = replace(seg, confirmed_at_utc="2026-09-14T12:20:06Z")
+    obs = _make_observation(
+        feed=f,
+        event_count=100,
+        session_segments=(seg,),
+        disconnect_count=0,
+        reconnect_count=0,
+    )
+    res = materialize_feed_hour_coverage(obs, _make_policy(60), _make_binding(100))
+    assert "LATE_CONFIRMATION" not in res.failure_reason_codes
+

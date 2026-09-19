@@ -179,12 +179,20 @@ class _MutableSession:
             if hb_in_interval:
                 start_dt = datetime.fromisoformat(interval_start_utc.replace("Z", "+00:00"))
                 end_dt = datetime.fromisoformat(interval_end_utc.replace("Z", "+00:00"))
+                conn_dt = datetime.fromisoformat(self.connected_at_utc.replace("Z", "+00:00"))
+                eff_start = max(start_dt, conn_dt)
+                if self.disconnected_at_utc is not None:
+                    disc_dt = datetime.fromisoformat(self.disconnected_at_utc.replace("Z", "+00:00"))
+                    eff_end = min(end_dt, disc_dt)
+                else:
+                    eff_end = end_dt
+
                 dts = [datetime.fromisoformat(h.replace("Z", "+00:00")) for h in hb_in_interval]
                 dts.sort()
-                gaps = [(dts[0] - start_dt).total_seconds()]
+                gaps = [(dts[0] - eff_start).total_seconds()]
                 for i in range(len(dts) - 1):
                     gaps.append((dts[i + 1] - dts[i]).total_seconds())
-                gaps.append((end_dt - dts[-1]).total_seconds())
+                gaps.append((eff_end - dts[-1]).total_seconds())
                 max_gap: float | None = max(gaps)
             else:
                 max_gap = None
