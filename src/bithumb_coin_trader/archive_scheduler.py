@@ -221,6 +221,15 @@ class ClosedHourArchiveScheduler:
         except Exception:
             return True
 
+    def _has_finalized_failure(self, cohort: ArchiveCohortId) -> bool:
+        """A sealed FAIL receipt remains failed, but must not block later hours."""
+        report_path = self.config.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        try:
+            data = json.loads(report_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return False
+        return isinstance(data, dict) and data.get("cohort") == cohort.key and data.get("status") == "FAIL"
+
     def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
         # V3 check: if frozen journal exists
         journal_file = self.config.base_dir / "coverage" / "journals" / f"journal_{cohort.key}.json"
@@ -339,7 +348,7 @@ class ClosedHourArchiveScheduler:
                 except ValueError:
                     continue
 
-                if self.is_cohort_completed(cohort):
+                if self.is_cohort_completed(cohort) or self._has_finalized_failure(cohort):
                     continue
 
                 # Active check: skip if currently active cohort
@@ -394,7 +403,7 @@ class ClosedHourArchiveScheduler:
         eligible = []
         for cohort, files in grouped.items():
             # 1. Check if hour is completed
-            if self.is_cohort_completed(cohort):
+            if self.is_cohort_completed(cohort) or self._has_finalized_failure(cohort):
                 continue
 
             # 2. Check if currently active (any partition in this hour is in active_paths)

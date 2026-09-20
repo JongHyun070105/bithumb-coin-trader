@@ -239,6 +239,51 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertTrue(scheduler.has_cohort_failed(cohort))
         self.assertFalse(scheduler.is_cohort_completed(cohort))
 
+    def test_finalized_failure_does_not_block_later_frozen_journal(self) -> None:
+        failed = ArchiveCohortId("2026-09-19", "12")
+        later = ArchiveCohortId("2026-09-19", "13")
+        journals = self.base_dir / "coverage" / "journals"
+        journals.mkdir(parents=True)
+        for cohort in (failed, later):
+            (journals / f"journal_{cohort.key}.json").write_text("{}", encoding="utf-8")
+        receipt = self.receipt_root / f"cohort_{failed.key}_finalized.json"
+        original = json.dumps({"cohort": failed.key, "status": "FAIL", "failed_count": 60})
+        receipt.write_text(original, encoding="utf-8")
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertFalse(scheduler.is_cohort_completed(failed))
+        self.assertTrue(scheduler.has_cohort_failed(failed))
+        self.assertEqual([hour.cohort for hour in scheduler.discover_eligible_hours()], [later])
+        with patch(
+            "bithumb_coin_trader.archive_scheduler.orchestrate_closed_hour_archive",
+            return_value={"archive_job_failures": 0},
+        ) as orchestrate:
+            result = scheduler.run_once()
+
+        self.assertEqual(result["processed_cohort"], later.key)
+        self.assertEqual(orchestrate.call_args.kwargs["target_cohort"], later)
+        self.assertEqual(receipt.read_text(encoding="utf-8"), original)
+
+    def test_finalized_failure_does_not_block_later_legacy_partition(self) -> None:
+        failed = ArchiveCohortId("2026-09-19", "12")
+        later = ArchiveCohortId("2026-09-19", "13")
+        self._create_raw_partition("BTC_KRW", failed.date_str, failed.hour_str)
+        self._create_raw_partition("BTC_KRW", later.date_str, later.hour_str)
+        (self.receipt_root / f"cohort_{failed.key}_finalized.json").write_text(
+            json.dumps({"cohort": failed.key, "status": "FAIL"}), encoding="utf-8"
+        )
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([hour.cohort for hour in scheduler.discover_eligible_hours()], [later])
+
     def test_scheduler_full_scan_running_leaves_later_hour_pending(self) -> None:
         import fcntl
         from scripts.orchestrate_closed_hour_archive import FULL_SCAN_GLOBAL_LOCK_NAME
