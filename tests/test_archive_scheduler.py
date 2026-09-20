@@ -239,6 +239,51 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertTrue(scheduler.has_cohort_failed(cohort))
         self.assertFalse(scheduler.is_cohort_completed(cohort))
 
+    def test_finalized_failure_does_not_block_later_frozen_journal(self) -> None:
+        failed = ArchiveCohortId("2026-09-19", "12")
+        later = ArchiveCohortId("2026-09-19", "13")
+        journals = self.base_dir / "coverage" / "journals"
+        journals.mkdir(parents=True)
+        for cohort in (failed, later):
+            (journals / f"journal_{cohort.key}.json").write_text("{}", encoding="utf-8")
+        receipt = self.receipt_root / f"cohort_{failed.key}_finalized.json"
+        original = json.dumps({"cohort": failed.key, "status": "FAIL", "failed_count": 60})
+        receipt.write_text(original, encoding="utf-8")
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertFalse(scheduler.is_cohort_completed(failed))
+        self.assertTrue(scheduler.has_cohort_failed(failed))
+        self.assertEqual([hour.cohort for hour in scheduler.discover_eligible_hours()], [later])
+        with patch(
+            "bithumb_coin_trader.archive_scheduler.orchestrate_closed_hour_archive",
+            return_value={"archive_job_failures": 0},
+        ) as orchestrate:
+            result = scheduler.run_once()
+
+        self.assertEqual(result["processed_cohort"], later.key)
+        self.assertEqual(orchestrate.call_args.kwargs["target_cohort"], later)
+        self.assertEqual(receipt.read_text(encoding="utf-8"), original)
+
+    def test_finalized_failure_does_not_block_later_legacy_partition(self) -> None:
+        failed = ArchiveCohortId("2026-09-19", "12")
+        later = ArchiveCohortId("2026-09-19", "13")
+        self._create_raw_partition("BTC_KRW", failed.date_str, failed.hour_str)
+        self._create_raw_partition("BTC_KRW", later.date_str, later.hour_str)
+        (self.receipt_root / f"cohort_{failed.key}_finalized.json").write_text(
+            json.dumps({"cohort": failed.key, "status": "FAIL"}), encoding="utf-8"
+        )
+        self._write_metrics([])
+        scheduler = ClosedHourArchiveScheduler(
+            self._config(),
+            now_fn=lambda: datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc),
+        )
+
+        self.assertEqual([hour.cohort for hour in scheduler.discover_eligible_hours()], [later])
+
     def test_scheduler_full_scan_running_leaves_later_hour_pending(self) -> None:
         import fcntl
         from scripts.orchestrate_closed_hour_archive import FULL_SCAN_GLOBAL_LOCK_NAME
@@ -538,16 +583,20 @@ class ArchiveSchedulerTests(unittest.TestCase):
             observations.append(obs)
         return save_frozen_journal(observations, journals_dir)
 
-    def test_scheduler_v3_journal_driven_discovery_no_grace_needed(self) -> None:
+    def test_scheduler_v3_journal_driven_discovery_respects_grace(self) -> None:
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
         # Hour 05 closed at 06:00:00 UTC. Test time is 06:00:05 UTC (only 5s after closure, < 600s).
-        # In V3, writer fence is closed so no 600-second grace is required!
-        test_now = datetime(2026, 9, 4, 6, 0, 5, tzinfo=timezone.utc)
-        scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
+        # In V3, grace period is still strictly enforced: not eligible before grace expiry.
+        test_now_early = datetime(2026, 9, 4, 6, 0, 5, tzinfo=timezone.utc)
+        scheduler_early = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now_early)
+        self.assertEqual(len(scheduler_early.discover_eligible_hours()), 0)
 
-        eligible = scheduler.discover_eligible_hours()
+        # After grace expiry (06:10:00 UTC), cohort becomes eligible.
+        test_now_ready = datetime(2026, 9, 4, 6, 10, 0, tzinfo=timezone.utc)
+        scheduler_ready = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now_ready)
+        eligible = scheduler_ready.discover_eligible_hours()
         self.assertEqual(len(eligible), 1)
         self.assertEqual(eligible[0].date_str, "2026-09-04")
         self.assertEqual(eligible[0].hour_str, "05")
@@ -569,7 +618,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
-        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        test_now = datetime(2026, 9, 4, 6, 10, 1, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(dry_run=True), now_fn=lambda: test_now)
 
         result = scheduler.run_once()
@@ -585,7 +634,7 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self._create_v3_frozen_journal("2026-09-04", "05")
         self._write_metrics([])
 
-        test_now = datetime(2026, 9, 4, 6, 1, 0, tzinfo=timezone.utc)
+        test_now = datetime(2026, 9, 4, 6, 10, 1, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
 
         res1 = scheduler.run_once()

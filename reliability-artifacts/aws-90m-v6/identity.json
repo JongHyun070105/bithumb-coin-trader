@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-90m-20260917-20260917T135000Z-v6",
+  "run_id": "aws-validation-observability-90m-run-20260917T135000Z-v6",
+  "status": "PREPARED_NOT_LAUNCHED_SUPERSEDED",
+  "consumed_by_launch": false,
+  "reusable": false,
+  "superseded_reason": "Observer readiness race and missing same-host PID liveness / strict waiting state enforcement. Superseded by authoritative V7.",
+  "software_commit_sha": "8ceacd845a76d980f410f951bed31be046684def",
+  "software_tree_sha": "cda3a47eb84b27516b33f689e9c5529cf026b7da",
+  "config_fingerprint": "4f0466b173d8652c19ff6ee39046b2d2e1bcbe17d4133a4f5395a6d162640a9f",
+  "sealed_at_utc": "2026-09-17T12:56:33.171211+00:00",
+  "feed_count": 76,
+  "duration_seconds": 5400,
+  "grace_seconds": 600,
+  "target_full_hours": 1,
+  "planned_start_utc": "2026-09-17T13:50:00+00:00",
+  "warmup_duration_seconds": 600.0,
+  "qualification_start_utc": "2026-09-17T14:00:00+00:00",
+  "qualifying_cohorts": [
+    "2026-09-17_14"
+  ],
+  "cohort_closure_utc": "2026-09-17T15:00:00+00:00",
+  "grace_expiry_utc": "2026-09-17T15:10:00+00:00",
+  "archive_settled_utc": "2026-09-17T15:13:00+00:00",
+  "total_pipeline_duration_seconds": 4980.0,
+  "partial_start_cohort": "2026-09-17_13",
+  "partial_end_cohort": "2026-09-17_15",
+  "health_schema_version": 1,
+  "observer_version": 1,
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-observability-90m-20260917-20260917T135000Z-v6",
+  "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+  "data_root": "/var/lib/bitcoin-trader/90m-validation/aws-validation-observability-90m-20260917-20260917T135000Z-v6",
+  "python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+  "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+  "trading_safety": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "sealed_artifact_hashes": {
+    "aws-validation-observability-90m-20260917-20260917T135000Z-v6.runtime.json": "0ddf8df9bc220a0d1ee81946aea8982cee42e9fe5be0d05899bdd68c5ba5f8fd",
+    "launch-command.json": "15b987455b26fa9844afabb7dfa6f99f8d1effebb20e854605220518111a9f52",
+    "launch-ec2.sh": "f93d79cd814c067400a16b877a1a13483ee46ceaf79543cf310433fd5855722c",
+    "launch.sh": "4c75f568f60632c3b0962e62797b9e1537e905804352182313276d85e68eedba"
+  }
+}

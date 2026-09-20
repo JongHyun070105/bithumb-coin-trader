@@ -1,0 +1,19 @@
+{
+  "local_engineering_complete": true,
+  "local_failure_injection_pass": true,
+  "accelerated_boundary_test_pass": true,
+  "observer_local_isolation_verified": true,
+  "terminal_witness_local_verified": true,
+  "canary_local_verified": true,
+  "canary_binding_verified": true,
+  "archiver_instrumentation_verified": true,
+  "watchdog_local_configured": true,
+  "aws_runtime_observer_verified": false,
+  "aws_runtime_terminal_witness_verified": false,
+  "aws_runtime_canary_verified": false,
+  "aws_90m_soak": "NOT_RUN",
+  "aws_3h_soak": "NOT_RUN",
+  "aws_6h_soak": "NOT_RUN",
+  "deployment_path": "BLOCKED_SSM_ACCESS",
+  "v5_30h_go_no_go": "NOT_DECIDED"
+}

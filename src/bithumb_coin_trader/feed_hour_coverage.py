@@ -136,7 +136,7 @@ def materialize_feed_hour_coverage(
             if seg.confirmed_at_utc is None:
                 if "SESSION_NOT_CONFIRMED" not in failure_reasons:
                     failure_reasons.append("SESSION_NOT_CONFIRMED")
-            elif seg.confirmed_at_utc > observation.interval_start_utc:
+            elif seg.connected_at_utc <= observation.interval_start_utc and seg.confirmed_at_utc > observation.interval_start_utc:
                 if "LATE_CONFIRMATION" not in failure_reasons:
                     failure_reasons.append("LATE_CONFIRMATION")
 

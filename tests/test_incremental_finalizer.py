@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -639,3 +640,75 @@ def test_mark_complete_transaction_safety(tmp_path: Path) -> None:
     rec_summary = recovered.reconcile()
     assert rec_summary.state == "COMPLETE"
     assert rec_summary.generation == gen_before
+
+
+def test_finalize_cohort_and_exclude_cohort(tmp_path: Path) -> None:
+    storage = RawMicrostructureStorage(base_dir=tmp_path / "raw")
+    store = FinalizationProgressStore(root=tmp_path / "progress")
+    finalizer = IncrementalManifestFinalizer(
+        store=store,
+        storage=storage,
+        receipt_root=tmp_path / "receipts",
+    )
+
+    # 1. Create raw partitions for two distinct cohorts: cohort_10 and cohort_11
+    f10 = storage.append_raw_record(
+        "bithumb", "trade", "KRW-BTC", {"price": 100},
+        datetime(2026, 9, 18, 10, 15, 0, tzinfo=timezone.utc),
+    )
+    f11 = storage.append_raw_record(
+        "bithumb", "trade", "KRW-BTC", {"price": 200},
+        datetime(2026, 9, 18, 11, 15, 0, tzinfo=timezone.utc),
+    )
+
+    ident_10 = FinalizationIdentity(
+        environment_id="test",
+        collector_epoch="ep1",
+        collector_run_id="run1",
+        cohort="2026-09-18_10",
+        exchange="bithumb",
+        stream="trade",
+        market="KRW-BTC",
+        feed_identity="bithumb/trade/KRW-BTC",
+        raw_relative_path=str(f10.relative_to(storage.base_dir)),
+    )
+    ident_11 = FinalizationIdentity(
+        environment_id="test",
+        collector_epoch="ep1",
+        collector_run_id="run1",
+        cohort="2026-09-18_11",
+        exchange="bithumb",
+        stream="trade",
+        market="KRW-BTC",
+        feed_identity="bithumb/trade/KRW-BTC",
+        raw_relative_path=str(f11.relative_to(storage.base_dir)),
+    )
+
+    store.register_pending(ident_10)
+    store.register_pending(ident_11)
+
+    assert len(store.pending_entries()) == 2
+
+    # 2. finalize_cohort("2026-09-18_10") should only finalize cohort_10
+    summary = finalizer.finalize_cohort("2026-09-18_10")
+    assert summary.recomputed_count == 1
+    assert summary.pending_count == 1
+
+    entry_10 = store.get_entry(ident_10.entry_id)
+    assert entry_10.state is FinalizationState.RECOMPUTED
+
+    entry_11 = store.get_entry(ident_11.entry_id)
+    assert entry_11.state is FinalizationState.PENDING
+
+    # 3. finalize_pending(exclude_cohort="2026-09-18_11") should do nothing since only 11 remains
+    summary_noop = finalizer.finalize_pending(exclude_cohort="2026-09-18_11")
+    assert summary_noop.recomputed_count == 1
+    assert summary_noop.pending_count == 1
+    assert store.get_entry(ident_11.entry_id).state is FinalizationState.PENDING
+
+    # 4. finalize_pending() without filters finalizes remaining cohort_11
+    summary_final = finalizer.finalize_pending()
+    assert summary_final.recomputed_count == 2
+    assert summary_final.pending_count == 0
+    assert summary_final.state == "COMPLETE"
+    assert store.get_entry(ident_11.entry_id).state is FinalizationState.RECOMPUTED

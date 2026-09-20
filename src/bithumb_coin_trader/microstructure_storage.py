@@ -350,19 +350,27 @@ class RawMicrostructureStorage:
             stream = stream or getattr(identity, "stream", "")
             market = market or getattr(identity, "market", "")
 
-        try:
-            partition_path = str(file_path.relative_to(self.base_dir.parent.parent))
-        except ValueError:
+        if identity is not None:
+            # Schema 5: canonical partition_path relative to RAW ROOT (self.base_dir)
             try:
-                partition_path = str(file_path.relative_to(self.base_dir.parent))
+                partition_path = str(file_path.relative_to(self.base_dir))
             except ValueError:
-                partition_path = str(file_path)
+                partition_path = str(file_path.name)
+        else:
+            # Schema 4 legacy behavior: preserve historical relative_to semantics
+            try:
+                partition_path = str(file_path.relative_to(self.base_dir.parent.parent))
+            except ValueError:
+                try:
+                    partition_path = str(file_path.relative_to(self.base_dir.parent))
+                except ValueError:
+                    partition_path = str(file_path)
 
         manifest = PartitionManifest(
             partition_path=partition_path,
-            exchange=exchange,
-            stream=stream,
-            market=market,
+            exchange=getattr(identity, "exchange", exchange) or exchange,
+            stream=getattr(identity, "stream", stream) or stream,
+            market=getattr(identity, "market", market) or market,
             record_count=count,
             first_exchange_ts=first_exch,
             last_exchange_ts=last_exch,

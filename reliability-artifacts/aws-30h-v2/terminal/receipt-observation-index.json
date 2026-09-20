@@ -1,0 +1,300 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-30h-20260919-20260919T095000Z-v2",
+  "run_id": "aws-validation-observability-30h-run-20260919T095000Z-v2",
+  "contract_qualifying_cohorts": 29,
+  "t1_status": "NOT_FOUND_IN_AVAILABLE_EVIDENCE",
+  "t2_capture": "local_copy_file_mtime_after_read_only_ec2_capture",
+  "qualifying_receipts": [
+    {
+      "cohort": "2026-09-19_10",
+      "receipt_path": "terminal/archive-receipts/cohort_2026-09-19_10_finalized.json",
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": "7c259fdaeb115e8071bb52e1374a0f714e393cfafd9ea2f400ba2fc5ea17b523",
+      "receipt_status": "PASS",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": "2026-09-20T16:09:09.070102+00:00"
+    },
+    {
+      "cohort": "2026-09-19_11",
+      "receipt_path": "terminal/archive-receipts/cohort_2026-09-19_11_finalized.json",
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": "43c225388e843b91864eb4b764ef75fdceaeb194ef82a21cc903222634275ef4",
+      "receipt_status": "PASS",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": "2026-09-20T16:09:09.070194+00:00"
+    },
+    {
+      "cohort": "2026-09-19_12",
+      "receipt_path": "terminal/archive-receipts/cohort_2026-09-19_12_finalized.json",
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": "a9d52adea394274612f591593beab0bb3bf3fe7d41b2301b5fdc4b129cc019e7",
+      "receipt_status": "FAIL",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": "2026-09-20T16:09:09.070284+00:00"
+    },
+    {
+      "cohort": "2026-09-19_13",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_14",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_15",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_16",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_17",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_18",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_19",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_20",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_21",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_22",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-19_23",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_00",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_01",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_02",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_03",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_04",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_05",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_06",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_07",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_08",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_09",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_10",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_11",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_12",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_13",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    },
+    {
+      "cohort": "2026-09-20_14",
+      "receipt_path": null,
+      "receipt_sha256_t1": null,
+      "receipt_sha256_t2": null,
+      "receipt_status": "MISSING",
+      "immutability": "NOT_VERIFIABLE",
+      "receipt_sha256_t1_observed_at_utc": null,
+      "receipt_sha256_t2_observed_at_utc": null
+    }
+  ]
+}
