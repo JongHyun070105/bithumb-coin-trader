@@ -1,6 +1,6 @@
 # AWS 유효성 검증 이력 보고서 (AWS Validation History)
 
-- **최종 갱신 일시**: 2026-09-19T09:00:00Z
+- **최종 갱신 일시**: 2026-09-21 01:19 KST
 - **적용 환경**: AWS ap-northeast-2 (서울), EC2 t3.medium / gp3, S3 격리 저장소
 - **원칙**: Fail-Closed, 객관적 증거 기반 판정 (Fact-First), 사후 재해석 금지
 
@@ -22,7 +22,7 @@
 | **Fresh 6h-v2 (20260918, c033a85)** | 6시간 (21,600s) | — | **FAIL (TECHNICAL)** | SUPERSEDED 운영 | websocket ping-timeout·segment-gap 오류 + **최종 적격 코호트 8개 Binance 피드 `COLLECTION_GAP`/`LATE_CONFIRMATION`, final cohort receipt `FAIL`** → `4fcdd819` 패치로 완화. `FRESH_6H_V2_TECHNICAL_GATE = FAIL`. terminal audit 미커밋. |
 | **Fresh 6h-v3 (20260919, 4fcdd819)** | 6시간 (21,600s) | 6시간 (7,287,432건) | **TECHNICAL PASS** | 수집 검증용 | 380/380 슬롯(5코호트×76피드) 0실패, terminal witness `CLEAN_SUCCESS`, exit code 0. |
 | **Fresh 30h-v1 (20260919, 4fcdd819)** | 30시간 (108,000s) | — | **PRECOLLECTOR_GATING_ABORT** | 미시작 | 사전 봉인 존재(`sealed-manifest.json`). #8 런처 **트리거됨(attempt #8 소진)**, T0 이전 기동 중단. `OBSERVER_STARTED = NO`, `COLLECTOR_STARTED = NO`, `SCHEDULER_STARTED = NO`, `LOCAL_DATA_ROOT = ABSENT`, `S3_PREFIX_OBJECT_COUNT = 0`. 중단 사유: 6h 게이트 진행 미종결 + 런타임 provenance가 봉인 소프트웨어 정체와 불일치. PASS도, 단순 "미기동"도 아님. |
-| **Fresh 30h-v2 (20260919, 4fcdd819)** | 30시간 (108,000s) | 진행 중 | **RUNNING / PENDING** | 검증 전 | 29 적격 풀 아워 목표. 2026-09-19 18:50 KST 기동, 2026-09-20T15:50 UTC 예정 종료. 결과 미공개. |
+| **Fresh 30h-v2 (20260919, 4fcdd819)** | 30시간 (108,000s) | 수집 감독 108,000초 완료 | **TECHNICAL: FAIL** | **부적격** | [터미널 감사](../reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)<br>적격 코호트 2/29 PASS, `2026-09-19_12` FAIL(빗썸 60개 피드), 나머지 26개 영수증 누락. |
 
 ---
 
@@ -90,18 +90,18 @@
 - **6h-v3** (런타임 `4fcdd819`, 2026-09-19T02:50 UTC 기동, sealed `7cd1b0f`): **TECHNICAL PASS**. 증거: `reliability-artifacts/aws-6h-v3/` sealed launch manifest(runtime commit `4fcdd819`, tree `68dab6731f52e1aca51237410ea9f7b469869086`, 21,600s, 5 적격 코호트 × 76피드 = 380 슬롯). 신뢰성 게이트 종합 판정: `terminal witness = CLEAN_SUCCESS`, collector/archive-scheduler/publisher `exit_code = 0`, `NRestarts = 0`, `final_queue = 0`, `final_unpersisted = 0`, `full_duration_satisfied = true`, 5/5 qualifying cohorts PASS, 380/380 qualifying slots, `failed_feeds = 0`, receipt immutability 5/5 PASS, 검증 레코드 7,287,432건, 자연 종료 `archive_settled_utc = 2026-09-19T08:13:00Z`. **단, repository develop에는 sealed launch artifact만 존재하며, terminal 증거는 보존된 EC2/S3 런타임 증거에서 검증됨** — 모든 terminal 증거가 현재 Git에 커밋된 것은 아님.
 - **완화 요약**: 6h-v3는 v1의 `c033a85` + v2의 `4fcdd819` 두 패치를 모두 포함한 런타임으로 기동하여 합격. `4fcdd819`는 현재 develop의 최신 **코드** 커밋이 아니라, 검증 통과에 사용된 런타임 소프트웨어 정체(develop에는 이후 아티팩트 봉인 커밋이 추가 존재).
 
-### 3.4 30h Fresh — v1 예비 봉인 → v2 RUNNING / PENDING
+### 3.4 30h Fresh — v1 예비 봉인 → v2 TECHNICAL FAIL
 - **30h-v1**: `30H_V1_STATUS = PRECOLLECTOR_GATING_ABORT` — #8 런처가 트리거되어 시도 #8 소진, T0 이전 기동 중단(`OBSERVER_STARTED = NO`, `COLLECTOR_STARTED = NO`, `SCHEDULER_STARTED = NO`, `LOCAL_DATA_ROOT = ABSENT`, `S3_PREFIX_OBJECT_COUNT = 0`). 사유: 6h 게이트 진행 미종결 + 런타임 provenance가 봉인 소프트웨어 정체와 불일치. PASS도 "미기동"도 아님. 6h-v3 검증 런타임 기반으로 v2로 승계.
-- **30h-v2** (런타임 `4fcdd819`, sealed `9615be8`): **RUNNING / PENDING**(실행 중). 커밋된 증거: `reliability-artifacts/aws-30h-v2/` sealed launch manifest.
+- **30h-v2** (런타임 `4fcdd819`, sealed `9615be8`): **TECHNICAL FAIL**. [터미널 감사 보고서](../reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)와 자연 생성 영수증 사본을 커밋함.
   - 계획 T0: `2026-09-19T09:50 UTC` (2026-09-19 18:50 KST)
   - 적격 시작: `2026-09-19T10:00 UTC` (2026-09-19 19:00 KST)
   - 목표 적격 풀 아워: **29** (29 코호트 × 76피드 = 2,204 슬롯)
-  - 자연 종료 예정: `2026-09-20T15:50 UTC` (2026-09-21 00:50 KST)
+  - 자연 종료: `2026-09-20T15:50:25 UTC` (2026-09-21 00:50:25 KST)
   - 수집 시간: 108,000초
-- **진행 중이므로 어떠한 30h 코호트 결과도 현재 시점에서 공개하지 않음**. 30h 게이트 판정은 종료(`archive_settled_utc = 2026-09-20T15:13:00Z`) 및 terminal 검증 후에만 확정.
+- **최종 판정**: 감독 프로세스는 정상 종료했으나 `2026-09-19_12` 적격 영수증이 FAIL(빗썸 60개 피드)이며 26개 적격 영수증이 누락됨. 2/29 코호트, 152/2,204 슬롯만 PASS 확인됨. 영수증 T1/T2 불변성은 29/29 NOT_VERIFIABLE. 사전 계획의 `archive_settled_utc`는 실제 아카이브 완료 증거가 아님.
 
 ### 3.5 기술 신뢰성 / 거버넌스 / 연구 유효성 / 거래 상태 구분
-- **기술 신뢰성 (Technical Reliability)**: 6h-v3 = TECHNICAL PASS(수집·아카이브·관측 파이프라인 지속 가능성). 30h-v2 = IN PROGRESS.
+- **기술 신뢰성 (Technical Reliability)**: 6h-v3 = TECHNICAL PASS(해당 6시간 창). 30h-v2 = TECHNICAL FAIL.
 - **거버넌스 (Governance)**: launch-once 엄수, 비특권(`User=bitcoin-trader`) 격리, SSM SendCommand 사용 중단(90m-V8 위반 이후 전면 금지), launch budget cap(현재 10, 모두 소진) 관리. 6h-v3 승격에 거버넌스 위반 없음.
-- **연구 유효성 (Research Validity)**: 6h-v3는 **수집 검증용(infra-validated only)**. 6h 원시 데이터가 30h-v2와 동일 런타임(4fcdd819)으로 승계 중이지만, 30h가 PENDING인 한 **새 수집 데이터로 어떤 알파 연구도 승격되지 않음**. 현재 유일한 DEV 연구 승인 데이터셋은 V2 30h(`6576f0f`)이다.
+- **연구 유효성 (Research Validity)**: 6h-v3는 **수집 검증용(infra-validated only)**. Fresh 30h-v2는 TECHNICAL FAIL로 새 수집 데이터를 권위적 알파 연구에 승격하지 않음. 현재 유일한 DEV 연구 승인 데이터셋은 이전 V2 30h(`6576f0f`)이다.
 - **거래/알파 (Trading/Alpha)**: **미지변**. ALPHA = UNPROVEN, PAPER = NOT STARTED, LIVE = DISABLED, PRIVATE_API = DISABLED. 인프라 수집 신뢰성 ≠ 수익 가능성 ≠ 연구 승인.

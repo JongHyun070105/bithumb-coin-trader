@@ -27,6 +27,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
+import gc
 import json
 from pathlib import Path
 from typing import Any
@@ -142,7 +143,7 @@ def evaluate_common_gate(
             if seg.confirmed_at_utc is None:
                 if "SESSION_NOT_CONFIRMED" not in failure_reasons:
                     failure_reasons.append("SESSION_NOT_CONFIRMED")
-            elif seg.confirmed_at_utc > observation.interval_start_utc:
+            elif seg.connected_at_utc <= observation.interval_start_utc and seg.confirmed_at_utc > observation.interval_start_utc:
                 if "LATE_CONFIRMATION" not in failure_reasons:
                     failure_reasons.append("LATE_CONFIRMATION")
             if seg.confirmed_feeds and observation.feed.canonical not in seg.confirmed_feeds:
@@ -754,9 +755,12 @@ class ClosedHourFinalizer:
             raise ValueError(f"Cohort journal validation failed: {'; '.join(err_parts)}")
 
         results: list[ClosedSlotResult] = []
-        for feed in SEALED_FEED_UNIVERSE:
+        for idx, feed in enumerate(SEALED_FEED_UNIVERSE, start=1):
             obs = obs_by_feed[feed.canonical][0]
             slot_res = self.finalize_slot(obs)
             results.append(slot_res)
+            if idx % 10 == 0:
+                gc.collect()
 
+        gc.collect()
         return tuple(results)

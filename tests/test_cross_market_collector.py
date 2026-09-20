@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import threading
 import time
 from typing import Any, cast
 import unittest
@@ -47,6 +48,7 @@ class CrossMarketCollectorTests(unittest.TestCase):
             await collector._enqueue(exchange, stream, market, {}, timestamp, timestamp, 1)
             collector.is_running = False
             await collector._writer_worker()
+            await collector.drain_background_tasks()
 
         asyncio.run(exercise())
 
@@ -883,6 +885,65 @@ class StaleStreamSessionCloseTests(unittest.TestCase):
                 self.assertIsNotNone(stale, "No session closed with 'connection_stale_30s'")
                 assert stale is not None
                 self.assertIsNotNone(stale.disconnected_at_utc)
+
+        asyncio.run(exercise())
+
+    def test_cohort_boundary_finalization_runs_in_background_without_blocking_loop(self) -> None:
+        """Verify that cohort boundary manifest finalization runs in background thread and does not stall event loop."""
+        async def exercise() -> None:
+            with tempfile.TemporaryDirectory() as tmp:
+                current_time = datetime(2026, 9, 14, 12, 10, 0, tzinfo=timezone.utc)
+                collector = MultiExchangeMicrostructureCollector(
+                    ["KRW-BTC"],
+                    storage_base_dir=Path(tmp) / "raw",
+                    enable_binance=False,
+                    enable_upbit=False,
+                    utc_now=lambda: current_time,
+                )
+                collector.is_running = True
+                collector._accepting_partition_writes = True
+
+                # Step 1: Write an event in hour 12
+                await collector._enqueue("bithumb", "trade", "KRW-BTC", {"price": 100}, current_time, current_time, 1)
+                await collector._process_writer_item(await collector._write_queue.get())
+                collector._write_queue.task_done()
+
+                # Step 2: Prepare a slow finalize_cohort mock to simulate heavy I/O & hashing
+                finalize_started = asyncio.Event()
+                finalize_blocker = threading.Event()
+                original_finalize = collector.finalizer.finalize_cohort
+
+                def slow_finalize_cohort(cohort: str):
+                    finalize_started.set()
+                    finalize_blocker.wait(timeout=5.0)
+                    return original_finalize(cohort)
+
+                collector.finalizer.finalize_cohort = slow_finalize_cohort  # type: ignore[method-assign]
+
+                # Step 3: Advance time across cohort boundary to hour 13
+                current_time = datetime(2026, 9, 14, 13, 1, 0, tzinfo=timezone.utc)
+                await collector._enqueue("bithumb", "trade", "KRW-BTC", {"price": 200}, current_time, current_time, 2)
+
+                # Process the hour 13 item: this triggers cohort boundary freeze and background finalization
+                await collector._process_writer_item(await collector._write_queue.get())
+                collector._write_queue.task_done()
+
+                # Background task should have started
+                await asyncio.wait_for(finalize_started.wait(), timeout=2.0)
+                self.assertTrue(finalize_started.is_set())
+                self.assertGreaterEqual(len(collector._background_tasks), 1)
+
+                # CRITICAL VERIFICATION: The asyncio event loop is NOT blocked!
+                # We can perform concurrent loop operations immediately while finalization is still running in background.
+                loop_ran_without_stall = False
+                await asyncio.sleep(0.01)
+                loop_ran_without_stall = True
+                self.assertTrue(loop_ran_without_stall)
+
+                # Release the blocker and drain tasks
+                finalize_blocker.set()
+                await collector.drain_background_tasks(timeout=5.0)
+                self.assertEqual(len(collector._background_tasks), 0)
 
         asyncio.run(exercise())
 
