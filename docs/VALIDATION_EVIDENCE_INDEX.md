@@ -19,6 +19,7 @@
 | **Post-120M Hardening** | 로컬 / AWS EC2 | `f98abcabbda45bc673702c7a66344a4dcff7299c` | **PASS** | 커널 flock 기반 전역 감독, detached setsid 타임아웃, PID 재사용 방지 및 원격 main 푸시 완료 |
 | **72H Autonomous Preparation** | AWS EC2 (t3.medium) | `9532cebc902856d954bf80b51dbe567b543dc8e2` | **PASS** | EBS 200GiB 온라인 확장, XFS 파일시스템 확장, 게스트 런타임 배포, 디렉토리 권한 격리 완결 |
 | **Current 72H Soak** | AWS EC2 (t3.medium) | `aws-72h-soak-20260904-43e79055` | **NOT STARTED / LAUNCH BLOCKED** | IAM Permissions Boundary v5 수동 관리자 승인 대기로 인한 엄격 Hard Gate 차단 (DO NOT LAUNCH 유지) |
+| **Fresh 30H-v2 terminal audit** | AWS EC2 / S3 read-only 감사 | `4fcdd819366918fa86e5597ed7d2271454d926c7` | **TECHNICAL FAIL** | [감사 보고서](../reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md), [영수증 관측 색인](../reliability-artifacts/aws-30h-v2/terminal/receipt-observation-index.json), [증거 SHA-256 색인](../reliability-artifacts/aws-30h-v2/terminal/evidence-sha256-index.json): 2/29 PASS, 1 FAIL, 26 영수증 누락. 이전 검증의 판정을 변경하지 않음. |
 
 ---
 

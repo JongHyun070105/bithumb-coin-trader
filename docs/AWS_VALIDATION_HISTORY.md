@@ -1,6 +1,6 @@
 # AWS 유효성 검증 이력 보고서 (AWS Validation History)
 
-- **최종 갱신 일시**: 2026-09-17T01:00:00Z
+- **최종 갱신 일시**: 2026-09-21 01:19 KST
 - **적용 환경**: AWS ap-northeast-2 (서울), EC2 t3.medium / gp3, S3 격리 저장소
 - **원칙**: Fail-Closed, 객관적 증거 기반 판정 (Fact-First), 사후 재해석 금지
 
@@ -16,6 +16,7 @@
 | **aws-validation-30h-20260912-6576f63 (V2)** | 30시간 | 30시간 연속<br>(2,272 파일) | **PASS** | **유효 (DEV)** | `archive/v2-research-final`<br>30시간 연속 수집 및 DQ 통과(2,272 슬롯 일치). 미시구조 DEV 연구 데이터로 사용. |
 | **aws-validation-30h-20260915-v3** | 30시간 | 0시간 | **FAIL** | 부적격 | `archive/aws-v3-failed-start`<br>인가 완료 후 인스턴스 런타임 시작 실패. |
 | **aws-validation-30h-20260915-v4** | 30시간 | 1시간<br>(76개 커버리지) | **OVERALL: FAIL** | **부적격**<br>(`NOT_RESEARCH_USABLE`) | `archive/aws-v4-final`<br>자연 종료 시각 초과 후 포렌식 완료. 원시 데이터 0건. |
+| **Fresh 30H-v2 `20260919T095000Z-v2`** | 30시간 | 수집 감독 108,000초 완료 | **TECHNICAL: FAIL** | **부적격** | [터미널 감사](../reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)<br>적격 코호트 2/29 PASS, `2026-09-19_12` FAIL(빗썸 60개 피드), 나머지 26개 영수증 누락. |
 
 ---
 

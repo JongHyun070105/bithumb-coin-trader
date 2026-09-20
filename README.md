@@ -34,6 +34,11 @@
 - **터미널 포렌식**: 계획 종료 시각(2026-09-16 17:00 UTC) 이후 검증 결과 확정(`VALIDATION_OUTCOME_FINALIZED = true`). 10시 구간 76개 커버리지(534 KB)만 존재하고 원시 데이터가 전무함. SSM 권한 부재로 프로세스 직접 확인은 불가(`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = NOT_VERIFIABLE`)하며, 원인은 초기 1시간 이후 수집/아카이브 파이프라인 중단으로 판정.
 - **최종 판정**: **`OVERALL: FAIL`**, **`NOT_RESEARCH_USABLE`** (태그 `archive/aws-v4-final` 보존).
 
+### 5) Fresh 30H-v2 신뢰성 검증 (`20260919T095000Z-v2`)
+- **종료**: 2026-09-21 00:50 KST, 108,000초 수집 완료 및 감독 프로세스 정상 종료.
+- **공식 기술 판정**: **FAIL**. 적격 시간대 29개 중 PASS 2개, FAIL 1개(빗썸 피드 60개), 확정 영수증 누락 26개. 이 실행의 데이터는 연구용으로 승격하지 않음.
+- [터미널 감사 보고서](reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)와 원본 증거 사본 및 SHA-256 색인을 보존함. 신규 AWS 실행 잔여 횟수는 0/10.
+
 ---
 
 ## 3. 핵심 아키텍처 및 모듈 구성
