@@ -25,6 +25,7 @@ for d in (ROOT, SRC_DIR):
 from bithumb_coin_trader.bounded_supervisor import TransientLaunchConfig, render_systemd_run
 from bithumb_coin_trader.launch_artifacts import (
     ValidationRunSpec,
+    canonical_config_fingerprint,
     generate_canonical_runtime_config,
     generate_launch_artifacts,
     resolve_epoch_paths,
@@ -127,6 +128,31 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
         paths = config["paths"]
         assert isinstance(paths, dict)
         validate_template_placeholders(paths)
+
+    def test_redundancy_policy_is_explicit_and_fingerprint_bound(self) -> None:
+        """New sealed configs bind the exact two-connection active-active policy."""
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        config = generate_canonical_runtime_config(spec)
+        self.assertEqual(
+            config["bithumb_redundancy"],
+            {
+                "mode": "ACTIVE_ACTIVE",
+                "physical_connections": 2,
+                "dedup_max_entries": 100000,
+                "dedup_retention_seconds": 180,
+                "connection_attempt_interval_seconds": 0.25,
+                "established_retry_delay_seconds": {"minimum": 0.05, "maximum": 0.20},
+            },
+        )
+
+        original_fingerprint = canonical_config_fingerprint(config)
+        config["bithumb_redundancy"]["physical_connections"] = 3
+        self.assertNotEqual(original_fingerprint, canonical_config_fingerprint(config))
 
     # ----------------------------------------------------------------------
     # RED REGRESSION 3: CONFIG / INVOCATION PATH BINDING

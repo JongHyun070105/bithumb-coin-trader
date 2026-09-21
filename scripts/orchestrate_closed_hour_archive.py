@@ -880,6 +880,8 @@ def orchestrate_closed_hour_archive(
                 report_payload = {
                     "status": "SKIPPED_NON_QUALIFYING",
                     "cohort": v3_target_cohort.key,
+                    "epoch": epoch,
+                    "run_id": run_id,
                     "cohort_qualification": "TOUCHED_PARTIAL",
                     "total_slots": len(observations),
                     "data_present_count": 0,
@@ -1022,6 +1024,8 @@ def orchestrate_closed_hour_archive(
             report_payload = {
                 "status": status,
                 "cohort": v3_target_cohort.key,
+                "epoch": epoch,
+                "run_id": run_id,
                 "cohort_qualification": "QUALIFYING_FULL_HOUR",
                 "total_slots": len(results),
                 "data_present_count": len(data_present_slots),

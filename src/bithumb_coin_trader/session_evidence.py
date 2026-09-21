@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from bisect import bisect_left
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 import uuid
 
@@ -97,6 +97,7 @@ class WriterHealthSnapshot:
     queue_dropped_events: int = 0
     unpersisted_event_count: int = 0
     fatal_writer_error_type: str | None = None
+    conflicting_duplicate_frames: int = 0
 
 
 @dataclass(frozen=True)
@@ -163,6 +164,7 @@ class _MutableSession:
         self.confirmation_method: str | None = None
         self.confirmed_at_utc: str | None = None
         self.confirmed_feeds: tuple[str, ...] = ()
+        self.confirmed_feed_at_utc: dict[str, str] = {}
         self.confirmed_subscription_sha256: str | None = None
         self.response_evidence_sha256: str | None = None
         self.heartbeat_observations_utc: list[str] = []
@@ -280,6 +282,8 @@ class SessionEvidenceTracker:
         session.confirmation_method = method
         session.confirmed_at_utc = confirmed_at_utc
         session.confirmed_feeds = normalized_confirmed
+        for feed in normalized_confirmed:
+            session.confirmed_feed_at_utc.setdefault(feed, confirmed_at_utc)
         session.confirmed_subscription_sha256 = conf_hash
         session.response_evidence_sha256 = resp_hash
 
@@ -362,7 +366,13 @@ class SessionEvidenceTracker:
             if sess.disconnected_at_utc is not None and sess.disconnected_at_utc <= interval_start_utc:
                 continue
 
-            result.append(sess.to_segment(interval_start_utc, interval_end_utc))
+            segment = sess.to_segment(interval_start_utc, interval_end_utc)
+            feed_confirmation = sess.confirmed_feed_at_utc.get(feed.canonical)
+            if feed_confirmation is None:
+                feed_confirmation = sess.confirmed_feed_at_utc.get(feed.market)
+            if sess.confirmed_feed_at_utc:
+                segment = replace(segment, confirmed_at_utc=feed_confirmation)
+            result.append(segment)
 
         result.sort(key=lambda s: (s.connected_at_utc, s.session_id))
         return tuple(result)

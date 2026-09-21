@@ -20,7 +20,49 @@
   "binance_btc_orderbook_count_122427_to_122506": 390,
   "upbit_btc_orderbook_count_122427_to_122506": 246,
   "unknown_stages": [
-    "ping_sent", "last_pong", "close_started", "close_finished",
-    "dial_started", "websocket_handshake_finished", "subscription_sent"
-  ]
+    "ping_sent",
+    "last_pong",
+    "close_started",
+    "close_finished",
+    "dial_started",
+    "websocket_handshake_finished",
+    "subscription_sent"
+  ],
+  "replay_model": {
+    "historical_old": {
+      "kind": "OBSERVED",
+      "failure_detection_latency_seconds": 29.443952,
+      "reconnect_decision_latency_seconds": null,
+      "teardown_latency_seconds": null,
+      "new_connection_latency_seconds": null,
+      "first_frame_latency_seconds": null,
+      "logical_feed_gap_seconds": 40.396224,
+      "redundant_frames_recovered": 0,
+      "duplicates": 0,
+      "conflicts": 0
+    },
+    "pr13_single_socket": {
+      "kind": "DETERMINISTIC_BOUND",
+      "stale_detector_seconds": 30.0,
+      "teardown_upper_bound_seconds": 2.0,
+      "physical_connections": 1,
+      "single_connection_failure_causes_logical_gap": true
+    },
+    "active_active_synthetic": {
+      "kind": "SYNTHETIC_REPLAY",
+      "primary_silence_seconds": 40,
+      "secondary_frame_period_seconds": 1,
+      "failure_detection_latency_seconds": 30.0,
+      "reconnect_decision_latency_seconds": 0.0,
+      "teardown_upper_bound_seconds": 2.0,
+      "new_connection_latency_seconds": 3.0,
+      "first_frame_latency_seconds": 0.5,
+      "logical_feed_gap_seconds": 0.0,
+      "redundant_frames_recovered": 40,
+      "duplicates": 0,
+      "conflicts": 0,
+      "single_connection_failure_causes_logical_gap": false,
+      "dual_connection_failure_causes_logical_gap": true
+    }
+  }
 }

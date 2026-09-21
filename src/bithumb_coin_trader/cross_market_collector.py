@@ -27,6 +27,8 @@ import uuid
 import websockets
 from websockets.exceptions import ConnectionClosed
 
+from bithumb_coin_trader.bithumb_redundancy import BithumbRedundancyFilter, RedundancyAudit
+
 from bithumb_coin_trader.collector_state_model import (
     CollectorHealth,
     ComponentHealthState,
@@ -187,7 +189,12 @@ class CollectorMetrics:
     writer_errors: int = 0
     last_reconnect_reason: str = ""
     last_connection_diagnostic: dict[str, Any] | None = None
+    connection_diagnostics_by_source: dict[str, dict[str, Any]] = field(default_factory=dict)
     max_event_loop_lag_seconds: float = 0.0
+    redundant_frames_received: int = 0
+    deduplicated_frames: int = 0
+    conflicting_duplicate_frames: int = 0
+    dedup_window_evictions: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         now = time.time()
@@ -216,7 +223,12 @@ class CollectorMetrics:
             "writer_errors": self.writer_errors,
             "last_reconnect_reason": self.last_reconnect_reason,
             "last_connection_diagnostic": self.last_connection_diagnostic,
+            "connection_diagnostics_by_source": self.connection_diagnostics_by_source,
             "max_event_loop_lag_seconds": round(self.max_event_loop_lag_seconds, 6),
+            "redundant_frames_received": self.redundant_frames_received,
+            "deduplicated_frames": self.deduplicated_frames,
+            "conflicting_duplicate_frames": self.conflicting_duplicate_frames,
+            "dedup_window_evictions": self.dedup_window_evictions,
             "seconds_since_last_connection_event": round(now - self.last_connection_event_time, 2) if self.last_connection_event_time > 0 else None,
         }
 
@@ -230,14 +242,16 @@ class _ReconnectDecision:
     source: str | None = None
     requested_at_monotonic: float | None = None
     requested_at_utc: str | None = None
+    utc_now: Callable[[], datetime] = field(default=lambda: datetime.now(timezone.utc), repr=False)
+    monotonic_now: Callable[[], float] = field(default=time.monotonic, repr=False)
 
     def request(self, reason: str, source: str) -> bool:
         if self.event.is_set():
             return False
         self.reason = reason
         self.source = source
-        self.requested_at_monotonic = time.monotonic()
-        self.requested_at_utc = datetime.now(timezone.utc).isoformat()
+        self.requested_at_monotonic = self.monotonic_now()
+        self.requested_at_utc = self.utc_now().astimezone(timezone.utc).isoformat()
         self.event.set()
         return True
 
@@ -262,7 +276,10 @@ class MultiExchangeMicrostructureCollector:
         health_path: Path | str | None = None,
         runtime_dir: Path | str | None = None,
         health_interval_seconds: float = 10.0,
+        bithumb_connection_count: int = 2,
     ) -> None:
+        if bithumb_connection_count not in (1, 2):
+            raise ValueError("bithumb_connection_count must be 1 or 2")
         run_id = collector_run_id or uuid.uuid4().hex
         if not SEALED_IDENTIFIER.fullmatch(environment_id):
             raise ValueError("environment_id must be a non-empty safe identifier")
@@ -277,6 +294,15 @@ class MultiExchangeMicrostructureCollector:
         if collector_git_commit != "HEAD" and not LOWER_HEX_40.fullmatch(collector_git_commit):
             raise ValueError("collector_git_commit must be HEAD or an exact lowercase commit")
         self.bithumb_markets = list(bithumb_markets)
+        self.bithumb_connection_count = bithumb_connection_count
+        self._bithumb_live_sources: set[str] = set()
+        self._bithumb_source_status: dict[str, str] = {
+            name: "DISCONNECTED" for name in ("primary", "secondary")[:bithumb_connection_count]
+        }
+        self._bithumb_connect_lock = asyncio.Lock()
+        self._bithumb_next_connect_at = 0.0
+        self._bithumb_dedup = BithumbRedundancyFilter()
+        self._bithumb_dedup_lock = asyncio.Lock()
         self.binance_symbols = [s.lower() for s in binance_symbols]
         self.upbit_markets = list(upbit_markets)
         self.storage = RawMicrostructureStorage(storage_base_dir, git_commit=collector_git_commit)
@@ -320,6 +346,8 @@ class MultiExchangeMicrostructureCollector:
 
         self._write_queue: asyncio.Queue[
             tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str]
+            | tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str, str | None]
+            | RedundancyAudit
         ] = asyncio.Queue(maxsize=50_000)
         self._latest_partition_by_feed: dict[tuple[str, str, str], tuple[Path, str]] = {}
         self._all_touched_partition_files: set[Path] = set()
@@ -353,6 +381,7 @@ class MultiExchangeMicrostructureCollector:
             epoch=self.collector_epoch,
             run_id=self._collector_run_id,
             actual_start_utc=self._utc_now(),
+            bithumb_redundancy_enabled=self.bithumb_connection_count == 2,
         )
         finalizer_store_root = self.storage.base_dir.parent / "finalization-progress"
         self.finalizer_store = FinalizationProgressStore(finalizer_store_root)
@@ -427,6 +456,7 @@ class MultiExchangeMicrostructureCollector:
         recv_ts: datetime,
         exch_ts: datetime | None,
         recv_monotonic_ns: int | None = None,
+        source_connection_id: str | None = None,
     ) -> None:
         """Apply bounded backpressure without intentionally dropping a received event."""
         metric = self.metrics[exchange]
@@ -436,18 +466,32 @@ class MultiExchangeMicrostructureCollector:
         recv_iso = recv_ts.isoformat()
         self._last_canonical_event = recv_iso
         self.last_websocket_activity[exchange] = recv_iso
-        await self._write_queue.put(
-            (
-                exchange,
-                stream,
-                market,
-                payload,
-                recv_ts,
-                exch_ts,
-                recv_monotonic_ns,
-                self._collector_run_id,
+        try:
+            await self._write_queue.put(
+                (
+                    exchange,
+                    stream,
+                    market,
+                    payload,
+                    recv_ts,
+                    exch_ts,
+                    recv_monotonic_ns,
+                    self._collector_run_id,
+                    source_connection_id,
+                )
             )
-        )
+        except asyncio.CancelledError:
+            self._unpersisted_event_count += 1
+            raise
+
+    async def _enqueue_redundancy_audit(self, audit: RedundancyAudit) -> None:
+        if self._write_queue.full():
+            self.metrics["bithumb"].queue_backpressure_events += 1
+        try:
+            await self._write_queue.put(audit)
+        except asyncio.CancelledError:
+            self._unpersisted_event_count += 1
+            raise
 
     def _persist_metrics(self) -> None:
         """Atomically persist operational counters for independent status auditing."""
@@ -474,6 +518,9 @@ class MultiExchangeMicrostructureCollector:
                 if self.storage.base_dir.resolve() in path.resolve().parents
             ),
             "exchanges": {name: metric.to_dict() for name, metric in self.metrics.items()},
+            "bithumb_physical_connections": dict(self._bithumb_source_status),
+            "bithumb_logical_connection_state": self.websocket_sessions["bithumb"],
+            "bithumb_dedup_cache_entries": self._bithumb_dedup.size,
         }
         self._metrics_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self._metrics_path.with_suffix(".json.tmp")
@@ -509,6 +556,7 @@ class MultiExchangeMicrostructureCollector:
             writer_error_count=total_writer_errors,
             queue_dropped_events=total_queue_dropped,
             unpersisted_event_count=self._unpersisted_event_count,
+            conflicting_duplicate_frames=self.metrics["bithumb"].conflicting_duplicate_frames,
             fatal_writer_error_type=(
                 type(self._fatal_writer_error).__name__ if self._fatal_writer_error is not None else None
             ),
@@ -717,8 +765,28 @@ class MultiExchangeMicrostructureCollector:
 
     async def _process_writer_item(
         self,
-        item: tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str],
+        item: tuple[Any, ...] | RedundancyAudit,
     ) -> None:
+        if isinstance(item, RedundancyAudit):
+            decision = item.decision
+            if decision.disposition == "duplicate":
+                self.storage.append_redundancy_observation(
+                    source=item.source,
+                    canonical_source=decision.canonical_source,
+                    identity=decision.identity,
+                    payload_sha256=decision.payload_sha256,
+                    canonical_sha256=decision.canonical_sha256,
+                    received_at=item.received_at,
+                )
+            elif decision.disposition == "conflict" and item.raw_bytes is not None:
+                self.storage.quarantine_malformed_record(
+                    "bithumb", item.raw_bytes,
+                    f"CONFLICTING_DUPLICATE identity={decision.identity} "
+                    f"source={item.source} canonical_source={decision.canonical_source} "
+                    f"payload_sha256={decision.payload_sha256} canonical_sha256={decision.canonical_sha256}",
+                    item.received_at,
+                )
+            return
         (
             exchange,
             stream,
@@ -728,7 +796,8 @@ class MultiExchangeMicrostructureCollector:
             exch_ts,
             recv_monotonic_ns,
             collector_run_id,
-        ) = item
+        ) = item[:8]
+        source_connection_id = item[8] if len(item) > 8 else None
         write_ts = self._utc_now()
         if write_ts.tzinfo is None:
             write_ts = write_ts.replace(tzinfo=timezone.utc)
@@ -788,6 +857,7 @@ class MultiExchangeMicrostructureCollector:
             recv_monotonic_ns,
             collector_run_id,
             write_ts=write_ts,
+            source_connection_id=source_connection_id,
         )
         self._last_local_raw_write = write_ts.isoformat()
 
@@ -801,12 +871,12 @@ class MultiExchangeMicrostructureCollector:
 
     async def _writer_worker_once(
         self,
-        item: tuple[str, str, str, dict[str, Any], datetime, datetime | None, int | None, str],
+        item: tuple[Any, ...] | RedundancyAudit,
     ) -> None:
         try:
             await self._process_writer_item(item)
         except Exception as e:
-            exchange = item[0]
+            exchange = "bithumb" if isinstance(item, RedundancyAudit) else item[0]
             if exchange in self.metrics:
                 self.metrics[exchange].writer_errors += 1
             self._fatal_writer_error = e
@@ -824,7 +894,9 @@ class MultiExchangeMicrostructureCollector:
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                if item is not None and len(item) > 0 and item[0] in self.metrics:
+                if isinstance(item, RedundancyAudit):
+                    self.metrics["bithumb"].writer_errors += 1
+                elif item is not None and len(item) > 0 and item[0] in self.metrics:
                     self.metrics[item[0]].writer_errors += 1
                 self._fatal_writer_error = e
                 self._unpersisted_event_count += 1
@@ -1118,7 +1190,26 @@ class MultiExchangeMicrostructureCollector:
     # -------------------------------------------------------------------------
     # Bithumb WebSocket Loop
     # -------------------------------------------------------------------------
-    async def _bithumb_loop(self) -> None:
+    def _set_bithumb_source_status(self, source: str, status: str) -> None:
+        self._bithumb_source_status[source] = status
+        if status == "CONNECTED":
+            self._bithumb_live_sources.add(source)
+        else:
+            self._bithumb_live_sources.discard(source)
+        self.websocket_sessions["bithumb"] = (
+            "CONNECTED" if self._bithumb_live_sources else
+            "RECONNECTING" if self.is_running else "DISCONNECTED"
+        )
+
+    async def _wait_for_bithumb_connect_slot(self) -> None:
+        """Local cap of four dial attempts per second across both sockets."""
+        async with self._bithumb_connect_lock:
+            now = time.monotonic()
+            if self._bithumb_next_connect_at > now:
+                await asyncio.sleep(self._bithumb_next_connect_at - now)
+            self._bithumb_next_connect_at = time.monotonic() + 0.25
+
+    async def _bithumb_loop(self, source: str = "primary") -> None:
         m = self.metrics["bithumb"]
         backoff = 1.0
         previous_session_id: str | None = None
@@ -1131,11 +1222,11 @@ class MultiExchangeMicrostructureCollector:
 
         try:
             while self.is_running:
-                self.websocket_sessions["bithumb"] = "RECONNECTING"
+                self._set_bithumb_source_status(source, "RECONNECTING")
                 connection_id = uuid.uuid4().hex
                 attempt_started = time.monotonic()
                 attempt_utc = self._utc_now().isoformat()
-                decision = _ReconnectDecision()
+                decision = _ReconnectDecision(utc_now=self._utc_now)
                 session_id: str | None = None
                 connected_at: float | None = None
                 subscribed_at: float | None = None
@@ -1145,6 +1236,8 @@ class MultiExchangeMicrostructureCollector:
                 last_pong_at: float | None = None
                 close_elapsed: float | None = None
                 close_timed_out = False
+                close_exception_type: str | None = None
+                transport_aborted = False
                 exception_type: str | None = None
                 exception_repr: str | None = None
                 close_code: int | None = None
@@ -1158,10 +1251,14 @@ class MultiExchangeMicrostructureCollector:
                     {"type": "ticker", "codes": self.bithumb_markets},
                     {"format": "DEFAULT"},
                 ])
-                connection = websockets.connect(BITHUMB_WS_URL, ping_interval=None, close_timeout=1.0)
+                connection: Any = None
                 ws: Any = None
                 hb_task: asyncio.Task[None] | None = None
                 try:
+                    await self._wait_for_bithumb_connect_slot()
+                    connection = websockets.connect(
+                        BITHUMB_WS_URL, ping_interval=None, close_timeout=1.0, open_timeout=10.0,
+                    )
                     ws = await connection.__aenter__()
                     connected_at = time.monotonic()
                     m.connected_at = time.time()
@@ -1178,11 +1275,11 @@ class MultiExchangeMicrostructureCollector:
                         peer = str(endpoint) if endpoint is not None else None
 
                     if self.is_running:
-                        self.websocket_sessions["bithumb"] = "CONNECTED"
+                        self._set_bithumb_source_status(source, "CONNECTED")
                         logger.info(f"[Bithumb] Connected. Subscribing {len(self.bithumb_markets)} markets...")
                         await ws.send(payload)
                         subscribed_at = time.monotonic()
-                        backoff = 1.0
+                        stale_deadline = subscribed_at + 30.0
                         def set_ping(value: float) -> None:
                             nonlocal last_ping_at
                             last_ping_at = value
@@ -1200,10 +1297,14 @@ class MultiExchangeMicrostructureCollector:
                         reconnect_task = asyncio.create_task(decision.event.wait())
                         try:
                             while self.is_running and not decision.event.is_set():
+                                remaining = max(0.0, stale_deadline - time.monotonic())
+                                if remaining == 0.0:
+                                    decision.request("connection_stale_30s", "FRAME_STALE")
+                                    break
                                 recv_task = asyncio.create_task(ws.recv())
                                 try:
                                     done, _ = await asyncio.wait(
-                                        {recv_task, reconnect_task}, timeout=30.0,
+                                        {recv_task, reconnect_task}, timeout=remaining,
                                         return_when=asyncio.FIRST_COMPLETED,
                                     )
                                 finally:
@@ -1219,9 +1320,7 @@ class MultiExchangeMicrostructureCollector:
                                 msg = recv_task.result()
                                 recv_ts = self._utc_now()
                                 recv_monotonic_ns = time.monotonic_ns()
-                                last_frame_at = recv_monotonic_ns / 1_000_000_000
-                                if first_frame_at is None:
-                                    first_frame_at = last_frame_at
+                                observed_at = recv_monotonic_ns / 1_000_000_000
                                 self.last_websocket_activity["bithumb"] = recv_ts.isoformat()
                                 raw_bytes = msg if isinstance(msg, bytes) else msg.encode("utf-8")
                                 m.total_messages_received += 1
@@ -1230,22 +1329,55 @@ class MultiExchangeMicrostructureCollector:
 
                                 try:
                                     stream, market, data, exch_ts = parse_bithumb_message(raw_bytes)
-                                    if stream == "trade":
-                                        m.trade_messages += 1
-                                    elif stream == "orderbook":
-                                        m.orderbook_messages += 1
-                                    elif stream == "ticker":
-                                        m.ticker_messages += 1
-                                    self.session_evidence.record_heartbeat(
-                                        session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
-                                    )
-                                    self._confirm_bithumb_feed(session_id, stream, market, data)
-                                    await self._enqueue(
-                                        "bithumb", stream, market, data, recv_ts, exch_ts, recv_monotonic_ns
-                                    )
-                                except Exception as e:
+                                    if data.get("status") == "UP":
+                                        self.session_evidence.record_heartbeat(
+                                            session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="STATUS_UP"
+                                        )
+                                        continue
+                                    if f"bithumb/{stream}/{market.upper()}" not in self._bithumb_expected_feeds:
+                                        raise ValueError("UNEXPECTED_BITHUMB_FEED")
+                                except (ValueError, TypeError, OverflowError, json.JSONDecodeError) as e:
                                     m.malformed_quarantined += 1
                                     self.storage.quarantine_malformed_record("bithumb", raw_bytes, str(e), recv_ts)
+                                    continue
+                                last_frame_at = observed_at
+                                stale_deadline = observed_at + 30.0
+                                if first_frame_at is None:
+                                    first_frame_at = observed_at
+                                if stream == "trade":
+                                    m.trade_messages += 1
+                                elif stream == "orderbook":
+                                    m.orderbook_messages += 1
+                                elif stream == "ticker":
+                                    m.ticker_messages += 1
+                                self.session_evidence.record_heartbeat(
+                                    session_id, recv_ts.strftime("%Y-%m-%dT%H:%M:%SZ"), kind="FRAME"
+                                )
+                                self._confirm_bithumb_feed(session_id, stream, market, data)
+                                async with self._bithumb_dedup_lock:
+                                    dedup = self._bithumb_dedup.observe(
+                                        stream, market, data, connection_id, observed_at,
+                                    )
+                                    m.dedup_window_evictions = self._bithumb_dedup.evicted
+                                    if dedup.disposition == "canonical":
+                                        try:
+                                            await self._enqueue(
+                                                "bithumb", stream, market, data, recv_ts, exch_ts,
+                                                recv_monotonic_ns, connection_id,
+                                            )
+                                        except BaseException:
+                                            self._bithumb_dedup.release_canonical(dedup)
+                                            raise
+                                    else:
+                                        m.redundant_frames_received += 1
+                                        if dedup.disposition == "duplicate":
+                                            m.deduplicated_frames += 1
+                                        else:
+                                            m.conflicting_duplicate_frames += 1
+                                        await self._enqueue_redundancy_audit(RedundancyAudit(
+                                            dedup, connection_id, recv_ts,
+                                            raw_bytes if dedup.disposition == "conflict" else None,
+                                        ))
                         finally:
                             reconnect_task.cancel()
                             await asyncio.gather(reconnect_task, return_exceptions=True)
@@ -1254,7 +1386,7 @@ class MultiExchangeMicrostructureCollector:
                     exception_type = type(e).__name__
                     exception_repr = repr(e)[:512]
                     if isinstance(e, (asyncio.TimeoutError, TimeoutError)):
-                        reason = "connection_stale_30s"
+                        reason = "connection_stale_30s" if ws is not None else "CONNECT_TIMEOUT"
                     elif isinstance(e, ConnectionClosed):
                         reason = "SERVER_CLOSE"
                     else:
@@ -1262,7 +1394,7 @@ class MultiExchangeMicrostructureCollector:
                     decision.request(reason, "RECV" if ws is not None else "CONNECT")
                     logger.warning("[Bithumb] Connection %s ended: %s", connection_id, exception_repr)
                 finally:
-                    self.websocket_sessions["bithumb"] = "DISCONNECTED"
+                    self._set_bithumb_source_status(source, "DISCONNECTED")
                     if hb_task is not None:
                         hb_task.cancel()
                         await asyncio.gather(hb_task, return_exceptions=True)
@@ -1277,9 +1409,13 @@ class MultiExchangeMicrostructureCollector:
                             transport = getattr(ws, "transport", None)
                             if transport is not None:
                                 transport.abort()
+                                transport_aborted = True
                         except Exception as e:
-                            exception_type = exception_type or type(e).__name__
-                            exception_repr = exception_repr or repr(e)[:512]
+                            close_exception_type = type(e).__name__
+                            transport = getattr(ws, "transport", None)
+                            if transport is not None:
+                                transport.abort()
+                                transport_aborted = True
                         close_elapsed = time.monotonic() - close_started
                     if decision.event.is_set():
                         m.disconnect_count += 1
@@ -1297,6 +1433,7 @@ class MultiExchangeMicrostructureCollector:
                     diagnostic = {
                         "schema_version": 1,
                         "connection_id": connection_id,
+                        "source_slot": source,
                         "attempt_started_utc": attempt_utc,
                         "connect_seconds": connected_at - attempt_started if connected_at is not None else None,
                         "subscribe_seconds": subscribed_at - connected_at if subscribed_at is not None and connected_at is not None else None,
@@ -1313,6 +1450,8 @@ class MultiExchangeMicrostructureCollector:
                             if decision.requested_at_monotonic is not None else None
                         ),
                         "close_timed_out": close_timed_out,
+                        "close_exception_type": close_exception_type,
+                        "transport_aborted": transport_aborted,
                         "close_code": close_code,
                         "close_reason": close_reason,
                         "exception_type": exception_type,
@@ -1327,13 +1466,24 @@ class MultiExchangeMicrostructureCollector:
                     }
                     if decision.event.is_set():
                         m.last_connection_diagnostic = diagnostic
+                        m.connection_diagnostics_by_source[source] = diagnostic
                         logger.warning("[Bithumb] reconnect diagnostic %s", json.dumps(diagnostic, sort_keys=True))
                 if self.is_running and decision.event.is_set():
-                    self.websocket_sessions["bithumb"] = "RECONNECTING"
-                    await asyncio.sleep(backoff + random.uniform(0.1, 0.5))
-                    backoff = min(30.0, backoff * 2.0)
+                    self._set_bithumb_source_status(source, "RECONNECTING")
+                    healthy_session = (
+                        first_frame_at is not None and connected_at is not None
+                        and first_frame_at - connected_at >= 0
+                        and time.monotonic() - connected_at >= 30.0
+                    )
+                    if healthy_session:
+                        backoff = 1.0
+                        delay = 0.05 + random.uniform(0.0, 0.15)
+                    else:
+                        delay = backoff + random.uniform(0.1, 0.5)
+                        backoff = min(30.0, backoff * 2.0)
+                    await asyncio.sleep(delay)
         finally:
-            self.websocket_sessions["bithumb"] = "DISCONNECTED"
+            self._set_bithumb_source_status(source, "DISCONNECTED")
 
     # -------------------------------------------------------------------------
     # Binance WebSocket Loop
@@ -1571,6 +1721,8 @@ class MultiExchangeMicrostructureCollector:
             asyncio.create_task(self._binance_loop()),
             asyncio.create_task(self._upbit_loop()),
         ]
+        if self.bithumb_connection_count == 2:
+            tasks.append(asyncio.create_task(self._bithumb_loop("secondary")))
         producer_group = asyncio.gather(*tasks)
         fatal_writer_waiter = asyncio.create_task(self._fatal_writer_event.wait())
         duration_waiter = (

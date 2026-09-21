@@ -64,6 +64,7 @@ class FrozenFeedHourObservation:
     reconnect_count: int
     health: WriterHealthSnapshot
     progress_entry_id: str | None = None
+    logical_redundancy_enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -126,13 +127,25 @@ def materialize_feed_hour_coverage(
         or health.fatal_writer_error_type is not None
     ):
         failure_reasons.append("WRITER_HEALTH_DEGRADED")
+    if health.conflicting_duplicate_frames > 0:
+        failure_reasons.append("BITHUMB_CONFLICTING_DUPLICATE")
 
     # 2. Session segments check
     if not observation.session_segments:
         failure_reasons.append("NO_SESSION_SEGMENTS")
     else:
+        # A redundant transport is evidence for a logical feed only after its
+        # own subscription was confirmed.  Physical failures remain in the
+        # serialized segments and counters, while logical continuity is the
+        # union of confirmed source intervals.
+        logical_segments = (
+            tuple(s for s in observation.session_segments if s.confirmed_at_utc is not None)
+            if observation.logical_redundancy_enabled else observation.session_segments
+        )
+        if observation.logical_redundancy_enabled and not logical_segments:
+            failure_reasons.append("SESSION_NOT_CONFIRMED")
         # Check confirmation
-        for seg in observation.session_segments:
+        for seg in (() if observation.logical_redundancy_enabled else observation.session_segments):
             if seg.confirmed_at_utc is None:
                 if "SESSION_NOT_CONFIRMED" not in failure_reasons:
                     failure_reasons.append("SESSION_NOT_CONFIRMED")
@@ -146,7 +159,7 @@ def materialize_feed_hour_coverage(
             failure_reasons.append("MISSING_HEARTBEAT_POLICY")
         else:
             gap_exceeded = False
-            for seg in observation.session_segments:
+            for seg in (() if observation.logical_redundancy_enabled else observation.session_segments):
                 if seg.maximum_heartbeat_gap_seconds is not None and seg.maximum_heartbeat_gap_seconds > threshold:
                     gap_exceeded = True
                     break
@@ -155,9 +168,13 @@ def materialize_feed_hour_coverage(
             end_dt = datetime.fromisoformat(observation.interval_end_utc.replace("Z", "+00:00"))
 
             all_hb: list[datetime] = []
-            for seg in observation.session_segments:
+            for seg in logical_segments:
                 for h in seg.heartbeat_observations_utc:
                     dt = datetime.fromisoformat(h.replace("Z", "+00:00"))
+                    if observation.logical_redundancy_enabled and seg.confirmed_at_utc is not None:
+                        confirmed = datetime.fromisoformat(seg.confirmed_at_utc.replace("Z", "+00:00"))
+                        if dt < confirmed:
+                            continue
                     all_hb.append(dt)
             all_hb.sort()
 
@@ -178,22 +195,37 @@ def materialize_feed_hour_coverage(
 
         # Reconnect gap check
         reconnect_gap = False
-        if observation.disconnect_count > 0 or observation.reconnect_count > 0:
+        if not observation.logical_redundancy_enabled and (observation.disconnect_count > 0 or observation.reconnect_count > 0):
             reconnect_gap = True
 
-        segments = sorted(observation.session_segments, key=lambda s: s.connected_at_utc)
-        if segments:
-            if segments[0].connected_at_utc > observation.interval_start_utc:
+        segments = sorted(logical_segments, key=lambda s: s.connected_at_utc)
+        if observation.logical_redundancy_enabled:
+            start = observation.interval_start_utc
+            end = observation.interval_end_utc
+            covered_until = start
+            for segment in sorted(segments, key=lambda s: max(s.connected_at_utc, s.confirmed_at_utc or end)):
+                segment_start = max(segment.connected_at_utc, segment.confirmed_at_utc or end, start)
+                segment_end = min(segment.disconnected_at_utc or end, end)
+                if segment_end <= segment_start:
+                    continue
+                if segment_start > covered_until:
+                    reconnect_gap = True
+                covered_until = max(covered_until, segment_end)
+            if covered_until < end:
                 reconnect_gap = True
-            for i in range(len(segments) - 1):
-                s_curr = segments[i]
-                s_next = segments[i + 1]
-                if s_curr.disconnected_at_utc is not None:
-                    if s_next.connected_at_utc > s_curr.disconnected_at_utc:
-                        reconnect_gap = True
-                        break
-            if segments[-1].disconnected_at_utc is not None and segments[-1].disconnected_at_utc < observation.interval_end_utc:
-                reconnect_gap = True
+        else:
+            if segments:
+                if segments[0].connected_at_utc > observation.interval_start_utc:
+                    reconnect_gap = True
+                for i in range(len(segments) - 1):
+                    s_curr = segments[i]
+                    s_next = segments[i + 1]
+                    if s_curr.disconnected_at_utc is not None:
+                        if s_next.connected_at_utc > s_curr.disconnected_at_utc:
+                            reconnect_gap = True
+                            break
+                if segments[-1].disconnected_at_utc is not None and segments[-1].disconnected_at_utc < observation.interval_end_utc:
+                    reconnect_gap = True
 
         if reconnect_gap and "COLLECTION_GAP" not in failure_reasons:
             failure_reasons.append("COLLECTION_GAP")
@@ -408,6 +440,7 @@ class FeedHourCoverageTracker:
         epoch: str = "",
         run_id: str = "",
         actual_start_utc: datetime | None = None,
+        bithumb_redundancy_enabled: bool = False,
     ) -> None:
         if isinstance(feeds, datetime):
             actual_start_utc = feeds
@@ -415,6 +448,7 @@ class FeedHourCoverageTracker:
         self.configured_feeds: tuple[FeedIdentity, ...] = tuple(feeds)
         self.epoch = epoch
         self.run_id = run_id
+        self.bithumb_redundancy_enabled = bithumb_redundancy_enabled
         if actual_start_utc is None:
             self.actual_start_utc = datetime.now(timezone.utc)
         elif actual_start_utc.tzinfo is None:
@@ -530,6 +564,7 @@ class FeedHourCoverageTracker:
                     disconnect_count=disc_count,
                     reconnect_count=rec_count,
                     health=health,
+                    logical_redundancy_enabled=self.bithumb_redundancy_enabled and feed.exchange == "bithumb",
                 )
             )
         return tuple(observations)
@@ -613,6 +648,7 @@ class FeedHourCoverageTracker:
                         disconnect_count=disc_count,
                         reconnect_count=rec_count,
                         health=health,
+                        logical_redundancy_enabled=self.bithumb_redundancy_enabled and feed.exchange == "bithumb",
                     )
                 )
         return tuple(observations)
@@ -707,6 +743,7 @@ def load_frozen_journal(path: Path) -> tuple[FrozenFeedHourObservation, ...]:
             queue_dropped_events=h.get("queue_dropped_events", 0),
             unpersisted_event_count=h.get("unpersisted_event_count", 0),
             fatal_writer_error_type=h.get("fatal_writer_error_type") or (h.get("fatal_writer_error") if isinstance(h.get("fatal_writer_error"), str) else None),
+            conflicting_duplicate_frames=h.get("conflicting_duplicate_frames", 0),
         )
         results.append(
             FrozenFeedHourObservation(
@@ -725,6 +762,7 @@ def load_frozen_journal(path: Path) -> tuple[FrozenFeedHourObservation, ...]:
                 reconnect_count=raw["reconnect_count"],
                 health=health,
                 progress_entry_id=raw.get("progress_entry_id"),
+                logical_redundancy_enabled=bool(raw.get("logical_redundancy_enabled", False)),
             )
         )
     return tuple(results)

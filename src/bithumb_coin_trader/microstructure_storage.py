@@ -124,6 +124,7 @@ class RawMicrostructureStorage:
         collector_run_id: str | None = None,
         *,
         write_ts: datetime | None = None,
+        source_connection_id: str | None = None,
     ) -> Path:
         now_write = write_ts or datetime.now(timezone.utc)
         if now_write.tzinfo is None or now_write.utcoffset() is None:
@@ -137,6 +138,7 @@ class RawMicrostructureStorage:
             "local_recv_ts": local_receive_ts.isoformat(),
             "local_recv_monotonic_ns": local_receive_monotonic_ns,
             "collector_run_id": collector_run_id,
+            "source_connection_id": source_connection_id,
             "local_write_ts": now_write.isoformat(),
             "payload": payload,
         }
@@ -172,6 +174,33 @@ class RawMicrostructureStorage:
         with q_file.open("a", encoding="utf-8") as f:
             f.write(line)
         return q_file
+
+    def append_redundancy_observation(
+        self,
+        *,
+        source: str,
+        canonical_source: str,
+        identity: str,
+        payload_sha256: str,
+        canonical_sha256: str,
+        received_at: datetime,
+    ) -> Path:
+        """Persist provenance for a discarded exact copy; conflicts use quarantine."""
+        day = received_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        directory = self.quarantine_dir / day
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"bithumb_redundancy_{day}.jsonl"
+        record = {
+            "disposition": "EXACT_DUPLICATE", "identity": identity,
+            "source_connection_id": source,
+            "canonical_source_connection_id": canonical_source,
+            "payload_sha256": payload_sha256,
+            "canonical_sha256": canonical_sha256,
+            "local_recv_ts": received_at.isoformat(),
+        }
+        with path.open("a", encoding="utf-8") as output:
+            output.write(json.dumps(record, sort_keys=True, separators=(",", ":")) + "\n")
+        return path
 
     def generate_partition_manifest(
         self,

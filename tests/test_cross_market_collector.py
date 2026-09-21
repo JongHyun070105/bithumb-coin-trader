@@ -97,7 +97,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
     def test_writer_failure_stops_collector_and_accounts_for_unpersisted_events(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             collector = MultiExchangeMicrostructureCollector(
-                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False
+                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False,
+                bithumb_connection_count=1,
             )
             now = datetime.now(timezone.utc)
 
@@ -120,7 +121,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
     def test_run_collector_propagates_fatal_writer_error_after_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             collector = MultiExchangeMicrostructureCollector(
-                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False
+                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False,
+                bithumb_connection_count=1,
             )
             now = datetime.now(timezone.utc)
 
@@ -152,7 +154,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
     def test_writer_failure_cancels_producer_blocked_on_full_queue(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             collector = MultiExchangeMicrostructureCollector(
-                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False
+                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw", enable_binance=False, enable_upbit=False,
+                bithumb_connection_count=1,
             )
             collector._write_queue = asyncio.Queue(maxsize=1)
             now = datetime.now(timezone.utc)
@@ -192,6 +195,7 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 enable_binance=False,
                 enable_upbit=False,
                 utc_now=lambda: now,
+                bithumb_connection_count=1,
             )
             collector.metrics["bithumb"].writer_errors = 2
             self._write_one(collector, "bithumb", "trade", "KRW-BTC", now)
@@ -242,6 +246,7 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 enable_binance=False,
                 enable_upbit=False,
                 utc_now=lambda: now,
+                bithumb_connection_count=1,
             )
 
             async def one_event_then_wait() -> None:
@@ -693,6 +698,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 self.assertTrue(collector.session_evidence.is_confirmed(session_id))
                 self.assertEqual(collector._write_queue.qsize(), 1)
                 item = collector._write_queue.get_nowait()
+                self.assertIsInstance(item, tuple)
+                assert isinstance(item, tuple)
                 self.assertEqual(item[0], "binance")
                 self.assertEqual(item[1], "trade")
                 self.assertEqual(item[2], "BTCUSDT")
@@ -742,6 +749,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 self.assertTrue(collector.session_evidence.is_confirmed(session_id))
                 self.assertEqual(collector._write_queue.qsize(), 1)
                 item = collector._write_queue.get_nowait()
+                self.assertIsInstance(item, tuple)
+                assert isinstance(item, tuple)
                 self.assertEqual(item[0], "upbit")
                 self.assertEqual(item[1], "trade")
                 self.assertEqual(item[2], "KRW-BTC")
@@ -911,10 +920,11 @@ class StaleStreamSessionCloseTests(unittest.TestCase):
                 # Step 2: Prepare a slow finalize_cohort mock to simulate heavy I/O & hashing
                 finalize_started = asyncio.Event()
                 finalize_blocker = threading.Event()
+                event_loop = asyncio.get_running_loop()
                 original_finalize = collector.finalizer.finalize_cohort
 
                 def slow_finalize_cohort(cohort: str):
-                    finalize_started.set()
+                    event_loop.call_soon_threadsafe(finalize_started.set)
                     finalize_blocker.wait(timeout=5.0)
                     return original_finalize(cohort)
 

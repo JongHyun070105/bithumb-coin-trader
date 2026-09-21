@@ -159,6 +159,14 @@ def generate_canonical_runtime_config(spec: ValidationRunSpec) -> dict[str, Any]
         "clock_source": "Amazon Time Sync Service 169.254.169.123",
         "public_data_only": True,
         "private_api_enabled": False,
+        "bithumb_redundancy": {
+            "mode": "ACTIVE_ACTIVE",
+            "physical_connections": 2,
+            "dedup_max_entries": 100000,
+            "dedup_retention_seconds": 180,
+            "connection_attempt_interval_seconds": 0.25,
+            "established_retry_delay_seconds": {"minimum": 0.05, "maximum": 0.20},
+        },
         "duration_seconds": spec.duration_seconds,
         "schedule": (
             {

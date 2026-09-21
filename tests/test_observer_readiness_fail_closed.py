@@ -263,6 +263,26 @@ def test_launch_freshness_rejects_naive_schedule_timestamp() -> None:
         )
 
 
+def test_launch_freshness_rejects_naive_runtime_clock_and_invalid_bounds() -> None:
+    with pytest.raises(LaunchFreshnessViolationError, match="Runtime clock"):
+        enforce_launch_freshness(
+            planned_start_utc="2026-09-17T13:50:00Z",
+            qualification_start_utc="2026-09-17T14:00:00Z",
+            now_fn=lambda: datetime(2026, 9, 17, 13, 50),
+        )
+    with pytest.raises(LaunchFreshnessViolationError, match="after planned"):
+        enforce_launch_freshness(
+            planned_start_utc="2026-09-17T14:00:00Z",
+            qualification_start_utc="2026-09-17T14:00:00Z",
+        )
+    with pytest.raises(LaunchFreshnessViolationError, match="non-negative"):
+        enforce_launch_freshness(
+            planned_start_utc="2026-09-17T13:50:00Z",
+            qualification_start_utc="2026-09-17T14:00:00Z",
+            max_delay_seconds=-1,
+        )
+
+
 def test_launch_freshness_fails_when_past_delay_tolerance() -> None:
     planned = "2026-09-17T13:50:00Z"
     qual = "2026-09-17T14:00:00Z"
