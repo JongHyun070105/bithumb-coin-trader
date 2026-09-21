@@ -188,6 +188,15 @@ class ClosedHourArchiveScheduler:
     def _full_scan_report_path(self, cohort: ArchiveCohortId) -> Path:
         return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
 
+    def _matches_explicit_identity(self, data: dict[str, Any]) -> bool:
+        """Reject foreign identity fields while retaining path-scoped legacy receipts."""
+        return (
+            data.get("epoch", self.config.epoch) == self.config.epoch
+            and data.get("collector_epoch", self.config.epoch) == self.config.epoch
+            and data.get("run_id", self.config.run_id) == self.config.run_id
+            and data.get("collector_run_id", self.config.run_id) == self.config.run_id
+        )
+
     def _full_scan_passed(self, cohort: ArchiveCohortId) -> bool:
         if not self.config.run_full_scan:
             return True
@@ -197,7 +206,12 @@ class ClosedHourArchiveScheduler:
         try:
             s_data = json.loads(scan_rep.read_text(encoding="utf-8"))
             s_status = s_data.get("status") or s_data.get("integrity", {}).get("totals", {}).get("status")
-            return s_data.get("cohort") == cohort.key and s_status == "PASS"
+            return (
+                isinstance(s_data, dict)
+                and s_data.get("cohort") == cohort.key
+                and s_status == "PASS"
+                and self._matches_explicit_identity(s_data)
+            )
         except Exception:
             return False
 
@@ -228,7 +242,12 @@ class ClosedHourArchiveScheduler:
             data = json.loads(report_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return False
-        return isinstance(data, dict) and data.get("cohort") == cohort.key and data.get("status") == "FAIL"
+        return (
+            isinstance(data, dict)
+            and data.get("cohort") == cohort.key
+            and data.get("status") == "FAIL"
+            and self._matches_explicit_identity(data)
+        )
 
     def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
         # V3 check: if frozen journal exists
@@ -238,7 +257,7 @@ class ClosedHourArchiveScheduler:
             if report_path.exists():
                 try:
                     data = json.loads(report_path.read_text(encoding="utf-8"))
-                    if data.get("cohort") == cohort.key:
+                    if data.get("cohort") == cohort.key and self._matches_explicit_identity(data):
                         st = data.get("status")
                         if st in ("SKIPPED_NON_QUALIFYING", "INELIGIBLE_PARTIAL"):
                             return True

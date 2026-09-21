@@ -268,6 +268,72 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self.assertEqual(orchestrate.call_args.kwargs["target_cohort"], later)
         self.assertEqual(receipt.read_text(encoding="utf-8"), original)
 
+    def test_finalized_failure_skip_rejects_corrupt_foreign_and_wrong_cohort(self) -> None:
+        cohort = ArchiveCohortId("2026-09-19", "12")
+        receipt = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        scheduler = ClosedHourArchiveScheduler(self._config())
+        for payload in (
+            "{invalid",
+            json.dumps({"cohort": "2026-09-19_11", "status": "FAIL"}),
+            json.dumps({"cohort": cohort.key, "status": "FAIL", "epoch": "other"}),
+            json.dumps({"cohort": cohort.key, "status": "FAIL", "collector_epoch": "other"}),
+            json.dumps({"cohort": cohort.key, "status": "FAIL", "run_id": "other"}),
+            json.dumps({"cohort": cohort.key, "status": "FAIL", "collector_run_id": "other"}),
+            json.dumps({"cohort": cohort.key, "status": "SKIPPED_NON_QUALIFYING"}),
+        ):
+            receipt.write_text(payload, encoding="utf-8")
+            self.assertFalse(scheduler._has_finalized_failure(cohort), payload)
+        receipt.write_text(
+            json.dumps({"cohort": cohort.key, "status": "FAIL", "epoch": self.epoch, "run_id": self.run_id}),
+            encoding="utf-8",
+        )
+        self.assertTrue(scheduler._has_finalized_failure(cohort))
+
+    def test_finalized_failure_discovery_is_restart_safe_and_identity_bound(self) -> None:
+        failed = ArchiveCohortId("2026-09-19", "12")
+        later = ArchiveCohortId("2026-09-19", "13")
+        journals = self.base_dir / "coverage" / "journals"
+        journals.mkdir(parents=True)
+        for cohort in (failed, later):
+            (journals / f"journal_{cohort.key}.json").write_text("{}", encoding="utf-8")
+        receipt = self.receipt_root / f"cohort_{failed.key}_finalized.json"
+        self._write_metrics([])
+        now = lambda: datetime(2026, 9, 19, 15, 0, tzinfo=timezone.utc)
+
+        for payload, expected in (
+            ("{broken", [failed, later]),
+            (json.dumps({"cohort": failed.key, "status": "FAIL", "collector_run_id": "foreign"}), [failed, later]),
+            (json.dumps({"cohort": failed.key, "status": "FAIL", "collector_run_id": self.run_id}), [later]),
+        ):
+            receipt.write_text(payload, encoding="utf-8")
+            for _ in range(2):  # fresh scheduler instance simulates process restart
+                scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=now)
+                self.assertEqual([h.cohort for h in scheduler.discover_eligible_hours()], expected)
+                self.assertEqual(receipt.read_text(encoding="utf-8"), payload)
+
+    def test_foreign_explicit_identity_cannot_mark_partial_or_scan_complete(self) -> None:
+        cohort = ArchiveCohortId("2026-09-19", "12")
+        journals = self.base_dir / "coverage" / "journals"
+        journals.mkdir(parents=True)
+        (journals / f"journal_{cohort.key}.json").write_text("{}", encoding="utf-8")
+        receipt = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        scheduler = ClosedHourArchiveScheduler(self._config())
+
+        receipt.write_text(
+            json.dumps({"cohort": cohort.key, "status": "SKIPPED_NON_QUALIFYING", "epoch": "foreign"}),
+            encoding="utf-8",
+        )
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
+
+        receipt.write_text(json.dumps({"cohort": cohort.key, "status": "PASS"}), encoding="utf-8")
+        scan = self.receipt_root / f"full_scan_{cohort.key}_report.json"
+        scan.write_text(
+            json.dumps({"cohort": cohort.key, "status": "PASS", "run_id": "foreign"}),
+            encoding="utf-8",
+        )
+        scheduler = ClosedHourArchiveScheduler(self._config(run_full_scan=True))
+        self.assertFalse(scheduler.is_cohort_completed(cohort))
+
     def test_finalized_failure_does_not_block_later_legacy_partition(self) -> None:
         failed = ArchiveCohortId("2026-09-19", "12")
         later = ArchiveCohortId("2026-09-19", "13")

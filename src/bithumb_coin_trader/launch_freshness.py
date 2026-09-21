@@ -27,8 +27,8 @@ class LaunchFreshnessViolationError(RuntimeError):
 def parse_utc_iso(ts_str: str) -> datetime:
     clean = ts_str.replace("Z", "+00:00")
     dt = datetime.fromisoformat(clean)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        raise LaunchFreshnessViolationError("Schedule timestamp must include an explicit UTC offset")
     return dt.astimezone(timezone.utc)
 
 
