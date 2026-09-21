@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "collector_epoch": "aws-validation-observability-6h-20260921-20260921T095000Z-v4",
+  "collector_run_id": "aws-validation-observability-6h-run-20260921T095000Z-v4",
+  "runtime_commit": "525a7d339260481e63e36f1a3948ce08eb15d9be",
+  "launch_authorized": true,
+  "actual_start_time_utc": null,
+  "actual_start_evidence": null,
+  "systemd_unit_active": false,
+  "collector_process_running": false,
+  "supervisor_process_running": false,
+  "archive_scheduler_running": false,
+  "official_s3_objects_written": 0,
+  "market_data_records_written": 0,
+  "status": "AUTHORIZED_NOT_STARTED",
+  "note": "Explicit human authorization recorded at 2026-09-21T08:19:24.778551+00:00 for exactly one Fresh 6H-v4 launch #11; no retry is permitted."
+}
