@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -67,8 +68,8 @@ class FeedIdentity:
 
 @dataclass(frozen=True)
 class HeartbeatPolicy:
-    heartbeat_probe_interval_seconds: int = 10
-    heartbeat_timeout_seconds: int = 10
+    heartbeat_probe_interval_seconds: float = 10
+    heartbeat_timeout_seconds: float = 10
     max_allowed_heartbeat_gap_seconds: Mapping[str, int] = field(
         default_factory=lambda: {
             "bithumb": 30,
@@ -291,10 +292,12 @@ class SessionEvidenceTracker:
         session = self._sessions.get(session_id)
         if session is None:
             raise KeyError(f"Session {session_id} not found")
-        # Throttle / deduplicate: do not append identical timestamps (sub-second frames)
-        if session.heartbeat_observations_utc and session.heartbeat_observations_utc[-1] == observed_at_utc:
+        # Keep second-resolution observations ordered even if ping and frame tasks race.
+        observations = session.heartbeat_observations_utc
+        index = bisect_left(observations, observed_at_utc)
+        if index < len(observations) and observations[index] == observed_at_utc:
             return
-        session.heartbeat_observations_utc.append(observed_at_utc)
+        observations.insert(index, observed_at_utc)
 
     def prune_older_than(self, threshold_utc: str) -> int:
         """Prune heartbeats older than threshold_utc to bound memory, retaining 1 boundary point for gap calculations."""

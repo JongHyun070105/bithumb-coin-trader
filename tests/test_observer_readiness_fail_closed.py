@@ -255,6 +255,14 @@ def test_launch_freshness_passes_within_delay_tolerance() -> None:
     assert delay == 15.0
 
 
+def test_launch_freshness_rejects_naive_schedule_timestamp() -> None:
+    with pytest.raises(LaunchFreshnessViolationError, match="explicit UTC offset"):
+        enforce_launch_freshness(
+            planned_start_utc="2026-09-17T13:50:00",
+            qualification_start_utc="2026-09-17T14:00:00Z",
+        )
+
+
 def test_launch_freshness_fails_when_past_delay_tolerance() -> None:
     planned = "2026-09-17T13:50:00Z"
     qual = "2026-09-17T14:00:00Z"

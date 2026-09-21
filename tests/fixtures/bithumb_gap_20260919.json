@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "source_epoch": "aws-validation-observability-30h-20260919-20260919T095000Z-v2",
+  "source_software_sha": "4fcdd819366918fa86e5597ed7d2271454d926c7",
+  "journal_sha256": "482a50a6d9939a12a095bf12a237b8a162e23844414f85e72e12f912a62f9c02",
+  "bithumb_btc_orderbook_raw_sha256": "912c7b1453661428885be4c562afe8a37804c739de0be19054da51f957a2bb64",
+  "binance_btc_orderbook_raw_sha256": "87da1127e943bf48faf67f331d9e3fee4ef7c15ba70b1e288f42ba756de7d666",
+  "upbit_btc_orderbook_raw_sha256": "a076518fd1ae0b9f7ec800ff75f4004ad3e87e2ea731fc5a6f9dcc2453c79a40",
+  "feed": "bithumb/orderbook/KRW-BTC",
+  "last_receive_utc": "2026-09-19T12:24:26.556048+00:00",
+  "last_receive_monotonic_ns": 1582676999468442,
+  "last_write_utc": "2026-09-19T12:24:26.556144+00:00",
+  "ping_timeout_log_utc_second": "2026-09-19T12:24:48Z",
+  "stale_log_utc_second": "2026-09-19T12:24:56Z",
+  "session_disconnected_utc_second": "2026-09-19T12:24:56Z",
+  "session_reconnected_utc_second": "2026-09-19T12:25:06Z",
+  "first_receive_utc": "2026-09-19T12:25:06.952272+00:00",
+  "first_receive_monotonic_ns": 1582717395691911,
+  "first_write_utc": "2026-09-19T12:25:06.952517+00:00",
+  "binance_btc_orderbook_count_122427_to_122506": 390,
+  "upbit_btc_orderbook_count_122427_to_122506": 246,
+  "unknown_stages": [
+    "ping_sent", "last_pong", "close_started", "close_finished",
+    "dial_started", "websocket_handshake_finished", "subscription_sent"
+  ]
+}
