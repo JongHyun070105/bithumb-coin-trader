@@ -14,6 +14,7 @@ Follows TDD. Hardened against:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -247,7 +248,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
         for cohort in (failed, later):
             (journals / f"journal_{cohort.key}.json").write_text("{}", encoding="utf-8")
         receipt = self.receipt_root / f"cohort_{failed.key}_finalized.json"
-        original = json.dumps({"cohort": failed.key, "status": "FAIL", "failed_count": 60})
+        original = json.dumps({
+            "cohort": failed.key, "status": "FAIL", "failed_count": 60,
+            "epoch": self.epoch, "run_id": self.run_id,
+        })
         receipt.write_text(original, encoding="utf-8")
         self._write_metrics([])
         scheduler = ClosedHourArchiveScheduler(
@@ -289,6 +293,28 @@ class ArchiveSchedulerTests(unittest.TestCase):
         )
         self.assertTrue(scheduler._has_finalized_failure(cohort))
 
+    def test_legacy_failure_requires_checksum_bound_identity_sidecar(self) -> None:
+        cohort = ArchiveCohortId("2026-09-19", "12")
+        receipt = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
+        data = {"cohort": cohort.key, "status": "FAIL", "failed_count": 60}
+        receipt.write_text(json.dumps(data), encoding="utf-8")
+        scheduler = ClosedHourArchiveScheduler(self._config())
+        self.assertFalse(scheduler._has_finalized_failure(cohort))
+
+        sidecar = self.receipt_root.parent / "archive-failures" / cohort.key / f"failure_{cohort.key}.json"
+        sidecar.parent.mkdir(parents=True)
+        checksum = hashlib.sha256(json.dumps(data, sort_keys=True).encode("utf-8")).hexdigest()
+        evidence = {
+            "artifact_kind": "ARCHIVE_FAILURE_EVIDENCE", "terminal_archive_state": "FAIL",
+            "cohort": cohort.key, "epoch": self.epoch, "run_id": "foreign",
+            "receipt_checksum": checksum,
+        }
+        sidecar.write_text(json.dumps(evidence), encoding="utf-8")
+        self.assertFalse(scheduler._has_finalized_failure(cohort))
+        evidence["run_id"] = self.run_id
+        sidecar.write_text(json.dumps(evidence), encoding="utf-8")
+        self.assertTrue(scheduler._has_finalized_failure(cohort))
+
     def test_finalized_failure_discovery_is_restart_safe_and_identity_bound(self) -> None:
         failed = ArchiveCohortId("2026-09-19", "12")
         later = ArchiveCohortId("2026-09-19", "13")
@@ -303,7 +329,11 @@ class ArchiveSchedulerTests(unittest.TestCase):
         for payload, expected in (
             ("{broken", [failed, later]),
             (json.dumps({"cohort": failed.key, "status": "FAIL", "collector_run_id": "foreign"}), [failed, later]),
-            (json.dumps({"cohort": failed.key, "status": "FAIL", "collector_run_id": self.run_id}), [later]),
+            (json.dumps({"cohort": failed.key, "status": "FAIL", "collector_run_id": self.run_id}), [failed, later]),
+            (json.dumps({
+                "cohort": failed.key, "status": "FAIL",
+                "collector_epoch": self.epoch, "collector_run_id": self.run_id,
+            }), [later]),
         ):
             receipt.write_text(payload, encoding="utf-8")
             for _ in range(2):  # fresh scheduler instance simulates process restart
@@ -340,7 +370,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
         self._create_raw_partition("BTC_KRW", failed.date_str, failed.hour_str)
         self._create_raw_partition("BTC_KRW", later.date_str, later.hour_str)
         (self.receipt_root / f"cohort_{failed.key}_finalized.json").write_text(
-            json.dumps({"cohort": failed.key, "status": "FAIL"}), encoding="utf-8"
+            json.dumps({
+                "cohort": failed.key, "status": "FAIL",
+                "epoch": self.epoch, "run_id": self.run_id,
+            }), encoding="utf-8"
         )
         self._write_metrics([])
         scheduler = ClosedHourArchiveScheduler(
@@ -384,7 +417,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         # Mark receipt as CLEANUP_ELIGIBLE
         rec_path = self.receipt_root / f"{p05.name}.archive-receipt.json"
-        rec_path.write_text(json.dumps({"cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
+        rec_path.write_text(json.dumps({
+            "cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True,
+            "collector_epoch": self.epoch, "run_id": self.run_id,
+        }), encoding="utf-8")
 
         test_now = datetime(2026, 9, 4, 6, 15, 0, tzinfo=timezone.utc)
         scheduler = ClosedHourArchiveScheduler(self._config(), now_fn=lambda: test_now)
@@ -399,7 +435,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
 
         # Partition receipt exists
         rec_path = self.receipt_root / f"{p05.name}.archive-receipt.json"
-        rec_path.write_text(json.dumps({"cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}), encoding="utf-8")
+        rec_path.write_text(json.dumps({
+            "cohort": "2026-09-04_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True,
+            "collector_epoch": self.epoch, "run_id": self.run_id,
+        }), encoding="utf-8")
 
         # But full scan report is FAIL!
         cohort = ArchiveCohortId("2026-09-04", "05")
@@ -450,7 +489,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
         day1 = self._create_raw_partition("BTC_KRW", "2026-09-05", "05")
         self._write_metrics([])
         (self.receipt_root / f"{day1.name}.archive-receipt.json").write_text(
-            json.dumps({"cohort": "2026-09-05_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True}),
+            json.dumps({
+                "cohort": "2026-09-05_05", "state": "CLEANUP_ELIGIBLE", "cleanup_eligible": True,
+                "collector_epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
         scheduler = ClosedHourArchiveScheduler(self._config())
@@ -719,7 +761,10 @@ class ArchiveSchedulerTests(unittest.TestCase):
         # Create finalized report with PASS
         report_path = self.receipt_root / f"cohort_{cohort.key}_finalized.json"
         report_path.write_text(
-            json.dumps({"status": "PASS", "cohort": cohort.key, "total_slots": 76, "failed_count": 0}),
+            json.dumps({
+                "status": "PASS", "cohort": cohort.key, "total_slots": 76, "failed_count": 0,
+                "epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
 
@@ -730,14 +775,20 @@ class ArchiveSchedulerTests(unittest.TestCase):
         # When scan report exists but failed -> incomplete
         scan_path = self.receipt_root / f"full_scan_{cohort.key}_report.json"
         scan_path.write_text(
-            json.dumps({"status": "FAIL", "cohort": cohort.key}),
+            json.dumps({
+                "status": "FAIL", "cohort": cohort.key,
+                "epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
         self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
 
         # When scan report is PASS -> complete
         scan_path.write_text(
-            json.dumps({"status": "PASS", "cohort": cohort.key}),
+            json.dumps({
+                "status": "PASS", "cohort": cohort.key,
+                "epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
         self.assertTrue(scheduler_with_scan.is_cohort_completed(cohort))
@@ -752,12 +803,18 @@ class ArchiveSchedulerTests(unittest.TestCase):
             rec_p = cov_receipt_dir / feed.exchange / feed.stream / f"{feed.market}.coverage.json.archive-receipt.json"
             rec_p.parent.mkdir(parents=True, exist_ok=True)
             rec_p.write_text(
-                json.dumps({"restore_verified_at": "2026-09-04T06:05:00Z", "state": "RESTORE_VERIFIED"}),
+                json.dumps({
+                    "restore_verified_at": "2026-09-04T06:05:00Z", "state": "RESTORE_VERIFIED",
+                    "collector_epoch": self.epoch, "run_id": self.run_id,
+                }),
                 encoding="utf-8",
             )
             cov_p = cov_dir / feed.exchange / feed.stream / f"{feed.market}.coverage.json"
             cov_p.parent.mkdir(parents=True, exist_ok=True)
-            cov_p.write_text(json.dumps({"coverage_state": "DATA_PRESENT"}), encoding="utf-8")
+            cov_p.write_text(json.dumps({
+                "coverage_state": "DATA_PRESENT",
+                "collector_epoch": self.epoch, "collector_run_id": self.run_id,
+            }), encoding="utf-8")
 
         scheduler_with_scan = ClosedHourArchiveScheduler(self._config(run_full_scan=True))
         # Missing full-scan report -> False
@@ -766,14 +823,20 @@ class ArchiveSchedulerTests(unittest.TestCase):
         # Failed full-scan report -> False
         scan_path = self.receipt_root / f"full_scan_{cohort.key}_report.json"
         scan_path.write_text(
-            json.dumps({"status": "FAIL", "cohort": cohort.key}),
+            json.dumps({
+                "status": "FAIL", "cohort": cohort.key,
+                "epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
         self.assertFalse(scheduler_with_scan.is_cohort_completed(cohort))
 
         # Passing full-scan report -> True
         scan_path.write_text(
-            json.dumps({"status": "PASS", "cohort": cohort.key}),
+            json.dumps({
+                "status": "PASS", "cohort": cohort.key,
+                "epoch": self.epoch, "run_id": self.run_id,
+            }),
             encoding="utf-8",
         )
         self.assertTrue(scheduler_with_scan.is_cohort_completed(cohort))

@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import gc
 import json
 import os
@@ -189,13 +190,44 @@ class ClosedHourArchiveScheduler:
         return self.config.receipt_root / f"full_scan_{cohort.key}_report.json"
 
     def _matches_explicit_identity(self, data: dict[str, Any]) -> bool:
-        """Reject foreign identity fields while retaining path-scoped legacy receipts."""
+        """Require both identity dimensions; reject conflicting aliases."""
         return (
-            data.get("epoch", self.config.epoch) == self.config.epoch
+            ("epoch" in data or "collector_epoch" in data)
+            and ("run_id" in data or "collector_run_id" in data)
+            and data.get("epoch", self.config.epoch) == self.config.epoch
             and data.get("collector_epoch", self.config.epoch) == self.config.epoch
             and data.get("run_id", self.config.run_id) == self.config.run_id
             and data.get("collector_run_id", self.config.run_id) == self.config.run_id
         )
+
+    def _failure_receipt_identity_bound(self, data: dict[str, Any], cohort: ArchiveCohortId) -> bool:
+        if self._matches_explicit_identity(data):
+            return True
+        if any(key in data for key in ("epoch", "collector_epoch", "run_id", "collector_run_id")):
+            return False
+        # Immutable legacy FAIL receipts omitted identity.  Accept only when
+        # the separately written failure evidence binds canonical receipt
+        # content, cohort, epoch, and run; never infer identity from a scoped
+        # path alone.
+        sidecar = (
+            self.config.receipt_root.parent / "archive-failures" / cohort.key
+            / f"failure_{cohort.key}.json"
+        )
+        try:
+            evidence = json.loads(sidecar.read_text(encoding="utf-8"))
+            receipt_checksum = hashlib.sha256(
+                json.dumps(data, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            return (
+                isinstance(evidence, dict)
+                and evidence.get("artifact_kind") == "ARCHIVE_FAILURE_EVIDENCE"
+                and evidence.get("terminal_archive_state") == "FAIL"
+                and evidence.get("cohort") == cohort.key
+                and self._matches_explicit_identity(evidence)
+                and evidence.get("receipt_checksum") == receipt_checksum
+            )
+        except (OSError, ValueError, TypeError):
+            return False
 
     def _full_scan_passed(self, cohort: ArchiveCohortId) -> bool:
         if not self.config.run_full_scan:
@@ -220,7 +252,7 @@ class ClosedHourArchiveScheduler:
         if cohort_report.exists():
             try:
                 data = json.loads(cohort_report.read_text(encoding="utf-8"))
-                if data.get("cohort") == cohort.key and data.get("status") != "PASS":
+                if isinstance(data, dict) and data.get("cohort") == cohort.key and data.get("status") != "PASS":
                     return True
             except Exception:
                 return True
@@ -246,7 +278,7 @@ class ClosedHourArchiveScheduler:
             isinstance(data, dict)
             and data.get("cohort") == cohort.key
             and data.get("status") == "FAIL"
-            and self._matches_explicit_identity(data)
+            and self._failure_receipt_identity_bound(data, cohort)
         )
 
     def is_cohort_completed(self, cohort: ArchiveCohortId) -> bool:
@@ -283,7 +315,12 @@ class ClosedHourArchiveScheduler:
                         break
                     try:
                         rec_data = json.loads(rec_file.read_text(encoding="utf-8"))
-                        if not rec_data.get("restore_verified_at") or rec_data.get("state") == ArchiveState.FAILED.value:
+                        if (
+                            not isinstance(rec_data, dict)
+                            or not self._matches_explicit_identity(rec_data)
+                            or not rec_data.get("restore_verified_at")
+                            or rec_data.get("state") == ArchiveState.FAILED.value
+                        ):
                             all_found = False
                             break
                         cov_file = (
@@ -296,7 +333,11 @@ class ClosedHourArchiveScheduler:
                         )
                         if cov_file.exists():
                             cov_data = json.loads(cov_file.read_text(encoding="utf-8"))
-                            if cov_data.get("coverage_state") == "FAILED":
+                            if (
+                                not isinstance(cov_data, dict)
+                                or not self._matches_explicit_identity(cov_data)
+                                or cov_data.get("coverage_state") == "FAILED"
+                            ):
                                 all_found = False
                                 break
                     except Exception:
@@ -329,7 +370,7 @@ class ClosedHourArchiveScheduler:
                     return False
             try:
                 data = json.loads(rec_path.read_text(encoding="utf-8"))
-                if data.get("cohort") != cohort.key:
+                if not isinstance(data, dict) or not self._matches_explicit_identity(data) or data.get("cohort") != cohort.key:
                     return False
                 if not (data.get("cleanup_eligible") or data.get("state") in (
                     ArchiveState.CLEANUP_ELIGIBLE.value,

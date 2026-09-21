@@ -45,8 +45,15 @@ def enforce_launch_freshness(
 
     planned_start = parse_utc_iso(planned_start_utc)
     qual_start = parse_utc_iso(qualification_start_utc)
+    if qual_start <= planned_start:
+        raise LaunchFreshnessViolationError("Qualification start must be after planned start")
+    if max_delay_seconds < 0:
+        raise LaunchFreshnessViolationError("Maximum launch delay must be non-negative")
 
     now = _now()
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise LaunchFreshnessViolationError("Runtime clock must include an explicit UTC offset")
+    now = now.astimezone(timezone.utc)
 
     # 1. Early invocation: sleep until planned start
     if now < planned_start:
@@ -58,6 +65,9 @@ def enforce_launch_freshness(
         )
         _sleep(remaining)
         now = _now()
+        if now.tzinfo is None or now.utcoffset() is None:
+            raise LaunchFreshnessViolationError("Runtime clock must include an explicit UTC offset")
+        now = now.astimezone(timezone.utc)
 
     # 2. Qualification boundary check: collector MUST be running before qualification starts
     if now >= qual_start:

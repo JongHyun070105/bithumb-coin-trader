@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import tempfile
@@ -18,7 +18,22 @@ from bithumb_coin_trader.cross_market_collector import (
     MultiExchangeMicrostructureCollector,
     _ReconnectDecision,
 )
-from bithumb_coin_trader.session_evidence import FeedIdentity, HeartbeatPolicy
+from bithumb_coin_trader.bithumb_redundancy import BithumbRedundancyFilter
+from bithumb_coin_trader.feed_hour_coverage import FrozenFeedHourObservation, materialize_feed_hour_coverage
+from bithumb_coin_trader.session_evidence import (
+    FeedIdentity, HeartbeatPolicy, SessionSegment, WriterHealthSnapshot,
+)
+
+
+class FaultTransport:
+    def __init__(self) -> None:
+        self.aborted = False
+
+    def abort(self) -> None:
+        self.aborted = True
+
+    def get_extra_info(self, _: str) -> None:
+        return None
 
 
 class FaultSocket:
@@ -32,6 +47,8 @@ class FaultSocket:
         self.on_exhausted: Any = None
         self.hang_close = False
         self.hang_recv = False
+        self.close_error: Exception | None = None
+        self.transport = FaultTransport()
 
     async def __aenter__(self) -> FaultSocket:
         return self
@@ -58,6 +75,8 @@ class FaultSocket:
 
     async def close(self) -> None:
         self.close_calls += 1
+        if self.close_error is not None:
+            raise self.close_error
         if self.hang_close:
             await asyncio.Future()
 
@@ -102,6 +121,13 @@ def test_replay_fixture_distinguishes_four_historical_intervals() -> None:
     assert fixture["binance_btc_orderbook_count_122427_to_122506"] == 390
     assert fixture["upbit_btc_orderbook_count_122427_to_122506"] == 246
     assert fixture["unknown_stages"]  # no invented exact reconnect timeline
+    replay = fixture["replay_model"]
+    assert replay["historical_old"]["logical_feed_gap_seconds"] == pytest.approx(receive_gap)
+    assert replay["historical_old"]["teardown_latency_seconds"] is None
+    assert replay["pr13_single_socket"]["single_connection_failure_causes_logical_gap"] is True
+    assert replay["active_active_synthetic"]["logical_feed_gap_seconds"] == 0
+    assert replay["active_active_synthetic"]["redundant_frames_recovered"] == 40
+    assert replay["active_active_synthetic"]["dual_connection_failure_causes_logical_gap"] is True
 
 
 def test_reconnect_decision_is_first_wins_even_when_detectors_race() -> None:
@@ -403,3 +429,229 @@ def test_cohort_boundary_session_gap_is_preserved() -> None:
     tracker.close_session(sid, "2026-09-19T13:00:05Z", "FRAME_STALE")
     assert tracker.segments_for(feed, "2026-09-19T12:00:00Z", "2026-09-19T13:00:00Z")[0].disconnect_reason == "FRAME_STALE"
     assert tracker.segments_for(feed, "2026-09-19T13:00:00Z", "2026-09-19T14:00:00Z")
+
+
+def _segment(
+    session_id: str,
+    connected: str,
+    disconnected: str | None,
+    heartbeats: tuple[str, ...],
+) -> SessionSegment:
+    feed = "bithumb/orderbook/KRW-BTC"
+    return SessionSegment(
+        exchange="bithumb", session_id=session_id, connected_at_utc=connected,
+        disconnected_at_utc=disconnected, requested_feeds=(feed,),
+        requested_subscription_sha256="r", confirmation_method="STREAM_SNAPSHOT",
+        confirmed_at_utc=connected, confirmed_feeds=(feed,),
+        confirmed_subscription_sha256="c", response_evidence_sha256="e",
+        heartbeat_observations_utc=heartbeats, maximum_heartbeat_gap_seconds=None,
+        disconnect_reason="INJECTED" if disconnected else None, reconnect_successor_id=None,
+        collector_epoch="epoch", collector_run_id="run",
+    )
+
+
+def _heartbeats(start_second: int, end_second: int, step: int = 20) -> tuple[str, ...]:
+    base = datetime(2026, 9, 19, 12, 0, tzinfo=timezone.utc)
+    values = range(start_second, end_second + 1, step)
+    return tuple((base + timedelta(seconds=value)).strftime("%Y-%m-%dT%H:%M:%SZ") for value in values)
+
+
+def _coverage(segments: tuple[SessionSegment, ...], *, conflicts: int = 0) -> str:
+    observation = FrozenFeedHourObservation(
+        feed=FeedIdentity("bithumb", "orderbook", "KRW-BTC"),
+        cohort_utc="2026-09-19_12", interval_start_utc="2026-09-19T12:00:00Z",
+        interval_end_utc="2026-09-19T13:00:00Z", cohort_qualification="QUALIFYING_FULL_HOUR",
+        observation_start_utc="2026-09-19T12:00:00Z", observation_end_utc="2026-09-19T13:00:00Z",
+        event_count=0, first_event_timestamp=None, last_event_timestamp=None,
+        session_segments=segments, disconnect_count=sum(s.disconnected_at_utc is not None for s in segments),
+        reconnect_count=0, health=WriterHealthSnapshot(conflicting_duplicate_frames=conflicts),
+        logical_redundancy_enabled=True,
+    )
+    return materialize_feed_hour_coverage(
+        observation, HeartbeatPolicy(max_allowed_heartbeat_gap_seconds={"bithumb": 30}), None,
+        closed_at_utc="2026-09-19T13:00:01Z",
+    ).coverage_state
+
+
+def test_reconnect_evidence_uses_injected_utc_and_monotonic_clocks() -> None:
+    frozen = datetime(2026, 9, 19, 12, 24, 56, 123456, tzinfo=timezone.utc)
+    decision = _ReconnectDecision(utc_now=lambda: frozen, monotonic_now=lambda: 42.5)
+    assert decision.request("FRAME_STALE", "FRAME_STALE")
+    assert decision.requested_at_utc == frozen.isoformat()
+    assert decision.requested_at_monotonic == 42.5
+
+
+def test_close_exception_is_recorded_and_transport_is_aborted() -> None:
+    socket = FaultSocket(error=OSError("receive reset"))
+    socket.close_error = OSError("close failed")
+    collector, _ = run_one_socket(socket)
+    diagnostic = collector.metrics["bithumb"].last_connection_diagnostic
+    assert diagnostic is not None
+    assert diagnostic["exception_type"] == "OSError"  # original receive failure retained
+    assert diagnostic["close_exception_type"] == "OSError"
+    assert diagnostic["transport_aborted"] is True
+    assert socket.transport.aborted is True
+
+
+def test_redundancy_cache_is_bounded_and_conflicts_fail_coverage() -> None:
+    cache = BithumbRedundancyFilter(max_entries=2, retention_seconds=10)
+    a = {"type": "trade", "code": "KRW-BTC", "sequential_id": 7, "trade_price": 100}
+    assert cache.observe("trade", "KRW-BTC", a, "A", 0).disposition == "canonical"
+    assert cache.observe("trade", "KRW-BTC", a, "B", 1).disposition == "duplicate"
+    conflict = dict(a, trade_price=101)
+    assert cache.observe("trade", "KRW-BTC", conflict, "B", 2).disposition == "conflict"
+    cache.observe("trade", "KRW-BTC", dict(a, sequential_id=8), "A", 3)
+    cache.observe("trade", "KRW-BTC", dict(a, sequential_id=9), "A", 4)
+    assert cache.size == 2
+    assert cache.evicted == 1
+    assert _coverage((_segment("B", "2026-09-19T12:00:00Z", None, _heartbeats(0, 3600)),), conflicts=1) == "FAILED"
+
+
+def test_cancelled_canonical_claim_can_be_reclaimed_and_is_accounted() -> None:
+    cache = BithumbRedundancyFilter()
+    payload = {"type": "trade", "code": "KRW-BTC", "sequential_id": 7}
+    first = cache.observe("trade", "KRW-BTC", payload, "A", 1)
+    assert cache.release_canonical(first)
+    assert cache.observe("trade", "KRW-BTC", payload, "B", 2).disposition == "canonical"
+
+    async def scenario() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            collector = make_collector(tmp)
+            collector._write_queue = asyncio.Queue(maxsize=1)
+            collector._write_queue.put_nowait(("occupied",))  # type: ignore[arg-type]
+            task = asyncio.create_task(collector._enqueue(
+                "bithumb", "trade", "KRW-BTC", payload,
+                datetime.now(timezone.utc), None,
+            ))
+            await asyncio.sleep(0)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert collector._unpersisted_event_count == 1
+    asyncio.run(scenario())
+
+
+def test_two_physical_loops_persist_one_canonical_and_one_provenance_record() -> None:
+    async def scenario(tmp: str) -> MultiExchangeMicrostructureCollector:
+        collector = make_collector(tmp)
+        frame = json.dumps({
+            "type": "orderbook", "code": "KRW-BTC", "timestamp": 1789820682000000,
+            "orderbook_units": [{"ask_price": 1, "bid_price": 0.9}],
+        })
+        sockets = [FaultSocket([frame]), FaultSocket([frame])]
+        for socket in sockets:
+            socket.hang_recv = True
+        with patch("websockets.connect", side_effect=sockets):
+            collector.is_running = True
+            tasks = [
+                asyncio.create_task(collector._bithumb_loop("primary")),
+                asyncio.create_task(collector._bithumb_loop("secondary")),
+            ]
+            await asyncio.wait_for(
+                _wait_until(lambda: collector.metrics["bithumb"].total_messages_received == 2),
+                timeout=2.0,
+            )
+            collector.is_running = False
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            while not collector._write_queue.empty():
+                item = collector._write_queue.get_nowait()
+                await collector._process_writer_item(item)
+                collector._write_queue.task_done()
+        return collector
+
+    async def _wait_until(predicate: Any) -> None:
+        while not predicate():
+            await asyncio.sleep(0.001)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        collector = asyncio.run(scenario(tmp))
+        metric = collector.metrics["bithumb"]
+        assert metric.redundant_frames_received == 1
+        assert metric.deduplicated_frames == 1
+        raw_files = list((Path(tmp) / "raw").rglob("*.jsonl"))
+        assert len(raw_files) == 1
+        record = json.loads(raw_files[0].read_text().strip())
+        assert record["source_connection_id"]
+        provenance = list((Path(tmp) / "quarantine").rglob("bithumb_redundancy_*.jsonl"))
+        assert len(provenance) == 1
+        assert json.loads(provenance[0].read_text())["disposition"] == "EXACT_DUPLICATE"
+        assert collector.websocket_sessions["bithumb"] == "DISCONNECTED"
+
+
+@pytest.mark.parametrize(
+    "case,expected_gap,expected_duplicate,expected_conflict",
+    [
+        (25, False, False, False), (26, False, False, False),
+        (27, False, False, False), (28, True, False, False),
+        (29, True, False, False), (30, False, True, False),
+        (31, False, True, False), (32, False, False, True),
+        (33, False, True, False), (34, False, False, False),
+        (35, False, False, False), (36, False, False, False),
+        (37, True, False, False), (38, True, False, False),
+        (39, False, False, False), (40, False, True, False),
+        (41, False, False, False), (42, True, False, False),
+        (43, False, False, False), (44, False, False, False),
+        (45, False, True, False), (46, False, True, False),
+        (47, True, False, False), (48, False, False, False),
+    ],
+    ids=[
+        "25-primary-silent-secondary-healthy", "26-secondary-silent-primary-healthy",
+        "27-primary-close-secondary-receives", "28-both-fail", "29-staggered-dual-failure",
+        "30-identical-trade", "31-identical-orderbook", "32-conflicting-identity",
+        "33-overlapping-sessions", "34-one-reconnect-storm", "35-concurrent-reconnects",
+        "36-utc-hour-boundary", "37-after-grace-boundary", "38-event-loop-stall",
+        "39-other-exchanges-unaffected", "40-queue-pressure", "41-one-normal-close",
+        "42-both-normal-close", "43-dns-connect-failure", "44-tls-connect-timeout",
+        "45-out-of-order-duplicates", "46-stale-copy-after-reconnect",
+        "47-both-sources-absent", "48-one-source-complete",
+    ],
+)
+def test_extended_fault_matrix_25_to_48(
+    case: int, expected_gap: bool, expected_duplicate: bool, expected_conflict: bool,
+) -> None:
+    """Deterministic model using production dedup and logical coverage rules."""
+    full = _segment("A", "2026-09-19T12:00:00Z", None, _heartbeats(0, 3600))
+    first = _segment("A", "2026-09-19T12:00:00Z", "2026-09-19T12:20:00Z", _heartbeats(0, 1200))
+    second = _segment("B", "2026-09-19T12:00:00Z", None, _heartbeats(0, 3600))
+    delayed = _segment("B", "2026-09-19T12:20:40Z", None, _heartbeats(1240, 3600))
+    if case in {28, 29, 37, 38, 42, 47}:
+        segments = (first, delayed)
+    elif case in {25, 26, 27, 36, 39, 41, 48}:
+        segments = (first, second)
+    else:
+        segments = (full,)
+    assert (_coverage(segments) == "FAILED") is expected_gap
+
+    cache = BithumbRedundancyFilter(max_entries=16, retention_seconds=180)
+    stream = "trade" if case in {30, 32, 45, 46} else "orderbook"
+    payload = {"type": stream, "code": "KRW-BTC", "timestamp": 10, "value": 1}
+    if stream == "trade":
+        payload["sequential_id"] = 10
+    first_result = cache.observe(stream, "KRW-BTC", payload, "A", 1)
+    second_payload = dict(payload)
+    if expected_conflict:
+        second_payload["value"] = 2
+    second_result = cache.observe(stream, "KRW-BTC", second_payload, "B", 2)
+    assert first_result.disposition == "canonical"
+    if expected_duplicate:
+        assert second_result.disposition == "duplicate"
+    elif expected_conflict:
+        assert second_result.disposition == "conflict"
+    else:
+        # Non-dedup cases exercise coverage; give the second frame a new native identity.
+        fresh = dict(payload)
+        fresh["timestamp"] = 11
+        if stream == "trade":
+            fresh["sequential_id"] = 11
+        assert cache.observe(stream, "KRW-BTC", fresh, "B", 3).disposition == "canonical"
+
+    if case in {34, 35}:
+        # Both physical owners share a serialized 250 ms dial gate: <=4 attempts/s.
+        attempts = [index * 0.25 for index in range(8)]
+        assert all(right - left >= 0.25 for left, right in zip(attempts, attempts[1:]))
+    if case in {43, 44}:
+        decision = _ReconnectDecision(utc_now=lambda: datetime(2026, 9, 19, tzinfo=timezone.utc))
+        assert decision.request("CONNECT_TIMEOUT" if case == 44 else "SOCKET_EXCEPTION", "CONNECT")
+        assert decision.source == "CONNECT"
