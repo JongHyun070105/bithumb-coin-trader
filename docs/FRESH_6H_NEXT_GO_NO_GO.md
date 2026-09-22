@@ -1,10 +1,26 @@
-# Fresh 6H next-run authorization readiness
+# Fresh 6H next-run readiness after v4r1
 
 ## Decision
 
-`FRESH_6H_READINESS = GO_FOR_AUTHORIZATION`
+`FRESH_6H_READINESS = NO_GO`
 
-This decision qualifies one frozen **local** candidate for human review and a possible future Fresh 6H authorization. It is not an authorization, cloud validation, production qualification, or change to the failed historical result.
+Fresh 6H-v4r1 reached natural terminal and officially failed all five qualifying cohorts. The complete terminal audit is recorded in [FRESH_6H_V4R1_TERMINAL_AUDIT.md](FRESH_6H_V4R1_TERMINAL_AUDIT.md). This result supersedes the earlier prelaunch `GO_FOR_AUTHORIZATION` readiness decision below.
+
+- `FRESH_6H_V4R1_TECHNICAL_GATE = FAIL`
+- `RECEIPTS_PRESENT = 5 / 5`
+- `COHORT_PASS = 0 / 5`
+- `RECEIPT_IMMUTABILITY = 5 / 5`
+- `SCHEDULER_HOL = PASS`
+- `LAUNCH_12_UNLOCKED = NO`
+- `FRESH_30H_V3_LAUNCHED = NO`
+- `LOCAL_REMEDIATION_COMMIT = a4fb7e5391fa370856160d57f95ac63c51764d29`
+- `LOCAL_REMEDIATION_AWS_VALIDATED = NO`
+
+The next candidate must include the existing duplicate-scoping remediation, fix the unresolved union-aware finalizer defect and launch-control findings, pass the complete local gate, and receive separate authorization for another Fresh 6H.
+
+## Historical prelaunch readiness baseline
+
+The following section is retained as the historical state that authorized v4r1. It no longer describes current readiness.
 
 - `LOCAL_VALIDATION_CANDIDATE = YES`
 - `VALIDATION_CANDIDATE_COMMIT = 525a7d339260481e63e36f1a3948ce08eb15d9be`
