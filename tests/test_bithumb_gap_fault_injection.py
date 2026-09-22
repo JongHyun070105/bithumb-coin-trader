@@ -507,6 +507,25 @@ def test_redundancy_cache_is_bounded_and_conflicts_fail_coverage() -> None:
     assert _coverage((_segment("B", "2026-09-19T12:00:00Z", None, _heartbeats(0, 3600)),), conflicts=1) == "FAILED"
 
 
+def test_trade_source_timestamp_drift_is_not_a_conflict() -> None:
+    cache = BithumbRedundancyFilter()
+    primary = {
+        "type": "trade", "code": "KRW-BTC", "sequential_id": 7,
+        "trade_timestamp": 1_790_049_004_651, "timestamp": 1_790_049_004_912,
+        "trade_price": 100,
+    }
+    secondary = dict(primary, timestamp=1_790_049_004_910)
+
+    assert cache.observe("trade", "KRW-BTC", primary, "primary", 0).disposition == "canonical"
+    timestamp_drift = cache.observe("trade", "KRW-BTC", secondary, "secondary", 1)
+    assert timestamp_drift.disposition == "duplicate"
+    assert timestamp_drift.equivalence == "trade_timestamp_ignored"
+    assert timestamp_drift.payload_sha256 != timestamp_drift.canonical_sha256
+
+    changed_trade = dict(secondary, trade_price=101)
+    assert cache.observe("trade", "KRW-BTC", changed_trade, "secondary", 2).disposition == "conflict"
+
+
 def test_cancelled_canonical_claim_can_be_reclaimed_and_is_accounted() -> None:
     cache = BithumbRedundancyFilter()
     payload = {"type": "trade", "code": "KRW-BTC", "sequential_id": 7}

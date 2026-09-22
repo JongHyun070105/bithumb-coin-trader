@@ -22,6 +22,7 @@ class RedundancyDecision:
     payload_sha256: str
     canonical_sha256: str
     canonical_source: str
+    equivalence: Literal["canonical", "exact", "trade_timestamp_ignored", "conflict"]
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class RedundancyAudit:
     decision: RedundancyDecision
     source: str
     received_at: datetime
+    stream: str
+    market: str
     raw_bytes: bytes | None = None
 
 
@@ -40,7 +43,7 @@ class BithumbRedundancyFilter:
             raise ValueError("dedup bounds must be positive")
         self.max_entries = max_entries
         self.retention_seconds = retention_seconds
-        self._seen: OrderedDict[str, tuple[float, str, str]] = OrderedDict()
+        self._seen: OrderedDict[str, tuple[float, str, str, str]] = OrderedDict()
         self.evicted = 0
 
     @property
@@ -67,9 +70,27 @@ class BithumbRedundancyFilter:
         source: str,
         observed_monotonic: float,
     ) -> RedundancyDecision:
-        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
-        digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
-        identity = self._identity(stream, market, payload, digest)
+        raw_canonical = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        )
+        raw_digest = hashlib.sha256(raw_canonical.encode("utf-8")).hexdigest()
+        comparison_payload = payload
+        if stream == "trade" and payload.get("sequential_id") is not None and "timestamp" in payload:
+            # Bithumb can emit the same documented trade (same sequential_id
+            # and trade fields) with a slightly different envelope timestamp
+            # on concurrent public sockets.  That source-local field must not
+            # turn an otherwise identical trade into a data conflict.
+            comparison_payload = dict(payload)
+            comparison_payload.pop("timestamp", None)
+        canonical = json.dumps(
+            comparison_payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+        )
+        comparison_digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        identity = self._identity(stream, market, payload, comparison_digest)
         while self._seen:
             oldest_time = next(iter(self._seen.values()))[0]
             if observed_monotonic - oldest_time <= self.retention_seconds:
@@ -78,23 +99,32 @@ class BithumbRedundancyFilter:
             self.evicted += 1
         prior = self._seen.get(identity)
         if prior is not None:
-            _, prior_digest, prior_source = prior
+            _, prior_comparison_digest, prior_raw_digest, prior_source = prior
+            matches = comparison_digest == prior_comparison_digest
             return RedundancyDecision(
-                "duplicate" if digest == prior_digest else "conflict",
-                identity, digest, prior_digest, prior_source,
+                "duplicate" if matches else "conflict",
+                identity,
+                raw_digest,
+                prior_raw_digest,
+                prior_source,
+                (
+                    "exact" if raw_digest == prior_raw_digest
+                    else "trade_timestamp_ignored" if matches
+                    else "conflict"
+                ),
             )
-        self._seen[identity] = (observed_monotonic, digest, source)
+        self._seen[identity] = (observed_monotonic, comparison_digest, raw_digest, source)
         if len(self._seen) > self.max_entries:
             self._seen.popitem(last=False)
             self.evicted += 1
-        return RedundancyDecision("canonical", identity, digest, digest, source)
+        return RedundancyDecision("canonical", identity, raw_digest, raw_digest, source, "canonical")
 
     def release_canonical(self, decision: RedundancyDecision) -> bool:
         """Roll back an unqueued first copy so another source can become canonical."""
         if decision.disposition != "canonical":
             return False
         prior = self._seen.get(decision.identity)
-        if prior is None or prior[1:] != (decision.payload_sha256, decision.canonical_source):
+        if prior is None or prior[2:] != (decision.payload_sha256, decision.canonical_source):
             return False
         del self._seen[decision.identity]
         return True

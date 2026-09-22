@@ -458,6 +458,7 @@ class FeedHourCoverageTracker:
 
         self._last_write_ts: datetime | None = None
         self._cohort_feed_stats: dict[tuple[str, FeedIdentity], dict[str, Any]] = {}
+        self._cohort_feed_conflicts: dict[tuple[str, FeedIdentity], int] = {}
         self._active_cohorts: set[str] = set()
         self._frozen_cohorts: set[str] = set()
         self._all_seen_feeds: set[FeedIdentity] = set(self.configured_feeds)
@@ -494,6 +495,33 @@ class FeedHourCoverageTracker:
             if stats["first_event_timestamp"] is None:
                 stats["first_event_timestamp"] = ts_str
             stats["last_event_timestamp"] = ts_str
+
+    def record_conflicting_duplicate(
+        self,
+        feed: FeedIdentity,
+        observed_at_utc: datetime,
+    ) -> None:
+        """Attribute a redundancy conflict to its feed and UTC cohort."""
+        if observed_at_utc.tzinfo is None or observed_at_utc.utcoffset() is None:
+            raise ValueError("observed_at_utc must be timezone-aware")
+        cohort_utc = observed_at_utc.astimezone(timezone.utc).strftime("%Y-%m-%d_%H")
+        if cohort_utc in self._frozen_cohorts:
+            raise ValueError(f"COHORT_ALREADY_FROZEN: {cohort_utc}")
+        self._active_cohorts.add(cohort_utc)
+        self._all_seen_feeds.add(feed)
+        key = (cohort_utc, feed)
+        self._cohort_feed_conflicts[key] = self._cohort_feed_conflicts.get(key, 0) + 1
+
+    def _health_for_feed(
+        self,
+        cohort_utc: str,
+        feed: FeedIdentity,
+        health: WriterHealthSnapshot,
+    ) -> WriterHealthSnapshot:
+        return replace(
+            health,
+            conflicting_duplicate_frames=self._cohort_feed_conflicts.get((cohort_utc, feed), 0),
+        )
 
     def freeze_completed(
         self,
@@ -563,7 +591,7 @@ class FeedHourCoverageTracker:
                     session_segments=segments,
                     disconnect_count=disc_count,
                     reconnect_count=rec_count,
-                    health=health,
+                    health=self._health_for_feed(cohort_utc, feed, health),
                     logical_redundancy_enabled=self.bithumb_redundancy_enabled and feed.exchange == "bithumb",
                 )
             )
@@ -647,7 +675,7 @@ class FeedHourCoverageTracker:
                         session_segments=segments,
                         disconnect_count=disc_count,
                         reconnect_count=rec_count,
-                        health=health,
+                        health=self._health_for_feed(c_utc, feed, health),
                         logical_redundancy_enabled=self.bithumb_redundancy_enabled and feed.exchange == "bithumb",
                     )
                 )

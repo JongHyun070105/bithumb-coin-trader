@@ -776,9 +776,14 @@ class MultiExchangeMicrostructureCollector:
                     identity=decision.identity,
                     payload_sha256=decision.payload_sha256,
                     canonical_sha256=decision.canonical_sha256,
+                    equivalence=decision.equivalence,
                     received_at=item.received_at,
                 )
             elif decision.disposition == "conflict" and item.raw_bytes is not None:
+                self.coverage_tracker.record_conflicting_duplicate(
+                    FeedIdentity("bithumb", item.stream, item.market),
+                    self._utc_now(),
+                )
                 self.storage.quarantine_malformed_record(
                     "bithumb", item.raw_bytes,
                     f"CONFLICTING_DUPLICATE identity={decision.identity} "
@@ -1375,7 +1380,7 @@ class MultiExchangeMicrostructureCollector:
                                         else:
                                             m.conflicting_duplicate_frames += 1
                                         await self._enqueue_redundancy_audit(RedundancyAudit(
-                                            dedup, connection_id, recv_ts,
+                                            dedup, connection_id, recv_ts, stream, market,
                                             raw_bytes if dedup.disposition == "conflict" else None,
                                         ))
                         finally:
