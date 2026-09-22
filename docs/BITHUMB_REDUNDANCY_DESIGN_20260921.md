@@ -33,7 +33,7 @@ The installed package is `websockets 17.1`. Its official asyncio client document
 The first arrival is canonical; there is no lookahead and no later replacement.
 
 - Trade nominal identity: exchange + stream + market + documented `sequential_id`.
-- Orderbook and ticker nominal identity: exchange + stream + market + documented message `timestamp` + stream type.
+- Orderbook and ticker nominal identity: exchange + stream + market + complete canonical payload SHA-256. Their public schemas expose timestamps but do not document a unique update identifier, so exact copies deduplicate while two distinct states that share a timestamp remain separate canonical events.
 - Fallback when the native field is absent: canonical payload SHA-256. This can deduplicate exact copies but cannot classify different payloads as the same nominal event.
 - Equivalent copy: persist the canonical raw event once, including its physical connection ID; increment `redundant_frames_received` and `deduplicated_frames`; append a compact provenance record containing both connection IDs and both complete-payload hashes. For trades with a documented `sequential_id`, conflict comparison excludes the source-local top-level `timestamp`; `trade_timestamp` and every other trade field remain covered. Provenance distinguishes exact copies from this narrow semantic equivalence.
 - Same nominal identity with different canonical comparison hash: keep the first canonical event, quarantine the conflicting copy with both hashes and sources, increment `conflicting_duplicate_frames`, and fail only that feed's UTC cohort through writer health. No payload is silently selected as scientifically valid.

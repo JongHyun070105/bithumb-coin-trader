@@ -15,6 +15,12 @@ import json
 from typing import Any, Literal
 
 
+BITHUMB_TRADE_IDENTITY_FIELD = "sequential_id"
+# Every other top-level trade field, including unknown future fields, remains
+# semantic and fail-closed for two copies of the same trade identity.
+BITHUMB_TRADE_NON_SEMANTIC_FIELDS = frozenset({"timestamp"})
+
+
 @dataclass(frozen=True)
 class RedundancyDecision:
     disposition: Literal["canonical", "duplicate", "conflict"]
@@ -52,12 +58,11 @@ class BithumbRedundancyFilter:
 
     @staticmethod
     def _identity(stream: str, market: str, payload: dict[str, Any], digest: str) -> str:
-        # The public trade schema documents sequential_id as unique but not ordered.
-        # Orderbook and ticker expose timestamps; neither documents a sequence ID.
-        if stream == "trade" and payload.get("sequential_id") is not None:
-            native = ("sequential_id", payload["sequential_id"])
-        elif stream in ("orderbook", "ticker") and payload.get("timestamp") is not None:
-            native = ("timestamp", payload["timestamp"], payload.get("stream_type", "REALTIME"))
+        # Trade has a documented nominal identity. Ticker and orderbook do not,
+        # so their complete payload digest is the conservative event identity:
+        # exact copies deduplicate while distinct states are retained.
+        if stream == "trade" and payload.get(BITHUMB_TRADE_IDENTITY_FIELD) is not None:
+            native = (BITHUMB_TRADE_IDENTITY_FIELD, payload[BITHUMB_TRADE_IDENTITY_FIELD])
         else:
             native = ("payload_sha256", digest)
         return json.dumps(("bithumb", stream, market.upper(), native), separators=(",", ":"))
@@ -75,13 +80,14 @@ class BithumbRedundancyFilter:
         )
         raw_digest = hashlib.sha256(raw_canonical.encode("utf-8")).hexdigest()
         comparison_payload = payload
-        if stream == "trade" and payload.get("sequential_id") is not None and "timestamp" in payload:
+        if stream == "trade" and payload.get(BITHUMB_TRADE_IDENTITY_FIELD) is not None:
             # Bithumb can emit the same documented trade (same sequential_id
             # and trade fields) with a slightly different envelope timestamp
             # on concurrent public sockets.  That source-local field must not
             # turn an otherwise identical trade into a data conflict.
             comparison_payload = dict(payload)
-            comparison_payload.pop("timestamp", None)
+            for field in BITHUMB_TRADE_NON_SEMANTIC_FIELDS:
+                comparison_payload.pop(field, None)
         canonical = json.dumps(
             comparison_payload,
             sort_keys=True,

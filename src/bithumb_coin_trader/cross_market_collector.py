@@ -782,7 +782,7 @@ class MultiExchangeMicrostructureCollector:
             elif decision.disposition == "conflict" and item.raw_bytes is not None:
                 self.coverage_tracker.record_conflicting_duplicate(
                     FeedIdentity("bithumb", item.stream, item.market),
-                    self._utc_now(),
+                    item.received_at,
                 )
                 self.storage.quarantine_malformed_record(
                     "bithumb", item.raw_bytes,

@@ -534,7 +534,8 @@ def test_0350_warmup_sessions_qualify_first_full_cohort_across_exchanges() -> No
         for segment in by_feed[bithumb].session_segments
     )
     assert all(
-        segment.confirmed_at_utc < "2026-09-22T04:00:00Z"
+        segment.confirmed_at_utc is not None
+        and segment.confirmed_at_utc < "2026-09-22T04:00:00Z"
         for segment in by_feed[bithumb].session_segments
     )
     for feed in feeds:

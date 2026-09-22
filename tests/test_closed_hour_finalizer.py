@@ -13,7 +13,8 @@ Enforces:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -481,6 +482,156 @@ def test_evaluate_common_gate_rejects_unconfirmed_feed_on_session() -> None:
     policy = _make_policy()
     reasons = evaluate_common_gate(obs, policy)
     assert "FEED_NOT_CONFIRMED_ON_SESSION" in reasons
+
+
+def _redundant_segment(
+    feed: FeedIdentity,
+    session_id: str,
+    connected_at_utc: str,
+    disconnected_at_utc: str | None,
+    heartbeat_start: int,
+    heartbeat_end: int,
+    *,
+    confirmed_at_utc: str | None = None,
+    confirms_feed: bool = True,
+) -> SessionSegment:
+    base = datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc)
+    heartbeats = tuple(
+        (base + timedelta(seconds=offset)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        for offset in range(heartbeat_start, heartbeat_end + 1, 10)
+    )
+    confirmation = confirmed_at_utc if confirmed_at_utc is not None else connected_at_utc
+    return SessionSegment(
+        exchange="bithumb",
+        session_id=session_id,
+        connected_at_utc=connected_at_utc,
+        disconnected_at_utc=disconnected_at_utc,
+        requested_feeds=(feed.canonical,),
+        requested_subscription_sha256=f"requested-{session_id}",
+        confirmation_method="STREAM_SNAPSHOT" if confirms_feed else None,
+        confirmed_at_utc=confirmation if confirms_feed else None,
+        confirmed_feeds=(feed.canonical,) if confirms_feed else (),
+        confirmed_subscription_sha256=f"confirmed-{session_id}" if confirms_feed else None,
+        response_evidence_sha256=f"response-{session_id}" if confirms_feed else None,
+        heartbeat_observations_utc=heartbeats,
+        maximum_heartbeat_gap_seconds=10.0 if heartbeats else None,
+        disconnect_reason="INJECTED" if disconnected_at_utc else None,
+        reconnect_successor_id=None,
+        collector_epoch="epoch-1",
+        collector_run_id="run-1",
+    )
+
+
+def _redundant_observation(
+    feed: FeedIdentity,
+    segments: tuple[SessionSegment, ...],
+    *,
+    disconnect_count: int = 0,
+    reconnect_count: int = 0,
+) -> FrozenFeedHourObservation:
+    return replace(
+        _make_observation(feed, event_count=0, session_segments=segments),
+        disconnect_count=disconnect_count,
+        reconnect_count=reconnect_count,
+        logical_redundancy_enabled=True,
+    )
+
+
+def test_common_gate_uses_confirmed_union_when_primary_reconnects() -> None:
+    """Historical _06: physical reconnect evidence must not become a logical gap."""
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    primary_before = _redundant_segment(
+        feed, "primary-1", "2026-09-14T11:50:00Z", "2026-09-14T12:54:34Z", 0, 3270
+    )
+    primary_after = _redundant_segment(
+        feed, "primary-2", "2026-09-14T12:54:34Z", None, 3280, 3600,
+        confirmed_at_utc="2026-09-14T12:54:36Z",
+    )
+    secondary = _redundant_segment(
+        feed, "secondary", "2026-09-14T11:50:00Z", None, 0, 3600
+    )
+    observation = _redundant_observation(
+        feed, (primary_before, primary_after, secondary), disconnect_count=1, reconnect_count=1
+    )
+
+    reasons = evaluate_common_gate(observation, _make_policy())
+
+    assert observation.disconnect_count == 1
+    assert observation.reconnect_count == 1
+    assert any(segment.disconnect_reason for segment in observation.session_segments)
+    assert "COLLECTION_GAP" not in reasons
+    assert "HEARTBEAT_GAP_EXCEEDED" not in reasons
+    assert reasons == []
+
+
+def test_common_gate_rejects_true_dual_source_union_gap() -> None:
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    primary = _redundant_segment(
+        feed, "primary", "2026-09-14T11:50:00Z", "2026-09-14T12:20:00Z", 0, 1200
+    )
+    secondary = _redundant_segment(
+        feed, "secondary", "2026-09-14T12:20:40Z", None, 1240, 3600
+    )
+    observation = _redundant_observation(
+        feed, (primary, secondary), disconnect_count=1, reconnect_count=1
+    )
+
+    reasons = evaluate_common_gate(observation, _make_policy())
+
+    assert "COLLECTION_GAP" in reasons
+    assert "HEARTBEAT_GAP_EXCEEDED" in reasons
+
+
+def test_common_gate_accepts_complementary_confirmed_sources_without_hole() -> None:
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    primary = _redundant_segment(
+        feed, "primary", "2026-09-14T11:50:00Z", "2026-09-14T12:20:00Z", 0, 1200
+    )
+    secondary = _redundant_segment(
+        feed, "secondary", "2026-09-14T12:20:00Z", None, 1200, 3600
+    )
+    observation = _redundant_observation(feed, (primary, secondary), disconnect_count=1)
+
+    assert evaluate_common_gate(observation, _make_policy()) == []
+
+
+def test_unconfirmed_reconnected_source_does_not_contribute_or_poison_union() -> None:
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    unconfirmed_primary = _redundant_segment(
+        feed, "primary-2", "2026-09-14T12:20:00Z", None, 1200, 3600,
+        confirms_feed=False,
+    )
+    confirmed_secondary = _redundant_segment(
+        feed, "secondary", "2026-09-14T11:50:00Z", None, 0, 3600
+    )
+    observation = _redundant_observation(
+        feed, (unconfirmed_primary, confirmed_secondary), reconnect_count=1
+    )
+
+    reasons = evaluate_common_gate(observation, _make_policy())
+
+    assert "SESSION_NOT_CONFIRMED" not in reasons
+    assert "FEED_NOT_CONFIRMED_ON_SESSION" not in reasons
+    assert "COLLECTION_GAP" not in reasons
+    assert reasons == []
+
+
+def test_unconfirmed_reconnected_source_cannot_fill_a_logical_hole() -> None:
+    feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+    confirmed_primary = _redundant_segment(
+        feed, "primary-1", "2026-09-14T11:50:00Z", "2026-09-14T12:20:00Z", 0, 1200
+    )
+    unconfirmed_primary = _redundant_segment(
+        feed, "primary-2", "2026-09-14T12:20:00Z", None, 1200, 3600,
+        confirms_feed=False,
+    )
+    observation = _redundant_observation(
+        feed, (confirmed_primary, unconfirmed_primary), disconnect_count=1, reconnect_count=1
+    )
+
+    reasons = evaluate_common_gate(observation, _make_policy())
+
+    assert "COLLECTION_GAP" in reasons
 
 
 def test_closed_slot_result_convenience_properties(tmp_path: Path) -> None:

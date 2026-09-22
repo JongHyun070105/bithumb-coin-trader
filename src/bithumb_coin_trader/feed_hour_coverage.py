@@ -23,6 +23,7 @@ __all__ = [
     "FeedHourCoverage",
     "FeedHourCoverageTracker",
     "FrozenFeedHourObservation",
+    "evaluate_observation_gate",
     "load_feed_hour_coverage",
     "load_frozen_journal",
     "materialize_feed_hour_coverage",
@@ -107,18 +108,121 @@ class FeedHourCoverage:
         return asdict(self)
 
 
-def materialize_feed_hour_coverage(
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        raise ValueError(f"timestamp must be timezone-aware: {value}")
+    return parsed.astimezone(timezone.utc)
+
+
+def _append_once(reasons: list[str], reason: str) -> None:
+    if reason not in reasons:
+        reasons.append(reason)
+
+
+def _confirmed_for_feed(segment: SessionSegment, feed: FeedIdentity) -> bool:
+    return (
+        segment.confirmed_at_utc is not None
+        and feed.canonical in segment.confirmed_feeds
+    )
+
+
+def _logical_intervals(
+    observation: FrozenFeedHourObservation,
+    segments: Sequence[SessionSegment],
+) -> list[tuple[datetime, datetime]]:
+    interval_start = _parse_utc(observation.interval_start_utc)
+    interval_end = _parse_utc(observation.interval_end_utc)
+    intervals: list[tuple[datetime, datetime]] = []
+    for segment in segments:
+        confirmed_at = (
+            _parse_utc(segment.confirmed_at_utc)
+            if segment.confirmed_at_utc is not None
+            else interval_end
+        )
+        segment_start = max(
+            interval_start,
+            _parse_utc(segment.connected_at_utc),
+            confirmed_at,
+        )
+        segment_end = min(
+            interval_end,
+            _parse_utc(segment.disconnected_at_utc)
+            if segment.disconnected_at_utc is not None
+            else interval_end,
+        )
+        if segment_start < segment_end:
+            intervals.append((segment_start, segment_end))
+    return sorted(intervals)
+
+
+def _has_coverage_gap(
+    observation: FrozenFeedHourObservation,
+    segments: Sequence[SessionSegment],
+) -> bool:
+    interval_start = _parse_utc(observation.interval_start_utc)
+    interval_end = _parse_utc(observation.interval_end_utc)
+    covered_until = interval_start
+    for segment_start, segment_end in _logical_intervals(observation, segments):
+        if segment_start > covered_until:
+            return True
+        covered_until = max(covered_until, segment_end)
+        if covered_until >= interval_end:
+            return False
+    return covered_until < interval_end
+
+
+def _logical_heartbeat_gap_exceeded(
+    observation: FrozenFeedHourObservation,
+    segments: Sequence[SessionSegment],
+    threshold_seconds: int,
+) -> bool:
+    interval_start = _parse_utc(observation.interval_start_utc)
+    interval_end = _parse_utc(observation.interval_end_utc)
+    heartbeats: set[datetime] = set()
+    for segment in segments:
+        confirmed_at = (
+            _parse_utc(segment.confirmed_at_utc)
+            if segment.confirmed_at_utc is not None
+            else interval_end
+        )
+        active_start = max(interval_start, _parse_utc(segment.connected_at_utc), confirmed_at)
+        active_end = min(
+            interval_end,
+            _parse_utc(segment.disconnected_at_utc)
+            if segment.disconnected_at_utc is not None
+            else interval_end,
+        )
+        heartbeats.update(
+            heartbeat
+            for raw in segment.heartbeat_observations_utc
+            if active_start <= (heartbeat := _parse_utc(raw)) <= active_end
+        )
+    ordered = sorted(heartbeats)
+    if not ordered:
+        return True
+    if (ordered[0] - interval_start).total_seconds() > threshold_seconds:
+        return True
+    if any(
+        (right - left).total_seconds() > threshold_seconds
+        for left, right in zip(ordered, ordered[1:])
+    ):
+        return True
+    return (interval_end - ordered[-1]).total_seconds() > threshold_seconds
+
+
+def evaluate_observation_gate(
     observation: FrozenFeedHourObservation,
     heartbeat_policy: HeartbeatPolicy,
-    data_binding: DataArtifactBinding | None,
-    runtime_commit: str = "unknown",
-    runtime_config_fingerprint: str = "unknown",
-    environment_id: str = "unknown",
-    closed_at_utc: str | None = None,
-) -> FeedHourCoverage:
-    failure_reasons: list[str] = []
+) -> list[str]:
+    """Evaluate the authoritative health, confirmation, and continuity gate.
 
-    # 1. Health check
+    Redundant Bithumb feeds qualify on the union of intervals from physical
+    sessions that confirmed the logical feed. Physical disconnect evidence is
+    retained on the observation, but only an uncovered logical interval fails
+    continuity.
+    """
+    failure_reasons: list[str] = []
     health = observation.health
     if (
         health.writer_error_count > 0
@@ -130,105 +234,71 @@ def materialize_feed_hour_coverage(
     if health.conflicting_duplicate_frames > 0:
         failure_reasons.append("BITHUMB_CONFLICTING_DUPLICATE")
 
-    # 2. Session segments check
     if not observation.session_segments:
         failure_reasons.append("NO_SESSION_SEGMENTS")
-    else:
-        # A redundant transport is evidence for a logical feed only after its
-        # own subscription was confirmed.  Physical failures remain in the
-        # serialized segments and counters, while logical continuity is the
-        # union of confirmed source intervals.
-        logical_segments = (
-            tuple(s for s in observation.session_segments if s.confirmed_at_utc is not None)
-            if observation.logical_redundancy_enabled else observation.session_segments
+        return failure_reasons
+
+    if observation.logical_redundancy_enabled:
+        logical_segments = tuple(
+            segment
+            for segment in observation.session_segments
+            if _confirmed_for_feed(segment, observation.feed)
         )
-        if observation.logical_redundancy_enabled and not logical_segments:
+        if not logical_segments:
             failure_reasons.append("SESSION_NOT_CONFIRMED")
-        # Check confirmation
-        for seg in (() if observation.logical_redundancy_enabled else observation.session_segments):
-            if seg.confirmed_at_utc is None:
-                if "SESSION_NOT_CONFIRMED" not in failure_reasons:
-                    failure_reasons.append("SESSION_NOT_CONFIRMED")
-            elif seg.connected_at_utc <= observation.interval_start_utc and seg.confirmed_at_utc > observation.interval_start_utc:
-                if "LATE_CONFIRMATION" not in failure_reasons:
-                    failure_reasons.append("LATE_CONFIRMATION")
+    else:
+        logical_segments = observation.session_segments
+        for segment in observation.session_segments:
+            if segment.confirmed_at_utc is None:
+                _append_once(failure_reasons, "SESSION_NOT_CONFIRMED")
+            elif (
+                _parse_utc(segment.connected_at_utc) <= _parse_utc(observation.interval_start_utc)
+                and _parse_utc(segment.confirmed_at_utc) > _parse_utc(observation.interval_start_utc)
+            ):
+                _append_once(failure_reasons, "LATE_CONFIRMATION")
+            if segment.confirmed_feeds and observation.feed.canonical not in segment.confirmed_feeds:
+                _append_once(failure_reasons, "FEED_NOT_CONFIRMED_ON_SESSION")
 
-        # Heartbeat gap check
-        threshold = heartbeat_policy.max_allowed_heartbeat_gap_seconds.get(observation.feed.exchange)
-        if threshold is None:
-            failure_reasons.append("MISSING_HEARTBEAT_POLICY")
-        else:
-            gap_exceeded = False
-            for seg in (() if observation.logical_redundancy_enabled else observation.session_segments):
-                if seg.maximum_heartbeat_gap_seconds is not None and seg.maximum_heartbeat_gap_seconds > threshold:
-                    gap_exceeded = True
-                    break
+    threshold = heartbeat_policy.max_allowed_heartbeat_gap_seconds.get(
+        observation.feed.exchange
+    )
+    if threshold is None:
+        failure_reasons.append("MISSING_HEARTBEAT_POLICY")
+    else:
+        heartbeat_gap = _logical_heartbeat_gap_exceeded(
+            observation, logical_segments, threshold
+        )
+        if not observation.logical_redundancy_enabled:
+            heartbeat_gap = heartbeat_gap or any(
+                segment.maximum_heartbeat_gap_seconds is not None
+                and segment.maximum_heartbeat_gap_seconds > threshold
+                for segment in observation.session_segments
+            )
+        if heartbeat_gap:
+            failure_reasons.append("HEARTBEAT_GAP_EXCEEDED")
 
-            start_dt = datetime.fromisoformat(observation.interval_start_utc.replace("Z", "+00:00"))
-            end_dt = datetime.fromisoformat(observation.interval_end_utc.replace("Z", "+00:00"))
+    collection_gap = _has_coverage_gap(observation, logical_segments)
+    if not observation.logical_redundancy_enabled:
+        collection_gap = collection_gap or (
+            observation.disconnect_count > 0 or observation.reconnect_count > 0
+        )
+    if collection_gap:
+        failure_reasons.append("COLLECTION_GAP")
 
-            all_hb: list[datetime] = []
-            for seg in logical_segments:
-                for h in seg.heartbeat_observations_utc:
-                    dt = datetime.fromisoformat(h.replace("Z", "+00:00"))
-                    if observation.logical_redundancy_enabled and seg.confirmed_at_utc is not None:
-                        confirmed = datetime.fromisoformat(seg.confirmed_at_utc.replace("Z", "+00:00"))
-                        if dt < confirmed:
-                            continue
-                    all_hb.append(dt)
-            all_hb.sort()
+    return failure_reasons
 
-            if not all_hb:
-                gap_exceeded = True
-            else:
-                if (all_hb[0] - start_dt).total_seconds() > threshold:
-                    gap_exceeded = True
-                for i in range(len(all_hb) - 1):
-                    if (all_hb[i + 1] - all_hb[i]).total_seconds() > threshold:
-                        gap_exceeded = True
-                        break
-                if (end_dt - all_hb[-1]).total_seconds() > threshold:
-                    gap_exceeded = True
 
-            if gap_exceeded and "HEARTBEAT_GAP_EXCEEDED" not in failure_reasons:
-                failure_reasons.append("HEARTBEAT_GAP_EXCEEDED")
-
-        # Reconnect gap check
-        reconnect_gap = False
-        if not observation.logical_redundancy_enabled and (observation.disconnect_count > 0 or observation.reconnect_count > 0):
-            reconnect_gap = True
-
-        segments = sorted(logical_segments, key=lambda s: s.connected_at_utc)
-        if observation.logical_redundancy_enabled:
-            start = observation.interval_start_utc
-            end = observation.interval_end_utc
-            covered_until = start
-            for segment in sorted(segments, key=lambda s: max(s.connected_at_utc, s.confirmed_at_utc or end)):
-                segment_start = max(segment.connected_at_utc, segment.confirmed_at_utc or end, start)
-                segment_end = min(segment.disconnected_at_utc or end, end)
-                if segment_end <= segment_start:
-                    continue
-                if segment_start > covered_until:
-                    reconnect_gap = True
-                covered_until = max(covered_until, segment_end)
-            if covered_until < end:
-                reconnect_gap = True
-        else:
-            if segments:
-                if segments[0].connected_at_utc > observation.interval_start_utc:
-                    reconnect_gap = True
-                for i in range(len(segments) - 1):
-                    s_curr = segments[i]
-                    s_next = segments[i + 1]
-                    if s_curr.disconnected_at_utc is not None:
-                        if s_next.connected_at_utc > s_curr.disconnected_at_utc:
-                            reconnect_gap = True
-                            break
-                if segments[-1].disconnected_at_utc is not None and segments[-1].disconnected_at_utc < observation.interval_end_utc:
-                    reconnect_gap = True
-
-        if reconnect_gap and "COLLECTION_GAP" not in failure_reasons:
-            failure_reasons.append("COLLECTION_GAP")
+def materialize_feed_hour_coverage(
+    observation: FrozenFeedHourObservation,
+    heartbeat_policy: HeartbeatPolicy,
+    data_binding: DataArtifactBinding | None,
+    runtime_commit: str = "unknown",
+    runtime_config_fingerprint: str = "unknown",
+    environment_id: str = "unknown",
+    closed_at_utc: str | None = None,
+) -> FeedHourCoverage:
+    failure_reasons = evaluate_observation_gate(observation, heartbeat_policy)
+    health = observation.health
 
     # 3. State selection
     if failure_reasons:
