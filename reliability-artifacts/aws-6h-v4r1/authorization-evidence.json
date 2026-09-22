@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "collector_epoch": "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1",
+  "collector_run_id": "aws-validation-observability-6h-run-20260922T035000Z-v4r1",
+  "runtime_commit": "525a7d339260481e63e36f1a3948ce08eb15d9be",
+  "runtime_tree": "08c89c63e0a5de8e94450a2715ea19664211b091",
+  "launch_number": 11,
+  "launch_authorized": true,
+  "host_timer_authorized": true,
+  "retry_authorized": false,
+  "planned_start_utc": "2026-09-22T03:50:00Z",
+  "freshness_deadline_utc": "2026-09-22T03:55:00Z",
+  "s3_emptiness_guard_mode": "PROVISIONER_PREARM_ATTESTATION",
+  "prearm_s3_empty_attestation": "PASS",
+  "prearm_s3_empty_attestation_sha256": "3ab449c823ab440f013a8ce459a1978d23fcd6b95738ea4f902d12a7c6bd91f1",
+  "t0_s3_empty_directly_verified": false,
+  "residual_toctou_risk": "ACKNOWLEDGED",
+  "actual_start_time_utc": null,
+  "actual_start_evidence": null,
+  "status": "AUTHORIZED_FOR_ONE_HOST_TIMER_TRIGGER",
+  "note": "Explicit human authorization permits one run-scoped transient systemd timer. Arming does not consume launch #11; executing launch-ec2.sh --launch consumes it and it must never be retried.",
+  "prearm_s3_empty_attestation_observed_at_utc": "2026-09-22T01:36:59.380562+00:00"
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-6h-20260921-20260921T095000Z-v4",
+  "run_id": "aws-validation-observability-6h-run-20260921T095000Z-v4",
+  "planned_start_utc": "2026-09-21T09:50:00Z",
+  "status": "PRELAUNCH_WINDOW_EXPIRED",
+  "launch_submitted": false,
+  "aws_launch_consumed": false,
+  "artifact_commit": "fb24032d831fb952256f1f3d82ecae005be4affe",
+  "authorization_commit": "ad0ac9fd6e80047209092b9394371ba7537491e9",
+  "note": "The read-only audit woke after the sealed freshness window. This identity remains historical and must never be launched."
+}

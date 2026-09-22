@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "sealed_at_utc": "2026-09-22T01:36:59.384791+00:00",
+  "epoch": "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1",
+  "run_id": "aws-validation-observability-6h-run-20260922T035000Z-v4r1",
+  "s3_emptiness_guard_mode": "PROVISIONER_PREARM_ATTESTATION",
+  "prearm_s3_empty_attestation": "PASS",
+  "prearm_s3_empty_attestation_sha256": "3ab449c823ab440f013a8ce459a1978d23fcd6b95738ea4f902d12a7c6bd91f1",
+  "t0_s3_empty_directly_verified": false,
+  "residual_toctou_risk": "ACKNOWLEDGED",
+  "artifact_hashes": {
+    "arm-host-timer.sh": "66dc1cc3f6815fda52ac0858cec589a85af9375452bcec6323587c912830738f",
+    "authorization-evidence.json": "dbd4c9fa85f331f02d142bd1fca837e4927a6b75c18046461e6fc8e10224610e",
+    "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1.runtime.json": "86321e2b6297dadf86710e6ba94609a5805f05e8736e8ce6fcca53cea2af07de",
+    "expired-predecessor.json": "9cc2019f8203d78d5a238672ae9427711af654a9dd4823c327e7d3022447f62a",
+    "host-launch-guard.sh": "c2b27c49647629d7682a78e9491902b875fe13c4a9e87bb5c57ca1dd2d6b53f0",
+    "identity.json": "a3875c4b29289a35f1580626ae314c747d1202f3e46a59eecb50dc3c528b9061",
+    "launch-command.json": "50b3e85dcc4b8d333a3f91ca38e01b3e6c7997e8c8f33acb9cae98f10b7f6f61",
+    "launch-ec2.sh": "c8e18a7f488c8b136250da2c78b073ebc3df630cc99975173428324edea93690",
+    "launch.sh": "fac5e163f1329e89520f8c0d30c3a19a84f80c159267d2b391af7a4f01009a0f",
+    "prearm-s3-empty-attestation.json": "3ab449c823ab440f013a8ce459a1978d23fcd6b95738ea4f902d12a7c6bd91f1",
+    "receipt-hash-observer.py": "1a6a81e4acdeb5b892c986c7b94142085571a0974f891fc4131d266c6bdc2c8d",
+    "sealed-manifest.json": "9437ffe5a2783fef029e168e0e269d30ae7ad8d1ef07e57c8b27733ccf19a4f2"
+  }
+}

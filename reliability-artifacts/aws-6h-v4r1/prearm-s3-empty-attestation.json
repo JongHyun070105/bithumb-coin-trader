@@ -1,0 +1,20 @@
+{
+  "aws_account_id": "080109295433",
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "bucket_expected_owner_account_id": "080109295433",
+  "bucket_location": "ap-northeast-2",
+  "epoch": "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1",
+  "list_is_truncated": false,
+  "object_count": 0,
+  "observed_at_utc": "2026-09-22T01:36:59.380562+00:00",
+  "prearm_s3_empty_attestation": "PASS",
+  "prefix": "market-data/temporary/aws-validation-observability-6h-20260922-20260922T035000Z-v4r1/",
+  "provisioner_identity_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+  "provisioner_identity_user_id": "AROARFJXC25ESQFWEIXOJ:codex-preapply-validation",
+  "region": "ap-northeast-2",
+  "residual_toctou_risk": "ACKNOWLEDGED",
+  "run_id": "aws-validation-observability-6h-run-20260922T035000Z-v4r1",
+  "s3_emptiness_guard_mode": "PROVISIONER_PREARM_ATTESTATION",
+  "schema_version": 1,
+  "t0_s3_empty_directly_verified": false
+}
