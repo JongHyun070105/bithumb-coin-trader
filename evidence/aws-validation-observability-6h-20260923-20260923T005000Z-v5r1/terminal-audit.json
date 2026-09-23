@@ -1,0 +1,240 @@
+{
+  "schema_version": 1,
+  "audit_observed_at_utc": "2026-09-23T09:22:00Z",
+  "audit_method": "REMOTE_EVIDENCE_ONLY",
+  "audit_notes": "Local runtime directory /var/lib/bitcoin-trader/6h-validation/ is not accessible to ssm-user (Permission denied). Evidence gathered via: (1) systemctl show for observer and supervisor services, (2) S3 archive-receipts/ via EC2 aws s3 cp, (3) S3 observability/latest.json via EC2 aws s3 cp. result.json not found locally or in S3 (no s3:ListBucket on EC2 role).",
+  "official_verdict": "FAIL",
+  "go_no_go": "NO_GO",
+  "identity": {
+    "aws_account_id": "080109295433",
+    "region": "ap-northeast-2",
+    "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+    "epoch": "aws-validation-observability-6h-20260923-20260923T005000Z-v5r1",
+    "run_id": "aws-validation-observability-6h-run-20260923T005000Z-v5r1",
+    "runtime_commit": "94b9293e24a39ede9929ffaf6245fb442a646e61",
+    "runtime_commit_source": "observability/latest.json software_sha field",
+    "runtime_tree": "005d75feed56606d70349143599c98f1c192c4f0",
+    "runtime_tree_source": "local repo tag — NOT_DIRECTLY_VERIFIED_FROM_EC2"
+  },
+  "launch": {
+    "launch_number": 12,
+    "consumed": true,
+    "t0_utc": "2026-09-23T00:50:00Z",
+    "observer_start_utc": "2026-09-23T00:50:02Z",
+    "supervisor_start_utc": "2026-09-23T00:50:04.183025Z",
+    "observer_start_source": "systemctl show ExecMainStartTimestamp"
+  },
+  "terminal": {
+    "collector_last_heartbeat_utc": "2026-09-23T06:50:22.734203Z",
+    "collector_last_event_utc": "2026-09-23T06:50:04.217912Z",
+    "collector_status_at_audit": "STALE",
+    "websocket_sessions_at_audit": {
+      "binance": "DISCONNECTED",
+      "bithumb": "DISCONNECTED",
+      "upbit": "DISCONNECTED"
+    },
+    "supervisor_service_active_state": "inactive",
+    "supervisor_service_sub_state": "dead",
+    "supervisor_service_result": "success",
+    "supervisor_exec_main_status": 0,
+    "supervisor_started_utc": "2026-09-23T00:50:04.183025Z",
+    "supervisor_exit_timestamp_monotonic": 0,
+    "supervisor_exit_utc": "NOT_VERIFIABLE (ExecMainExitTimestampMonotonic=0 on transient unit)",
+    "result_json_found": false,
+    "terminal_witness_found": false,
+    "full_duration_satisfied": "NOT_VERIFIABLE",
+    "forced_timeout": "NOT_VERIFIABLE",
+    "nrestarts": "NOT_VERIFIABLE",
+    "observer_active_at_audit": true,
+    "observer_pid": 1309899,
+    "observer_started_utc": "2026-09-23T00:50:02.664912Z",
+    "observer_errors": 0,
+    "writer_queue_depth": 0,
+    "writer_unpersisted_count": 0,
+    "writer_errors": 0,
+    "writer_status": "HEALTHY",
+    "archiver_status": "STALE",
+    "archiver_last_receipt": null,
+    "archiver_archive_errors": 0,
+    "archiver_upload_failures": 0
+  },
+  "qualifying_cohorts": {
+    "expected": 5,
+    "expected_cohorts": [
+      "2026-09-23_01",
+      "2026-09-23_02",
+      "2026-09-23_03",
+      "2026-09-23_04",
+      "2026-09-23_05",
+      "2026-09-23_06"
+    ],
+    "note": "T0=00:50 UTC. strictly_next_utc_hour(actual_start)=01:00 UTC. Qualifying window: 01:00-07:00 UTC = 6 cohort-hours. However, only cohort_05 receipt found in S3 archive-receipts/.",
+    "receipts_found_in_s3": 1,
+    "receipts_verified": [
+      {
+        "cohort": "2026-09-23_05",
+        "status": "FAIL",
+        "total_slots": 76,
+        "data_present_count": 48,
+        "failed_count": 28,
+        "verified_zero_count": 0,
+        "failed_feeds": [
+          "bithumb/trade/KRW-ADA",
+          "bithumb/trade/KRW-APT",
+          "bithumb/trade/KRW-AVAX",
+          "bithumb/trade/KRW-AXS",
+          "bithumb/trade/KRW-BCH",
+          "bithumb/trade/KRW-BTC",
+          "bithumb/trade/KRW-DOGE",
+          "bithumb/trade/KRW-DOT",
+          "bithumb/trade/KRW-ETC",
+          "bithumb/trade/KRW-ETH",
+          "bithumb/trade/KRW-LINK",
+          "bithumb/trade/KRW-MANA",
+          "bithumb/trade/KRW-NEAR",
+          "bithumb/trade/KRW-SAND",
+          "bithumb/trade/KRW-SHIB",
+          "bithumb/trade/KRW-SOL",
+          "bithumb/trade/KRW-SUI",
+          "bithumb/trade/KRW-TRX",
+          "bithumb/trade/KRW-XLM",
+          "bithumb/trade/KRW-XRP",
+          "upbit/orderbook/KRW-BTC",
+          "upbit/orderbook/KRW-ETH",
+          "upbit/orderbook/KRW-SOL",
+          "upbit/orderbook/KRW-XRP",
+          "upbit/trade/KRW-BTC",
+          "upbit/trade/KRW-ETH",
+          "upbit/trade/KRW-SOL",
+          "upbit/trade/KRW-XRP"
+        ],
+        "finalized_at_utc": "2026-09-23T06:10:15.511833Z",
+        "cohort_qualification": "QUALIFYING_FULL_HOUR",
+        "source": "S3 archive-receipts/ via EC2 aws s3 cp"
+      }
+    ],
+    "receipts_missing": [
+      "2026-09-23_01",
+      "2026-09-23_02",
+      "2026-09-23_03",
+      "2026-09-23_04",
+      "2026-09-23_06"
+    ],
+    "receipts_missing_evidence": "S3 GetObject returned 403 Forbidden for cohorts 01-04; cohort_06 not found. EC2 role does not have s3:ListBucket so absence of other receipts is inferred from individual 403 responses.",
+    "cohort_pass": 0,
+    "cohort_fail": 1,
+    "cohort_missing_receipt": 5,
+    "total_failed_feeds_in_verified_cohort": 28,
+    "s3_prefix_has_archive_receipts_folder": true,
+    "s3_prefix_has_observability_folder": true,
+    "s3_prefix_has_archive_failures_folder": true
+  },
+  "gate_evaluation": {
+    "G1_full_duration_satisfied": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "result.json not found locally (Permission denied). supervisor ExecMainExitTimestampMonotonic=0 on transient unit — cannot determine if 21600s elapsed. Collector heartbeat stops at 06:50:22Z (exactly T0+6h), consistent with natural end. No forced_timeout evidence found."
+    },
+    "G2_qualifying_cohorts_pass_30": {
+      "result": "FAIL",
+      "reason": "Applied as 'cohort_pass = expected_cohorts' for 6H. Expected 5 or 6 qualifying cohorts; 0 receipts are PASS. Only 1 receipt found, and it is FAIL."
+    },
+    "G3_qualifying_cohorts_fail_0": {
+      "result": "FAIL",
+      "reason": "cohort_fail >= 1. Cohort 2026-09-23_05 is FAIL with 28/76 feed failures."
+    },
+    "G4_nrestarts_0": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "result.json absent. Supervisor transient unit shows MainPID=0 but ExecMainStartTimestampMonotonic=0 — nrestarts cannot be directly verified."
+    },
+    "G5_service_result_success": {
+      "result": "PASS",
+      "reason": "Supervisor service Result=success, ExecMainStatus=0 from systemctl show."
+    },
+    "G6_exit_status_0": {
+      "result": "PASS",
+      "reason": "Supervisor ExecMainStatus=0."
+    },
+    "G7_receipt_immutability": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "Only one receipt found (cohort_05). It was read from S3 in a single snapshot — T1/T2 immutability protocol (second independent read at interval) was not executed. Receipt content is treated as current-snapshot only."
+    },
+    "G8_no_bithumb_conflicting_duplicate": {
+      "result": "NOT_VERIFIABLE_FROM_EVIDENCE",
+      "reason": "The single verified receipt (cohort_05) does not list BITHUMB_CONFLICTING_DUPLICATE as a failure classification. The 28 failed feeds are listed without explicit failure_reasons in the receipt JSON (unlike v4r1 which had failure_reasons: {BITHUMB_CONFLICTING_DUPLICATE: 76}). BITHUMB_CONFLICTING_DUPLICATE regression cannot be confirmed resolved — failure mode for cohort_05 feed failures is NOT STATED in the receipt."
+    },
+    "G9_no_single_session_finalizer_gap": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "Missing cohorts 01-04 and 06. Cohort_05 has 28 feed failures whose classification is not explicitly stated in the receipt. Cannot determine if SINGLE_SESSION_FINALIZER_GAP caused any failures."
+    },
+    "G10_terminal_receipt_epoch_match": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "result.json and terminal receipt not found. Cannot verify epoch match."
+    },
+    "G11_terminal_receipt_s3_uploaded": {
+      "result": "NOT_VERIFIABLE",
+      "reason": "terminal_receipt_s3_uploaded field not accessible without result.json."
+    }
+  },
+  "failure_analysis": {
+    "cohort_05_feed_failure_28_feeds": {
+      "observation": "28/76 feeds failed in cohort 2026-09-23_05. Specifically: all 20 Bithumb trade feeds failed (bithumb/trade/KRW-*) plus all 8 Upbit feeds (4 trade + 4 orderbook). Bithumb orderbook feeds (20x3=60 slots minus 20 trade = 40 orderbook) and Binance feeds (8) appear to have data.",
+      "inference": "Feed failures are concentrated on Bithumb trade and all Upbit feeds. This suggests a collection gap or finalization failure affecting these specific feed types, not a global conflict counter propagation (which would hit all 76 slots). The pattern differs from v4r1 which showed all 76 slots failing.",
+      "classification": "COLLECTION_OR_FINALIZATION_GAP (INFERRED, NOT_CONFIRMED from receipt alone)",
+      "v4r1_regression": "BITHUMB_CONFLICTING_DUPLICATE regression: CANNOT_CONFIRM_RESOLVED. The v4r1 pattern (all 76 slots fail due to global counter) is not observed here (only 28/76 fail). However, the exact failure_reasons are absent from the receipt.",
+      "new_failure_mode": "POSSIBLE — 20 Bithumb trade + 8 Upbit feeds failing while Bithumb orderbook and Binance pass is a pattern not seen in v4r1. Requires log analysis to determine root cause."
+    },
+    "missing_cohort_receipts": {
+      "observation": "5 of 6 expected qualifying cohort receipts are absent from S3 archive-receipts/. Only cohort_05 was successfully archived.",
+      "inference_1": "Archive scheduler may have failed after cohort_05, preventing cohorts 06 from being finalized.",
+      "inference_2": "Cohorts 01-04 receipt absence could mean: (a) S3 put failed for earlier cohorts, or (b) archiver was not running until cohort_05. The archiver.last_receipt=null in observability/latest.json contradicts receipt_05 existing in S3 — this suggests the observability snapshot was taken after supervisor shutdown and archiver was not yet aware, OR archiver state was reset.",
+      "archiver_stale_status": "archiver.status=STALE at 09:18 UTC (2.5h after run end) — archiver stopped after supervisor. last_receipt=null in observability but cohort_05 receipt exists in S3. This discrepancy is unexplained without log access."
+    },
+    "observability_archiver_discrepancy": {
+      "observation": "observability/latest.json at 09:18 UTC shows archiver.last_receipt=null, archiver.last_s3_put=null, archiver.last_compression=null, archiver.last_closed_cohort=null. Yet cohort_2026-09-23_05_finalized.json exists in S3 with finalized_at_utc=06:10:15Z.",
+      "interpretation": "This suggests observability/latest.json was last written after supervisor shutdown with a fresh/reset archiver state snapshot, and the archiver's in-memory state was not persisted. The receipt was written directly to S3 by the archive scheduler at 06:10:15Z before the shutdown. The observability tracker does not retain archiver history across restarts."
+    }
+  },
+  "root_causes": [
+    {
+      "id": "COHORT_FEED_FAILURES_28_FEEDS",
+      "status": "OBSERVED",
+      "effect": "28/76 feeds failed in cohort 2026-09-23_05 (all 20 Bithumb trade feeds + all 8 Upbit feeds). Exact failure classification absent from receipt — requires supervisor log analysis.",
+      "v4r1_relationship": "Different from v4r1 pattern. v4r1 had 76/76 slots failing due to BITHUMB_CONFLICTING_DUPLICATE. This cohort has 28/76 — suggests a different or partial failure mode."
+    },
+    {
+      "id": "MISSING_COHORT_RECEIPTS_5_OF_6",
+      "status": "OBSERVED",
+      "effect": "Only cohort_05 receipt archived. 5 other qualifying cohorts have no receipts. Either archive scheduler ran late/failed for most cohorts, or earlier cohorts are present in S3 under non-standard naming.",
+      "requires_investigation": "Access supervisor.log and archive-scheduler logs via root/bitcoin-trader user."
+    }
+  ],
+  "v4r1_regression_evaluation": {
+    "SOURCE_LOCAL_TIMESTAMP_FALSE_CONFLICT": {
+      "status": "CANNOT_CONFIRM_RESOLVED",
+      "reason": "Receipt does not report BITHUMB_CONFLICTING_DUPLICATE as failure_reasons. Pattern differs from v4r1. However, supervisor logs are inaccessible — cannot confirm dedup behavior was correct."
+    },
+    "GLOBAL_BITHUMB_CONFLICT_PROPAGATION": {
+      "status": "LIKELY_RESOLVED",
+      "reason": "v4r1 had 76/76 slots failing. This run has 28/76 failing in the one verified cohort — global propagation pattern not observed. Cannot confirm without log access."
+    },
+    "ACTIVE_ACTIVE_LOGICAL_UNION": {
+      "status": "CANNOT_VERIFY",
+      "reason": "No disconnect/reconnect log evidence accessible."
+    },
+    "SINGLE_SESSION_FINALIZER_GAP": {
+      "status": "CANNOT_VERIFY",
+      "reason": "Supervisor log inaccessible. Cannot determine whether reconnect events occurred and how they were classified."
+    }
+  },
+  "protected_state": {
+    "test_results_touched": false,
+    "aws_launches_used": "12/12",
+    "launch_12_consumed": true,
+    "fresh_30h_launched": false,
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "next_action": "FAIL is immutable. Do not retry 6H with remaining launch budget (none). Identify root cause of 28/76 cohort_05 feed failures and 5 missing cohort receipts from supervisor/archiver logs (requires bitcoin-trader user access). Determine if new failure mode requires code fix. Plan next 6H attempt requires: fix + tests + new authorization."
+}
