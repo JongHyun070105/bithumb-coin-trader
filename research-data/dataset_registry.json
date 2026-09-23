@@ -146,5 +146,32 @@
     "source_type": "jsonl_raw",
     "time_range_end": "2026-08-28T17:00:00Z",
     "time_range_start": "2026-08-25T15:00:00Z"
+  },
+  {
+    "allowed_for_candidate_selection": false,
+    "allowed_for_exploration": true,
+    "allowed_for_final_holdout": false,
+    "author_identity_verified": false,
+    "collector_epoch": null,
+    "dataset_id": "external-bitmex-trader-2018-2021",
+    "dataset_role": "EXTERNAL_EXPERT_BEHAVIOR_DATASET",
+    "description": "Publisher-attributed historical BitMEX execution and wallet data; raw files not imported.",
+    "exchange_universe": ["bitmex"],
+    "feed_universe": ["execution", "wallet"],
+    "immutable_source": true,
+    "known_data_quality_issues": ["Original files not yet imported or profiled"],
+    "known_integrity_status": "UNKNOWN",
+    "manifest_schema_version": "1",
+    "notes": "Publisher attribution is not independent author identity verification. Hypothesis generation only.",
+    "primary_use": "HYPOTHESIS_GENERATION_ONLY",
+    "provenance_confidence": "PARTIALLY_PROVEN",
+    "raw_schema_version": "UNOBSERVED",
+    "registered_at": "2026-09-23T00:00:00+00:00",
+    "source_class": "EXTERNAL_EXPERT_BEHAVIOR_DATASET",
+    "source_roots": [".external-research-data/external-bitmex-trader-2018-2021/raw/"],
+    "source_run_id": null,
+    "source_type": "external_csv_archive",
+    "time_range_end": null,
+    "time_range_start": null
   }
 ]
