@@ -1,6 +1,12 @@
 # Bithumb Coin Trader — 현재 프로젝트 상태 (Current Project Status)
 
 - **최종 갱신 일시**: 2026-09-21 01:19 KST (Fresh 30H-v2 보충)
+
+> ⚠️ **갱신 필요**: 아래 내용은 2026-09-21 기준이며 다음 사항이 반영되지 않음:
+> - Fresh 6H-v4r1 **FAIL** (2026-09-22, 원인: BITHUMB_CONFLICTING_DUPLICATE + 단일세션 GAP 오분류; 로컬 remediation 브랜치 `gpt/fresh-6h-v4r1-failure-fix-20260922` 존재, PR#16)
+> - Fresh 6H-v5r1 **실행 중** (~2026-09-23 15:50 KST 자연 종료 예정, runtime `94b9293`)
+> - 외부 BitMEX 전문가 데이터셋 레인 준비 완료 (PR#15, 가설 생성 전용)
+> - 전체 상태 갱신은 Fresh 6H-v5r1 터미널 감사 완료 후 수행 예정
 - **작성 주체**: 자율 연구 및 엔지니어링 디렉터 (Autonomous Research & Engineering Director)
 - **기준 Git 이력**: Fresh 30H-v2 봉인은 `develop`의 `9615be8`; 사후 감사는 별도 작업 브랜치에서 진행.
 - **원격 기준**: `origin/main`, `origin/develop`은 2026-09-21 감사 시점에 분기되어 있으며, 통합 PR은 별도 검토 대상.
