@@ -18,7 +18,11 @@ from bithumb_coin_trader.cross_market_collector import (
     MultiExchangeMicrostructureCollector,
     _ReconnectDecision,
 )
-from bithumb_coin_trader.bithumb_redundancy import BithumbRedundancyFilter
+from bithumb_coin_trader.bithumb_redundancy import (
+    BithumbRedundancyFilter,
+    RedundancyAudit,
+    RedundancyDecision,
+)
 from bithumb_coin_trader.feed_hour_coverage import FrozenFeedHourObservation, materialize_feed_hour_coverage
 from bithumb_coin_trader.session_evidence import (
     FeedIdentity, HeartbeatPolicy, SessionSegment, WriterHealthSnapshot,
@@ -505,6 +509,84 @@ def test_redundancy_cache_is_bounded_and_conflicts_fail_coverage() -> None:
     assert cache.size == 2
     assert cache.evicted == 1
     assert _coverage((_segment("B", "2026-09-19T12:00:00Z", None, _heartbeats(0, 3600)),), conflicts=1) == "FAILED"
+
+
+def test_trade_source_timestamp_drift_is_not_a_conflict() -> None:
+    cache = BithumbRedundancyFilter()
+    primary = {
+        "type": "trade", "code": "KRW-BTC", "sequential_id": 7,
+        "trade_timestamp": 1_790_049_004_651, "timestamp": 1_790_049_004_912,
+        "trade_price": 100,
+    }
+    secondary = dict(primary, timestamp=1_790_049_004_910)
+
+    assert cache.observe("trade", "KRW-BTC", primary, "primary", 0).disposition == "canonical"
+    timestamp_drift = cache.observe("trade", "KRW-BTC", secondary, "secondary", 1)
+    assert timestamp_drift.disposition == "duplicate"
+    assert timestamp_drift.equivalence == "trade_timestamp_ignored"
+    assert timestamp_drift.payload_sha256 != timestamp_drift.canonical_sha256
+
+    changed_trade = dict(secondary, trade_price=101)
+    assert cache.observe("trade", "KRW-BTC", changed_trade, "secondary", 2).disposition == "conflict"
+
+    changed_quantity = dict(secondary, trade_volume="0.002")
+    assert cache.observe("trade", "KRW-BTC", changed_quantity, "secondary", 3).disposition == "conflict"
+
+    distinct_trade = dict(secondary, sequential_id=8)
+    assert cache.observe("trade", "KRW-BTC", distinct_trade, "secondary", 4).disposition == "canonical"
+
+
+def test_ticker_timestamp_collision_is_two_distinct_updates() -> None:
+    """The historical KRW-XRP pair shared timestamp but had different ticker state."""
+    cache = BithumbRedundancyFilter()
+    first = {
+        "type": "ticker", "code": "KRW-XRP", "timestamp": 1_790_055_134_410,
+        "trade_timestamp": 1_790_055_134_246, "trade_volume": 42.6,
+        "acc_trade_volume_24h": 12_345.6,
+    }
+    second = dict(
+        first,
+        trade_timestamp=1_790_055_134_156,
+        trade_volume=51.5,
+    )
+
+    assert cache.observe("ticker", "KRW-XRP", first, "primary", 0).disposition == "canonical"
+    assert cache.observe("ticker", "KRW-XRP", second, "secondary", 1).disposition == "canonical"
+
+
+def test_conflict_uses_receive_time_for_cohort_attribution() -> None:
+    async def scenario() -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            after_boundary = datetime(2026, 9, 22, 5, 0, 1, tzinfo=timezone.utc)
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"], storage_base_dir=Path(tmp) / "raw",
+                enable_binance=False, enable_upbit=False, utc_now=lambda: after_boundary,
+            )
+            decision = RedundancyDecision(
+                disposition="conflict",
+                identity="trade-7",
+                payload_sha256="b" * 64,
+                canonical_sha256="a" * 64,
+                canonical_source="primary",
+                equivalence="conflict",
+            )
+            received_before_boundary = datetime(2026, 9, 22, 4, 59, 59, tzinfo=timezone.utc)
+            await collector._process_writer_item(
+                RedundancyAudit(
+                    decision=decision,
+                    source="secondary",
+                    received_at=received_before_boundary,
+                    stream="trade",
+                    market="KRW-BTC",
+                    raw_bytes=b"{}",
+                )
+            )
+            feed = FeedIdentity("bithumb", "trade", "KRW-BTC")
+            conflicts = collector.coverage_tracker._cohort_feed_conflicts
+            assert conflicts[("2026-09-22_04", feed)] == 1
+            assert ("2026-09-22_05", feed) not in conflicts
+
+    asyncio.run(scenario())
 
 
 def test_cancelled_canonical_claim_can_be_reclaimed_and_is_accounted() -> None:

@@ -183,15 +183,20 @@ class RawMicrostructureStorage:
         identity: str,
         payload_sha256: str,
         canonical_sha256: str,
+        equivalence: str,
         received_at: datetime,
     ) -> Path:
-        """Persist provenance for a discarded exact copy; conflicts use quarantine."""
+        """Persist provenance for a discarded equivalent copy; conflicts use quarantine."""
         day = received_at.astimezone(timezone.utc).strftime("%Y-%m-%d")
         directory = self.quarantine_dir / day
         directory.mkdir(parents=True, exist_ok=True)
         path = directory / f"bithumb_redundancy_{day}.jsonl"
         record = {
-            "disposition": "EXACT_DUPLICATE", "identity": identity,
+            "disposition": (
+                "EXACT_DUPLICATE" if equivalence == "exact" else "SEMANTIC_DUPLICATE"
+            ),
+            "equivalence": equivalence,
+            "identity": identity,
             "source_connection_id": source,
             "canonical_source_connection_id": canonical_source,
             "payload_sha256": payload_sha256,

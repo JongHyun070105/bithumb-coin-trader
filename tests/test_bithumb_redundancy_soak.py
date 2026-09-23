@@ -15,3 +15,16 @@ def test_accelerated_soak_model_is_bounded() -> None:
     assert report["task_leak_count"] == 0
     assert report["writer_errors"] == 0
     assert report["unpersisted_events"] == 0
+    assert report["timestamp_jitter_trade_duplicates_observed"] == report[
+        "timestamp_jitter_trade_duplicates_expected"
+    ]
+    assert report["semantic_trade_conflicts_observed"] == report[
+        "semantic_trade_conflicts_expected"
+    ]
+    assert report["single_source_outage_seconds"] > 0
+    assert report["dual_source_gap_seconds_observed"] > 0
+    assert report["dual_source_gap_seconds_observed"] == report[
+        "dual_source_gap_seconds_expected"
+    ]
+    assert report["dedup_cache_entries_peak"] >= report["dedup_cache_entries_final"]
+    assert report["cohort_boundaries_crossed"] == 0

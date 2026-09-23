@@ -1,10 +1,50 @@
-# Fresh 6H next-run authorization readiness
+# Fresh 6H next-run readiness after v4r1
 
 ## Decision
 
 `FRESH_6H_READINESS = GO_FOR_AUTHORIZATION`
 
-This decision qualifies one frozen **local** candidate for human review and a possible future Fresh 6H authorization. It is not an authorization, cloud validation, production qualification, or change to the failed historical result.
+Fresh 6H-v4r1 remains an immutable official `FAIL`. A new local remediation candidate now fixes both validation-semantics defects, passes the complete local gate, and is ready for separate human authorization of a new Fresh 6H. This decision does not authorize timer arming or AWS launch.
+
+- `FRESH_6H_V4R1_TECHNICAL_GATE = FAIL`
+- `RECEIPTS_PRESENT = 5 / 5`
+- `COHORT_PASS = 0 / 5`
+- `RECEIPT_IMMUTABILITY = 5 / 5`
+- `SCHEDULER_HOL = PASS`
+- `DEFECT_A = FIXED_LOCALLY`
+- `DEFECT_B = FIXED_LOCALLY`
+- `KRW_XRP_TICKER_CASE = IDENTITY_COLLISION`
+- `HISTORICAL_REPLAY = PASS`
+- `TRUE_DUAL_SOURCE_GAP_DETECTION = PASS`
+- `LAUNCH_12_AUTHORIZED = NO`
+- `FRESH_30H_V3_LAUNCHED = NO`
+- `EARLIER_PARTIAL_REMEDIATION_COMMIT = a4fb7e5391fa370856160d57f95ac63c51764d29`
+- `FINAL_CANDIDATE_COMMIT = enclosing candidate Git revision; reported after freeze`
+- `LOCAL_REMEDIATION_AWS_VALIDATED = NO`
+
+The candidate commit includes the earlier duplicate-scoping remediation and the final union-aware validator fix. The historical v4r1 runtime, receipts, terminal audit, and sealed evidence were not changed.
+
+## Current remediation verification ledger
+
+| Gate | Result | Evidence and limit |
+| --- | --- | --- |
+| Focused reliability tests | PASS | `135 passed` across coverage, finalizer, collector, fault injection, historical replay, and redundancy soak. |
+| Full pytest | PASS | `1663 passed, 2 skipped in 165.70s`; zero failures on the final run. |
+| Changed-file Pyright | PASS | `0 errors, 0 warnings, 0 informations` for every Python file changed from runtime `525a7d3`, including the replay test. |
+| Compileall | PASS | `.venv/bin/python -m compileall -q src/bithumb_coin_trader scripts tests`. |
+| Diff check | PASS | `git diff --check`. |
+| Historical semantic replay | PASS | `_04`, `_05`, `_06`, `_07`, and `_08` failure patterns replay with corrected classification; immutable historical receipts remain `FAIL`. |
+| Active-active logical union | PASS | Single-source reconnects remain physical evidence without a logical gap; a true uncovered union interval still emits `COLLECTION_GAP`. |
+| Conflict isolation | PASS | Conflicts are scoped by exchange, market, stream, and receive-time UTC cohort; Binance, Upbit, unrelated Bithumb feeds, and adjacent cohorts remain clean. |
+| Local accelerated soak | PASS | 7,200 virtual seconds; timestamp-jitter trade duplicates `133433/133433`, semantic conflicts `7/7`, dual-source gaps `48/48`, single-source outage seconds 480, one UTC cohort boundary. |
+| Resource trend | PASS within model | Tasks `1 -> 5 -> 1`, FD `7 -> 7 -> 7`, RSS peak growth 7,569,408 bytes, queue peak/final `2048/0`, cache peak/final `10860/10680`, writer errors 0, unpersisted 0. Synthetic local evidence only. |
+| Protected test results | PASS | `test-results/.last-run.json`: 45 bytes, mtime `2026-09-08T14:33:39+0900`, SHA-256 `e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea`; unchanged and unstaged. |
+
+The new soak evidence is `reliability-artifacts/local-validation/bithumb-redundancy-soak-20260922-v4r1-remediation.json`, SHA-256 `4c994db5c459e3bb910f42b8ca2f8e6a1928c57c49789554c25d19bfa48d64f3`. It is an accelerated deterministic model, not cloud or exchange qualification.
+
+## Historical prelaunch readiness baseline
+
+The following section is retained as the historical state that authorized v4r1. It no longer describes current readiness.
 
 - `LOCAL_VALIDATION_CANDIDATE = YES`
 - `VALIDATION_CANDIDATE_COMMIT = 525a7d339260481e63e36f1a3948ce08eb15d9be`
@@ -38,7 +78,7 @@ The review found and fixed these correctness-level defects:
 
 PR #13 was still open and draft at `e8e6811e4838c001ce8c606c2796b4e194ef92f8` when checked on 2026-09-21. GitHub reported no reviews, issue comments, inline review comments, or unresolved correctness-level review threads on PR #13.
 
-## Architecture and protocol decision
+## Historical architecture and protocol decision
 
 `REDUNDANCY_DECISION = ACTIVE_ACTIVE`
 
@@ -46,11 +86,11 @@ Two physical public Bithumb WebSocket connections subscribe to the same 20 marke
 
 The selected policy and alternatives are detailed in [BITHUMB_REDUNDANCY_DESIGN_20260921.md](BITHUMB_REDUNDANCY_DESIGN_20260921.md). The official documentation checked on 2026-09-21 states a limit of 10 WebSocket connection requests per IP per second, describes multi-type requests and ping/pong/idle behavior, and documents trade and orderbook identity fields. The collector serializes attempts to at most four per second and uses exactly two connections. The public pages do not state a simultaneous connection cap, per-connection subscription cap, or duplicate public-subscription rule. This bounded design does not infer an unlimited allowance; exchange acceptance remains a future authorized-run observation.
 
-Deduplication is first-arrival canonical with no lookahead. Trade uses `sequential_id`; orderbook/ticker use exchange timestamp plus stream type; absent native fields fall back to canonical payload SHA-256. Exact duplicates persist one canonical raw record plus compact source provenance. Same nominal identity with a different payload hash keeps the first raw record, quarantines the conflicting copy, increments `conflicting_duplicate_frames`, and makes coverage fail.
+Deduplication is first-arrival canonical with no lookahead. Trade uses `sequential_id`; its comparison excludes only the top-level source-local `timestamp`, while every other current or future payload field remains semantic and fail-closed. Orderbook and ticker use the complete canonical payload SHA-256 because their schemas do not document a unique update identity. Exact duplicates persist one canonical raw record plus compact source provenance. A semantic difference for the same trade identity keeps the first raw record, quarantines the conflicting copy, increments `conflicting_duplicate_frames`, and fails only that logical feed's receive-time UTC cohort.
 
 Established sessions with a valid frame and at least 30 seconds of life get one bounded 50–200 ms retry; initial or short-lived failures use exponential backoff from about one second to 30 seconds. All attempts share the four-per-second limiter. Receive cancellation is safe for installed `websockets 17.1`; close uses its one-second `close_timeout`, an outer two-second bound, and transport abort only after timeout or close exception.
 
-## Local verification ledger
+## Historical v4r1 prelaunch verification ledger
 
 | Gate | Result | Evidence and limit |
 | --- | --- | --- |
@@ -81,4 +121,4 @@ The soak evidence is stored at `reliability-artifacts/local-validation/bithumb-r
 
 ## Next action
 
-The next single action is human review of candidate `525a7d339260481e63e36f1a3948ce08eb15d9be` and this readiness decision. If accepted, issue a new, explicit authorization for one Fresh 6H using that exact candidate. Do not launch from this document. Fresh 30H remains gated on a complete Fresh 6H PASS.
+The next single action is human review of the frozen remediation commit and tree reported with this document's delivery. If accepted, issue a new, explicit authorization for one Fresh 6H using that exact candidate and newly sealed launch artifacts. Do not arm or launch from this document. Fresh 30H remains gated on a complete Fresh 6H PASS.
