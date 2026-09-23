@@ -362,6 +362,10 @@ def build_and_export_dataset(
     - Full cryptographic provenance (P1, P3, P9)
     - Clock key missing check (P7.2)
     """
+    from .research_infra.registry import EXTERNAL_BITMEX_DATASET_ID
+
+    if dataset_id == EXTERNAL_BITMEX_DATASET_ID or source_epoch_id == EXTERNAL_BITMEX_DATASET_ID:
+        raise ValueError("External expert behavior data cannot be partitioned as prospective market data")
     dq_evidence.validate()
 
     if records:

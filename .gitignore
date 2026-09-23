@@ -34,3 +34,6 @@ terraform.tfvars
 
 # SDD workspace
 .superpowers/
+
+# Original external research downloads and derived local profiles.
+.external-research-data/

@@ -691,6 +691,12 @@ class GovernedExperimentRunner:
         is_final_verification: bool = False,  # DEPRECATED: ignored, kept for compat
     ) -> str:
         """P7 FIX: Guards dataset access via lifecycle state machine with cross-process locking."""
+        from .research_infra.registry import EXTERNAL_BITMEX_DATASET_ID
+
+        if dataset_name == EXTERNAL_BITMEX_DATASET_ID:
+            raise ExperimentGatingError(
+                "External expert behavior data is hypothesis-generation only and cannot enter governed experiments"
+            )
         if role == DatasetRole.HOLDOUT:
             with _exclusive_lock(self._lock_file):
                 self._load_cycle_state()
