@@ -16,9 +16,12 @@ from typing import Any, Literal
 
 
 BITHUMB_TRADE_IDENTITY_FIELD = "sequential_id"
+# Envelope/transport fields that can differ between concurrent sockets (e.g.
+# arrival socket timestamp, or SNAPSHOT on connection subscription vs REALTIME
+# broadcast) do not alter semantic trade truth (price, volume, side, timestamp).
 # Every other top-level trade field, including unknown future fields, remains
 # semantic and fail-closed for two copies of the same trade identity.
-BITHUMB_TRADE_NON_SEMANTIC_FIELDS = frozenset({"timestamp"})
+BITHUMB_TRADE_NON_SEMANTIC_FIELDS = frozenset({"timestamp", "stream_type"})
 
 
 @dataclass(frozen=True)

@@ -1038,8 +1038,14 @@ def orchestrate_closed_hour_archive(
                 cohort_report_path, report_payload, v3_target_cohort.key
             )
 
-            # Defect D: Remote Durability of Failure Evidence
+            # Remote durability of cohort receipts and failure evidence
             archive_errors_list = [f"{r.coverage.feed_identity}: {list(r.failure_reason_codes)}" for r in failed_slots]
+            receipt_rel_key = f"{prefix}/archive-receipts/cohort_{v3_target_cohort.key}_finalized.json"
+            try:
+                _upload_json_to_store(store, receipt_rel_key, final_report_data, receipt_root)
+            except Exception as exc:
+                archive_errors_list.append(f"FAILED_REMOTE_RECEIPT_UPLOAD: {exc}")
+
             if status == "FAIL":
                 failure_payload = {
                     "schema_version": 1,
@@ -1058,12 +1064,8 @@ def orchestrate_closed_hour_archive(
                     "captured_at_utc": current_now.isoformat(),
                 }
                 failure_rel_key = f"{prefix}/archive-failures/{v3_target_cohort.key}/failure_{v3_target_cohort.key}.json"
-                receipt_rel_key = f"{prefix}/archive-receipts/cohort_{v3_target_cohort.key}_finalized.json"
-                failure_bytes = json.dumps(failure_payload, indent=2).encode("utf-8")
-                receipt_bytes = json.dumps(final_report_data, indent=2).encode("utf-8")
                 try:
                     _upload_json_to_store(store, failure_rel_key, failure_payload, receipt_root)
-                    _upload_json_to_store(store, receipt_rel_key, final_report_data, receipt_root)
                 except Exception as exc:
                     archive_errors_list.append(f"FAILED_REMOTE_FAILURE_UPLOAD: {exc}")
 
