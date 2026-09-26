@@ -1,0 +1,16 @@
+{
+  "collector_run_id": "aws-validation-observability-30h-run-20260919T095000Z-v2",
+  "current_raw_bytes_read": 27101085993,
+  "current_raw_files_opened": 2354,
+  "error_type": null,
+  "final_manifest_flush_observed": true,
+  "generated_manifest_count": 2354,
+  "historical_raw_bytes_read": 0,
+  "historical_raw_files_opened": 0,
+  "manifest_count": 2522,
+  "phase": "COMPLETE",
+  "process_id": 997492,
+  "reused_manifest_count": 168,
+  "schema_version": 2,
+  "written_at": "2026-09-20T15:50:24.818667+00:00"
+}

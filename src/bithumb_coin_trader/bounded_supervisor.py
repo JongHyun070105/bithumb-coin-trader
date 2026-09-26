@@ -21,6 +21,28 @@ if TYPE_CHECKING:
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
+def sd_notify(state: str) -> bool:
+    """Send state notification to systemd via NOTIFY_SOCKET or systemd-notify CLI."""
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return False
+    try:
+        import socket
+
+        addr = "\0" + notify_socket[1:] if notify_socket.startswith("@") else notify_socket
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as sock:
+            sock.sendto(state.encode("utf-8"), addr)
+        return True
+    except Exception:
+        try:
+            import subprocess
+
+            subprocess.run(["systemd-notify", state], check=False, timeout=2.0)
+            return True
+        except Exception:
+            return False
+
+
 @dataclass(frozen=True)
 class V3ScheduleConfig:
     required_qualifying_full_hours: int
@@ -105,6 +127,8 @@ class TransientLaunchConfig:
     systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
     maximum_collection_window_seconds: int | None = None
+    exec_stop_post_script: str | None = None
+    data_dir: Path | None = None
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
@@ -122,8 +146,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         prefix = "bitcoin-trader-30h"
     else:
         # Legacy duration path:
-        if config.collection_duration_seconds not in (2700, 7200, 108000, 259200):
-            raise ValueError("production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds")
+        if config.collection_duration_seconds not in (2700, 5400, 7200, 10800, 21600, 108000, 259200):
+            raise ValueError("production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds")
         if config.supervisor_hard_ceiling_seconds < (
             config.collection_duration_seconds + config.finalization_timeout_seconds
         ):
@@ -132,29 +156,45 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             prefix = "bitcoin-trader-72h-soak"
         elif config.collection_duration_seconds == 108000:
             prefix = "bitcoin-trader-30h"
+        elif config.collection_duration_seconds == 21600:
+            prefix = "bitcoin-trader-6h"
+        elif config.collection_duration_seconds == 10800:
+            prefix = "bitcoin-trader-3h"
         elif config.collection_duration_seconds == 7200:
             prefix = "bitcoin-trader-120m"
+        elif config.collection_duration_seconds == 5400:
+            prefix = "bitcoin-trader-90m"
         else:
             prefix = "bitcoin-trader-short-smoke"
     if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
         raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     unit_name = f"{prefix}-{config.run_id}.service"
-    return [
+    cmd = [
         "systemd-run",
         f"--unit={unit_name}",
         "--no-block",
         "--collect",
-        "--service-type=exec",
+        "--service-type=notify",
         "--uid=bitcoin-trader",
         f"--setenv=PYTHONPATH={config.pythonpath}",
         "--property=Restart=no",
         "--property=KillMode=mixed",
         f"--property=RuntimeMaxSec={config.systemd_runtime_max_seconds}s",
         "--property=TimeoutStopSec=55s",
+        "--property=WatchdogSec=60s",
+        "--property=NotifyAccess=main",
         f"--working-directory={config.workdir}",
-        "--",
-        *config.supervisor_command,
     ]
+    if config.exec_stop_post_script is not None:
+        effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
+        cmd.append(
+            f"--property=ExecStopPost={config.exec_stop_post_script}"
+            f" --data-dir={effective_data_dir}"
+            f" --epoch={prefix}"
+            f" --run-id={config.run_id}"
+        )
+    cmd.extend(["--", *config.supervisor_command])
+    return cmd
 
 
 def _utc_iso() -> str:
@@ -341,6 +381,8 @@ class BoundedSupervisor:
                     archive_scheduler_pid = archive_scheduler.pid
                     archive_scheduler_started = True
 
+                sd_notify("READY=1")
+
                 next_publish_at = started_monotonic
                 while self._collector.poll() is None:
                     now = time.monotonic()
@@ -376,6 +418,8 @@ class BoundedSupervisor:
                         archive_scheduler_exit = archive_scheduler.returncode
                         if archive_scheduler_exit != 0 and archive_scheduler_failure is None:
                             archive_scheduler_failure = archive_scheduler_exit
+
+                    sd_notify("WATCHDOG=1")
 
                     time.sleep(cfg.poll_interval_seconds)
 

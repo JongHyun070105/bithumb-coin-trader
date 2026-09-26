@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "cohort": "2026-09-19_11",
+  "cohort_qualification": "QUALIFYING_FULL_HOUR",
+  "total_slots": 76,
+  "data_present_count": 76,
+  "verified_zero_count": 0,
+  "failed_count": 0,
+  "failed_feeds": [],
+  "finalized_at_utc": "2026-09-19T12:10:10.827950+00:00"
+}

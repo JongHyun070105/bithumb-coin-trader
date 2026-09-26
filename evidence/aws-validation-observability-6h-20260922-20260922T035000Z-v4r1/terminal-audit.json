@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "audit_observed_at_utc": "2026-09-22T10:15:09Z",
+  "official_verdict": "FAIL",
+  "go_no_go": "NO_GO",
+  "identity": {
+    "aws_account_id": "080109295433",
+    "aws_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+    "region": "ap-northeast-2",
+    "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+    "epoch": "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1",
+    "run_id": "aws-validation-observability-6h-run-20260922T035000Z-v4r1",
+    "runtime_commit": "525a7d339260481e63e36f1a3948ce08eb15d9be",
+    "runtime_tree": "08c89c63e0a5de8e94450a2715ea19664211b091"
+  },
+  "launch": {
+    "launch_number": 11,
+    "consumed": true,
+    "t0_utc": "2026-09-22T03:50:00Z",
+    "launch_command_submitted_at_utc": "2026-09-22T03:50:02Z",
+    "collector_started_at_utc": "2026-09-22T03:50:04.055728+00:00",
+    "host_timer_trigger_delay_seconds": 2,
+    "collector_start_delay_seconds": 4.055728,
+    "launch_guard_sha256": "c2b27c49647629d7682a78e9491902b875fe13c4a9e87bb5c57ca1dd2d6b53f0",
+    "prelaunch_result": "LAUNCH_COMMAND_COMPLETED",
+    "prelaunch_reason": "launch_ec2_returned_zero",
+    "s3_emptiness_guard_mode": "PROVISIONER_PREARM_ATTESTATION",
+    "prearm_s3_empty_attestation": "PASS",
+    "t0_s3_empty_directly_verified": false,
+    "residual_toctou_risk": "ACKNOWLEDGED"
+  },
+  "terminal": {
+    "ended_at_utc": "2026-09-22T09:50:28.056316+00:00",
+    "terminal_witness_recorded_at_utc": "2026-09-22T09:50:28.292927+00:00",
+    "terminal_classification": "CLEAN_SUCCESS",
+    "service_result": "success",
+    "exit_status": 0,
+    "configured_duration_seconds": 21600,
+    "elapsed_seconds": 21624.000308,
+    "full_duration_satisfied": true,
+    "forced_timeout": false,
+    "collector_exit_code": 0,
+    "archive_scheduler_exit_code": 0,
+    "publisher_exit_code": 0,
+    "final_metrics_valid": true,
+    "final_manifest_flush_observed": true,
+    "nrestarts": 0,
+    "terminal_receipt_sha256": "86b8ce12ef41eb420112df69de11ded942fbf9492272aacf76db363c2600de61",
+    "result_sha256": "eb1353161d0d4203c59f3a0c12f521868a856f2ff5a4f5ff300f512b96cd63c3",
+    "lifecycle_sha256": "da24ea8c65bdfc17d440d8b097358b16a6bffcac7284b17a9084b8d457968910",
+    "terminal_receipt_epoch": "bitcoin-trader-6h",
+    "terminal_receipt_expected_epoch": "aws-validation-observability-6h-20260922-20260922T035000Z-v4r1",
+    "terminal_receipt_epoch_match": false,
+    "terminal_receipt_s3_uploaded": false,
+    "collector_supervisor_scheduler_remaining": 0,
+    "runtime_observer_remaining": {
+      "active": true,
+      "pid": 1227924,
+      "unit": "bitcoin-trader-obs-aws-validation-observability-6h-run-20260922T035000Z-v4r1.service",
+      "nrestarts": 0,
+      "action": "LEFT_UNCHANGED_BY_READ_ONLY_AUDIT"
+    }
+  },
+  "final_health": {
+    "queue_size": 0,
+    "unpersisted_event_count": 0,
+    "writer_fail_closed": false,
+    "fatal_writer_error_type": null,
+    "writer_errors": {
+      "binance": 0,
+      "bithumb": 0,
+      "upbit": 0
+    },
+    "queue_dropped_events": {
+      "binance": 0,
+      "bithumb": 0,
+      "upbit": 0
+    },
+    "rss_bytes": 164765696,
+    "fd_count": 10,
+    "disk_free_bytes": 37470744576,
+    "primary_disconnects": 1,
+    "secondary_disconnects": 0,
+    "single_source_failures_without_logical_gap": 1,
+    "dual_source_gaps": 0,
+    "redundant_frames_received": 1598189,
+    "deduplicated_frames": 1560356,
+    "conflicting_duplicates": 37833,
+    "dedup_window_evictions": 1660153,
+    "dedup_cache_final_entries": 10708,
+    "dedup_cache_peak": "NOT_VERIFIABLE",
+    "dedup_cache_max_observed_entries": 13192
+  },
+  "qualifying_cohorts": {
+    "expected": 5,
+    "receipts_present": 5,
+    "cohort_pass": 0,
+    "cohort_fail": 5,
+    "receipt_immutability_pass": 5,
+    "scheduler_hol": "PASS",
+    "receipt_hash_complete_sha256": "6965001398bd52bd91972731c191207f43c7532ef99421a02efebd97ee29c3e1",
+    "total_events": 4403250,
+    "events_by_exchange": {
+      "binance": 2427281,
+      "bithumb": 1394187,
+      "upbit": 581782
+    },
+    "raw_files_present_nonempty": 380,
+    "raw_files_expected": 380,
+    "raw_bytes": 5986492614,
+    "coverage_files_present": 380,
+    "coverage_files_expected": 380,
+    "cohorts": {
+      "2026-09-22_04": {
+        "status": "FAIL",
+        "failed_slots": 76,
+        "failure_reasons": {"BITHUMB_CONFLICTING_DUPLICATE": 76},
+        "event_count": 941976,
+        "receipt_sha256": "986fd6872ff6223b60a02eec8322d871ac8b8d9d43aa6a5a6c30366062d9186f",
+        "t1_t2_immutable": true,
+        "s3": {"objects": 154, "nonzero_objects": 154, "raw": 76, "coverage": 76, "other": 2, "bytes": 41209856}
+      },
+      "2026-09-22_05": {
+        "status": "FAIL",
+        "failed_slots": 76,
+        "failure_reasons": {"BITHUMB_CONFLICTING_DUPLICATE": 76},
+        "event_count": 962296,
+        "receipt_sha256": "acfc35a7acb7dbc7209ce4f8cc12312bbb306c0819f1ee584821960365de87c1",
+        "t1_t2_immutable": true,
+        "s3": {"objects": 154, "nonzero_objects": 154, "raw": 76, "coverage": 76, "other": 2, "bytes": 42005450}
+      },
+      "2026-09-22_06": {
+        "status": "FAIL",
+        "failed_slots": 76,
+        "failure_reasons": {"BITHUMB_CONFLICTING_DUPLICATE": 76, "COLLECTION_GAP": 60},
+        "event_count": 723864,
+        "receipt_sha256": "a551e853b2bac1fab5483710ca8751bafea7416c3bf9a41a9bf46379c9e6c36a",
+        "t1_t2_immutable": true,
+        "s3": {"objects": 94, "nonzero_objects": 94, "raw": 16, "coverage": 76, "other": 2, "bytes": 18536254},
+        "local_raw_files_present_nonempty": 76,
+        "s3_raw_missing_due_to_failed_bithumb_finalization": 60
+      },
+      "2026-09-22_07": {
+        "status": "FAIL",
+        "failed_slots": 76,
+        "failure_reasons": {"BITHUMB_CONFLICTING_DUPLICATE": 76},
+        "event_count": 793655,
+        "receipt_sha256": "7f4756c4cc506731b7031d5d8e7d724850fcf831329be0209f97fb773999ec23",
+        "t1_t2_immutable": true,
+        "s3": {"objects": 154, "nonzero_objects": 154, "raw": 76, "coverage": 76, "other": 2, "bytes": 33849052}
+      },
+      "2026-09-22_08": {
+        "status": "FAIL",
+        "failed_slots": 76,
+        "failure_reasons": {"BITHUMB_CONFLICTING_DUPLICATE": 76},
+        "event_count": 981459,
+        "receipt_sha256": "08d2ef27a33374c56c53c209fd6db0561f296fd8387a73eaefdf09f81e553cce",
+        "t1_t2_immutable": true,
+        "s3": {"objects": 154, "nonzero_objects": 154, "raw": 76, "coverage": 76, "other": 2, "bytes": 43276837}
+      }
+    }
+  },
+  "root_causes": [
+    {
+      "id": "GLOBAL_BITHUMB_CONFLICT_PROPAGATION",
+      "status": "CONFIRMED",
+      "effect": "A cumulative Bithumb conflict counter was copied into every feed coverage snapshot, causing all 76 logical slots to fail in every qualifying cohort."
+    },
+    {
+      "id": "SOURCE_LOCAL_TIMESTAMP_FALSE_CONFLICT",
+      "status": "CONFIRMED",
+      "effect": "Active-active copies with the same native identity and trade fields differed only in top-level arrival timestamp for nearly all conflicts and were incorrectly classified as conflicting payloads."
+    },
+    {
+      "id": "SINGLE_SESSION_FINALIZER_GAP_CLASSIFICATION",
+      "status": "CONFIRMED",
+      "effect": "A primary Bithumb reconnect at 06:54:34Z caused COLLECTION_GAP on all 60 Bithumb slots in cohort _06 even though the secondary session preserved logical union continuity."
+    }
+  ],
+  "local_remediation": {
+    "branch": "gpt/fresh-6h-v4r1-failure-fix-20260922",
+    "commit": "a4fb7e5391fa370856160d57f95ac63c51764d29",
+    "status": "LOCAL_ONLY_NOT_AWS_VALIDATED",
+    "covered": ["SOURCE_LOCAL_TIMESTAMP_FALSE_CONFLICT", "GLOBAL_BITHUMB_CONFLICT_PROPAGATION"],
+    "unresolved": ["SINGLE_SESSION_FINALIZER_GAP_CLASSIFICATION"]
+  },
+  "future_launch_control_findings": [
+    "Timer arming creates the timer before all post-creation checks and lacks rollback on later failure.",
+    "Receipt hash observer does not validate receipt payload epoch and run_id before recording T1.",
+    "Host launch guard checks pre-arm attestation timestamp presence but does not enforce bounded freshness.",
+    "Terminal receipt uses the generic top-level epoch bitcoin-trader-6h instead of the sealed run epoch and was not uploaded to S3."
+  ],
+  "protected_state": {
+    "test_results_touched": false,
+    "aws_launches_used": "11/12",
+    "launch_12_unlocked": false,
+    "fresh_30h_launched": false,
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "next_single_best_action": "Keep launch #12 locked. Fix the union-aware finalizer gap classification and the three launch-control findings, include the existing duplicate-scoping remediation, run the complete local gate, freeze a new candidate, then request separate authorization for another Fresh 6H."
+}
