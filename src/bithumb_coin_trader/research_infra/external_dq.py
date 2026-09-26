@@ -2,13 +2,14 @@
 
 Measures, validates, and classifies:
 - Row counts, unique execution IDs, duplicates
-- Timestamp nulls and raw file ordering reversals
-- Order ID integrity (nulls and system placeholders)
-- Symbol, execution type, order type, and maker/taker distributions
-- Price, quantity, and fee anomaly detection
+- Timestamp nulls, malformed timestamps, and raw file ordering reversals
+- Order ID integrity (nulls and placeholder checks for Trade)
+- Decreasing cumqty checks within orders
+- Symbol, execution type, order type, side, and maker/taker distributions
+- Price, quantity, fee, and side anomaly detection
 - Referential consistency: (cumqty + leavesqty == orderqty)
-- Wallet blank row audit, event distributions, and balance continuity
-- Produces explicit PASS / WARNING / FAIL / NOT_APPLICABLE status per rule.
+- Wallet blank row audit, malformed amount, currency validity, balance nulls, and balance continuity
+- Produces explicit PASS / WARNING / FAIL / NOT_APPLICABLE status per rule with fail-closed semantics.
 """
 
 from __future__ import annotations
@@ -26,10 +27,16 @@ from bithumb_coin_trader.research_infra.external_expert import (
     _timestamp,
 )
 
+VALID_EXEC_TYPES = {"Trade", "Funding", "Settlement"}
+VALID_SIDES = {"Buy", "Sell", ""}
+VALID_LIQUIDITY_FLAGS = {"AddedLiquidity", "RemovedLiquidity", ""}
+VALID_WALLET_CURRENCIES = {"XBt", "USD", "USDT"}
+PLACEHOLDER_ORDER_ID = "00000000-0000-0000-0000-000000000000"
+
 
 class DataQualityAuditor:
     def __init__(self, raw_dir: Path) -> None:
-        self.raw_dir = raw_dir
+        self.raw_dir = Path(raw_dir)
 
     def run_audit(self) -> dict[str, Any]:
         raw_exec_files = sorted(self.raw_dir.glob("aoa-execution-*.csv"))
@@ -46,23 +53,39 @@ class DataQualityAuditor:
 
         null_order_ids_by_type: Counter[str] = Counter()
         placeholder_order_ids: Counter[str] = Counter()
+        placeholder_trade_order_ids = 0
 
         exec_types: Counter[str] = Counter()
+        unknown_exec_types = 0
         ord_types: Counter[str] = Counter()
         symbols: Counter[str] = Counter()
         liquidity_indicators: Counter[str] = Counter()
+        invalid_liquidity_flags = 0
+        invalid_sides = 0
 
         price_anomalies = 0
         quantity_anomalies = 0
         fee_anomalies = 0
         referential_inconsistencies = 0
 
+        order_last_cumqty: dict[str, float] = {}
+        decreasing_cumqty_anomalies = 0
+        source_row_provenance_set: set[tuple[str, int]] = set()
+        duplicate_provenance_anomalies = 0
+
         for file_path in raw_exec_files:
             prev_ts: datetime | None = None
             with file_path.open("r", encoding="utf-8-sig", newline="") as f:
                 reader = csv.DictReader(f)
-                for row in reader:
+                for row_idx, row in enumerate(reader, start=1):
                     total_exec_rows += 1
+
+                    prov_key = (file_path.name, row_idx)
+                    if prov_key in source_row_provenance_set:
+                        duplicate_provenance_anomalies += 1
+                    else:
+                        source_row_provenance_set.add(prov_key)
+
                     eid = (row.get("execid") or "").strip()
                     if eid:
                         if eid in exec_ids:
@@ -74,6 +97,8 @@ class DataQualityAuditor:
 
                     et = (row.get("exectype") or "").strip()
                     exec_types[et] += 1
+                    if et not in VALID_EXEC_TYPES:
+                        unknown_exec_types += 1
 
                     transact_ts = _timestamp(row.get("transacttime"))
                     if transact_ts is None:
@@ -89,8 +114,10 @@ class DataQualityAuditor:
                     oid = (row.get("orderid") or "").strip()
                     if not oid:
                         null_order_ids_by_type[et] += 1
-                    elif oid == "00000000-0000-0000-0000-000000000000":
+                    elif oid == PLACEHOLDER_ORDER_ID:
                         placeholder_order_ids[et] += 1
+                        if et == "Trade":
+                            placeholder_trade_order_ids += 1
 
                     sym = (row.get("symbol") or "").strip()
                     if sym:
@@ -103,6 +130,12 @@ class DataQualityAuditor:
                     liq = (row.get("lastliquidityind") or "").strip()
                     if liq:
                         liquidity_indicators[liq] += 1
+                        if liq not in VALID_LIQUIDITY_FLAGS:
+                            invalid_liquidity_flags += 1
+
+                    side = (row.get("side") or "").strip()
+                    if et == "Trade" and side not in ("Buy", "Sell"):
+                        invalid_sides += 1
 
                     # Check Trade specific sanity
                     if et == "Trade":
@@ -125,6 +158,12 @@ class DataQualityAuditor:
                             oq = float(row.get("orderqty") or 0)
                             if abs((cq + lq) - oq) > 1e-4:
                                 referential_inconsistencies += 1
+
+                            # Check decreasing cumqty within order
+                            if oid and oid != PLACEHOLDER_ORDER_ID:
+                                if oid in order_last_cumqty and cq < order_last_cumqty[oid]:
+                                    decreasing_cumqty_anomalies += 1
+                                order_last_cumqty[oid] = cq
                         except (ValueError, TypeError):
                             referential_inconsistencies += 1
 
@@ -134,6 +173,9 @@ class DataQualityAuditor:
         wallet_types: Counter[str] = Counter()
         wallet_currencies: Counter[str] = Counter()
         wallet_balance_continuity_mismatches = 0
+        wallet_malformed_amounts = 0
+        wallet_invalid_currencies = 0
+        wallet_missing_balances = 0
 
         prev_balance: int | None = None
         with wallet_file.open("r", encoding="utf-8-sig", newline="") as f:
@@ -145,17 +187,30 @@ class DataQualityAuditor:
                     wallet_blank_rows += 1
                     continue
                 wallet_types[tt] += 1
-                wallet_currencies[(row.get("currency") or "").strip()] += 1
+                curr = (row.get("currency") or "").strip()
+                wallet_currencies[curr] += 1
+                if curr not in VALID_WALLET_CURRENCIES:
+                    wallet_invalid_currencies += 1
+
+                bal_raw = row.get("walletbalance")
+                if bal_raw is None or bal_raw.strip() == "":
+                    wallet_missing_balances += 1
 
                 try:
-                    amt = int(float(row.get("amount") or 0))
-                    bal = int(float(row.get("walletbalance") or 0))
+                    amt_str = row.get("amount") or ""
+                    if not amt_str.strip():
+                        wallet_malformed_amounts += 1
+                    amt = int(float(amt_str))
+
+                    bal_str = bal_raw or ""
+                    bal = int(float(bal_str))
                     if prev_balance is not None:
                         expected_bal = prev_balance + amt
                         if expected_bal != bal:
                             wallet_balance_continuity_mismatches += 1
                     prev_balance = bal
                 except (ValueError, TypeError):
+                    wallet_malformed_amounts += 1
                     wallet_balance_continuity_mismatches += 1
 
         valid_wallet_rows = wallet_total_rows - wallet_blank_rows
@@ -192,10 +247,11 @@ class DataQualityAuditor:
             },
             {
                 "rule_id": "DQ-05-ORDERID-INTEGRITY",
-                "description": "All trades have non-null order IDs; Funding system events use placeholders",
-                "status": "PASS" if null_order_ids_by_type.get("Trade", 0) == 0 else "FAIL",
+                "description": "All trades have non-null, non-placeholder order IDs; Funding system events use placeholders",
+                "status": "PASS" if (null_order_ids_by_type.get("Trade", 0) == 0 and placeholder_trade_order_ids == 0) else "FAIL",
                 "observed_value": {
                     "trade_null_order_ids": null_order_ids_by_type.get("Trade", 0),
+                    "trade_placeholder_order_ids": placeholder_trade_order_ids,
                     "funding_null_order_ids": null_order_ids_by_type.get("Funding", 0),
                     "placeholder_order_ids": dict(placeholder_order_ids),
                 },
@@ -252,6 +308,48 @@ class DataQualityAuditor:
                 "status": "NOT_APPLICABLE",
                 "observed_value": "AUTHOR_IDENTITY_NOT_INDEPENDENTLY_VERIFIED",
                 "note": "Public tape matches confirm historical tape existence, not account ownership.",
+            },
+            {
+                "rule_id": "DQ-13-DECREASING-CUMQTY",
+                "description": "Cumulative fill quantity within an order must be monotonically non-decreasing",
+                "status": "PASS" if decreasing_cumqty_anomalies == 0 else "FAIL",
+                "observed_value": decreasing_cumqty_anomalies,
+                "expected_value": 0,
+            },
+            {
+                "rule_id": "DQ-14-SOURCE-ROW-PROVENANCE",
+                "description": "Source CSV rows must have unique provenance keys (file, row_index)",
+                "status": "PASS" if duplicate_provenance_anomalies == 0 else "FAIL",
+                "observed_value": duplicate_provenance_anomalies,
+                "expected_value": 0,
+            },
+            {
+                "rule_id": "DQ-15-EXEC-TYPE-VALIDITY",
+                "description": "Execution types must belong to permitted set (Trade, Funding, Settlement)",
+                "status": "PASS" if unknown_exec_types == 0 else "FAIL",
+                "observed_value": unknown_exec_types,
+                "expected_value": 0,
+            },
+            {
+                "rule_id": "DQ-16-LIQUIDITY-AND-SIDE-VALIDITY",
+                "description": "Trade side must be Buy/Sell and liquidity flag must be AddedLiquidity/RemovedLiquidity",
+                "status": "PASS" if (invalid_sides == 0 and invalid_liquidity_flags == 0) else "FAIL",
+                "observed_value": {
+                    "invalid_sides": invalid_sides,
+                    "invalid_liquidity_flags": invalid_liquidity_flags,
+                },
+                "expected_value": {"invalid_sides": 0, "invalid_liquidity_flags": 0},
+            },
+            {
+                "rule_id": "DQ-17-WALLET-FIELD-SANITY",
+                "description": "Wallet rows must have numeric amount, permitted currency, and non-null balance",
+                "status": "PASS" if (wallet_malformed_amounts == 0 and wallet_invalid_currencies == 0 and wallet_missing_balances == 0) else "FAIL",
+                "observed_value": {
+                    "malformed_amounts": wallet_malformed_amounts,
+                    "invalid_currencies": wallet_invalid_currencies,
+                    "missing_balances": wallet_missing_balances,
+                },
+                "expected_value": {"malformed_amounts": 0, "invalid_currencies": 0, "missing_balances": 0},
             },
         ]
 
