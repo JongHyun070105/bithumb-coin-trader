@@ -31,7 +31,9 @@ def _timestamp(value: str | None) -> datetime | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed.astimezone(timezone.utc) if parsed.tzinfo else None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _decimal(value: str | None) -> Decimal | None:
@@ -50,6 +52,11 @@ def _first(row: Mapping[str, str], *names: str) -> str | None:
     for name in names:
         if name in row and row[name] != "":
             return row[name]
+    lower_row = {k.lower(): v for k, v in row.items()}
+    for name in names:
+        nl = name.lower()
+        if nl in lower_row and lower_row[nl] != "":
+            return lower_row[nl]
     return None
 
 
@@ -233,11 +240,50 @@ _WALLET_TYPES = {
 }
 
 
+def _wallet_timestamp(date_str: str | None, time_str: str | None) -> datetime | None:
+    if time_str:
+        ts = _timestamp(time_str)
+        if ts is not None and ts.year > 2000:
+            return ts
+    if not date_str:
+        return _timestamp(time_str)
+    date_clean = date_str.strip()
+    if not time_str or time_str.strip() == "":
+        try:
+            return datetime.fromisoformat(date_clean).replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    time_clean = time_str.strip()
+    if ":" in time_clean:
+        parts = time_clean.split(":")
+        if len(parts) == 2:
+            try:
+                minute = int(parts[0])
+                sec_part = parts[1]
+                iso_candidate = f"{date_clean}T00:{minute:02d}:{sec_part}"
+                return datetime.fromisoformat(iso_candidate).replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+        elif len(parts) == 3:
+            try:
+                iso_candidate = f"{date_clean}T{time_clean}"
+                return datetime.fromisoformat(iso_candidate).replace(tzinfo=timezone.utc)
+            except Exception:
+                pass
+    try:
+        return datetime.fromisoformat(date_clean).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
 def normalize_wallet(row: Mapping[str, str]) -> WalletEvent:
     observed_type = _first(row, "transactType", "type", "execType")
     event_type = _WALLET_TYPES.get((observed_type or "").lower(), "UNKNOWN")
+    date_str = _first(row, "date")
+    time_str = _first(row, "timestamp", "transactTime")
+    ts = _wallet_timestamp(date_str, time_str)
     return WalletEvent(
-        timestamp=_timestamp(_first(row, "timestamp", "transactTime")),
+        timestamp=ts,
         event_type=event_type,
         amount=_decimal(_first(row, "amount")),
         currency=_first(row, "currency"),
