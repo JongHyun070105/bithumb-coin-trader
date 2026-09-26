@@ -17,6 +17,7 @@ import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
+from bithumb_coin_trader.research_infra.contract_specs import get_contract_spec
 from bithumb_coin_trader.research_infra.external_expert import (
     ExecutionRow,
     WalletEvent,
@@ -83,6 +84,7 @@ class PositionEvent:
     maker_taker: str
     fee: Decimal
     confidence: str  # HIGH, MEDIUM, LOW
+    intent: str = "AMBIGUOUS"  # OPEN_LONG, ADD_LONG, REDUCE_LONG, CLOSE_LONG, OPEN_SHORT, ADD_SHORT, REDUCE_SHORT, CLOSE_SHORT, FLIP_LONG_TO_SHORT, FLIP_SHORT_TO_LONG
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -96,6 +98,7 @@ class PositionEvent:
             "maker_taker": self.maker_taker,
             "fee": float(self.fee),
             "confidence": self.confidence,
+            "intent": self.intent,
         }
 
 
@@ -117,6 +120,11 @@ class PositionCycle:
     maker_ratio: float
     execution_count: int
     confidence: str  # RECONSTRUCTED, PARTIAL, AMBIGUOUS
+    confidence_score: float = 1.0
+    confidence_class: str = "HIGH"  # HIGH, MEDIUM, LOW
+    confidence_reasons: tuple[str, ...] = ()
+    left_boundary_censored: bool = False
+    right_boundary_censored: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -136,6 +144,11 @@ class PositionCycle:
             "maker_ratio": self.maker_ratio,
             "execution_count": self.execution_count,
             "confidence": self.confidence,
+            "confidence_score": self.confidence_score,
+            "confidence_class": self.confidence_class,
+            "confidence_reasons": list(self.confidence_reasons),
+            "left_boundary_censored": self.left_boundary_censored,
+            "right_boundary_censored": self.right_boundary_censored,
         }
 
 
@@ -266,6 +279,32 @@ class PositionReconstructor:
             price = fill.price or Decimal(0)
             eid = fill.execution_id or ""
 
+            pos_before = current_pos
+            if pos_before == 0:
+                intent = "OPEN_LONG" if delta > 0 else "OPEN_SHORT"
+            elif pos_before > 0:
+                if delta > 0:
+                    intent = "ADD_LONG"
+                else:
+                    if new_pos > 0:
+                        intent = "REDUCE_LONG"
+                    elif new_pos == 0:
+                        intent = "CLOSE_LONG"
+                    else:
+                        intent = "FLIP_LONG_TO_SHORT"
+            elif pos_before < 0:
+                if delta < 0:
+                    intent = "ADD_SHORT"
+                else:
+                    if new_pos < 0:
+                        intent = "REDUCE_SHORT"
+                    elif new_pos == 0:
+                        intent = "CLOSE_SHORT"
+                    else:
+                        intent = "FLIP_SHORT_TO_LONG"
+            else:
+                intent = "AMBIGUOUS"
+
             events.append(PositionEvent(
                 timestamp=fill.timestamp,  # type: ignore[arg-type]
                 symbol=symbol,
@@ -277,6 +316,7 @@ class PositionReconstructor:
                 maker_taker=liq,
                 fee=fee,
                 confidence="HIGH" if initial_positions is not None else "MEDIUM",
+                intent=intent,
             ))
 
         return events
@@ -366,25 +406,43 @@ class CycleReconstructor:
             (total_buy_cost / total_buy_qty) if total_buy_qty > 0 else Decimal(0)
         )
 
-        # Estimate gross execution PnL
-        # For inverse contracts (XBTUSD): PnL in BTC = contracts * (1/entry_px - 1/exit_px)
-        is_inverse = "XBT" in symbol or "BTC" in symbol
-        if is_inverse and entry_vwap > 0 and exit_vwap > 0:
-            matched_qty = min(total_buy_qty, total_sell_qty)
-            if direction == "LONG":
-                gross_pnl = matched_qty * (Decimal(1) / entry_vwap - Decimal(1) / exit_vwap)
-            else:
-                gross_pnl = matched_qty * (Decimal(1) / exit_vwap - Decimal(1) / entry_vwap)
-        else:
-            # Linear approximation in quote currency
-            matched_qty = min(total_buy_qty, total_sell_qty)
-            if direction == "LONG":
-                gross_pnl = matched_qty * (exit_vwap - entry_vwap)
-            else:
-                gross_pnl = matched_qty * (entry_vwap - exit_vwap)
+        # Calculate gross execution PnL using historical contract semantics
+        spec = get_contract_spec(symbol)
+        matched_qty = min(total_buy_qty, total_sell_qty)
+        gross_pnl = spec.calculate_cycle_pnl_btc(
+            direction=direction,
+            matched_qty=matched_qty,
+            entry_vwap=entry_vwap,
+            exit_vwap=exit_vwap,
+        )
 
         net_estimate = gross_pnl - total_fees
         maker_ratio = (maker_count / len(events)) if events else 0.0
+
+        # Boundary censoring and confidence scoring
+        pos_before_first = events[0].estimated_position_after - events[0].signed_quantity_delta
+        left_censored = (pos_before_first != 0)
+        right_censored = is_open or (events[-1].estimated_position_after != 0)
+
+        reasons: list[str] = []
+        if left_censored:
+            reasons.append("LEFT_BOUNDARY_CENSORED_INITIAL_POSITION_NON_ZERO")
+        if right_censored:
+            reasons.append("RIGHT_BOUNDARY_CENSORED_POSITION_NOT_FLAT_AT_CLOSE")
+        if len(events) < 2:
+            reasons.append("SINGLE_FILL_CYCLE")
+        if spec.family == "UNVERIFIED":
+            reasons.append("UNVERIFIED_CONTRACT_SEMANTICS")
+
+        if not left_censored and not right_censored and spec.family != "UNVERIFIED":
+            conf_score = 1.0
+            conf_class = "HIGH"
+        elif right_censored and not left_censored:
+            conf_score = 0.5
+            conf_class = "MEDIUM"
+        else:
+            conf_score = 0.2
+            conf_class = "LOW"
 
         confidence = "RECONSTRUCTED" if not is_open else "PARTIAL"
 
@@ -405,6 +463,11 @@ class CycleReconstructor:
             maker_ratio=maker_ratio,
             execution_count=len(events),
             confidence=confidence,
+            confidence_score=conf_score,
+            confidence_class=conf_class,
+            confidence_reasons=tuple(reasons),
+            left_boundary_censored=left_censored,
+            right_boundary_censored=right_censored,
         )
 
 
