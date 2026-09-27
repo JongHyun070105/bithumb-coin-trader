@@ -20,10 +20,10 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import subprocess
 import sys
-from typing import Any
 
-from .registry import DatasetRegistry, DatasetRole, register_default_datasets
+from .registry import DatasetRegistry, register_default_datasets
 from .dq import (
     DQCatalog,
     CoverageState,
@@ -31,8 +31,8 @@ from .dq import (
     build_v2_known_missing,
     build_v2_authoritative_dq_catalog,
 )
-from .hypotheses import HypothesisRegistry, HypothesisStatus, register_default_hypotheses
-from .manifests import create_manifest
+from .hypotheses import HypothesisRegistry, register_default_hypotheses
+from .build import CanonicalBuildError, build_canonical_dataset
 
 
 def _get_data_root() -> Path:
@@ -185,12 +185,10 @@ def cmd_hypothesis_run(args: argparse.Namespace) -> None:
     print(f"Use 'research build --dataset {dataset_id}' to prepare canonical data first.")
 
 
-def cmd_build(args: argparse.Namespace) -> None:
+def cmd_build(args: argparse.Namespace) -> int:
     """Build canonical derived data for a dataset."""
     dataset_id = args.dataset
     data_root = Path(args.data_root) if args.data_root else _get_data_root()
-
-    print(f"Building canonical data for {dataset_id} from {data_root}...")
 
     # Load registry
     registry_path = _get_registry_path()
@@ -203,34 +201,30 @@ def cmd_build(args: argparse.Namespace) -> None:
     try:
         ds = registry.require_exploration_allowed(dataset_id)
     except Exception as e:
-        print(f"ERROR: {e}")
-        return
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
 
-    from .adapters import iter_raw_jsonl_streaming
-    from .features import FeatureEngine
+    output_dir = Path(args.output_dir) if args.output_dir else _get_artifacts_path() / "canonical" / dataset_id
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=False
+        )
+        git_commit = revision.stdout.strip() if revision.returncode == 0 else "unknown"
+        manifest = build_canonical_dataset(
+            ds,
+            data_root=data_root,
+            output_dir=output_dir,
+            git_commit=git_commit,
+        )
+    except (CanonicalBuildError, OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
-    # Process with limited scope for CLI
-    exchanges = list(ds.exchange_universe)
-    feeds = [f for f in ds.feed_universe if f in ("orderbook", "trade")]
-
-    print(f"Exchanges: {exchanges}")
-    print(f"Feeds: {feeds}")
-    print(f"Streaming events from {data_root}...")
-
-    event_count = 0
-    market_set: set[str] = set()
-
-    for event in iter_raw_jsonl_streaming(
-        data_root, dataset_id, exchanges=exchanges, feeds=feeds,
-    ):
-        event_count += 1
-        market_set.add(event.market)
-        if event_count % 100_000 == 0:
-            print(f"  Processed {event_count:,} events, {len(market_set)} markets...")
-
-    print(f"\nTotal events: {event_count:,}")
-    print(f"Markets: {sorted(market_set)}")
-    print(f"Build complete.")
+    print(f"Canonical events: {manifest['event_count']:,}")
+    print(f"Dataset output: {output_dir / manifest['events_file']}")
+    print(f"Build manifest: {output_dir / 'manifest.json'}")
+    print(f"Build status: {manifest['build_status']} (DQ remains NOT_RUN)")
+    return 0
 
 
 def cmd_report_generate(args: argparse.Namespace) -> None:
@@ -309,6 +303,7 @@ def build_parser() -> argparse.ArgumentParser:
     build = sub.add_parser("build", help="Build canonical data")
     build.add_argument("--dataset", required=True)
     build.add_argument("--data-root", default=None)
+    build.add_argument("--output-dir", default=None)
 
     # report
     sub.add_parser("report", help="Generate research report")
@@ -316,13 +311,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: list[str] | None = None) -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
     if args.command is None:
         parser.print_help()
-        return
+        return 0
 
     commands = {
         ("datasets", "list"): cmd_datasets_list,
@@ -342,10 +337,12 @@ def main(argv: list[str] | None = None) -> None:
         handler = commands.get((args.command, None))
 
     if handler:
-        handler(args)
+        result = handler(args)
+        return result if isinstance(result, int) else 0
     else:
         parser.print_help()
+        return 2
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

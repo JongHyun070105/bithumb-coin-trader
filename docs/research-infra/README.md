@@ -139,11 +139,16 @@ python -m bithumb_coin_trader.research_infra.cli dq report --dataset fresh45
 python -m bithumb_coin_trader.research_infra.cli hypotheses list
 
 # Build canonical data
-python -m bithumb_coin_trader.research_infra.cli build --dataset fresh45
+python -m bithumb_coin_trader.research_infra.cli build \
+  --dataset "$DATASET_ID" \
+  --data-root "$OFFLINE_RAW_DATA_ROOT" \
+  --output-dir "$NEW_OUTPUT_DIRECTORY"
 
 # Generate report
 python -m bithumb_coin_trader.research_infra.cli report
 ```
+
+The build writes `events.jsonl` and a source/output-hash `manifest.json`. It refuses final holdouts and existing output directories. Its status is `BUILT_DQ_NOT_RUN`; run the DQ build/report separately before treating the dataset as research-ready.
 
 ## Tests
 
