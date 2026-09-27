@@ -295,6 +295,26 @@ def test_external_only_research_cannot_pass(tmp_path: Path) -> None:
     assert report["checks"]["RESEARCH_READY"]["status"] == FAIL
 
 
+def test_research_cost_scenarios_use_shared_fail_closed_model(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "bundle"
+    evidence_dir.mkdir()
+    _valid_bundle(evidence_dir)
+    research_path = evidence_dir / "research" / "batch.json"
+    research = json.loads(research_path.read_text())
+    research["cost_scenarios"][0]["tick_size"] = 0.0
+    research_ref = _write_json(evidence_dir, "research/batch.json", research)
+    bundle_path = evidence_dir / "paper-readiness-bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["artifacts"]["research"] = research_ref
+    bundle_path.write_text(json.dumps(bundle))
+
+    report = evaluate_paper_readiness(evidence_dir)
+
+    assert report["PAPER_ELIGIBLE"] is False
+    assert report["checks"]["RESEARCH_READY"]["status"] == FAIL
+    assert "tick_size" in report["checks"]["RESEARCH_READY"]["reason"]
+
+
 def test_candidate_lifecycle_chain_is_verified_and_bound_to_freeze(tmp_path: Path) -> None:
     evidence_dir = tmp_path / "bundle"
     evidence_dir.mkdir()

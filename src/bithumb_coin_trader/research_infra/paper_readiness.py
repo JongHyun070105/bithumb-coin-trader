@@ -10,6 +10,7 @@ import re
 from typing import Any
 
 from .candidate_registry import CandidateLifecycle, CandidateLifecycleError, CandidateRegistry
+from .costs import CostScenarioError, SpotCostScenario
 from .freeze import FrozenCandidate
 
 
@@ -258,23 +259,15 @@ def _check_research(payload: dict[str, Any], dataset_hash: str | None) -> dict[s
         if scenario["name"] in scenario_names:
             return _status(FAIL, "cost scenario names must be unique")
         scenario_names.add(scenario["name"])
-        for name in REQUIRED_COST_PARAMETERS:
-            value = scenario.get(name)
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                return _status(NOT_VERIFIABLE, f"cost parameter {name} is missing or invalid")
-            if value < 0 or (name in {"minimum_order_notional", "tick_size", "lot_size"} and value == 0):
-                return _status(FAIL, f"cost parameter {name} is outside its allowed range")
-        fill_probability = scenario.get("partial_fill_probability")
-        if fill_probability is None:
-            if scenario.get("partial_fill_status") != "UNSUPPORTED":
-                return _status(FAIL, "partial-fill probability must be modeled or explicitly unsupported")
-        elif (
-            isinstance(fill_probability, bool)
-            or not isinstance(fill_probability, (int, float))
-            or not math.isfinite(fill_probability)
-            or not 0 <= fill_probability <= 1
-        ):
-            return _status(FAIL, "partial_fill_probability must be between 0 and 1")
+        missing_cost_fields = set(REQUIRED_COST_PARAMETERS) - scenario.keys()
+        if missing_cost_fields:
+            return _status(NOT_VERIFIABLE, f"cost parameters missing: {', '.join(sorted(missing_cost_fields))}")
+        if "partial_fill_probability" not in scenario and scenario.get("partial_fill_status") != "UNSUPPORTED":
+            return _status(NOT_VERIFIABLE, "partial-fill probability or explicit unsupported state is missing")
+        try:
+            SpotCostScenario.from_dict(scenario)
+        except CostScenarioError as exc:
+            return _status(FAIL, f"invalid cost scenario: {exc}")
     metrics = payload.get("metrics")
     if not isinstance(metrics, dict):
         return _status(NOT_VERIFIABLE, "retrospective metrics are missing")

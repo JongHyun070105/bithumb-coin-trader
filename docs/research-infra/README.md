@@ -49,6 +49,7 @@ src/bithumb_coin_trader/research_infra/
 ├── execution.py          # Execution simulator wrapper
 ├── hypotheses.py         # Hypothesis registry (H1-H5)
 ├── evaluation.py         # Chronological evaluation framework
+├── costs.py              # Explicit Bithumb spot assumptions and cost sensitivity grid
 ├── manifests.py          # Research manifest system
 ├── freeze.py             # Candidate freeze mechanism
 ├── candidate_registry.py # Append-only, hash-chained lifecycle evidence
@@ -57,7 +58,7 @@ src/bithumb_coin_trader/research_infra/
 └── cli.py                # CLI entry points
 
 tests/research_infra/
-└── test_research_infra.py  # 58 comprehensive tests
+└── test_research_infra.py  # Core research infrastructure tests
 
 research-data/              # Derived datasets, DQ catalogs, registry
 research-artifacts/         # Research reports and manifests
@@ -163,13 +164,15 @@ The build writes `events.jsonl` and a source/output-hash `manifest.json`. It ref
 
 `CandidateRegistry` persists local append-only JSONL state with hash-chained events for the required lifecycle and evidence gates. External hypothesis-generation-only data may be recorded in retrospective research, but it cannot advance to robustness or candidate promotion. The readiness checker verifies the complete chain through `FROZEN`, binds it to the candidate freeze hash and research report, and reports `PAPER_ELIGIBLE` only when every evidence section passes. These APIs do not execute, authorize, or start PAPER. Candidate-generation families are not yet universally wired to the registry.
 
+`SpotCostScenario` requires explicit maker/taker fee, slippage, latency, minimum notional, tick/lot size, and partial-fill assumptions. `conservative_sensitivity_grid` creates a deterministic Cartesian product from caller-supplied non-negative fee/slippage additions and latency values no lower than baseline. It does not fetch current exchange fees or model order-book depth, tick rounding, or fill probabilities; execution/backtest paths still need to consume the scenario before its assumptions affect results.
+
 ## Tests
 
 ```bash
 python -m pytest tests/research_infra/ -v
 ```
 
-58 tests covering:
+Core tests cover:
 - Dataset role enforcement (V4 quarantine, exploration-only)
 - V2 known missing slots (UNKNOWN_MISSING)
 - Missing ≠ zero-event invariant

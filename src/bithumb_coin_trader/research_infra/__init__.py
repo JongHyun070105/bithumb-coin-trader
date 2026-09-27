@@ -8,6 +8,7 @@ Reusable pipeline for historical microstructure analysis with:
 - Label engine
 - Execution simulator
 - Hypothesis registry
+- Explicit spot cost scenario model
 - Append-only candidate lifecycle evidence registry
 - Chronological evaluation
 - Research manifests
