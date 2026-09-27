@@ -38,6 +38,7 @@ from .build import CanonicalBuildError, build_canonical_dataset
 from .paper_readiness import evaluate_paper_readiness, write_paper_readiness_report
 from .batch import BatchExperiment, run_research_batch
 from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
+from .candidate_freeze import CandidateFreezeError, freeze_candidate_experiment
 from .costs import SpotCostScenario
 from .research_catalog import (
     HypothesisCatalog,
@@ -217,6 +218,34 @@ def cmd_candidate_families_export(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_candidate_freeze(args: argparse.Namespace) -> int:
+    research_root = Path(args.research_root)
+    candidate_id = args.candidate_id or args.experiment
+    output = (
+        Path(args.output)
+        if args.output
+        else research_root / "frozen-candidates" / f"{candidate_id}.json"
+    )
+    try:
+        record = freeze_candidate_experiment(
+            experiment_id=args.experiment,
+            candidate_id=candidate_id,
+            research_root=research_root,
+            candidate_registry_path=Path(args.candidate_registry),
+            output_path=output,
+        )
+    except (CandidateFreezeError, OSError, KeyError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    candidate = record["candidate"]
+    print(f"Candidate: {candidate['candidate_id']}")
+    print(f"Experiment: {candidate['experiment_id']}")
+    print(f"Freeze hash: {candidate['freeze_hash']}")
+    print(f"Artifact: {output}")
+    print("PAPER: NOT_STARTED; freeze does not start PAPER")
+    return 0
+
+
 def cmd_hypothesis_run(args: argparse.Namespace) -> None:
     """Run a single hypothesis evaluation.
 
@@ -348,11 +377,16 @@ def cmd_research_batch(args: argparse.Namespace) -> int:
         output_dir = Path(args.output).resolve()
         code_revision = _require_clean_code_revision()
         provenance = {
+            "dataset_manifest": dataset_manifest,
             "dataset_role": dataset_manifest["dataset_role"],
             "allowed_for_candidate_selection": dataset_manifest["allowed_for_candidate_selection"],
             "integrity_status": dataset_manifest["integrity_status"],
             "provenance_confidence": dataset_manifest["provenance_confidence"],
-            "manifest_sha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+            "dataset_manifest_sha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+            "dataset_manifest_content_sha256": hashlib.sha256(
+                json.dumps(dataset_manifest, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+            ).hexdigest(),
+            "data_sha256": dataset_sha256,
         }
         report = run_research_batch(
             candles=candles,
@@ -643,6 +677,16 @@ def build_parser() -> argparse.ArgumentParser:
     family_export = family_sub.add_parser("export", help="Write the immutable candidate-family snapshot")
     family_export.add_argument("--path", default=str(_CANDIDATE_FAMILY_PATH))
 
+    candidate_freeze = sub.add_parser(
+        "candidate-freeze",
+        help="Freeze an already selected, fully evidenced experiment; does not start PAPER",
+    )
+    candidate_freeze.add_argument("--experiment", required=True)
+    candidate_freeze.add_argument("--candidate-id", default=None)
+    candidate_freeze.add_argument("--research-root", default="research-artifacts")
+    candidate_freeze.add_argument("--candidate-registry", default="research-data/candidate_registry.jsonl")
+    candidate_freeze.add_argument("--output", default=None)
+
     # build
     build = sub.add_parser("build", help="Build canonical data")
     build.add_argument("--dataset", required=True)
@@ -698,6 +742,7 @@ def main(argv: list[str] | None = None) -> int:
         ("hypotheses", "run"): cmd_hypothesis_run,
         ("candidate-families", "list"): cmd_candidate_families_list,
         ("candidate-families", "export"): cmd_candidate_families_export,
+        ("candidate-freeze", None): cmd_candidate_freeze,
         ("build", None): cmd_build,
         ("paper-readiness", None): cmd_paper_readiness,
         ("research-batch", None): cmd_research_batch,

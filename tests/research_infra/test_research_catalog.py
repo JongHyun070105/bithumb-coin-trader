@@ -115,7 +115,7 @@ def test_daily_candidate_family_is_accepted_with_all_control_strategies() -> Non
     for strategy_id, family_id, parameters in (
         ("cash", "baseline_controls", {}),
         ("buy_and_hold", "baseline_controls", {}),
-        ("randomized_placebo", "baseline_controls", {"exposure_probability": 0.5, "target_weight": 0.5}),
+        ("randomized_placebo", "baseline_controls", {"exposure_probability": 0.5, "target_weight": 1.0}),
         ("daily_weekly_absolute_momentum_126_63", "daily_weekly_trend_and_momentum", {}),
     ):
         experiments.append({

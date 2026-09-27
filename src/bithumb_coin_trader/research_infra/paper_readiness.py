@@ -140,8 +140,10 @@ def evaluate_paper_readiness(evidence_dir: Path) -> dict[str, Any]:
         checks["DATA_READY"] = _check_data(payload, root, bundle["artifacts"]["dataset"], artifact_hash)
 
     research = artifacts["research"]
+    research_payload: dict[str, Any] | None = None
     if research is not None:
         payload, research_hash = research
+        research_payload = payload
         dataset_hash = artifacts["dataset"][1] if artifacts["dataset"] else None
         checks["RESEARCH_READY"] = _check_research(payload, dataset_hash)
     else:
@@ -149,7 +151,7 @@ def evaluate_paper_readiness(evidence_dir: Path) -> dict[str, Any]:
 
     if artifacts["candidate"] is not None:
         payload, _ = artifacts["candidate"]
-        checks["CANDIDATE_FROZEN"] = _check_candidate(payload, research_hash)
+        checks["CANDIDATE_FROZEN"] = _check_candidate(payload, research_hash, research_payload)
 
     if artifacts["risk"] is not None:
         checks["RISK_READY"] = _check_risk(artifacts["risk"][0])
@@ -289,10 +291,14 @@ def _check_research(payload: dict[str, Any], dataset_hash: str | None) -> dict[s
     return _status(PASS, "reproducible batch, walk-forward, cost-grid and placebo evidence verified")
 
 
-def _check_candidate(payload: dict[str, Any], research_hash: str | None) -> dict[str, str]:
+def _check_candidate(
+    payload: dict[str, Any], research_hash: str | None, research_payload: dict[str, Any] | None
+) -> dict[str, str]:
     candidate_payload = payload.get("candidate")
     if not isinstance(candidate_payload, dict):
         return _status(NOT_VERIFIABLE, "frozen candidate record is missing")
+    if candidate_payload.get("schema_version") == 2:
+        return _check_governed_candidate_v2(payload, candidate_payload, research_hash, research_payload)
     try:
         candidate = FrozenCandidate.from_dict(candidate_payload)
     except (KeyError, TypeError, ValueError) as exc:
@@ -335,6 +341,94 @@ def _check_candidate(payload: dict[str, Any], research_hash: str | None) -> dict
     if not roles or any("EXTERNAL" in role or "HYPOTHESIS_GENERATION_ONLY" in role for role in roles):
         return _status(FAIL, "candidate was promoted from external-only evidence")
     return _status(PASS, f"frozen candidate hash verified ({recorded_hash[:12]})")
+
+
+def _check_governed_candidate_v2(
+    artifact: dict[str, Any],
+    candidate: dict[str, Any],
+    research_hash: str | None,
+    research_payload: dict[str, Any] | None,
+) -> dict[str, str]:
+    artifact_sha = artifact.get("artifact_sha256")
+    if not _valid_sha(artifact_sha) or artifact_sha != _hash_text(_canonical_json({
+        key: value for key, value in artifact.items() if key != "artifact_sha256"
+    })):
+        return _status(FAIL, "governed candidate artifact hash mismatch")
+    freeze_hash = candidate.get("freeze_hash")
+    if not _valid_sha(freeze_hash) or freeze_hash != _hash_text(_canonical_json({
+        key: value for key, value in candidate.items() if key != "freeze_hash"
+    })):
+        return _status(FAIL, "governed candidate freeze hash mismatch")
+    if candidate.get("schema_version") != 2 or artifact.get("schema_version") != 2:
+        return _status(FAIL, "governed candidate schema version is unsupported")
+    if (
+        candidate.get("strategy_config_sha256") != _hash_text(_canonical_json(candidate.get("strategy_config")))
+        or candidate.get("feature_config_sha256") != _hash_text(_canonical_json(candidate.get("feature_config")))
+        or candidate.get("cost_scenarios_sha256") != _hash_text(_canonical_json(candidate.get("cost_scenarios")))
+    ):
+        return _status(FAIL, "governed candidate config or cost assumptions hash mismatch")
+    provenance = candidate.get("dataset_provenance")
+    if not isinstance(provenance, dict) or not isinstance(provenance.get("dataset_manifest"), dict):
+        return _status(NOT_VERIFIABLE, "governed candidate dataset provenance is missing")
+    manifest = provenance["dataset_manifest"]
+    if (
+        candidate.get("dataset_manifest_content_sha256") != _hash_text(_canonical_json(manifest))
+        or provenance.get("dataset_role") != "DEVELOPMENT_EXPLORATORY"
+        or manifest.get("dataset_role") != "DEVELOPMENT_EXPLORATORY"
+        or provenance.get("data_sha256") != candidate.get("dataset_sha256")
+        or manifest.get("data_sha256") != candidate.get("dataset_sha256")
+    ):
+        return _status(FAIL, "governed candidate dataset provenance does not match its freeze")
+    roles = candidate.get("dataset_roles")
+    if not isinstance(roles, list) or roles != ["DEVELOPMENT_EXPLORATORY"]:
+        return _status(FAIL, "governed candidate has an unsafe dataset role")
+    if (
+        candidate.get("metrics_schema_version") != 1
+        or not _valid_sha(candidate.get("metrics_definition_sha256"))
+        or not _valid_sha(candidate.get("experiment_metrics_sha256"))
+        or not _valid_sha(candidate.get("experiment_results_sha256"))
+        or not _valid_sha(candidate.get("strategy_source_sha256"))
+        or not _valid_sha(candidate.get("dataset_manifest_sha256"))
+    ):
+        return _status(NOT_VERIFIABLE, "governed candidate code, result, or dataset hashes are incomplete")
+    expected_metrics_hash = None
+    if research_payload is not None:
+        expected_metrics_hash = research_payload.get(
+            "experiment_metrics_sha256", research_payload.get("metrics_sha256")
+        )
+    if (
+        artifact.get("source_research_sha256") != candidate.get("experiment_metrics_sha256")
+        or candidate.get("source_research_sha256") != candidate.get("experiment_metrics_sha256")
+        or expected_metrics_hash != candidate.get("experiment_metrics_sha256")
+    ):
+        return _status(FAIL, "governed candidate does not bind the verified experiment results")
+    events = artifact.get("lifecycle_events")
+    if not isinstance(events, list):
+        return _status(NOT_VERIFIABLE, "governed candidate lifecycle event chain is missing")
+    try:
+        CandidateRegistry.verify_events(events)
+    except CandidateLifecycleError as exc:
+        return _status(FAIL, f"governed candidate lifecycle event chain is invalid: {exc}")
+    statuses = [event.get("to_status") for event in events]
+    required_states = [
+        CandidateLifecycle.HYPOTHESIS.value,
+        CandidateLifecycle.RETROSPECTIVE_EXPERIMENT.value,
+        CandidateLifecycle.ROBUSTNESS_TESTED.value,
+        CandidateLifecycle.CANDIDATE.value,
+        CandidateLifecycle.FROZEN.value,
+    ]
+    if statuses != required_states:
+        return _status(FAIL, "governed candidate lifecycle must be verified through FROZEN")
+    frozen = events[-1]
+    if (
+        frozen.get("candidate_id") != candidate.get("candidate_id")
+        or artifact.get("transition_evidence_sha256") != frozen.get("event_hash")
+        or frozen.get("evidence", {}).get("freeze_hash") != freeze_hash
+        or frozen.get("evidence", {}).get("candidate_freeze_sha256") != _hash_text(_canonical_json(candidate))
+        or frozen.get("evidence", {}).get("source_research_sha256") != candidate.get("experiment_metrics_sha256")
+    ):
+        return _status(FAIL, "FROZEN lifecycle evidence does not bind the candidate and experiment")
+    return _status(PASS, f"governed candidate freeze verified ({str(freeze_hash)[:12]})")
 
 
 def _check_risk(payload: dict[str, Any]) -> dict[str, str]:
@@ -450,6 +544,10 @@ def _hash_file(path: Path) -> str:
 
 def _hash_text(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False)
 
 
 def _valid_sha(value: Any) -> bool:

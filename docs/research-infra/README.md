@@ -162,9 +162,36 @@ python -m bithumb_coin_trader.research_infra.cli report
 
 The build writes `events.jsonl` and a source/output-hash `manifest.json`. It refuses final holdouts and existing output directories. Its status is `BUILT_DQ_NOT_RUN`; run the DQ build/report separately before treating the dataset as research-ready.
 
-`CandidateRegistry` persists local append-only JSONL state with hash-chained events for the required lifecycle and evidence gates. External hypothesis-generation-only data may be recorded in retrospective research, but it cannot advance to robustness or candidate promotion. The readiness checker verifies the complete chain through `FROZEN`, binds it to the candidate freeze hash and research report, and reports `PAPER_ELIGIBLE` only when every evidence section passes. These APIs do not execute, authorize, or start PAPER. Candidate-generation families are not yet universally wired to the registry.
+`CandidateRegistry` persists local append-only JSONL state with hash-chained events for the required lifecycle and evidence gates. External hypothesis-generation-only data may be recorded in retrospective research, but it cannot advance to robustness or candidate promotion. `candidate-freeze` now verifies the complete batch, exact dataset-manifest/content bindings, result hashes, candidate lifecycle evidence, baseline/placebo comparisons, fold coverage, and cost sensitivity before writing an immutable freeze artifact and appending `FROZEN`. It only accepts the four governed daily strategy adapters currently wired to `research-batch`; it does not select or promote a candidate. The readiness checker verifies the complete chain through `FROZEN`, binds it to the candidate freeze hash and research report, and reports `PAPER_ELIGIBLE` only when every evidence section passes. These APIs do not execute, authorize, or start PAPER.
 
-`SpotCostScenario` requires explicit maker/taker fee, slippage, latency, minimum notional, tick/lot size, and partial-fill assumptions. `conservative_sensitivity_grid` creates a deterministic Cartesian product from caller-supplied non-negative fee/slippage additions and latency values no lower than baseline. It does not fetch current exchange fees or model order-book depth, tick rounding, or fill probabilities; execution/backtest paths still need to consume the scenario before its assumptions affect results.
+New single-market candle experiments enter through `research_infra.backtesting.SpotResearchBacktester` and its `RebalanceBacktester` engine. `research-batch` uses this path directly. It charges configured taker fees, adverse slippage, minimum notional, tick rounding, and lot rounding. It executes at the next candle open and has no order-book depth; positive latency or partial-fill assumptions are returned as `UNSUPPORTED`, so freeze rejects those runs. Maker fills are not modeled by this candle path. `SpotCostScenario` still requires explicit maker/taker fee, slippage, latency, minimum notional, tick/lot size, and partial-fill assumptions. `conservative_sensitivity_grid` creates a deterministic Cartesian product from caller-supplied non-negative fee/slippage additions and latency values no lower than baseline; it does not retrieve current exchange parameters. See [the engine comparison and authority decision](../BACKTEST_ENGINE_COMPARISON_2026-09-27.md) before using a specialized legacy evaluator.
+
+The bounded batch command consumes immutable dataset manifests and hypotheses, creates content-derived run IDs, writes per-attempt manifests/logs/metrics, resumes completed folds, and requires explicit `--retry-failed` for failed attempts. Example:
+
+```bash
+python -m bithumb_coin_trader.research_infra.cli research-batch \
+  --dataset-manifest "$DATASET_MANIFEST" \
+  --hypotheses "$HYPOTHESES" \
+  --cost-grid conservative \
+  --walk-forward \
+  --folds 5 \
+  --window-mode EXPANDING \
+  --purge-seconds "$PURGE_SECONDS" \
+  --embargo-seconds "$EMBARGO_SECONDS" \
+  --output "$NEW_RESEARCH_OUTPUT"
+```
+
+After a candidate has already reached `CANDIDATE` with lifecycle evidence bound to the batch, the freeze operation is:
+
+```bash
+python -m bithumb_coin_trader.research_infra.cli candidate-freeze \
+  --experiment "$EXPERIMENT_ID" \
+  --research-root "$RESEARCH_OUTPUT" \
+  --candidate-registry "$CANDIDATE_REGISTRY" \
+  --output "$RESEARCH_OUTPUT/frozen-candidates/$CANDIDATE_ID.json"
+```
+
+Freeze requires ordered `base`, `conservative`, `stress`, and `extreme` tiers; completed folds with no unsupported execution semantics; positive net return on every fold at conservative through extreme tiers; and complete cash, buy-and-hold, and randomized-placebo comparisons. This is a deliberately restrictive engineering gate, not proof of alpha. Current candidate-selection acceptance criteria still need a reviewed lifecycle decision before the command can freeze anything. The command only writes local research evidence and never starts PAPER.
 
 ## Tests
 

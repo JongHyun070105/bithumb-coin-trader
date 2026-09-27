@@ -106,6 +106,27 @@ PAPER candidate + frozen definition
 
 This path is BLOCKED by design. `LIVE=DISABLED` and `PRIVATE_API=DISABLED` remain the truth. A repository feature or test never authorizes private endpoints, paper starts, or live funds.
 
+## SAFE_NOW engineering update — 2026-09-27
+
+This addendum records isolated readiness-branch work after the inventory above;
+the opening tables remain the earlier audit snapshot. The working branch does
+not alter the Fresh 30H runtime lineage.
+
+| Area | Current readiness-branch result | Remaining SAFE_NOW work |
+|---|---|---|
+| Backtest authority | New single-market research is routed through `SpotResearchBacktester` → `RebalanceBacktester`, with explicit scenario costs and standardized results. The engine comparison and decision are in `docs/BACKTEST_ENGINE_COMPARISON_2026-09-27.md`. Signal-based, multi-asset, maker, and order-book engines are preserved as legacy/specialized paths. | Expand governed adapters beyond the four daily strategies; audit specialized fill semantics before accepting their candidate results. Maker fills and book-depth execution do not belong to the candle authority. |
+| Cost sensitivity | `research-batch` runs explicit base/conservative/stress/extreme scenarios and records fees/slippage. Positive latency and nonzero partial-fill probabilities are marked unsupported by the candle engine and cannot pass freeze. A randomized close/rebalance regression now preserves lot-aligned quantity accounting. | Source current exchange schedules and model stochastic partial fills only when verified inputs and an appropriate engine exist. |
+| Walk-forward, batch, result, controls | Generic rolling/expanding train-only walk-forward with purge/embargo, content-derived resumable batches, standardized result records, per-attempt evidence, cash/buy-and-hold/placebo comparisons, and a persistent source hypothesis/family inventory are present. | Broaden strategy adapters and decide/freeze candidate acceptance rules from real development evidence. No synthetic fixture qualifies a strategy. |
+| Candidate freeze | `candidate-freeze` verifies complete batch/lifecycle/cost/fold/control evidence and writes a hash-bound immutable artifact only for the four supported daily strategy adapters. It requires an existing `CANDIDATE` lifecycle decision; it does not select candidates or start PAPER. | Connect every strategy selection path to the registry and review explicit comparative acceptance thresholds after real retrospective results exist. No candidate has been frozen from project market data. |
+| PAPER runtime and start gate | Existing `paper.py`, `paper_engine.py`, `paper_journal.py`, risk code, and readiness checker remain separate components. No local public-feed → frozen strategy → risk → paper executor → journal → reconciled accounting runtime or governed `paper-start` command is wired by this addendum. | Integrate/test the public-only event loop, order state machine, fixed-point accounting, deterministic conservative fill model, durable kill switch, observability, replay/crash recovery, and a fail-closed but uninvoked start command. |
+| Post-30H orchestration | No command automates the terminal audit → source integration → data qualification → batch → candidate report/freeze sequence. | Build a stop-on-failure local orchestrator with no automatic PAPER invocation; do not target the running 30H runtime. |
+| Hypothesis/feature/strategy registries | Persistent hypothesis catalog and candidate-family inventory are present; hypotheses remain unpromoted. | FeatureDefinition and StrategyDefinition registries with immutable content hashes remain SAFE_NOW work. |
+
+Focused source verification for this update: `tests/research_infra/` plus daily,
+composite, and multi-asset backtest tests. These establish software behavior on
+synthetic fixtures only; they do not establish 30H reliability, dataset
+qualification, alpha, paper readiness, or authorization.
+
 ### P0 blockers
 
 | Blocker | Why it blocks | Can work now? | Current completion |

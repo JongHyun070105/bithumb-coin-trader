@@ -85,7 +85,7 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
                 "strategy_id": "randomized_placebo",
                 "strategy_config": {},
                 "feature_config": {"input": "completed_candles"},
-                "parameter_sets": [{"exposure_probability": 0.5, "target_weight": 0.5}],
+                "parameter_sets": [{"exposure_probability": 0.5, "target_weight": 1.0}],
                 "seed": 11,
             },
             {

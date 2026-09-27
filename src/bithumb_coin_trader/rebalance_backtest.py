@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 from math import isfinite
 from statistics import mean
 from typing import Sequence
@@ -275,7 +276,12 @@ class RebalanceBacktester:
         cash -= fill_notional + fee
         if cash < self.settings.cash_reserve_krw - 1e-8:
             raise AssertionError("buy violated cash reserve")
-        return cash, quantity + bought, RebalanceFill(
+        updated_quantity = (
+            float(Decimal(str(quantity)) + Decimal(str(bought)))
+            if cost_scenario is not None
+            else quantity + bought
+        )
+        return cash, updated_quantity, RebalanceFill(
             index=index,
             side="buy",
             price=price,
@@ -299,7 +305,15 @@ class RebalanceBacktester:
         minimum_order: float,
         cost_scenario: SpotCostScenario | None,
     ) -> tuple[float, float, RebalanceFill | None]:
-        requested_quantity = requested_reference_notional / open_price
+        # A zero-weight target means liquidate the position. Re-deriving the
+        # full quantity through notional division can land a fraction below
+        # the exchange lot after floating-point rounding, leaving dust that the
+        # final liquidation path correctly rejects as untradeable.
+        requested_quantity = (
+            quantity
+            if target_weight == 0.0
+            else requested_reference_notional / open_price
+        )
         if cost_scenario is not None:
             price = spot_execution_price(cost_scenario, open_price, "SELL")
         else:
@@ -329,7 +343,11 @@ class RebalanceBacktester:
             slippage_cost = abs(open_price - price) * sold
         if notional < minimum_order:
             return cash, quantity, None
-        remaining = max(0.0, quantity - sold)
+        remaining = (
+            max(0.0, float(Decimal(str(quantity)) - Decimal(str(sold))))
+            if cost_scenario is not None
+            else max(0.0, quantity - sold)
+        )
         return cash + notional - fee, remaining, RebalanceFill(
             index=index,
             side="sell",

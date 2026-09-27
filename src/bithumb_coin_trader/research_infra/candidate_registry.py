@@ -78,6 +78,8 @@ class CandidateRegistry:
         candidate_id: str,
         target: CandidateLifecycle | str,
         evidence: Mapping[str, Any],
+        *,
+        timestamp_utc: str | None = None,
     ) -> dict[str, Any]:
         try:
             target_status = CandidateLifecycle(target)
@@ -115,6 +117,7 @@ class CandidateRegistry:
                 current,
                 target_status,
                 dict(evidence),
+                timestamp_utc=timestamp_utc,
             )
 
     def events_for(self, candidate_id: str) -> list[dict[str, Any]]:
@@ -175,6 +178,8 @@ class CandidateRegistry:
         from_status: CandidateLifecycle | None,
         to_status: CandidateLifecycle,
         evidence: dict[str, Any],
+        *,
+        timestamp_utc: str | None = None,
     ) -> dict[str, Any]:
         history = [event for event in events if event["candidate_id"] == candidate_id]
         previous_hash = history[-1]["event_hash"] if history else "0" * 64
@@ -184,7 +189,7 @@ class CandidateRegistry:
             "sequence": len(history),
             "from_status": from_status.value if from_status else None,
             "to_status": to_status.value,
-            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+            "timestamp_utc": timestamp_utc or datetime.now(timezone.utc).isoformat(),
             "previous_hash": previous_hash,
             "evidence": evidence,
         }
