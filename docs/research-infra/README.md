@@ -50,12 +50,22 @@ src/bithumb_coin_trader/research_infra/
 ├── hypotheses.py         # Hypothesis registry (H1-H5)
 ├── evaluation.py         # Chronological evaluation framework
 ├── costs.py              # Explicit Bithumb spot assumptions and cost sensitivity grid
+├── definition_registry.py # Append-only, versioned feature/strategy definitions
+├── result_schema.py      # Standardized per-fold result contract
+├── walk_forward_runner.py# Train-only rolling/expanding evaluation
+├── batch.py              # Content-addressed, resumable experiment batches
 ├── manifests.py          # Research manifest system
 ├── freeze.py             # Candidate freeze mechanism
 ├── candidate_registry.py # Append-only, hash-chained lifecycle evidence
 ├── paper_readiness.py    # Offline evidence verifier; never starts PAPER
 ├── exploratory.py        # Exploratory research runner
 └── cli.py                # CLI entry points
+
+src/bithumb_coin_trader/
+├── paper_runtime.py      # Caller-fed local PAPER runtime
+├── paper_engine.py       # Decimal portfolio/order lifecycle and accounting
+├── paper_journal.py      # SQLite journal, replay, and crash recovery
+└── risk_engine.py        # Shared ALLOW/REJECT/HALT policy interface
 
 tests/research_infra/
 └── test_research_infra.py  # Core research infrastructure tests
@@ -64,6 +74,15 @@ research-data/              # Derived datasets, DQ catalogs, registry
 research-artifacts/         # Research reports and manifests
 docs/research-infra/        # This documentation
 ```
+
+Each batch writes an append-only `definition-registry.jsonl` by default under
+its output root. Strategy and feature definitions carry a version, source hash,
+schema, and definition hash; the experiment identity binds those hashes and
+each concrete config hash. Reusing a definition key with changed implementation
+is rejected; increment the definition version when implementation changes.
+The current feature boundary is completed OHLCV candle history. Four existing
+daily candidates are executable through the governed CLI; the broader family
+inventory does not imply that every historical strategy has an adapter.
 
 ## Dataset Scientific Roles
 
@@ -192,6 +211,41 @@ python -m bithumb_coin_trader.research_infra.cli candidate-freeze \
 ```
 
 Freeze requires ordered `base`, `conservative`, `stress`, and `extreme` tiers; completed folds with no unsupported execution semantics; positive net return on every fold at conservative through extreme tiers; and complete cash, buy-and-hold, and randomized-placebo comparisons. This is a deliberately restrictive engineering gate, not proof of alpha. Current candidate-selection acceptance criteria still need a reviewed lifecycle decision before the command can freeze anything. The command only writes local research evidence and never starts PAPER.
+
+## Local PAPER engine and post-30H orchestration
+
+`PaperRuntime` accepts caller-fed normalized public candles and visible order-book
+snapshots. It verifies a frozen candidate, applies the shared risk engine, and
+uses conservative visible-depth taker fills with explicit costs, fees, latency,
+minimum notional, tick/lot rules, and a declared depth-partial policy. Event,
+order, fill, account, and recovery state are checksum-bound in a local SQLite
+journal. Maker orders and probabilistic partial fills are unsupported. A durable
+sidecar halt latch survives restart and requires explicit recovery acknowledgement.
+This library does not start a feed process or PAPER.
+
+`reliability-seal` writes a new local seal only from a terminal-audit PASS and
+binds it to the exact report bytes. `paper-start` currently checks the seal,
+candidate freeze, and readiness bundle, then prints `PAPER=NOT_STARTED`; it does
+not construct or start a runtime. `scripts/post30h_orchestrator.py` runs the
+terminal audit, reliability seal, verified source-integration and dataset-DQ
+receipts, research batch, evidence-only candidate report, existing candidate
+freeze, and PAPER readiness in fail-stop order. It never merges source, selects
+a candidate, connects to cloud services, or starts PAPER. Inspect required
+inputs with `python scripts/post30h_orchestrator.py --help`; do not invoke it
+until post-30H evidence and the reviewer receipts are available.
+
+The isolated synthetic throughput check is:
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/benchmark_research_pipeline.py \
+  --batch-size 10 --candles 1000 --folds 5 \
+  --output /tmp/research-pipeline-benchmark.json
+```
+
+It times one backtest, one walk-forward grid, an `N`-experiment batch, and
+recovery from a crash after atomic accounting. It uses temporary synthetic
+candidates/data only, requires a clean committed checkout, and makes no
+performance assertions. Its output is diagnostic and is not research evidence.
 
 ## Tests
 
