@@ -204,11 +204,13 @@ AWS/S3, private API, prospective holdout, or trading operation was made.
 Current addendum verification: **290 focused Python tests passed** across
 research infrastructure, backtests, public feed, receipts, PAPER runtime, and
 recovery; changed-scope Pyright: **0 errors, 0 warnings, 0 informations**. The
-workflow now includes the receipt regressions; CI for the final pushed revision
-is pending. No final-head benchmark has yet been recorded. These are software
-checks only, not runtime reliability, dataset qualification, strategy
-performance, candidate selection, or PAPER authorization. No public stream was
-opened.
+local-readiness workflow includes the receipt regressions. At code revision
+`d08f294ae79a5fe9d23b22c3bbf55d2d78cc10ca`, a synthetic benchmark (1,000
+candles, 5 folds, 10 experiments) measured 0.0051s single backtest, 0.0198s
+walk-forward, 0.2870s batch (34.84 experiments/s), and 0.0281s PAPER crash
+recovery. These are software checks only, not runtime reliability, dataset
+qualification, strategy performance, candidate selection, or PAPER
+authorization. No public stream was opened.
 
 Remaining SAFE_NOW items are adapters for specialized multi-asset, intraday,
 maker/order-book, and legacy paths where the single-market candle authority is
