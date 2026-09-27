@@ -173,3 +173,32 @@ Historical PASS/FAIL evidence is retained. Existing 30H-v2 evidence includes a F
 - `git diff --check` and `py_compile` for changed Python modules passed.
 - Protected root `test-results/` pre/post SHA-256 inventory was identical.
 - No runtime, AWS/S3, exchange, holdout, or trading operation was made.
+
+## SAFE_NOW engineering update — 2026-09-28
+
+This branch-only addendum updates the 2026-09-27 readiness snapshot. No claim is
+made about Fresh 30H-v3 terminal state; no runtime or AWS evidence was read in
+this local engineering pass.
+
+| Area | Verified branch capability | Remaining SAFE_NOW work |
+|---|---|---|
+| Backtest, costs, walk-forward, batch, results | `SpotResearchBacktester` → `RebalanceBacktester` is the new single-market authority. Scenario fees, slippage, venue increments, sensitivity grid, train-only rolling/expanding folds, purge/embargo, resumable content IDs, `ExperimentResult` v1, and cash/buy-hold/placebo controls are in the governed CLI. Candle latency and partial-fill semantics fail closed when unsupported. | Adapt additional inventoried candidate sources only after their causal, execution, and accounting contracts are reviewed; specialized maker/book/multi-asset engines remain separate. |
+| Candidate families and freeze | Persistent hypothesis/family catalog maps historical source classes and preserves untrusted/failed results. Candidate selection stays explicit. `candidate-freeze` binds code/config/data/cost/result evidence and currently accepts the four governed daily/weekly implementations. | Integrate remaining eligible single-market families without changing their historical evidence or loosening freeze checks. No project strategy has been promoted from synthetic tests. |
+| PAPER engine | Local runtime joins a frozen candidate, public normalized events, unified risk, conservative visible-book taker fills, Decimal accounting, SQLite journal, durable halt latch, replay/recovery, and crash-point tests. `paper-start` requires all readiness gates and was not invoked. | Add retained provider/source receipts and a persistent process supervisor; the foreground feed stops on disconnect and requires explicit recovery. |
+| Public feed and observability | A public-only Bithumb v1 trade/book adapter builds completed KST candles, rejects partial/gapped/invalid data, and durably halts on disconnect. The local dashboard API reads SQLite in read-only mode; the Trading view polls only after explicit opt-in and marks snapshot integrity `NOT_VERIFIED`. | Keep live feed operation separate from this preparation; no stream was opened and no session receipt/completeness seal exists. |
+| Post-30H pipeline and CI | `scripts/post30h_orchestrator.py` is offline and fail-stop through audit/seal, reviewed source and DQ receipts, batch/report/freeze, and readiness; it never starts PAPER. A least-privilege workflow covers the synthetic Python/PAPER and dashboard suites. | Verify the new CI run on the draft PR. |
+
+Focused branch verification: **157 Python tests passed**; changed-scope Pyright:
+**0 errors, 0 warnings**; dashboard: **86 tests passed**, lint/typecheck/build
+passed; workflow YAML parsed. This is synthetic software evidence, not reliability,
+dataset qualification, strategy performance, candidate selection, or PAPER
+authorization. `git diff --check` passed. No Fresh 30H runtime, AWS/S3, private
+API, prospective holdout, or trading operation was made.
+
+Remaining SAFE_NOW items are broader source-by-source strategy adapters,
+provider-bound durable feed/session receipts plus explicit process supervision,
+and confirmation that the newly added synthetic CI lane passes remotely. True
+post-30H evidence blockers remain terminal evidence/reliability seal, qualified
+current-public data, governed retrospective results and human candidate
+selection. PAPER would still require a separate authorized start and future
+prospective observation; none of those stages is automatic.
