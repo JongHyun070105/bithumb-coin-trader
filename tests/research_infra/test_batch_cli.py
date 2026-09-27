@@ -81,6 +81,14 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
                 "seed": 11,
             },
             {
+                "candidate_family": "baseline_controls",
+                "strategy_id": "randomized_placebo",
+                "strategy_config": {},
+                "feature_config": {"input": "completed_candles"},
+                "parameter_sets": [{"exposure_probability": 0.5, "target_weight": 0.5}],
+                "seed": 11,
+            },
+            {
                 "candidate_family": "builtin_sma_trend_example",
                 "strategy_id": "sma_trend",
                 "strategy_config": {"mode": "long_flat"},
@@ -113,11 +121,11 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
     batch_id = next((tmp_path / "research-output" / "batches").iterdir()).name
     batch_dir = tmp_path / "research-output" / "batches" / batch_id
     aggregate = json.loads((batch_dir / "aggregate_report.json").read_text())
-    assert aggregate["experiment_count"] == 4
-    assert aggregate["completed_count"] == 4
-    assert len(aggregate["baseline_comparisons"]) == 16
-    assert len(list((batch_dir / "runs").glob("*/attempt-*/manifest.json"))) == 4
-    assert len(list((batch_dir / "runs").glob("*/attempt-*/metrics.json"))) == 4
+    assert aggregate["experiment_count"] == 5
+    assert aggregate["completed_count"] == 5
+    assert len(aggregate["baseline_comparisons"]) == 24
+    assert len(list((batch_dir / "runs").glob("*/attempt-*/manifest.json"))) == 5
+    assert len(list((batch_dir / "runs").glob("*/attempt-*/metrics.json"))) == 5
 
     dataset_data = json.loads(dataset_manifest.read_text())
     dataset_data["dataset_role"] = "FROZEN_HOLDOUT"

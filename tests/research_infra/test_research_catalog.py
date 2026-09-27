@@ -95,8 +95,8 @@ def test_hypothesis_catalog_cli_seed_and_list(tmp_path: Path, capsys) -> None:
     assert "HYPOTHESIS_GENERATION_ONLY" in output
 
 
-def test_candidate_family_requires_adapter_for_non_fixture_strategy() -> None:
-    with pytest.raises(ValueError, match="no governed execution adapter"):
+def test_candidate_family_rejects_mismatched_strategy_adapter() -> None:
+    with pytest.raises(ValueError, match="belongs to candidate_family"):
         cli._load_batch_experiments({
             "schema_version": 1,
             "experiments": [{
@@ -108,3 +108,23 @@ def test_candidate_family_requires_adapter_for_non_fixture_strategy() -> None:
                 "seed": 1,
             }],
         })
+
+
+def test_daily_candidate_family_is_accepted_with_all_control_strategies() -> None:
+    experiments = []
+    for strategy_id, family_id, parameters in (
+        ("cash", "baseline_controls", {}),
+        ("buy_and_hold", "baseline_controls", {}),
+        ("randomized_placebo", "baseline_controls", {"exposure_probability": 0.5, "target_weight": 0.5}),
+        ("daily_weekly_absolute_momentum_126_63", "daily_weekly_trend_and_momentum", {}),
+    ):
+        experiments.append({
+            "candidate_family": family_id,
+            "strategy_id": strategy_id,
+            "strategy_config": {},
+            "feature_config": {"input": "completed_KST_daily_candles"},
+            "parameter_sets": [parameters],
+            "seed": 23,
+        })
+    parsed = cli._load_batch_experiments({"schema_version": 1, "experiments": experiments})
+    assert [item.strategy_id for item in parsed] == [item["strategy_id"] for item in experiments]

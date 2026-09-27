@@ -7,12 +7,13 @@ target-weight contract before the CLI will execute them.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 import hashlib
 import math
 from typing import Any, Mapping, Sequence
 
-from ..models import Candle
+from ..daily_strategy_candidates import DailyCandidate, daily_candidate_factories
+from ..models import Candle, Signal
 from .walk_forward_runner import TrainOnlyTargetWeightStrategy
 
 
@@ -96,8 +97,40 @@ class _RandomizedExposure:
         return self.target_weight_value if draw < self.exposure_probability else 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class _DailyCandidateAdapter:
+    """Expose an existing frozen daily candidate through the causal WF API."""
+
+    strategy_id: str
+    candidate: DailyCandidate
+
+    def fit(self, training_candles: Sequence[Candle]) -> "_DailyCandidateAdapter":
+        if len(training_candles) < self.candidate.required_history_bars:
+            raise ValueError("training partition is shorter than the candidate's frozen history requirement")
+        # Generate only over training data here to validate the source's declared
+        # cadence and make the no-fit/frozen-parameter behavior explicit.
+        self.candidate.generate(training_candles)
+        return self
+
+    def parameters(self) -> Mapping[str, Any]:
+        if not is_dataclass(self.candidate):
+            raise UnsupportedStrategyError("daily candidate must expose a dataclass parameter manifest")
+        return asdict(self.candidate)
+
+    def target_weight(self, point_in_time_history: Sequence[Candle]) -> float:
+        if not point_in_time_history:
+            raise ValueError("point-in-time history cannot be empty")
+        signal = self.candidate.generate(point_in_time_history)[-1]
+        if signal not in {Signal.FLAT, Signal.LONG}:
+            raise ValueError("daily candidate emitted an unsupported signal")
+        return 1.0 if signal is Signal.LONG else 0.0
+
+
 def registered_strategy_ids() -> tuple[str, ...]:
-    return ("buy_and_hold", "cash", "randomized_placebo", "sma_trend")
+    daily_candidate_ids = tuple(
+        sorted(set(daily_candidate_factories()) - {"daily_buy_hold_benchmark"})
+    )
+    return ("buy_and_hold", "cash", "randomized_placebo", "sma_trend", *daily_candidate_ids)
 
 
 def create_builtin_strategy(
@@ -165,6 +198,13 @@ def create_builtin_strategy(
         ):
             raise UnsupportedStrategyError("entry_return_threshold must be in [-1, 10]")
         return _SmaTrend(lookback, float(weight), float(threshold))
+    daily_factories = daily_candidate_factories()
+    if strategy_id in set(daily_factories) - {"daily_buy_hold_benchmark"}:
+        if parameters:
+            raise UnsupportedStrategyError(
+                f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
+            )
+        return _DailyCandidateAdapter(strategy_id, daily_factories[strategy_id]())
     raise UnsupportedStrategyError(
         f"unknown strategy_id {strategy_id!r}; registered: {', '.join(registered_strategy_ids())}"
     )

@@ -38,13 +38,15 @@ volume, shock/rebound and meta-selection, to their source documents and code.
 ## Current batch adapter boundary
 
 The inventory covers the discovered internal strategy source modules and
-historical families. The generic resumable `research-batch` currently has
-governed adapters only for its cash, buy-and-hold, randomized-placebo controls
-and the SMA runner fixture. It rejects other inventoried family/strategy
-combinations instead of silently running a different implementation under a
-familiar strategy name. Building and validating adapters for those families
-remains SAFE_NOW work; the inventory alone does not satisfy candidate-family
-execution integration.
+historical families. The generic resumable `research-batch` has governed
+adapters for the four frozen weekly/daily implementations, plus cash,
+buy-and-hold, randomized-placebo controls and the SMA runner fixture. It
+rejects other inventoried family/strategy combinations instead of silently
+running a different implementation under a familiar strategy name. The daily
+adapters retain their existing fixed parameters and compute each signal from
+the causal candle prefix. Adapters for the remaining V3–V8, opportunity,
+microstructure and legacy families remain SAFE_NOW work; the inventory alone
+does not satisfy complete candidate-family execution integration.
 
 No record in this catalog changes:
 

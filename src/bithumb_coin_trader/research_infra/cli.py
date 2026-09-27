@@ -50,6 +50,12 @@ from ..data import DataError, load_candles_csv
 _RESEARCH_BATCH_ROLE = "DEVELOPMENT_EXPLORATORY"
 _HYPOTHESIS_CATALOG_PATH = Path("research-data/hypothesis_catalog.jsonl")
 _CANDIDATE_FAMILY_PATH = Path("research-data/candidate_families.json")
+_DAILY_CANDIDATE_STRATEGIES = {
+    "daily_weekly_absolute_momentum_126_63",
+    "daily_weekly_sma_50_200",
+    "daily_weekly_donchian_90_30",
+    "daily_weekly_dual_momentum_42_168_vol80",
+}
 
 
 def _get_data_root() -> Path:
@@ -477,10 +483,20 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
         if strategy_id in {"cash", "buy_and_hold", "randomized_placebo"}:
             if family != "baseline_controls":
                 raise ValueError(f"baseline strategy {strategy_id!r} must use candidate_family='baseline_controls'")
-        elif family != "builtin_sma_trend_example":
+        else:
+            expected_family = (
+                "daily_weekly_trend_and_momentum"
+                if strategy_id in _DAILY_CANDIDATE_STRATEGIES
+                else "builtin_sma_trend_example"
+            )
+            if family != expected_family:
+                raise ValueError(
+                    f"strategy {strategy_id!r} belongs to candidate_family={expected_family!r}, "
+                    f"not {family!r}"
+                )
+        if strategy_id not in {"cash", "buy_and_hold", "randomized_placebo", "sma_trend"} | _DAILY_CANDIDATE_STRATEGIES:
             raise ValueError(
-                f"strategy {strategy_id!r} has no governed execution adapter for family {family!r}; "
-                "only builtin_sma_trend_example is currently executable by research-batch"
+                f"strategy {strategy_id!r} has no governed execution adapter for family {family!r}"
             )
         strategy_config = raw["strategy_config"]
         feature_config = raw["feature_config"]
@@ -507,10 +523,10 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
         ))
     strategy_ids = {experiment.strategy_id for experiment in experiments}
     if any(strategy_id not in {"cash", "buy_and_hold", "randomized_placebo"} for strategy_id in strategy_ids):
-        missing_baselines = {"cash", "buy_and_hold"} - strategy_ids
+        missing_baselines = {"cash", "buy_and_hold", "randomized_placebo"} - strategy_ids
         if missing_baselines:
             raise ValueError(
-                "candidate experiments require explicit cash and buy_and_hold baselines; missing: "
+                "candidate experiments require explicit cash, buy_and_hold, and randomized_placebo controls; missing: "
                 + ", ".join(sorted(missing_baselines))
             )
     return tuple(experiments)
