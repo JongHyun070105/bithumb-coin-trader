@@ -186,19 +186,23 @@ this local engineering pass.
 | Candidate families and freeze | Persistent hypothesis/family catalog maps historical source classes and preserves untrusted/failed results. Candidate selection stays explicit. `candidate-freeze` binds code/config/data/cost/result evidence and currently accepts the four governed daily/weekly implementations. | Integrate remaining eligible single-market families without changing their historical evidence or loosening freeze checks. No project strategy has been promoted from synthetic tests. |
 | PAPER engine | Local runtime joins a frozen candidate, public normalized events, unified risk, conservative visible-book taker fills, Decimal accounting, SQLite journal, durable halt latch, replay/recovery, and crash-point tests. `paper-start` requires all readiness gates and was not invoked. | Add retained provider/source receipts and a persistent process supervisor; the foreground feed stops on disconnect and requires explicit recovery. |
 | Public feed and observability | A public-only Bithumb v1 trade/book adapter builds completed KST candles, rejects partial/gapped/invalid data, and durably halts on disconnect. The local dashboard API reads SQLite in read-only mode; the Trading view polls only after explicit opt-in and marks snapshot integrity `NOT_VERIFIED`. | Keep live feed operation separate from this preparation; no stream was opened and no session receipt/completeness seal exists. |
-| Post-30H pipeline and CI | `scripts/post30h_orchestrator.py` is offline and fail-stop through audit/seal, reviewed source and DQ receipts, batch/report/freeze, and readiness; it never starts PAPER. A least-privilege workflow covers the synthetic Python/PAPER and dashboard suites. | Verify the new CI run on the draft PR. |
+| Post-30H pipeline and CI | `scripts/post30h_orchestrator.py` is offline and fail-stop through audit/seal, reviewed source and DQ receipts, batch/report/freeze, and readiness; it never starts PAPER. A least-privilege workflow covers the synthetic Python/PAPER and dashboard suites. | Expand reviewed strategy adapters and retain provider-bound process receipts; changes to workflow scope will rerun the focused suite. |
 
 Focused branch verification: **157 Python tests passed**; changed-scope Pyright:
 **0 errors, 0 warnings**; dashboard: **86 tests passed**, lint/typecheck/build
-passed; workflow YAML parsed. This is synthetic software evidence, not reliability,
-dataset qualification, strategy performance, candidate selection, or PAPER
-authorization. `git diff --check` passed. No Fresh 30H runtime, AWS/S3, private
-API, prospective holdout, or trading operation was made.
+passed; workflow YAML parsed. GitHub Actions push and pull-request runs both
+passed at `8273dfb600c905db3468998ee19e53a111761d0c` (runs `36329074694` and
+`36329076460`). The synthetic benchmark at that code revision (1,000 candles,
+5 folds, 10 experiments) completed with 0.0051s single backtest, 0.0181s
+walk-forward, 0.2811s batch (35.58 experiments/s), and 0.0284s paper recovery.
+This is synthetic software evidence, not reliability, dataset qualification,
+strategy performance, candidate selection, or PAPER authorization. Full
+repository tests were not run. `git diff --check` passed. No Fresh 30H runtime,
+AWS/S3, private API, prospective holdout, or trading operation was made.
 
-Remaining SAFE_NOW items are broader source-by-source strategy adapters,
-provider-bound durable feed/session receipts plus explicit process supervision,
-and confirmation that the newly added synthetic CI lane passes remotely. True
-post-30H evidence blockers remain terminal evidence/reliability seal, qualified
+Remaining SAFE_NOW items are broader source-by-source strategy adapters and
+provider-bound durable feed/session receipts plus explicit process supervision.
+True post-30H evidence blockers remain terminal evidence/reliability seal, qualified
 current-public data, governed retrospective results and human candidate
 selection. PAPER would still require a separate authorized start and future
 prospective observation; none of those stages is automatic.
