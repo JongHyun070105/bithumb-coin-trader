@@ -224,15 +224,23 @@ sidecar halt latch survives restart and requires explicit recovery acknowledgeme
 This library does not start a feed process or PAPER.
 
 `reliability-seal` writes a new local seal only from a terminal-audit PASS and
-binds it to the exact report bytes. `paper-start` currently checks the seal,
-candidate freeze, and readiness bundle, then prints `PAPER=NOT_STARTED`; it does
-not construct or start a runtime. `scripts/post30h_orchestrator.py` runs the
-terminal audit, reliability seal, verified source-integration and dataset-DQ
-receipts, research batch, evidence-only candidate report, existing candidate
-freeze, and PAPER readiness in fail-stop order. It never merges source, selects
-a candidate, connects to cloud services, or starts PAPER. Inspect required
-inputs with `python scripts/post30h_orchestrator.py --help`; do not invoke it
-until post-30H evidence and the reviewer receipts are available.
+binds it to the exact report bytes. After all start gates pass, `paper-start`
+can run a finite local session from a caller-prepared JSONL stream of normalized
+public candles and visible order books. The command has no exchange client and
+does not retrieve data; the caller must bind the stream and warmup CSV to an
+approved public source before a separately authorized PAPER start. Gate failures
+and malformed event files do not create a journal; deeper frozen-candidate
+validation occurs as the runtime is initialized. An existing journal requires
+explicit `--resume`. This command has been prepared but not
+invoked, so `PAPER=NOT_STARTED`. See
+[`docs/paper-local-session.md`](../paper-local-session.md) for the event schema
+and full invocation shape. `scripts/post30h_orchestrator.py` runs the terminal
+audit, reliability seal, verified source-integration and dataset-DQ receipts,
+research batch, evidence-only candidate report, existing candidate freeze,
+and PAPER readiness in fail-stop order. It never merges source, selects a
+candidate, connects to cloud services, or starts PAPER. Inspect required inputs
+with `python scripts/post30h_orchestrator.py --help`; do not invoke it until
+post-30H evidence and the reviewer receipts are available.
 
 The isolated synthetic throughput check is:
 

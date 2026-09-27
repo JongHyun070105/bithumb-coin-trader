@@ -369,6 +369,11 @@ class PaperRuntime:
         self._remove_halt_marker()
         self._replay_incomplete_events()
 
+    @property
+    def is_halted(self) -> bool:
+        """Whether a durable or in-memory runtime halt is active."""
+        return bool(self._state.get("halted"))
+
     def metrics(self, book: OrderBookSnapshot) -> dict[str, Any]:
         mid = Decimal(str(book.mid_price))
         quantity = self._portfolio.base_quantity

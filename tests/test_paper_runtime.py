@@ -160,9 +160,11 @@ def test_paper_halt_survives_restart_until_explicit_recovery_acknowledgement(
     db_path = tmp_path / "halt.sqlite3"
     runtime = _runtime(frozen_candidate, db_path)
     runtime.halt("MANUAL_OPERATOR_HALT")
+    assert runtime.is_halted is True
 
     restarted = _runtime(frozen_candidate, db_path)
     assert restarted._state["halted"] is True
+    assert restarted.is_halted is True
     event = _event(frozen_candidate[2], "after-restart")
     with pytest.raises(ValueError, match="explicit recovery acknowledgement"):
         restarted.acknowledge_recovery("   ")

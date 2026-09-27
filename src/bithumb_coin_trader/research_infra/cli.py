@@ -22,6 +22,7 @@ from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 from typing import cast
@@ -37,6 +38,7 @@ from .dq import (
 from .hypotheses import HypothesisRegistry, register_default_hypotheses
 from .build import CanonicalBuildError, build_canonical_dataset
 from .paper_readiness import evaluate_paper_readiness, write_paper_readiness_report
+from ..paper_session import PaperSessionError, run_local_paper_session
 from .batch import BatchExperiment, run_research_batch
 from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
 from .candidate_freeze import CandidateFreezeError, freeze_candidate_experiment
@@ -49,6 +51,7 @@ from .definition_registry import (
     StrategyDefinition,
     VersionedDefinitionRegistry,
 )
+from ..paper_runtime import PaperRuntimeError
 from .research_catalog import (
     HypothesisCatalog,
     default_candidate_families,
@@ -256,7 +259,7 @@ def cmd_candidate_freeze(args: argparse.Namespace) -> int:
 
 
 def cmd_paper_start(args: argparse.Namespace) -> int:
-    """Readiness-only gate check; never starts a runtime or contacts an exchange."""
+    """Start a finite, local session over caller-supplied public market events."""
     try:
         report = evaluate_paper_start_gates(
             evidence_dir=Path(args.readiness_evidence_dir),
@@ -269,8 +272,44 @@ def cmd_paper_start(args: argparse.Namespace) -> int:
     for name, check in report["checks"].items():
         print(f"{name}={check['status']}: {check['reason']}")
     print(f"PAPER_START_ALLOWED={report['PAPER_START_ALLOWED']}")
-    print("PAPER=NOT_STARTED; this command only validates gates")
-    return 0 if report["PAPER_START_ALLOWED"] else 1
+    if not report["PAPER_START_ALLOWED"]:
+        print("PAPER=NOT_STARTED; readiness gates did not pass")
+        return 1
+
+    required = (
+        "research_root", "warmup_csv", "events_jsonl", "cost_scenario",
+        "risk_config", "journal", "initial_cash_krw", "market",
+    )
+    missing = [name.replace("_", "-") for name in required if not getattr(args, name, None)]
+    if missing:
+        print(f"ERROR: PAPER launch inputs required after gate PASS: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    halted = False
+    try:
+        for event_result in run_local_paper_session(
+            candidate_freeze=Path(args.candidate_freeze),
+            research_root=Path(args.research_root),
+            warmup_csv=Path(args.warmup_csv),
+            events_jsonl=Path(args.events_jsonl),
+            cost_scenario_json=Path(args.cost_scenario),
+            risk_config_json=Path(args.risk_config),
+            journal_path=Path(args.journal),
+            initial_cash_krw=args.initial_cash_krw,
+            market=args.market,
+            allow_resume=args.resume,
+        ):
+            print(json.dumps(event_result, sort_keys=True, separators=(",", ":")))
+            metrics = event_result.get("metrics") if event_result.get("record_type") == "metrics_snapshot" else None
+            halted = isinstance(metrics, dict) and metrics.get("risk_state") == "HALTED"
+    except (PaperSessionError, PaperRuntimeError, OSError, sqlite3.Error, ValueError, TypeError, KeyError) as exc:
+        print(f"ERROR: PAPER session stopped: {exc}", file=sys.stderr)
+        return 2
+    if halted:
+        print("PAPER_SESSION=HALTED; explicit recovery acknowledgement is required")
+        return 1
+    print("PAPER_SESSION=COMPLETED; normalized local public-event stream exhausted")
+    print("PRIVATE_API=DISABLED; no exchange client is used")
+    return 0
 
 
 def cmd_reliability_seal(args: argparse.Namespace) -> int:
@@ -787,11 +826,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     paper_start = sub.add_parser(
         "paper-start",
-        help="Read-only fail-closed gate check; this command never starts PAPER",
+        help="Start a finite local PAPER session from a normalized public-event JSONL file after all readiness gates pass",
     )
     paper_start.add_argument("--candidate-freeze", required=True)
     paper_start.add_argument("--readiness-evidence-dir", required=True)
     paper_start.add_argument("--reliability-seal", required=True)
+    paper_start.add_argument("--research-root", help="Root containing the frozen experiment metrics")
+    paper_start.add_argument("--warmup-csv", help="Local public candle CSV used to initialize frozen strategy state")
+    paper_start.add_argument("--events-jsonl", help="Normalized public candle/order-book events; no feed client is started")
+    paper_start.add_argument("--cost-scenario", help="JSON SpotCostScenario with explicit non-zero fee, slippage, and latency")
+    paper_start.add_argument("--risk-config", help="JSON RiskEngineConfig")
+    paper_start.add_argument("--journal", help="New local SQLite paper journal; existing journals require --resume")
+    paper_start.add_argument("--initial-cash-krw", help="Finite positive initial cash as a decimal string")
+    paper_start.add_argument("--market", help="KRW spot market, for example KRW-BTC")
+    paper_start.add_argument("--resume", action="store_true", help="Resume an existing journal for the same frozen candidate")
 
     reliability_seal = sub.add_parser(
         "reliability-seal",
