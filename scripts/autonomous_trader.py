@@ -143,6 +143,7 @@ FEE_BUFFER = 1.003           # 수수료 버퍼 (0.3% 여유)
 NEW_ENTRIES_ENV = "BITHUMB_NEW_ENTRIES"
 PYRAMIDING_ENV = "BITHUMB_PYRAMIDING"
 FINNHUB_API_KEY_ENV = "BITHUMB_FINNHUB_API_KEY"
+LIVE_TRADING_ENV = "BITHUMB_LIVE_TRADING"
 
 EXITS_PATH = PROJECT_ROOT / "state" / "recent_exits.json"
 
@@ -1751,6 +1752,13 @@ def execute_sell_partial(portfolio: PortfolioState, settings: TradingSettings, r
 
 
 def main():
+    live_opt_in = os.environ.get(LIVE_TRADING_ENV, "").strip().lower()
+    if live_opt_in not in {"1", "true", "yes", "on"}:
+        raise SystemExit(
+            f"autonomous live trading is disabled by default; explicit authorization "
+            f"requires {LIVE_TRADING_ENV}=true"
+        )
+
     _daemon_lock = acquire_daemon_lock()
     portfolio = PortfolioState.load(PORTFOLIO_PATH)
     if portfolio.capital_baseline <= 0 and portfolio.total_capital > 0:
