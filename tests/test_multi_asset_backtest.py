@@ -7,6 +7,7 @@ import pytest
 from bithumb_coin_trader.config import TradingSettings
 from bithumb_coin_trader.models import Candle
 from bithumb_coin_trader.multi_asset_backtest import MultiAssetSharedCashBacktester
+from bithumb_coin_trader.research_infra.costs import SpotCostScenario
 
 
 MARKET = "KRW-BTC"
@@ -88,3 +89,33 @@ def test_market_key_mismatch_is_rejected() -> None:
 def test_weights_for_unknown_market_are_rejected() -> None:
     with pytest.raises(ValueError, match="without candles"):
         _backtester().run({MARKET: _candles()}, {"KRW-ETH": [0.0, 0.0]})
+
+
+def test_shared_cash_engine_consumes_explicit_spot_cost_scenario() -> None:
+    scenario = SpotCostScenario(
+        name="multi-stress",
+        maker_fee_bps=2.0,
+        taker_fee_bps=20.0,
+        slippage_bps=10.0,
+        latency_ms=100.0,
+        minimum_order_notional=5_000.0,
+        tick_size=1.0,
+        lot_size=1.0,
+        partial_fill_probability=None,
+        partial_fill_status="UNSUPPORTED",
+    )
+
+    result = _backtester().run(
+        {MARKET: _candles()},
+        {MARKET: [0.25, 0.25]},
+        cost_scenario=scenario,
+    )
+
+    assert result.execution_assumptions == scenario.to_dict()
+    assert result.total_fees_krw > 0
+    entry_reference = result.fills[0].reference_price
+    exit_reference = result.fills[-1].reference_price
+    assert entry_reference is not None and result.fills[0].price > entry_reference
+    assert exit_reference is not None and result.fills[-1].price < exit_reference
+    assert sum(fill.slippage_cost for fill in result.fills) > 0
+    assert "LATENCY_NOT_MODELED_AT_CANDLE_RESOLUTION" in result.unsupported_execution_semantics

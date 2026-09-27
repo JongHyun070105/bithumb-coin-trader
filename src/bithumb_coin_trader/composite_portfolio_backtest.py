@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from .config import TradingSettings
 from .models import Candle
 from .rebalance_backtest import RebalanceBacktestResult, RebalanceBacktester
+from .research_infra.costs import SpotCostScenario
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,6 +33,8 @@ class CompositePortfolioResult:
     mean_holding_days: float
     total_fees_krw: float
     equity_curve: tuple[float, ...]
+    cost_scenario: dict[str, object] | None = None
+    unsupported_execution_semantics: tuple[str, ...] = ()
 
 
 def run_composite_portfolio_backtest(
@@ -45,6 +48,7 @@ def run_composite_portfolio_backtest(
     core_ratio: float = 0.70,
     satellite_ratio: float = 0.30,
     fee_regime_name: str = "live_zero_fee",
+    cost_scenario: SpotCostScenario | None = None,
 ) -> CompositePortfolioResult:
     """Combine Core and Satellite weight streams and evaluate under specified fee settings."""
     if len(core_weights) != len(candles) or len(satellite_weights) != len(candles):
@@ -65,7 +69,9 @@ def run_composite_portfolio_backtest(
     ]
 
     backtester = RebalanceBacktester(settings)
-    res: RebalanceBacktestResult = backtester.run(candles, combined_weights)
+    res: RebalanceBacktestResult = backtester.run(
+        candles, combined_weights, cost_scenario=cost_scenario
+    )
 
     # Analyze round-trip trades
     fills = res.fills
@@ -98,7 +104,7 @@ def run_composite_portfolio_backtest(
         satellite_name=satellite_name,
         core_ratio=core_ratio,
         satellite_ratio=satellite_ratio,
-        fee_regime=fee_regime_name,
+        fee_regime=cost_scenario.name if cost_scenario is not None else fee_regime_name,
         initial_equity=res.initial_equity,
         final_equity=res.final_equity,
         total_return=res.total_return,
@@ -112,4 +118,6 @@ def run_composite_portfolio_backtest(
         mean_holding_days=holding_days_mean,
         total_fees_krw=res.total_fees,
         equity_curve=res.equity_curve,
+        cost_scenario=cost_scenario.to_dict() if cost_scenario is not None else None,
+        unsupported_execution_semantics=res.unsupported_execution_semantics,
     )

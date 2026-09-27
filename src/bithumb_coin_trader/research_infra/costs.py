@@ -8,6 +8,7 @@ and separately model any behavior they do not support.
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, replace
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import itertools
 import math
 from typing import Any, Mapping, Sequence
@@ -15,6 +16,107 @@ from typing import Any, Mapping, Sequence
 
 class CostScenarioError(ValueError):
     """Raised when a spot cost scenario is incomplete or internally invalid."""
+
+
+@dataclass(frozen=True, slots=True)
+class SpotFillTerms:
+    """One fully rounded spot fill under an explicit scenario."""
+
+    side: str
+    order_type: str
+    reference_price: float
+    fill_price: float
+    quantity: float
+    notional: float
+    fee: float
+    slippage_cost: float
+
+
+def spot_execution_price(
+    scenario: "SpotCostScenario", reference_price: float, side: str
+) -> float:
+    """Return the adverse slippage-adjusted price rounded to the market tick."""
+    slipped_price = scenario.execution_price(reference_price, side)
+    tick = Decimal(str(scenario.tick_size))
+    raw_ticks = Decimal(str(slipped_price)) / tick
+    rounding = ROUND_CEILING if side.upper() == "BUY" else ROUND_FLOOR
+    return float(raw_ticks.to_integral_value(rounding=rounding) * tick)
+
+
+def spot_quantity_for_notional(
+    scenario: "SpotCostScenario",
+    *,
+    reference_price: float,
+    requested_notional: float,
+    side: str,
+) -> float:
+    """Floor a notional budget to lots using the adverse rounded fill price."""
+    if (
+        isinstance(requested_notional, bool)
+        or not isinstance(requested_notional, (int, float))
+        or not math.isfinite(requested_notional)
+        or requested_notional <= 0
+    ):
+        raise CostScenarioError("requested_notional must be finite and positive")
+    fill_price = spot_execution_price(scenario, reference_price, side)
+    lot = Decimal(str(scenario.lot_size))
+    raw_lots = Decimal(str(requested_notional / fill_price)) / lot
+    quantity = raw_lots.to_integral_value(rounding=ROUND_FLOOR) * lot
+    if quantity <= 0:
+        raise CostScenarioError("requested notional is below one scenario lot")
+    return float(quantity)
+
+
+def spot_fill_terms(
+    scenario: "SpotCostScenario",
+    *,
+    reference_price: float,
+    requested_quantity: float,
+    side: str,
+    order_type: str = "TAKER",
+    enforce_minimum: bool = True,
+) -> SpotFillTerms:
+    """Apply adverse price tick rounding, lot flooring, fee and slippage.
+
+    This is a deterministic candle-fill approximation. Callers must separately
+    report any scenario semantics (such as latency or partial fills) that their
+    data resolution cannot model.
+    """
+    if (
+        isinstance(requested_quantity, bool)
+        or not isinstance(requested_quantity, (int, float))
+        or not math.isfinite(requested_quantity)
+        or requested_quantity <= 0
+    ):
+        raise CostScenarioError("requested_quantity must be finite and positive")
+    normalized_side = side.upper()
+    fill_price = spot_execution_price(scenario, reference_price, normalized_side)
+
+    lot = Decimal(str(scenario.lot_size))
+    raw_lots = Decimal(str(requested_quantity)) / lot
+    quantity_decimal = raw_lots.to_integral_value(rounding=ROUND_FLOOR) * lot
+    if quantity_decimal <= 0:
+        raise CostScenarioError("requested quantity is below the scenario lot size")
+
+    quantity = float(quantity_decimal)
+    notional = fill_price * quantity
+    if enforce_minimum and notional < scenario.minimum_order_notional:
+        raise CostScenarioError(
+            "rounded fill notional is below the scenario minimum order notional"
+        )
+    fee = notional * scenario.fee_rate(order_type)
+    direction = 1.0 if normalized_side == "BUY" else -1.0
+    slippage_cost = max(0.0, (fill_price - reference_price) * direction) * quantity
+    return SpotFillTerms(
+        side=normalized_side,
+        order_type=order_type.upper(),
+        reference_price=reference_price,
+        fill_price=fill_price,
+        quantity=quantity,
+        notional=notional,
+        fee=fee,
+        slippage_cost=slippage_cost,
+    )
 
 
 @dataclass(frozen=True, slots=True)
