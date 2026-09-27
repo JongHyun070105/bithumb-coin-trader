@@ -152,7 +152,7 @@ function DashboardShell() {
           <div className="environment">
             <ShieldCheck size={16} className="text-success" />
             <strong>오프라인 연구 콘솔 (Offline Evidence Console)</strong>
-            <span>브라우저 로컬 메모리 전용 · 외부 네트워크 통신 0건</span>
+            <span>브라우저 로컬 메모리 전용 · PAPER 관측은 선택 시 localhost만 조회</span>
           </div>
           <div className="topbar-state">
             <span className="pulse-dot" />

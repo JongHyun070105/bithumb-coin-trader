@@ -1,0 +1,59 @@
+# Backtest authority and execution contract
+
+## Decision
+
+`research_infra.backtesting.SpotResearchBacktester` is the authoritative entry
+point for new single-market, long-only spot research. Its strategy contract is
+a point-in-time target-weight series; execution and cash/position accounting are
+delegated to `RebalanceBacktester`. A `SpotCostScenario` is required at this
+entry point. The Core/Satellite composite adapter and the multi-asset portfolio
+engine also accept the same scenario directly.
+
+`Backtester` remains available for existing signal-based studies and their
+historical reproduction. It consumes a scenario when one is passed, but is
+classified as legacy for new candidate evidence. No old implementation is
+deleted. New result aggregation should use the standardized contract planned in
+`research_infra/result_schema.py` before those paths become candidate inputs.
+
+The candle engines execute full taker fills at next open. They apply explicit
+taker fee, adverse slippage, tick rounding, lot flooring, and minimum notional.
+They cannot reconstruct sub-candle latency or probabilistic partial fills. A
+scenario with positive latency or a nonzero partial-fill probability is still
+run for diagnostic sensitivity, but its result carries an unsupported-semantics
+status and is not complete robustness evidence. The scenario is also persisted
+with every result. Maker fees are recorded but are not charged because these
+engines create no maker orders.
+
+## Engine comparison matrix
+
+`SpotCostScenario` coverage refers to the direct APIs as they exist on this
+branch. Historical reports were not rerun or rewritten by this change.
+
+| ENGINE | DATA INPUT | SIGNAL MODEL | ORDER MODEL | FILL MODEL | POSITION ACCOUNTING | FEE MODEL | SLIPPAGE | PARTIAL FILLS | LATENCY | METRICS | CURRENT USERS | KNOWN RESULTS | TEST COVERAGE | STATUS |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| `SpotResearchBacktester` → `RebalanceBacktester` | One market's ordered candles and one target weight per candle | Strategy supplies a causal LONG/FLAT target weight in `[0,1]` | Rebalance to prior-close target at next open; cash reserve, per-order cap, min notional | Full taker fill at adverse tick-rounded price; quantity floored to lot | Cash plus base quantity; fees paid on fills; liquidation-value equity curve | Required scenario taker rate | Required scenario bps plus adverse tick rounding | Explicitly unsupported unless probability is zero; otherwise result is marked incomplete | Positive delay marked unsupported at candle resolution | Net return, CAGR/sharpe at report adapter, MDD, exposure, fills, fees, turnover, cash/quantity/equity curves | New V3–V7/Core/Satellite research should converge here through target-weight inputs | No run on qualified Fresh 30H data; no accepted candidate metrics | `tests/test_rebalance_backtest.py`, cost scenario tests, Core/Satellite adapter tests | **AUTHORITATIVE** for new single-market spot research |
+| `Backtester` | One market's candles and aligned `Signal` values | LONG/FLAT/optional SHORT signals; signal at prior candle | One position; enter/exit on next open; optional allocation, risk checks and daily entry cap | Full next-open fill; scenario mode uses adverse tick, lot, minimum, taker fee; legacy mode uses settings | One active position and equity curve; signal-reversal/gap/final liquidation | Explicit scenario when supplied; legacy settings otherwise | Explicit scenario when supplied; legacy settings otherwise | Scenario probability above zero marked unsupported; explicit unsupported state retained | Positive scenario latency marked unsupported at candle resolution | Return, MDD, Sharpe, win rate, exposure, trades, fees, turnover and entry rejections | V2, wave3/wave4, win-rate, opportunity and other signal research | Historical reports exist in prior branches; they are exploratory and untrusted | `tests/test_backtest.py`, `tests/test_backtester_oracle.py`, cost scenario tests | **LEGACY** for new candidate work; retained for reproducibility |
+| `RebalanceBacktester` direct API | One market's candles and target weights | Target weight per candle | Prior-close target at next open, buy/sell, max order and minimum | Same scenario fill contract as authoritative wrapper | Explicit cash and base-quantity curves; final liquidation | Scenario taker fee or legacy settings | Scenario slippage and adverse tick rounding, or legacy settings | Explicitly reported unsupported for probabilistic fills | Explicitly reported unsupported for positive sub-candle latency | Return, MDD, exposure, fill count, fees, turnover, cash/quantity/equity curves | Strategy V3–V7 research modules and composite adapter | Prior family reports are not candidate proof | `tests/test_rebalance_backtest.py` and scenario tests | **AUTHORITATIVE ENGINE**, called for new work through wrapper |
+| `MultiAssetSharedCashBacktester` | Per-market candles and target weights; historical market metadata | Cross-sectional per-market weights; exposure normalization | Sells before buys; shared cash; listing, warning, suspension and delisting rules | Full taker fills; scenario fee/slippage/tick/lot/minimum applied when provided | Shared cash, per-asset quantities and marked equity; missing bars do not create fills | Scenario taker fee or legacy settings | Scenario bps and adverse tick rounding, or legacy settings | Scenario marks nonzero probability unsupported; fill remains diagnostic only | Positive delay marked unsupported at candle resolution | Return, CAGR, Sharpe, MDD, round trips, fees, realized/target exposure, cash and market-state counters | V8 and V8.1 multi-asset research | No result is promoted; V8 historical metrics require retest under governed costs | `tests/test_multi_asset_backtest.py` plus scenario case | **SPECIALIZED** multi-asset portfolio engine; not the single-market authority |
+| `run_composite_portfolio_backtest` | One market's candles plus Core and Satellite weight streams | Weighted Core + Satellite target-weight composition | Delegates target execution to `RebalanceBacktester` | Delegates to authoritative engine; scenario passes through | Delegates cash/asset ledger | Scenario name and taker rate when supplied; legacy fee regime otherwise | Delegates to authoritative engine | Inherits unsupported status | Inherits unsupported status | Return, CAGR, MDD, Sharpe, exposure, fills, round trips, fees and equity | Historical Core+Satellite V6 path | The Aug. 25 audit reports `+48.43%`; its supporting report is absent from this branch and that number is explicitly untrusted pending governed retest | `tests/test_composite_portfolio_backtest.py` and scenario case | **ADAPTER** |
+| `LivePolicyBacktest` (`run_policy_backtest`) | One market's candles and live-policy gates | Entry eligibility plus stop, trailing, time-cut and partial take-profit rules | Market-style entries, partial exits and final exit | Candle-price model with configured fee/slippage; partial *position exits* are not order-book partial fills | Custom position state and equity curve; not the common portfolio ledger | `TradingSettings` flat fee | `TradingSettings` flat bps | Partial exits are strategy actions; fill probability is not modeled | No sub-candle latency model | Return, MDD, Sharpe, trade/win counts, exposure, exit reason and partial-exit counts | Live-policy research comparisons | Historical report only; not evidence for live readiness | `tests/test_live_policy_research.py` | **SPECIALIZED** policy evaluator |
+| `DeterministicTakerSimulator` | One L2 order-book snapshot, optional order-time snapshot, market order request | No strategy; order request only | Market buy by KRW notional or sell by base quantity | Deterministic depth walking with full or partial fill, rejects when partial is prohibited | No portfolio; returns fill slices and cost breakdown | Request fee rate | Spread crossing, depth and optional latency adverse selection | Supported by available depth and request policy | Supported when future snapshot is supplied after requested delay | Fill ratio/quantity, VWAP, fees, spread/depth/latency costs, adverse selection | Wrapped by `ResearchExecutionSimulator`; reusable for paper fill simulation | Synthetic unit evidence only for this sprint | `tests/test_execution_simulator.py`, `tests/test_paper_engine.py` | **SPECIALIZED** fill simulator |
+| `ResearchExecutionSimulator` | Ordered canonical market events and order-book snapshots | Research signal event | Long-only taker entry/exit | Delegates to deterministic depth-walking simulator | One research position plus trade/equity records | `ExecutionAssumptions` and fee-regime config; not yet `SpotCostScenario` | VWAP embeds spread/depth; separate extra impact | Configurable through wrapped simulator | Selects first book after signal time + configured delay | Trade-level cost, latency, slippage/adverse selection and PnL | Microstructure exploratory library; no current candidate batch caller found | No accepted candidate result | No direct dedicated suite found; `tests/test_execution_simulator.py` covers wrapped primitive | **SPECIALIZED** event-data evaluator |
+| `RealisticTakerExecutionSimulator` | One microstructure L2 order-book snapshot | No strategy | Market order by KRW notional | Sweeps visible depth with a simplified latency adverse-price adjustment | No portfolio | No fee charged in this simulator | Spread/VWAP slippage plus simplified latency adjustment | Supports partial visible-depth fills | Configurable fixed latency | Fill slices, partial/reject flags, slippage and effective cost | No current package caller found | No governed result found | No dedicated simulator test file found | **SPECIALIZED / unintegrated**; do not use as candidate authority |
+| `MakerSimulator` | Canonical event sequence of order-book and trade events | No strategy; passive order request | Limit order with modeled queue ahead and cancellation horizon | Causal event-based queue approximation; reports partial/cancel/stale | No portfolio | Maker fee assumptions | Adverse selection estimate | Supports partial fills from event/queue model | Order-arrival and cancel latency | Fill state, queue delay and adverse selection | No current package caller found | Its specification states exact L3 queue reconstruction is unavailable; no validatable maker conclusion | `tests/test_maker_simulator.py` | **SPECIALIZED** and not valid for promotion without L3 evidence |
+
+## Strategy-source routing
+
+| FAMILY / SOURCE | CURRENT ENGINE | ROUTING DECISION |
+|---|---|---|
+| Core and Satellite, V3–V7 daily weight families | `RebalanceBacktester`; V6 composite delegates to it | New single-market retests use `SpotResearchBacktester` with explicit scenario |
+| V2 and other signal families | `Backtester` | Preserve old results; new target-weight experiments must be represented through the authoritative interface before promotion |
+| V8 / V8.1 cross-sectional strategies | `MultiAssetSharedCashBacktester` | Keep specialized; use explicit costs and the same experiment/result governance; do not claim equivalence with one-market runs |
+| Live-policy exits | Custom policy evaluator | Keep specialized and compare against cash/fixed-exit baselines; no promotion by historical label |
+| H1–H5 microstructure hypotheses | Research event/fill simulators | Use only with book-level inputs; candle costs do not substitute for depth execution |
+| Maker / legacy taker prototypes | Maker and realistic taker simulators | Do not include in candidate evidence until their data/fee/fill contracts are reviewed |
+
+This matrix is an implementation inventory, not a validation of any strategy.
+Historical headline returns, including the quoted Core+Satellite result, remain
+untrusted until a complete, immutable dataset and experiment manifest are
+rerun through the governed pipeline. `ALPHA` remains `UNPROVEN`.

@@ -1,7 +1,109 @@
-import { Lock, CircleDot } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Lock, CircleDot, RefreshCw } from 'lucide-react'
+import { MetricCard } from '../components/MetricCard'
 import { ModeBanner } from '../components/ModeBanner'
 
+const PAPER_RUNTIME_URL = 'http://127.0.0.1:8787/api/paper/runtime'
+
+type PaperRuntimePayload = {
+  status: 'AVAILABLE' | 'NOT_CONFIGURED' | 'NOT_AVAILABLE' | 'UNAVAILABLE' | 'EMPTY' | 'CORRUPT'
+  event_id?: string
+  timestamp_ms?: number
+  journal_name?: string
+  metrics_integrity?: string
+  metrics?: Record<string, unknown> | null
+}
+
+const paperMetricLabels: Record<string, string> = {
+  market_data_age_ms: 'Market data age (ms)',
+  strategy_state: 'Strategy state',
+  signal_count: 'Signals',
+  order_count: 'Orders',
+  fill_count: 'Fills',
+  rejections: 'Rejections',
+  positions: 'Positions',
+  cash_krw: 'Cash (KRW)',
+  reserved_cash_krw: 'Reserved cash (KRW)',
+  equity_krw: 'Equity (KRW)',
+  realized_pnl_krw: 'Realized PnL (KRW)',
+  unrealized_pnl_krw: 'Unrealized PnL (KRW)',
+  fees_krw: 'Fees (KRW)',
+  slippage_cost_krw: 'Slippage (KRW)',
+  turnover_krw: 'Turnover (KRW)',
+  drawdown_fraction: 'Drawdown',
+  risk_state: 'Risk state',
+  risk_verdict: 'Risk verdict',
+  risk_reason_codes: 'Risk reasons',
+  halt_reason: 'Halt reason',
+  journal_state: 'Journal',
+  restart_count: 'Restarts'
+}
+
+function parsePaperRuntime(value: unknown): PaperRuntimePayload {
+  if (typeof value !== 'object' || value === null || !('status' in value)) {
+    throw new Error('The local API returned an invalid PAPER snapshot.')
+  }
+  const payload = value as Record<string, unknown>
+  const allowedStatuses: PaperRuntimePayload['status'][] = [
+    'AVAILABLE', 'NOT_CONFIGURED', 'NOT_AVAILABLE', 'UNAVAILABLE', 'EMPTY', 'CORRUPT'
+  ]
+  if (typeof payload.status !== 'string' || !allowedStatuses.includes(payload.status as PaperRuntimePayload['status'])) {
+    throw new Error('The local API returned an unknown PAPER snapshot status.')
+  }
+  const metrics = payload.metrics
+  if (metrics !== undefined && metrics !== null && (typeof metrics !== 'object' || Array.isArray(metrics))) {
+    throw new Error('The local API returned invalid PAPER metrics.')
+  }
+  return payload as PaperRuntimePayload
+}
+
+function displayMetric(value: unknown): string {
+  if (value === null || value === undefined || value === '') return '—'
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
 export const Trading: React.FC = () => {
+  const [connected, setConnected] = useState(false)
+  const [snapshot, setSnapshot] = useState<PaperRuntimePayload | null>(null)
+  const [loadError, setLoadError] = useState('')
+
+  useEffect(() => {
+    if (!connected) return
+    let active = true
+    let timer: number | undefined
+    const controller = new AbortController()
+
+    const poll = async () => {
+      try {
+        const response = await fetch(PAPER_RUNTIME_URL, {
+          method: 'GET',
+          headers: { Accept: 'application/json' },
+          signal: controller.signal
+        })
+        if (!response.ok) throw new Error(`Local API returned HTTP ${response.status}.`)
+        const nextSnapshot = parsePaperRuntime(await response.json())
+        if (active) {
+          setSnapshot(nextSnapshot)
+          setLoadError('')
+        }
+      } catch (error) {
+        if (!active || (error instanceof DOMException && error.name === 'AbortError')) return
+        setLoadError(error instanceof Error ? error.message : 'Could not read the local PAPER snapshot.')
+      }
+      if (active) timer = window.setTimeout(poll, 5_000)
+    }
+
+    void poll()
+    return () => {
+      active = false
+      controller.abort()
+      if (timer !== undefined) window.clearTimeout(timer)
+    }
+  }, [connected])
+
+  const metrics = snapshot?.status === 'AVAILABLE' ? snapshot.metrics : null
+
   return (
     <div className="page-container">
       <ModeBanner />
@@ -76,6 +178,62 @@ export const Trading: React.FC = () => {
             </div>
           </div>
         </div>
+      </section>
+
+      <section className="section-block paper-runtime-section" aria-labelledby="paper-runtime-heading">
+        <div className="section-header-row">
+          <div>
+            <h3 id="paper-runtime-heading" className="section-title">Local PAPER observability</h3>
+            <p className="muted-text">Opt in to read the latest journal snapshot from the loopback API. This does not start PAPER or enable orders.</p>
+          </div>
+          {connected ? (
+            <button className="btn-action btn-clear" onClick={() => setConnected(false)}>
+              Disconnect local journal
+            </button>
+          ) : (
+            <button
+              className="btn-action btn-clear"
+              onClick={() => {
+                setLoadError('')
+                setSnapshot(null)
+                setConnected(true)
+              }}
+            >
+              Connect local journal
+            </button>
+          )}
+        </div>
+
+        {!connected && <p className="muted-text" role="status">Local journal is disconnected; no request has been made.</p>}
+        {connected && loadError && <p className="danger-text" role="alert">{loadError}</p>}
+        {connected && !snapshot && !loadError && <p className="muted-text" role="status">Reading local journal…</p>}
+        {connected && snapshot && (
+          <div className="paper-runtime-content" aria-live="polite">
+            <div className="paper-runtime-summary card-surface">
+              <strong>Journal status: {snapshot.status}</strong>
+              {snapshot.journal_name && <span>Journal: {snapshot.journal_name}</span>}
+              {snapshot.event_id && <span>Latest event: <code>{snapshot.event_id}</code></span>}
+              {snapshot.timestamp_ms !== undefined && <span>Event time (ms): {snapshot.timestamp_ms}</span>}
+              {snapshot.metrics_integrity && (
+                <span className="warning-text">Metrics integrity: {snapshot.metrics_integrity}</span>
+              )}
+            </div>
+            {metrics && (
+              <div className="status-grid">
+                {Object.entries(paperMetricLabels).map(([key, label]) => (
+                  <MetricCard key={key} title={label} value={displayMetric(metrics[key])} />
+                ))}
+                {metrics.fill_model !== undefined && (
+                  <MetricCard title="Fill model" value={displayMetric(metrics.fill_model)} />
+                )}
+              </div>
+            )}
+            {snapshot.status !== 'AVAILABLE' && <p className="muted-text">No PAPER event snapshot is available.</p>}
+          </div>
+        )}
+        {connected && (
+          <small className="muted-text"><RefreshCw size={12} aria-hidden="true" /> Refreshes every 5 seconds while connected. Read-only; LIVE remains disabled.</small>
+        )}
       </section>
     </div>
   )

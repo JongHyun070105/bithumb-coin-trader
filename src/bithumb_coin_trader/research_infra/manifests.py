@@ -89,6 +89,7 @@ class ResearchManifest:
 
     # Schema
     schema_version: str = "1.0.0"
+    validation_range: tuple[str, str] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = {}
@@ -105,9 +106,61 @@ class ResearchManifest:
         canonical = json.dumps(d, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
+    @property
+    def reproducible_inputs_complete(self) -> bool:
+        """Whether required provenance, split boundaries, and logical inputs are bound."""
+        digest_chars = set("0123456789abcdefABCDEF")
+        commit_is_hash = len(self.git_commit) in {40, 64} and set(self.git_commit) <= digest_chars
+        source_hashes_complete = (
+            bool(self.dataset_ids)
+            and len(self.dataset_roles) == len(self.dataset_ids)
+            and set(self.dataset_ids) <= self.source_fingerprints.keys()
+            and all(
+                bool(dataset_id)
+                and len(digest) == 64
+                and set(digest) <= digest_chars
+                for dataset_id, digest in self.source_fingerprints.items()
+            )
+        )
+        return (
+            commit_is_hash
+            and source_hashes_complete
+            and self.train_range is not None
+            and self.test_range is not None
+        )
+
+    def compute_experiment_id(self) -> str:
+        """Return a stable identity for logical inputs, independent of run/output metadata."""
+        inputs = {
+            "git_commit": self.git_commit,
+            "dataset_ids": self.dataset_ids,
+            "dataset_roles": self.dataset_roles,
+            "source_time_range_start": self.source_time_range_start,
+            "source_time_range_end": self.source_time_range_end,
+            "source_fingerprints": self.source_fingerprints,
+            "dq_filters": self.dq_filters,
+            "dq_exclusion_count": self.dq_exclusion_count,
+            "feature_config": self.feature_config,
+            "label_config": self.label_config,
+            "hypothesis_id": self.hypothesis_id,
+            "train_range": self.train_range,
+            "validation_range": self.validation_range,
+            "test_range": self.test_range,
+            "n_folds": self.n_folds,
+            "embargo_s": self.embargo_s,
+            "execution_assumptions": self.execution_assumptions,
+            "model_type": self.model_type,
+            "model_parameters": self.model_parameters,
+            "random_seed": self.random_seed,
+        }
+        canonical = json.dumps(inputs, sort_keys=True, separators=(",", ":"), allow_nan=False)
+        return "exp_" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
     def save(self, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         d = self.to_dict()
+        d["experiment_id"] = self.compute_experiment_id()
+        d["reproducible_inputs_complete"] = self.reproducible_inputs_complete
         d["fingerprint"] = self.compute_fingerprint()
         path.write_text(json.dumps(d, indent=2, sort_keys=True))
 
@@ -140,6 +193,7 @@ class ResearchManifest:
             metrics=d.get("metrics", {}),
             scientific_classification=d.get("scientific_classification", "UNTESTED"),
             schema_version=d.get("schema_version", "1.0.0"),
+            validation_range=tuple(d["validation_range"]) if d.get("validation_range") else None,
         )
 
     @classmethod
@@ -168,6 +222,7 @@ def create_manifest(
     result_artifact_paths: dict[str, str] | None = None,
     source_fingerprints: dict[str, str] | None = None,
     random_seed: int | None = None,
+    validation_range: tuple[str, str] | None = None,
 ) -> ResearchManifest:
     """Helper to create a manifest with sensible defaults."""
     return ResearchManifest(
@@ -196,4 +251,5 @@ def create_manifest(
         result_artifact_paths=result_artifact_paths or {},
         metrics=metrics,
         scientific_classification=scientific_classification,
+        validation_range=validation_range,
     )

@@ -75,6 +75,7 @@ def build_public_subscription(
     *,
     ticket: str | None = None,
     ticker: bool = True,
+    trade: bool = False,
     orderbook: bool = True,
     realtime_only: bool = True,
 ) -> list[dict[str, Any]]:
@@ -82,7 +83,7 @@ def build_public_subscription(
 
     markets = _markets(codes)
     streams: list[dict[str, Any]] = []
-    for stream_type, enabled in (("ticker", ticker), ("orderbook", orderbook)):
+    for stream_type, enabled in (("ticker", ticker), ("trade", trade), ("orderbook", orderbook)):
         if enabled:
             stream: dict[str, Any] = {"type": stream_type, "codes": markets.copy()}
             if realtime_only:
@@ -436,6 +437,18 @@ class TickerObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class TradeObservation:
+    code: str
+    trade_price: Decimal
+    trade_volume: Decimal
+    ask_bid: Literal["BID", "ASK"]
+    trade_timestamp_ms: int
+    sequential_id: int
+    timestamp_ms: int
+    stream_type: str
+
+
+@dataclass(frozen=True, slots=True)
 class OrderbookLevel:
     ask_price: Decimal
     bid_price: Decimal
@@ -488,7 +501,7 @@ class MyAssetObservation:
 
 
 Observation: TypeAlias = (
-    TickerObservation | OrderbookObservation | MyOrderObservation | MyAssetObservation
+    TickerObservation | TradeObservation | OrderbookObservation | MyOrderObservation | MyAssetObservation
 )
 
 
@@ -506,6 +519,7 @@ class ObservationEvent:
     observation: Observation
     received_at: datetime
     reconciliation_hints: tuple[ReconciliationHint, ...] = ()
+    raw_payload_sha256: str = ""
 
 
 def _optional_decimal(
@@ -530,17 +544,27 @@ def parse_observation(message: str | bytes | Mapping[str, Any]) -> ObservationEv
     """Validate one DEFAULT-format Bithumb message and produce read-side hints."""
 
     if isinstance(message, bytes):
+        raw_payload = message
         try:
             message = message.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ObservationValidationError("message is not UTF-8") from exc
     if isinstance(message, str):
+        raw_payload = message.encode("utf-8")
         try:
             payload = json.loads(message)
         except json.JSONDecodeError as exc:
             raise ObservationValidationError("message is not valid JSON") from exc
     else:
         payload = dict(message)
+        raw_payload = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+            default=str,
+        ).encode("utf-8")
     if not isinstance(payload, Mapping):
         raise ObservationValidationError("message must be a JSON object")
     message_type = payload.get("type")
@@ -557,6 +581,21 @@ def parse_observation(message: str | bytes | Mapping[str, Any]) -> ObservationEv
             acc_trade_price_24h=_optional_decimal(payload, "acc_trade_price_24h"),
         )
         hints: tuple[ReconciliationHint, ...] = ()
+    elif message_type == "trade":
+        ask_bid = payload.get("ask_bid")
+        if ask_bid not in {"BID", "ASK"}:
+            raise ObservationValidationError("ask_bid must be BID or ASK")
+        observation = TradeObservation(
+            code=_market(payload.get("code")),
+            trade_price=_decimal(payload.get("trade_price"), "trade_price", zero_allowed=False),
+            trade_volume=_decimal(payload.get("trade_volume"), "trade_volume", zero_allowed=False),
+            ask_bid=ask_bid,
+            trade_timestamp_ms=_integer(payload.get("trade_timestamp"), "trade_timestamp"),
+            sequential_id=_integer(payload.get("sequential_id"), "sequential_id"),
+            timestamp_ms=_integer(payload.get("timestamp"), "timestamp"),
+            stream_type=_stream_type(payload),
+        )
+        hints = ()
     elif message_type == "orderbook":
         units = payload.get("orderbook_units")
         if not isinstance(units, list) or not units:
@@ -668,6 +707,7 @@ def parse_observation(message: str | bytes | Mapping[str, Any]) -> ObservationEv
         observation=observation,
         received_at=datetime.now(timezone.utc),
         reconciliation_hints=hints,
+        raw_payload_sha256=hashlib.sha256(raw_payload).hexdigest(),
     )
 
 
@@ -707,6 +747,8 @@ class ObservationCache:
             observation = event.observation
             if isinstance(observation, TickerObservation):
                 self._tickers[observation.code] = observation
+            elif isinstance(observation, TradeObservation):
+                pass
             elif isinstance(observation, OrderbookObservation):
                 self._orderbooks[observation.code] = observation
             elif isinstance(observation, MyOrderObservation):
@@ -790,6 +832,8 @@ class TransportFactory(Protocol):
 
 
 ObservationCallback: TypeAlias = Callable[[ObservationEvent], None]
+ConnectionCallback: TypeAlias = Callable[[bool], None]
+ValidationCallback: TypeAlias = Callable[[ObservationValidationError], None]
 
 
 class BithumbWebSocketObserver:
@@ -803,6 +847,8 @@ class BithumbWebSocketObserver:
         access_key: str | None = None,
         secret_key: str | None = None,
         callback: ObservationCallback | None = None,
+        connection_callback: ConnectionCallback | None = None,
+        validation_callback: ValidationCallback | None = None,
         cache: ObservationCache | None = None,
         backoff: ReconnectBackoff | None = None,
         transport_factory: TransportFactory = WebSocketTransport,
@@ -814,6 +860,8 @@ class BithumbWebSocketObserver:
         self.access_key = access_key
         self.secret_key = secret_key
         self.callback = callback
+        self.connection_callback = connection_callback
+        self.validation_callback = validation_callback
         self.cache = cache or ObservationCache()
         self.backoff = backoff or ReconnectBackoff()
         self.transport_factory = transport_factory
@@ -832,6 +880,8 @@ class BithumbWebSocketObserver:
                 transport.connect(PRIVATE_URL if self.private else PUBLIC_URL, headers)
                 transport.send_json(self.subscription)
                 self.cache.connected()
+                if self.connection_callback is not None:
+                    self.connection_callback(True)
                 while not stop_event.is_set():
                     try:
                         event = parse_observation(transport.receive_text())
@@ -840,6 +890,8 @@ class BithumbWebSocketObserver:
                         continue
                     except ObservationValidationError as exc:
                         self.cache.validation_error(exc)
+                        if self.validation_callback is not None:
+                            self.validation_callback(exc)
                         continue
                     self.cache.record(event)
                     attempt = 0
@@ -847,6 +899,8 @@ class BithumbWebSocketObserver:
                         self.callback(event)
             except (OSError, EOFError, BithumbWebSocketError) as exc:
                 self.cache.disconnected(exc)
+                if self.connection_callback is not None:
+                    self.connection_callback(False)
                 if stop_event.wait(
                     self.backoff.delay(attempt, random_fraction=random.random())
                 ):
