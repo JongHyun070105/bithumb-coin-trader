@@ -373,14 +373,83 @@ Official Bithumb docs expose public market list, candles, trades, ticker, and or
 
 This catalog is for future hypothesis registration only. Context-conditioned counts are available only for XBTUSD/ETHUSD and rely on flat-start intent. Every falsification status is intentionally conservative.
 
-| ID | Descriptive source observation | Contradictions/confounds searched | Status / transfer | Falsification rule and minimum future data |
-|---|---|---|---|---|
-| `HYP-PASSIVE-ENTRY-REGIME-01` | Conditional entry maker share varies by year and coarse volatility/funding regime. | Small entries; start-state assumption; symbol/year composition; no order-book/queue outcome; placebo shows no entry-vs-exit separation. | `WEAK`; `UNKNOWN` transfer. Nothing survives as an edge. | Freeze regime and quote rule; reject if net fill-adjusted outcome versus time/symbol/regime-matched control is nonpositive after real fees, queue fills, and slippage. Need point-in-time best bid/ask/depth and all order acknowledgements/fills. |
-| `HYP-AGGRESSIVE-EXIT-01` | Conditional exit taker share 57.23% vs entry 57.38%. | Difference −0.156pp; placebo p≈0.889; label uncertainty and time clustering. | `REJECTED` as a claim that exits are more taker aggressive; transfer `UNKNOWN`. | Replicate only with independently snapshotted position transitions and order intent; reject if paired block CI includes zero or matched-stratum relation disappears. |
-| `HYP-INVENTORY-SCALE-ADVERSE-01` | Some sequential adds are below prior fill price (BTC/ETH counts above). | Fill-to-fill proxy, no market path or initial inventory, large symbol composition, no adverse/favorable movement horizon. | `UNIDENTIFIABLE`; transfer `UNKNOWN`. | Require timestamped position snapshots and point-in-time market returns; reject if adverse-add rate is no greater than symbol × volatility × trend matched placebo. |
-| `HYP-MAKER-RISE-2021-01` | Maker share rose within XBTUSD and ETHUSD in 2021. | 2021 alone drives the annual slope; equal-order ETH differs from fill weighting; no spread/queue or fill-quality evidence; fee schedule effects. | `WEAK` descriptive behavior, not skill; historical rebate component `STRUCTURALLY_NON_TRANSFERABLE`. | Require multi-year independent replication with order-level queue/fill outcomes; reject if year/symbol matched confidence interval includes no improvement after rebate removal and fee/slippage costs. |
-| `HYP-FUNDING-HOLD-DURATION-01` | Funding cash flows are material in BTC terms. | No independent positions/funding attribution to reconstructed cycle and no valid cycle confidence. Spot has no funding. | `UNIDENTIFIABLE`; `STRUCTURALLY_NON_TRANSFERABLE` to spot funding economics. | Requires signed position snapshots and funding event attribution; reject if risk-adjusted holding outcome does not differ across predeclared funding states. |
-| `HYP-CROSS-VENUE-DIVERGENCE-01` | Independent hourly BTC/ETH price series are available with measurable basis. | USDT/USD basis unadjusted, asynchronous coverage, hourly rather than execution-grade observations, no local KRW historical series. | `WEAK` as a data-collection hypothesis; `TRANSFERABLE_WITH_ADAPTATION` only as a measurement concept. | Freeze synchronized multi-venue prices and FX/basis model; reject if divergence has no out-of-sample relation after costs and latency. |
+#### `HYP-PASSIVE-ENTRY-REGIME-01`
+
+- **DESCRIPTION:** Entry liquidity choice varies with pre-entry volatility, trend, or funding state.
+- **SOURCE_OBSERVATION:** Conditional OPEN fills have 57.384% taker share; observed regime counts include high-vol 217 maker/402 taker, low-vol 144/169, negative funding 105/312, positive funding 260/271.
+- **MARKET_CONTEXT_EVIDENCE:** 1h completed bars, prior-only volatility/trend thresholds, and as-of BitMEX funding sign; no spread, depth, or queue position.
+- **CONTRADICTING_EVIDENCE:** Small conditional entry sample; labels assume flat start; symbol/year composition may explain rates; absolute entry intent is unverified.
+- **ROBUSTNESS:** `WEAK`; no entry-specific LOO or regime-block CI is treated as valid confirmation.
+- **FEE_DEPENDENCE:** High/unknown; no matched fill-probability and fee-adjusted outcome.
+- **DOMAIN_TRANSFER_RISK:** `UNKNOWN` for Bithumb/Upbit spot; passive queue behavior is venue-specific.
+- **FALSIFICATION_RULE:** Reject if a frozen passive-entry rule has nonpositive net fill-adjusted outcome versus time/symbol/regime-matched control after fees, queue fills, and slippage.
+- **MINIMUM_FUTURE_DATA:** Point-in-time bid/ask/depth, all order acknowledgements and partial fills, signed initial position, and frozen cost model.
+- **DISPOSITION:** `WEAK`; no surviving edge claim.
+
+#### `HYP-AGGRESSIVE-EXIT-01`
+
+- **DESCRIPTION:** Exits use taker liquidity more often than entries.
+- **SOURCE_OBSERVATION:** Conditional exit taker share 57.228% vs entry 57.384% (difference −0.156pp).
+- **MARKET_CONTEXT_EVIDENCE:** 1h vol/trend/funding strata; placebo shuffles entry/close labels within symbol × volatility × funding blocks.
+- **CONTRADICTING_EVIDENCE:** Difference points the other way; placebo observed maker difference +0.310pp, approximate p=0.889, null interval [−4.355,+4.097]pp; labels and temporal dependence limit inference.
+- **ROBUSTNESS:** `REJECTED` for the directional claim that exits are more taker aggressive.
+- **FEE_DEPENDENCE:** High for any economic implication; taker costs and exit slippage are not offset by identified PnL.
+- **DOMAIN_TRANSFER_RISK:** `UNKNOWN`; spot exit mechanics and inventory constraints differ.
+- **FALSIFICATION_RULE:** Replicate with independently snapshotted transitions; reject if paired block interval includes zero or matched-stratum relation disappears.
+- **MINIMUM_FUTURE_DATA:** Signed position snapshots, explicit order intent, full order/fill/queue history, synchronized market context.
+- **DISPOSITION:** `REJECTED` as currently stated.
+
+#### `HYP-INVENTORY-SCALE-ADVERSE-01`
+
+- **DESCRIPTION:** Adds occur after adverse movement from the current position's entry basis.
+- **SOURCE_OBSERVATION:** Sequential fill-to-fill proxy marks 76,483 XBTUSD and 5,551 ETHUSD additions adverse, vs 390,916 and 153,847 favorable-or-flat.
+- **MARKET_CONTEXT_EVIDENCE:** Hourly context is joined, but the proxy uses prior fill price rather than market return over a defined horizon.
+- **CONTRADICTING_EVIDENCE:** No initial inventory, position basis, or path-to-add measurement; contract sizes and symbols are heterogeneous.
+- **ROBUSTNESS:** `UNIDENTIFIABLE`; raw proxy counts do not establish inventory scaling behavior.
+- **FEE_DEPENDENCE:** Unknown; repeated execution cost and funding could dominate any sizing effect.
+- **DOMAIN_TRANSFER_RISK:** `UNKNOWN`; derivatives inventory/leverage differs from spot holdings.
+- **FALSIFICATION_RULE:** Reject if adverse-add rate is no greater than a symbol × volatility × trend matched placebo after using marked-to-market position basis.
+- **MINIMUM_FUTURE_DATA:** Timestamped position snapshots, fills and funding attribution, point-in-time returns, frozen adverse-move horizon.
+- **DISPOSITION:** `UNIDENTIFIABLE`.
+
+#### `HYP-MAKER-RISE-2021-01`
+
+- **DESCRIPTION:** Maker execution share rose over time within the two priority instruments.
+- **SOURCE_OBSERVATION:** 2020→2021 XBTUSD maker rate 45.10%→71.19%; ETHUSD 70.99%→95.05%.
+- **MARKET_CONTEXT_EVIDENCE:** Hourly BTC/ETH OHLCV and coarse volatility/trend/funding regimes exist; order-book and fill-quality evidence does not.
+- **CONTRADICTING_EVIDENCE:** Omitting 2021 reverses the aggregate annual slope; ETH equal-order share (71.35%) differs materially from fill-weighted share (92.06%); no queue or execution-quality outcome.
+- **ROBUSTNESS:** `WEAK`; symbol replication is descriptive and not a formal holdout; 2021 is influential.
+- **FEE_DEPENDENCE:** High for any profitability claim; historical maker rebate contributes −298.46 BTC in signed fees, but fill share alone is not skill.
+- **DOMAIN_TRANSFER_RISK:** `STRUCTURALLY_NON_TRANSFERABLE` for historical rebate economics; passive behavior is `UNKNOWN` across venues.
+- **FALSIFICATION_RULE:** Reject execution-skill interpretation if multi-year order-level queue-adjusted fill quality fails to improve after removing rebate and charging target-venue costs.
+- **MINIMUM_FUTURE_DATA:** Multi-year venue-matched book snapshots, order submissions/cancellations/partial fills, and independently measured fee/slippage schedule.
+- **DISPOSITION:** `WEAK` descriptive behavior, not skill.
+
+#### `HYP-FUNDING-HOLD-DURATION-01`
+
+- **DESCRIPTION:** Funding state changes holding duration or position exposure.
+- **SOURCE_OBSERVATION:** Signed funding `execcomm` implies +149.57544093 BTC credit over the recorded period.
+- **MARKET_CONTEXT_EVIDENCE:** Historical funding observations are available as-of hourly bars, but there is no verified position snapshot to attribute each payment to a cycle.
+- **CONTRADICTING_EVIDENCE:** No independently verified position/funding-to-cycle mapping; no high-confidence cycles. Spot has no perpetual funding transfer.
+- **ROBUSTNESS:** `UNIDENTIFIABLE` for duration/exposure relation.
+- **FEE_DEPENDENCE:** Funding is the hypothesis itself; removal must be modeled separately from trade fees.
+- **DOMAIN_TRANSFER_RISK:** `STRUCTURALLY_NON_TRANSFERABLE` to spot funding economics.
+- **FALSIFICATION_RULE:** Reject if risk-adjusted duration/exposure does not differ across predeclared funding states when positions are independently observed.
+- **MINIMUM_FUTURE_DATA:** Signed position snapshots at funding boundaries, funding ledger mapping, and predeclared duration/outcome metrics.
+- **DISPOSITION:** `UNIDENTIFIABLE`.
+
+#### `HYP-CROSS-VENUE-DIVERGENCE-01`
+
+- **DESCRIPTION:** Point-in-time cross-venue price divergence predicts a measurable venue/market response.
+- **SOURCE_OBSERVATION:** Independent hourly BTC/ETH prices exist; observed close difference medians are 10.12 and 15.91 bps for XBTUSD-vs-BTCUSDT and ETHUSD-vs-ETHUSDT.
+- **MARKET_CONTEXT_EVIDENCE:** 33,561 BTC and 29,874 ETH hourly aligned observations; USDT/USD basis is unadjusted and price differences include venue basis.
+- **CONTRADICTING_EVIDENCE:** Hourly data are too coarse for execution timing; no KRW series, FX conversion, or response relationship has been tested.
+- **ROBUSTNESS:** `WEAK` as a data-collection hypothesis only; no predictive relation survives because none was established.
+- **FEE_DEPENDENCE:** High/unknown for an arbitrage interpretation due fees, latency, FX and slippage.
+- **DOMAIN_TRANSFER_RISK:** `TRANSFERABLE_WITH_ADAPTATION` only as a measurement concept; trading behavior remains unknown.
+- **FALSIFICATION_RULE:** Reject if a frozen divergence measure has no out-of-sample response after venue costs, FX/basis, and latency.
+- **MINIMUM_FUTURE_DATA:** Synchronized KRW/USD/USDT quotes, venue order books, timestamp uncertainty, and frozen basis/fee model.
+- **DISPOSITION:** `WEAK`; not a candidate or alpha claim.
 
 No listed hypothesis is `SURVIVES_FALSIFICATION`. Counts by current disposition: 0 survives, 3 weak/descriptive, 1 rejected as a specific claim, 2 unidentifiable. These are not candidate strategies, alpha, or proof of transfer.
 
