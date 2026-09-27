@@ -350,6 +350,7 @@ The old “OLS-CUSUM” result fails review: its series is hardcoded/untraceable
 Adversarial robustness findings:
 
 - **Leave one year out:** omitting 2021 reverses the annual maker-share slope; bubble-era dominance is material.
+- **Pre-2020 vs. 2020+:** independent raw-CSV counts give maker share 46.8038% (175,440/374,841 known-liquidity fills) for 2018–2019 and 74.3322% (791,167/1,064,366) for 2020–2021. This descriptive aggregate split is strongly influenced by 2021 and does not establish a break or intent-conditioned effect.
 - **Symbol holdout-style check:** ETHUSD and XBTUSD both rise from 2020 to 2021, but this is descriptive replication, not a formal holdout.
 - **Outlier/weight sensitivity:** overall fill-weighted maker share is 67.16%, equal-active-day 57.57%. XBTUSD is 53.60% by fills, 59.12% equal-order and 54.03% log-size weighted; removing the largest 1% or 0.1% by a tied-size cutoff barely changes it. ETHUSD is 92.06% by fills but 71.35% equal-order, a large weighting sensitivity. No high-confidence-cycle-only result exists.
 - **Placebo:** approximate 999-draw shuffle of conditional entry/close labels inside symbol × volatility × funding-sign blocks gives observed exit-minus-entry maker share +0.310pp, approximate p=0.889, null 95% interval [−4.355pp, +4.097pp]. Normal-approximation hypergeometric draws and fill shuffling do not preserve temporal clusters; treat this as exploratory, not an inferential p-value.
@@ -496,7 +497,7 @@ PRIVATE_API = DISABLED
 
 ### 11.11 Continuation verification and PR migration assessment
 
-On 2026-09-27, GitHub confirmed PR #17 is still an open draft targeting `main` at base `39e76ce0befab26e9b1f8cb5b83805ef1ee152ad`. Before this continuation, its remote head matched local `d240ca0dea11ef0be8fee0bdf850bad38fd1593a`; the PR contained **69 commits and 289 changed files** (+58,087/−541). This continuation adds one research-only commit in files already in that delta, bringing the stack to 70 commits while retaining the 289-file scope. That is too broad to merge as one review unit. No branch split or history rewrite was performed.
+On 2026-09-27, GitHub confirmed PR #17 is still an open draft targeting `main` at base `39e76ce0befab26e9b1f8cb5b83805ef1ee152ad`. Before this continuation, its remote head matched local `d240ca0dea11ef0be8fee0bdf850bad38fd1593a`; the PR contained **69 commits and 289 changed files** (+58,087/−541). This continuation adds two research-only commits in files already in that delta, bringing the stack to 71 commits while retaining the 289-file scope. That is too broad to merge as one review unit. No branch split or history rewrite was performed.
 
 The full-PR `git diff --check` reports trailing whitespace or extra blank lines in committed files including `docs/fresh-30h-v3-offline-preflight.md`, `docs/post-30h-dashboard-remediation-plan.md`, `project-state/RED_TEAM_REVIEW.md`, `reliability-artifacts/aws-90m-v8/V8_RUN_AUDIT_REPORT.md`, `scripts/capture_milestone.py`, and `src/bithumb_coin_trader/runtime_observer.py`. The working tree was clean before the continuation; its research-only changes pass `git diff --check`. The protected main-checkout `test-results/.last-run.json` SHA-256 remained `e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea` across both full test runs.
 
