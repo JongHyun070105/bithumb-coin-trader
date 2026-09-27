@@ -22,7 +22,7 @@ from ..strategy_v4_candidates import (
     V4TrendVolatilityRegimeStrategy,
     V4VolatilityAdjustedMomentumStrategy,
 )
-from ..strategy_v3_candidates import strategy_v3_candidate_factories
+from ..strategy_v3_candidates import E9DonchianVolatilityStrategy, strategy_v3_candidate_factories
 from ..strategy_v4b_candidates import V452WeekHighBreakoutStrategy, V4TrendQualityFilterStrategy
 from ..strategy_v5_candidates import V5RegimeAdaptiveDonchianStrategy, V5TrendPullbackStrategy
 from ..strategy_v6_candidates import V6DailyEmaPullbackStrategy, V6FastDonchianSwingStrategy
@@ -170,6 +170,88 @@ class _TargetWeightCandidateAdapter:
         if not targets:
             raise ValueError("daily target-weight candidate emitted no observations")
         return _validated_weight(targets[-1])
+
+
+class _E9IncrementalAdapter:
+    """Evaluate the frozen E9 breakout once per new point-in-time candle."""
+
+    def __init__(self, candidate: E9DonchianVolatilityStrategy) -> None:
+        self.candidate = candidate
+        self._candles: list[Candle] = []
+        self._closes: list[float] = []
+        self._targets: list[float] = []
+        self._active: list[bool] = []
+        self._stops: list[float | None] = []
+        self._previous_weight = 0.0
+        self._previous_count = 0
+
+    def fit(self, training_candles: Sequence[Candle]) -> "_E9IncrementalAdapter":
+        from ..daily_strategy_candidates import _validate_daily_candles
+
+        self._candles = []
+        self._closes = []
+        self._targets = []
+        self._active = []
+        self._stops = []
+        self._previous_weight = 0.0
+        self._previous_count = 0
+        if len(training_candles) < self.candidate.required_history_bars:
+            raise ValueError("training partition is shorter than the candidate's frozen history requirement")
+        _validate_daily_candles(training_candles)
+        self._active = [False] * len(self.candidate.periods)
+        self._stops = [None] * len(self.candidate.periods)
+        for candle in training_candles:
+            self._advance(candle)
+        return self
+
+    def parameters(self) -> Mapping[str, Any]:
+        return asdict(self.candidate)
+
+    def target_weight(self, point_in_time_history: Sequence[Candle]) -> float:
+        from ..daily_strategy_candidates import _validate_daily_candles
+
+        if len(point_in_time_history) < len(self._candles):
+            raise ValueError("point-in-time history is shorter than the fitted training prefix")
+        if list(point_in_time_history[:len(self._candles)]) != self._candles:
+            raise ValueError("point-in-time history changed the fitted or previously observed prefix")
+        for candle in point_in_time_history[len(self._candles):]:
+            _validate_daily_candles((candle,))
+            if self._candles and (candle.timestamp - self._candles[-1].timestamp).total_seconds() != 86_400:
+                raise ValueError("point-in-time history must extend by one contiguous daily candle")
+            self._advance(candle)
+        if not self._targets:
+            raise ValueError("point-in-time history cannot be empty")
+        return _validated_weight(self._targets[-1])
+
+    def _advance(self, candle: Candle) -> None:
+        self._candles.append(candle)
+        self._closes.append(candle.close)
+        closes = self._closes
+        index = len(closes) - 1
+        for model_index, period in enumerate(self.candidate.periods):
+            if index + 1 < period:
+                continue
+            window = closes[index - period + 1:index + 1]
+            upper = max(window)
+            midpoint = (upper + min(window)) / 2.0
+            self._active[model_index], self._stops[model_index] = self.candidate._next_model_state(
+                active=self._active[model_index],
+                prior_stop=self._stops[model_index],
+                close=closes[index],
+                upper=upper,
+                midpoint=midpoint,
+            )
+        count = sum(self._active)
+        scale = self.candidate._volatility_scale(closes, index)
+        raw_weight = min(1.0, count / len(self.candidate.periods) * scale)
+        weight = (
+            self._previous_weight
+            if count == self._previous_count and abs(raw_weight - self._previous_weight) < 0.20
+            else raw_weight
+        )
+        self._targets.append(weight)
+        self._previous_weight = weight
+        self._previous_count = count
 
 
 @dataclass(frozen=True, slots=True)
@@ -415,7 +497,10 @@ def create_builtin_strategy(
                 f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
             )
         if strategy_id in _TARGET_WEIGHT_CANDIDATE_FACTORIES:
-            return _TargetWeightCandidateAdapter(_TARGET_WEIGHT_CANDIDATE_FACTORIES[strategy_id]())
+            candidate = _TARGET_WEIGHT_CANDIDATE_FACTORIES[strategy_id]()
+            if isinstance(candidate, E9DonchianVolatilityStrategy):
+                return _E9IncrementalAdapter(candidate)
+            return _TargetWeightCandidateAdapter(candidate)
         if strategy_id == "core70_satellite30_v6_fast_donchian":
             satellite = V6FastDonchianSwingStrategy()
         else:

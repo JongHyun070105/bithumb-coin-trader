@@ -47,7 +47,7 @@ ADDITIONAL_SINGLE_MARKET_CANDIDATES = (
     "core70_satellite30_v6_daily_ema_pullback",
 )
 REPRESENTATIVE_FAMILY_RUNS = (
-    "v3_frozen_majority_2_of_3",
+    "v3_e9_donchian_90d_vol25",
     "v4_trend_quality_filter",
     "v5_regime_adaptive_donchian",
 )
@@ -133,6 +133,17 @@ def test_additional_single_market_candidate_fits_and_emits_causal_weight(strateg
     assert fitted.parameters()
 
 
+def test_v3_e9_incremental_adapter_matches_frozen_full_prefix_output() -> None:
+    from bithumb_coin_trader.strategy_v3_candidates import E9DonchianVolatilityStrategy
+
+    candles = _daily_candles(800)
+    expected = E9DonchianVolatilityStrategy().generate(candles)
+    fitted = create_builtin_strategy("v3_e9_donchian_90d_vol25", 71, {}).fit(candles[:500])
+    actual = [fitted.target_weight(candles[:index + 1]) for index in range(499, len(candles))]
+
+    assert actual == pytest.approx(expected[499:])
+
+
 @pytest.mark.parametrize("strategy_id", ADDITIONAL_SINGLE_MARKET_CANDIDATES)
 def test_additional_single_market_candidate_rejects_parameter_overrides(strategy_id: str) -> None:
     with pytest.raises(UnsupportedStrategyError, match="accepts no overrides"):
@@ -153,8 +164,9 @@ def test_v3_v4b_v5_candidates_run_through_governed_walk_forward(strategy_id: str
         lot_size=0.000001,
         partial_fill_probability=0.0,
     )
+    candles = _daily_candles(1_460 if strategy_id == "v3_e9_donchian_90d_vol25" else 730)
     report = run_walk_forward(
-        _daily_candles(),
+        candles,
         lambda _seed: strategy,
         (scenario,),
         dataset_id="synthetic-daily",
