@@ -39,14 +39,22 @@ volume, shock/rebound and meta-selection, to their source documents and code.
 
 The inventory covers the discovered internal strategy source modules and
 historical families. The generic resumable `research-batch` has governed
-adapters for the four frozen weekly/daily implementations, plus cash,
+adapters for 23 frozen single-market daily/weekly IDs across the daily, V3,
+V4/V4b, V5, V6, and explicit 70/30 Core+Satellite families, plus cash,
 buy-and-hold, randomized-placebo controls and the SMA runner fixture. It
 rejects other inventoried family/strategy combinations instead of silently
-running a different implementation under a familiar strategy name. The daily
-adapters retain their existing fixed parameters and compute each signal from
-the causal candle prefix. Adapters for the remaining V3–V8, opportunity,
-microstructure and legacy families remain SAFE_NOW work; the inventory alone
-does not satisfy complete candidate-family execution integration.
+running a different implementation under a familiar strategy name. The
+registered candidates retain fixed source parameters and compute from the
+causal candle prefix; V3 E9 uses an incremental prefix adapter with an
+equivalence regression against its original generator.
+
+Other catalogued families, including V7/V7.1, V8, opportunity, win-rate,
+microstructure/maker, and legacy source paths, remain `RETEST_REQUIRED` and
+unsupported by the generic single-market batch CLI. Their inventory entries
+preserve source, historical evidence, status, and family; the inventory alone
+does not constitute execution integration. Multi-asset and order-book paths
+need contracts that preserve their universe, cadence, fill, and accounting
+semantics before they can use a governed runner.
 
 No record in this catalog changes:
 
