@@ -10,15 +10,27 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 import hashlib
 import math
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Protocol, Sequence
 
 from ..daily_strategy_candidates import DailyCandidate, daily_candidate_factories
 from ..models import Candle, Signal
+from ..strategy_v4_candidates import (
+    V4AdaptiveDonchianAtrStrategy,
+    V4TrendVolatilityRegimeStrategy,
+)
+from ..strategy_v6_candidates import V6DailyEmaPullbackStrategy, V6FastDonchianSwingStrategy
 from .walk_forward_runner import TrainOnlyTargetWeightStrategy
 
 
 class UnsupportedStrategyError(ValueError):
     """Raised when the batch CLI is asked to run an unregistered strategy."""
+
+
+class _TargetWeightCandidate(Protocol):
+    name: str
+    required_history_bars: int
+
+    def generate(self, candles: Sequence[Candle]) -> list[float]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -126,11 +138,125 @@ class _DailyCandidateAdapter:
         return 1.0 if signal is Signal.LONG else 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class _TargetWeightCandidateAdapter:
+    """Adapt an existing fixed single-market daily target-weight strategy."""
+
+    candidate: _TargetWeightCandidate
+
+    def fit(self, training_candles: Sequence[Candle]) -> "_TargetWeightCandidateAdapter":
+        if len(training_candles) < self.candidate.required_history_bars:
+            raise ValueError("training partition is shorter than the candidate's frozen history requirement")
+        self.candidate.generate(training_candles)
+        return self
+
+    def parameters(self) -> Mapping[str, Any]:
+        if not is_dataclass(self.candidate):
+            raise UnsupportedStrategyError("target-weight candidate must expose a dataclass parameter manifest")
+        return asdict(self.candidate)
+
+    def target_weight(self, point_in_time_history: Sequence[Candle]) -> float:
+        targets = self.candidate.generate(point_in_time_history)
+        if not targets:
+            raise ValueError("daily target-weight candidate emitted no observations")
+        return _validated_weight(targets[-1])
+
+
+@dataclass(frozen=True, slots=True)
+class _CoreSatelliteAdapter:
+    """Combine frozen daily core and satellite weights under explicit 70/30 ratios."""
+
+    core: V4AdaptiveDonchianAtrStrategy
+    satellite: V6FastDonchianSwingStrategy | V6DailyEmaPullbackStrategy
+    core_ratio: float = 0.70
+    satellite_ratio: float = 0.30
+
+    def fit(self, training_candles: Sequence[Candle]) -> "_CoreSatelliteAdapter":
+        required = max(self.core.required_history_bars, self.satellite.required_history_bars)
+        if len(training_candles) < required:
+            raise ValueError("training partition is shorter than the composite history requirement")
+        self.core.generate(training_candles)
+        self.satellite.generate(training_candles)
+        return self
+
+    def parameters(self) -> Mapping[str, Any]:
+        return {
+            "core": asdict(self.core),
+            "satellite": asdict(self.satellite),
+            "core_ratio": self.core_ratio,
+            "satellite_ratio": self.satellite_ratio,
+        }
+
+    def target_weight(self, point_in_time_history: Sequence[Candle]) -> float:
+        core_targets = self.core.generate(point_in_time_history)
+        satellite_targets = self.satellite.generate(point_in_time_history)
+        if not core_targets or not satellite_targets:
+            raise ValueError("Core+Satellite candidate emitted no observations")
+        combined = self.core_ratio * core_targets[-1] + self.satellite_ratio * satellite_targets[-1]
+        return _validated_weight(combined)
+
+
+_BASELINE_IDS = {"cash", "buy_and_hold", "randomized_placebo"}
+_DAILY_CANDIDATE_IDS = set(daily_candidate_factories()) - {"daily_buy_hold_benchmark"}
+_V4_CANDIDATE_IDS = {"v4_adaptive_donchian_atr", "v4_trend_volatility_regime"}
+_V6_CANDIDATE_IDS = {"v6_fast_donchian_swing", "v6_daily_ema_pullback"}
+_CORE_SATELLITE_IDS = {
+    "core70_satellite30_v6_fast_donchian",
+    "core70_satellite30_v6_daily_ema_pullback",
+}
+_GOVERNED_CANDIDATE_IDS = (
+    _DAILY_CANDIDATE_IDS | _V4_CANDIDATE_IDS | _V6_CANDIDATE_IDS | _CORE_SATELLITE_IDS
+)
+
+
 def registered_strategy_ids() -> tuple[str, ...]:
-    daily_candidate_ids = tuple(
-        sorted(set(daily_candidate_factories()) - {"daily_buy_hold_benchmark"})
+    return (
+        "buy_and_hold", "cash", "randomized_placebo", "sma_trend",
+        *sorted(_GOVERNED_CANDIDATE_IDS),
     )
-    return ("buy_and_hold", "cash", "randomized_placebo", "sma_trend", *daily_candidate_ids)
+
+
+def governed_candidate_strategy_ids() -> frozenset[str]:
+    """Strategies wired through governed research, freeze, and local PAPER paths."""
+    return frozenset(_GOVERNED_CANDIDATE_IDS)
+
+
+def candidate_family_for_strategy(strategy_id: str) -> str:
+    if strategy_id in _DAILY_CANDIDATE_IDS:
+        return "daily_weekly_trend_and_momentum"
+    if strategy_id in _V4_CANDIDATE_IDS:
+        return "v4_v4b_regime_breakout_and_trend"
+    if strategy_id in _V6_CANDIDATE_IDS | _CORE_SATELLITE_IDS:
+        return "v6_satellite_and_core_satellite"
+    if strategy_id in _BASELINE_IDS:
+        return "baseline_controls"
+    if strategy_id == "sma_trend":
+        return "builtin_sma_trend_example"
+    raise UnsupportedStrategyError(f"strategy {strategy_id!r} has no governed candidate family")
+
+
+def strategy_source_modules(strategy_id: str) -> tuple[str, ...]:
+    """Return source modules that define this strategy and its governed adapter."""
+    sources = ["research_infra/builtin_strategies.py"]
+    if strategy_id in _DAILY_CANDIDATE_IDS:
+        sources.append("daily_strategy_candidates.py")
+    elif strategy_id in _V4_CANDIDATE_IDS:
+        sources.extend(("daily_strategy_candidates.py", "strategy_v4_candidates.py"))
+    elif strategy_id in _V6_CANDIDATE_IDS:
+        sources.extend((
+            "daily_strategy_candidates.py",
+            "strategy_v4_candidates.py",
+            "strategy_v6_candidates.py",
+        ))
+    elif strategy_id in _CORE_SATELLITE_IDS:
+        sources.extend((
+            "daily_strategy_candidates.py",
+            "strategy_v4_candidates.py",
+            "strategy_v6_candidates.py",
+        ))
+    elif strategy_id not in {"cash", "buy_and_hold", "randomized_placebo", "sma_trend"}:
+        raise UnsupportedStrategyError(f"strategy {strategy_id!r} has no source binding")
+    return tuple(sources)
 
 
 def create_builtin_strategy(
@@ -198,13 +324,42 @@ def create_builtin_strategy(
         ):
             raise UnsupportedStrategyError("entry_return_threshold must be in [-1, 10]")
         return _SmaTrend(lookback, float(weight), float(threshold))
-    daily_factories = daily_candidate_factories()
-    if strategy_id in set(daily_factories) - {"daily_buy_hold_benchmark"}:
+    if strategy_id in _DAILY_CANDIDATE_IDS:
         if parameters:
             raise UnsupportedStrategyError(
                 f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
             )
-        return _DailyCandidateAdapter(strategy_id, daily_factories[strategy_id]())
+        return _DailyCandidateAdapter(strategy_id, daily_candidate_factories()[strategy_id]())
+    v4_factories = {
+        "v4_adaptive_donchian_atr": V4AdaptiveDonchianAtrStrategy,
+        "v4_trend_volatility_regime": V4TrendVolatilityRegimeStrategy,
+    }
+    v6_factories = {
+        "v6_fast_donchian_swing": V6FastDonchianSwingStrategy,
+        "v6_daily_ema_pullback": V6DailyEmaPullbackStrategy,
+    }
+    if strategy_id in set(v4_factories) | set(v6_factories) | _CORE_SATELLITE_IDS:
+        if parameters:
+            raise UnsupportedStrategyError(
+                f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
+            )
+        if strategy_id in v4_factories:
+            return _TargetWeightCandidateAdapter(v4_factories[strategy_id]())
+        if strategy_id in v6_factories:
+            return _TargetWeightCandidateAdapter(v6_factories[strategy_id]())
+        if strategy_id == "core70_satellite30_v6_fast_donchian":
+            satellite = V6FastDonchianSwingStrategy()
+        else:
+            satellite = V6DailyEmaPullbackStrategy()
+        return _CoreSatelliteAdapter(V4AdaptiveDonchianAtrStrategy(), satellite)
     raise UnsupportedStrategyError(
         f"unknown strategy_id {strategy_id!r}; registered: {', '.join(registered_strategy_ids())}"
     )
+
+
+def _validated_weight(value: Any) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError("daily strategy emitted a non-finite target weight")
+    if not 0.0 <= value <= 1.0:
+        raise ValueError("daily strategy emitted a target weight outside [0, 1]")
+    return float(value)

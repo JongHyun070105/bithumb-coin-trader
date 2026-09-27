@@ -46,7 +46,13 @@ from ..paper_session import (
 )
 from ..paper_public_feed import PaperPublicFeedError, run_bithumb_public_paper_feed
 from .batch import BatchExperiment, run_research_batch
-from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
+from .builtin_strategies import (
+    candidate_family_for_strategy,
+    create_builtin_strategy,
+    governed_candidate_strategy_ids,
+    registered_strategy_ids,
+    strategy_source_modules,
+)
 from .candidate_freeze import CandidateFreezeError, freeze_candidate_experiment
 from .costs import SpotCostScenario
 from .paper_start_gate import PaperStartGateError, evaluate_paper_start_gates
@@ -69,12 +75,6 @@ from ..data import DataError, load_candles_csv
 _RESEARCH_BATCH_ROLE = "DEVELOPMENT_EXPLORATORY"
 _HYPOTHESIS_CATALOG_PATH = Path("research-data/hypothesis_catalog.jsonl")
 _CANDIDATE_FAMILY_PATH = Path("research-data/candidate_families.json")
-_DAILY_CANDIDATE_STRATEGIES = {
-    "daily_weekly_absolute_momentum_126_63",
-    "daily_weekly_sma_50_200",
-    "daily_weekly_donchian_90_30",
-    "daily_weekly_dual_momentum_42_168_vol80",
-}
 
 
 def _get_data_root() -> Path:
@@ -657,17 +657,15 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
             if family != "baseline_controls":
                 raise ValueError(f"baseline strategy {strategy_id!r} must use candidate_family='baseline_controls'")
         else:
-            expected_family = (
-                "daily_weekly_trend_and_momentum"
-                if strategy_id in _DAILY_CANDIDATE_STRATEGIES
-                else "builtin_sma_trend_example"
-            )
+            expected_family = candidate_family_for_strategy(strategy_id)
             if family != expected_family:
                 raise ValueError(
                     f"strategy {strategy_id!r} belongs to candidate_family={expected_family!r}, "
                     f"not {family!r}"
                 )
-        if strategy_id not in {"cash", "buy_and_hold", "randomized_placebo", "sma_trend"} | _DAILY_CANDIDATE_STRATEGIES:
+        if strategy_id not in {"cash", "buy_and_hold", "randomized_placebo", "sma_trend"} | set(
+            governed_candidate_strategy_ids()
+        ):
             raise ValueError(
                 f"strategy {strategy_id!r} has no governed execution adapter for family {family!r}"
             )
@@ -723,9 +721,7 @@ def _register_experiment_definitions(
 
     registered: list[BatchExperiment] = []
     for experiment in experiments:
-        strategy_paths = [package_root / "research_infra" / "builtin_strategies.py"]
-        if experiment.strategy_id in _DAILY_CANDIDATE_STRATEGIES:
-            strategy_paths.append(package_root / "daily_strategy_candidates.py")
+        strategy_paths = [package_root / module for module in strategy_source_modules(experiment.strategy_id)]
         strategy = registry.register(StrategyDefinition(
             definition_id=experiment.strategy_id,
             version="1.0.0",

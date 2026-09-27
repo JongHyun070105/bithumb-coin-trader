@@ -32,7 +32,11 @@ from .paper_engine import OrderStatus, PaperEngineError, PaperOrder, PaperPortfo
 from .paper_journal import PaperEventJournal, PaperJournalIntegrityError
 from .research_infra.costs import SpotCostScenario, spot_execution_price
 from .research_infra.paper_readiness import _check_candidate
-from .research_infra.builtin_strategies import create_builtin_strategy
+from .research_infra.builtin_strategies import (
+    create_builtin_strategy,
+    governed_candidate_strategy_ids,
+    strategy_source_modules,
+)
 from .research_infra.walk_forward_runner import FittedTargetWeightStrategy
 from .risk_engine import RiskEngine, RiskVerdict
 
@@ -79,12 +83,7 @@ class PaperRuntime:
         candidate = candidate_artifact.get("candidate")
         if not isinstance(candidate, dict) or candidate.get("schema_version") != 2:
             raise PaperRuntimeError("runtime requires a governed v2 frozen candidate artifact")
-        if candidate.get("strategy_id") not in {
-            "daily_weekly_absolute_momentum_126_63",
-            "daily_weekly_sma_50_200",
-            "daily_weekly_donchian_90_30",
-            "daily_weekly_dual_momentum_42_168_vol80",
-        }:
+        if candidate.get("strategy_id") not in governed_candidate_strategy_ids():
             raise PaperRuntimeError("frozen strategy has no paper runtime adapter")
         if candidate.get("candidate_id") != candidate.get("experiment_id"):
             raise PaperRuntimeError("candidate and experiment identity differ")
@@ -1130,23 +1129,19 @@ def _validate_paper_cost_scenario(
 
 
 def _current_strategy_source_hash(strategy_id: str) -> str:
-    allowed = {
-        "daily_weekly_absolute_momentum_126_63",
-        "daily_weekly_sma_50_200",
-        "daily_weekly_donchian_90_30",
-        "daily_weekly_dual_momentum_42_168_vol80",
-    }
-    if strategy_id not in allowed:
+    if strategy_id not in governed_candidate_strategy_ids():
         raise PaperRuntimeError("strategy source is outside the runtime allowlist")
-    paths = (
-        Path(__file__).with_name("daily_strategy_candidates.py"),
-        Path(__file__).parent / "research_infra" / "builtin_strategies.py",
-    )
-    rows = [
-        {"path": f"src/bithumb_coin_trader/{path.name}" if path.name == "daily_strategy_candidates.py" else "src/bithumb_coin_trader/research_infra/builtin_strategies.py",
-         "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}
-        for path in paths
-    ]
+    package_root = Path(__file__).parent
+    modules = strategy_source_modules(strategy_id)
+    rows = []
+    for module in modules:
+        path = package_root / module
+        if path.is_symlink() or not path.is_file():
+            raise PaperRuntimeError(f"strategy source is missing or unsafe: {module}")
+        rows.append({
+            "path": f"src/bithumb_coin_trader/{module}",
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        })
     return _hash_json(rows)
 
 

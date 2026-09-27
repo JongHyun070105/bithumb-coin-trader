@@ -17,17 +17,15 @@ from .candidate_registry import CandidateLifecycle, CandidateLifecycleError, Can
 from .costs import CostScenarioError, SpotCostScenario
 from .definition_registry import DefinitionRegistryError, validate_definition_record
 from .result_schema import ExperimentResult, RESULT_SCHEMA_VERSION
+from .builtin_strategies import (
+    candidate_family_for_strategy,
+    governed_candidate_strategy_ids,
+    strategy_source_modules,
+)
 
 
 _EXPERIMENT_ID = re.compile(r"exp_[0-9a-f]{64}")
 _REQUIRED_COST_TIERS = ("base", "conservative", "stress", "extreme")
-_DAILY_CANDIDATE_FAMILY = "daily_weekly_trend_and_momentum"
-_DAILY_CANDIDATE_IDS = {
-    "daily_weekly_absolute_momentum_126_63",
-    "daily_weekly_sma_50_200",
-    "daily_weekly_donchian_90_30",
-    "daily_weekly_dual_momentum_42_168_vol80",
-}
 
 
 class CandidateFreezeError(ValueError):
@@ -406,7 +404,12 @@ def _validate_experiment(experiment_id: str, experiment: Mapping[str, Any]) -> d
     identity = experiment["identity"]
     provenance = identity["dataset_provenance"]
     metrics = experiment["metrics"]
-    if identity.get("candidate_family") != _DAILY_CANDIDATE_FAMILY or identity.get("strategy_id") not in _DAILY_CANDIDATE_IDS:
+    strategy_id = identity.get("strategy_id")
+    if (
+        not isinstance(strategy_id, str)
+        or strategy_id not in governed_candidate_strategy_ids()
+        or identity.get("candidate_family") != candidate_family_for_strategy(strategy_id)
+    ):
         raise CandidateFreezeError("only an inventoried project strategy with a governed adapter can be frozen")
     bindings = identity.get("definition_bindings")
     if not isinstance(bindings, dict):
@@ -722,10 +725,9 @@ def _verify_existing_freeze(existing: Mapping[str, Any], expected: Mapping[str, 
 
 def _strategy_source_sha256(identity: Mapping[str, Any]) -> str:
     strategy_id = identity.get("strategy_id")
-    paths = ["src/bithumb_coin_trader/daily_strategy_candidates.py"]
-    if strategy_id not in _DAILY_CANDIDATE_IDS:
+    if not isinstance(strategy_id, str) or strategy_id not in governed_candidate_strategy_ids():
         raise CandidateFreezeError("strategy source has no registered immutable source mapping")
-    paths.append("src/bithumb_coin_trader/research_infra/builtin_strategies.py")
+    paths = [f"src/bithumb_coin_trader/{module}" for module in strategy_source_modules(strategy_id)]
     raw: list[dict[str, str]] = []
     for path in paths:
         raw.append({"path": path, "sha256": _git_file_sha256(str(identity["code_revision"]), path)})

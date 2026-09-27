@@ -110,13 +110,16 @@ def test_candidate_family_rejects_mismatched_strategy_adapter() -> None:
         })
 
 
-def test_daily_candidate_family_is_accepted_with_all_control_strategies() -> None:
+def test_governed_candidate_families_are_accepted_with_all_control_strategies() -> None:
     experiments = []
     for strategy_id, family_id, parameters in (
         ("cash", "baseline_controls", {}),
         ("buy_and_hold", "baseline_controls", {}),
         ("randomized_placebo", "baseline_controls", {"exposure_probability": 0.5, "target_weight": 1.0}),
         ("daily_weekly_absolute_momentum_126_63", "daily_weekly_trend_and_momentum", {}),
+        ("v4_adaptive_donchian_atr", "v4_v4b_regime_breakout_and_trend", {}),
+        ("v6_daily_ema_pullback", "v6_satellite_and_core_satellite", {}),
+        ("core70_satellite30_v6_fast_donchian", "v6_satellite_and_core_satellite", {}),
     ):
         experiments.append({
             "candidate_family": family_id,
