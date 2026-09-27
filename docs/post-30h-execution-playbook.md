@@ -83,7 +83,16 @@ Expected: focused regression suite passes and worktree is clean after committing
 
 The current `research build` command is a counting placeholder. Do not use it as a canonical build. First select the exact qualifying 30H-derived public data and update a dataset registration with immutable run/epoch, source roots, time bounds, feed universe, schema version, raw-file hashes, and DQ role. Never register runtime validation data as a candidate holdout. Run the currently implemented raw integrity, canonicalization, and DQ tools against an **exported local copy** only; emit separate manifests and preserve source bytes.
 
-Command: **not yet available as one complete command**. Current `python -m bithumb_coin_trader.research_infra.cli build --dataset <id>` streams/counts records and does not persist a canonical dataset. Do not treat its “Build complete” output as `DATA_READY`.
+Command, using only a local export selected after the terminal audit PASS:
+
+```sh
+python -m bithumb_coin_trader.research_infra.cli build \
+  --dataset "$QUALIFIED_PUBLIC_DATASET_ID" \
+  --data-root "$FRESH_30H_V3_LOCAL_RAW_COPY" \
+  --output-dir "$NEW_CANONICAL_BUILD_DIR"
+```
+
+Expected: `events.jsonl` and `manifest.json` under a new output directory, with source-file SHA-256s, canonical event SHA-256, code revision and `build_status=BUILT_DQ_NOT_RUN`. The builder refuses holdout-role inputs, empty/unadaptable sources, output inside the raw tree and an existing output directory. It re-hashes sources after streaming and refuses publication if source bytes changed during the build. This is only canonicalization: `DATA_READY` remains false until the separate DQ build/report passes and is bound to the same source/build hashes.
 
 Expected artifact: content-hashed source manifest, canonical dataset manifest, DQ catalog and exclusion counts. Any missing slot, ambiguous source attribution, schema conflict, hash mismatch, or DQ failure stops downstream research.
 
@@ -97,7 +106,7 @@ Expected artifacts: immutable `experiment_id`, manifest, `results.json`, `metric
 
 ## Step 6 — Test robustness
 
-Run the registered cost scenarios, rolling and expanding chronological folds, label-horizon purging, required embargo, parameter sensitivity frozen per fold, leave-one-asset-out/regime/time-slice checks, and placebo baselines. Reports must include per-fold and aggregate net return, CAGR, drawdown, Sharpe/Sortino, Calmar, profit factor, win rate, expectancy, turnover/trades, exposure, tail/worst-period loss, fees and slippage. Acceptance values must be independently set before inspecting the final evaluation set; if no project threshold exists, report the metric vector without fabricating one.
+Run the registered cost scenarios, rolling and expanding chronological folds, label-horizon purging, required embargo, parameter sensitivity frozen per fold, leave-one-asset-out/regime/time-slice checks, and placebo baselines. `create_chronological_folds` now accepts separate `purge_s` and `embargo_s` buffers and rejects unsorted timestamps or invalid windows; this produces safe fold boundaries, but it does not by itself enforce train-only feature fitting or aggregate a generic strategy runner. Reports must include per-fold and aggregate net return, CAGR, drawdown, Sharpe/Sortino, Calmar, profit factor, win rate, expectancy, turnover/trades, exposure, tail/worst-period loss, fees and slippage. Acceptance values must be independently set before inspecting the final evaluation set; if no project threshold exists, report the metric vector without fabricating one.
 
 Command: existing family-specific walk-forward/cost scripts are available, but no generic all-hypothesis robustness command. A missing fold, future-fit path, unresolved fill semantics, or strategy result that depends on an unverified zero-fee assumption is a stop condition.
 
@@ -119,7 +128,7 @@ Expected output: every required check individually reported PASS/FAIL/NOT_VERIFI
 
 `PAPER = NOT_STARTED` remains until a separately approved candidate is actually run prospectively. The project has no unified supported paper-start command spanning the persistent daily ledger and event-driven order engine. Do not start paper in this preparation workflow. Before a future start, require a separate explicit authorization, public market data only, a fresh state directory, frozen manifest hash, explicit cost/risk configuration and no private keys.
 
-Command: **not available as a governed prospective start command**. A future command must print the candidate/dataset/config hashes and selected simulator before starting; reject LIVE/private flags and fail if the paper journal is not recoverable. Expected artifacts include orders, acknowledgements, partial/full fills, cancellations, positions, cash, realized/unrealized PnL, fees, risk decisions, errors and restart reconciliation.
+Command: **not available as a governed prospective start command**. A future command must print the candidate/dataset/config hashes and selected simulator before starting; reject LIVE/private flags and fail if the paper journal is not recoverable. Expected artifacts include orders, acknowledgements, partial/full fills, cancellations, positions, cash, realized/unrealized PnL, fees, risk decisions, errors and restart reconciliation. `paper_engine.py` validates event/order bindings, rejects duplicate or overfilled events and rolls back multi-level fills atomically. `PaperEventJournal` now provides a local SQLite snapshot/event ledger with atomic commits, persisted idempotency, checksum verification and restart recovery; it has not yet been integrated with the public market-data pipeline, stale-order reconciliation, risk, or a governed readiness/start command. Persistent daily `paper.py` still does not model partial order events.
 
 ## Step 10 — Monitor PAPER
 
@@ -129,4 +138,4 @@ Command: dashboard paper views are not yet connected to a single durable prospec
 
 ## Immediate post-30H pipeline and September-end milestone
 
-Target sequence: `terminal-audit → reliability integration → dataset build/DQ → governed retrospective batch → robustness → candidate freeze → paper-readiness → separately authorized paper-start → monitoring`. The September-end engineering milestone is not reached until reliability evidence is sealed, research build/batch/freeze gates are executable, one paper engine is restart-safe, risk/observability are wired, and live/private remains disabled. This checkpoint only completes the read-only terminal auditor, two backtest input guards/test suites, and the inventory/runbook; the remaining toolchain nodes are explicit engineering blockers above.
+Target sequence: `terminal-audit → reliability integration → dataset build/DQ → governed retrospective batch → robustness → candidate freeze → paper-readiness → separately authorized paper-start → monitoring`. The September-end engineering milestone is not reached until reliability evidence is sealed, research build/batch/freeze gates are executable, one paper engine is restart-safe, risk/observability are wired, and live/private remains disabled. This checkpoint adds the offline terminal auditor, multi-asset/composite backtest guards, stable experiment identity, purged walk-forward boundaries, atomic/idempotent paper fills and a durable local paper journal. The integrated dataset, batch, candidate, risk, monitoring and readiness/start nodes remain engineering blockers above.
