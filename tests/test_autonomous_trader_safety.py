@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from scripts import autonomous_trader
 from scripts.autonomous_trader import (
     ExitAction,
     FINNHUB_API_KEY_ENV,
@@ -1017,6 +1018,14 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
         ):
             with self.assertRaisesRegex(SystemExit, "legacy --live"):
                 execute_live_trader.main()
+
+    def test_autonomous_daemon_is_disabled_by_default_before_side_effects(self) -> None:
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("BITHUMB_LIVE_TRADING", None)
+            with patch("scripts.autonomous_trader.acquire_daemon_lock") as acquire_lock:
+                with self.assertRaisesRegex(SystemExit, "BITHUMB_LIVE_TRADING=true"):
+                    autonomous_trader.main()
+                acquire_lock.assert_not_called()
 
 
 if __name__ == "__main__":
