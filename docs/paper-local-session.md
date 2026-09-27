@@ -99,10 +99,13 @@ that journal.
 The existing loopback dashboard API exposes the latest journal snapshot at
 `GET /api/paper/runtime` when its process is started with
 `BITHUMB_PAPER_JOURNAL_PATH=/path/to/paper-session.sqlite`. The endpoint opens
-the configured journal in SQLite read-only mode. It returns
+the configured journal in SQLite read-only mode and allows browser origins only
+for the dashboard's local Vite development/preview ports. The Trading page
+connects only after an explicit operator click and polls the local endpoint
+every five seconds while connected. It returns/displays
 `metrics_integrity=NOT_VERIFIED` because the runtime result JSON is not
 independently hashed; use the journal recovery checks as the accounting source
-of truth.
+of truth. Connecting only reads the journal and does not start PAPER.
 
 The PAPER fill path is taker-only and consumes observable book depth with
 configured positive latency, taker fee, and slippage, plus tick, lot, and

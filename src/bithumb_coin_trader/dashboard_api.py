@@ -20,6 +20,12 @@ from typing import Any
 from .project_state import resolve_project_state, write_project_status
 
 ROOT = Path(__file__).resolve().parents[2]
+_DASHBOARD_ORIGINS = frozenset({
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+})
 
 
 def _load_json(path: Path) -> Any | None:
@@ -346,7 +352,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = handler()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            origin = self.headers.get("Origin")
+            if origin in _DASHBOARD_ORIGINS:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
             self.end_headers()
             self.wfile.write(json.dumps(data, indent=2, default=str).encode())
         else:

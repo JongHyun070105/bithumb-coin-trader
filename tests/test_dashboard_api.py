@@ -144,13 +144,15 @@ class DashboardApiUnitTests(unittest.TestCase):
 
 
 class MockDashboardHandler(DashboardHandler):
-    def __init__(self, path: str):
+    def __init__(self, path: str, origin: str | None = None):
         self.path = path
         self.requestline = f"GET {path} HTTP/1.1"
         self.request_version = "HTTP/1.1"
         self.command = "GET"
         self.wfile = BytesIO()
         self.headers = HTTPMessage()
+        if origin is not None:
+            self.headers["Origin"] = origin
         self.status_code = None
         self.response_headers = {}
 
@@ -190,7 +192,17 @@ class DashboardHandlerRoutingTests(unittest.TestCase):
             handler.do_GET()
             self.assertEqual(handler.status_code, 200, f"Failed on route {route}")
             self.assertEqual(handler.response_headers.get("Content-Type"), "application/json")
-            self.assertEqual(handler.response_headers.get("Access-Control-Allow-Origin"), "*")
+            self.assertNotIn("Access-Control-Allow-Origin", handler.response_headers)
+
+    def test_cors_allows_only_local_dashboard_origins(self):
+        local = MockDashboardHandler("/api/paper/runtime", "http://localhost:5173")
+        local.do_GET()
+        self.assertEqual(local.response_headers.get("Access-Control-Allow-Origin"), "http://localhost:5173")
+        self.assertEqual(local.response_headers.get("Vary"), "Origin")
+
+        external = MockDashboardHandler("/api/paper/runtime", "https://example.com")
+        external.do_GET()
+        self.assertNotIn("Access-Control-Allow-Origin", external.response_headers)
 
     def test_404(self):
         handler = MockDashboardHandler("/api/unknown_route")

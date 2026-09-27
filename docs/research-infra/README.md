@@ -239,7 +239,9 @@ invoked, so `PAPER=NOT_STARTED`. See
 and full invocation shape. The existing loopback dashboard API can read the
 latest snapshot through `/api/paper/runtime` when configured with
 `BITHUMB_PAPER_JOURNAL_PATH`; it uses SQLite read-only mode and labels snapshot
-integrity unverified. `scripts/post30h_orchestrator.py` runs the terminal
+integrity unverified. The Trading page reads it only after an explicit local
+connect action and refreshes while connected; CORS is limited to local Vite
+origins. The display does not start PAPER. `scripts/post30h_orchestrator.py` runs the terminal
 audit, reliability seal, verified source-integration and dataset-DQ receipts,
 research batch, evidence-only candidate report, existing candidate freeze,
 and PAPER readiness in fail-stop order. It never merges source, selects a
