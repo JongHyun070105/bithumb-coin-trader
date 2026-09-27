@@ -126,6 +126,13 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
     assert len(aggregate["baseline_comparisons"]) == 24
     assert len(list((batch_dir / "runs").glob("*/attempt-*/manifest.json"))) == 5
     assert len(list((batch_dir / "runs").glob("*/attempt-*/metrics.json"))) == 5
+    definition_registry = tmp_path / "research-output" / "definition-registry.jsonl"
+    definition_records = [json.loads(line) for line in definition_registry.read_text().splitlines()]
+    assert {record["kind"] for record in definition_records} == {"feature", "strategy"}
+    first_manifest = json.loads(next((batch_dir / "runs").glob("*/attempt-*/manifest.json")).read_text())
+    bindings = first_manifest["identity"]["definition_bindings"]
+    assert bindings["strategy"]["definition_sha256"]
+    assert bindings["feature"]["definition_sha256"]
 
     dataset_data = json.loads(dataset_manifest.read_text())
     dataset_data["dataset_role"] = "FROZEN_HOLDOUT"

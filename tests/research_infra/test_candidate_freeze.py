@@ -24,6 +24,7 @@ from bithumb_coin_trader.research_infra.candidate_registry import (
 )
 from bithumb_coin_trader.research_infra.costs import SpotCostScenario
 from bithumb_coin_trader.research_infra.paper_readiness import _check_candidate
+from tests.research_infra.definition_fixtures import definition_record
 
 
 def _canonical(value: object) -> str:
@@ -107,15 +108,23 @@ def _prepare_selected_experiment(tmp_path: Path) -> tuple[Path, Path, str, Path]
         feature_config={"input": "completed_KST_daily_candles"},
         parameter_sets=({},),
         seed=31,
+        strategy_definition=definition_record("strategy", "daily_weekly_absolute_momentum_126_63"),
+        feature_definition=definition_record("feature", "completed_candle_history"),
     )
     controls = (
-        BatchExperiment("baseline_controls", "cash", lambda _seed, _params: create_builtin_strategy("cash", 0, {}), {}, {}, ({},), 31),
-        BatchExperiment("baseline_controls", "buy_and_hold", lambda _seed, _params: create_builtin_strategy("buy_and_hold", 0, {}), {}, {}, ({},), 31),
+        BatchExperiment("baseline_controls", "cash", lambda _seed, _params: create_builtin_strategy("cash", 0, {}), {}, {}, ({},), 31,
+                        strategy_definition=definition_record("strategy", "cash"),
+                        feature_definition=definition_record("feature", "completed_candle_history")),
+        BatchExperiment("baseline_controls", "buy_and_hold", lambda _seed, _params: create_builtin_strategy("buy_and_hold", 0, {}), {}, {}, ({},), 31,
+                        strategy_definition=definition_record("strategy", "buy_and_hold"),
+                        feature_definition=definition_record("feature", "completed_candle_history")),
         BatchExperiment(
             "baseline_controls",
             "randomized_placebo",
             lambda seed, params: create_builtin_strategy("randomized_placebo", seed, params),
             {}, {}, ({"exposure_probability": 0.5, "target_weight": 1.0},), 31,
+            strategy_definition=definition_record("strategy", "randomized_placebo"),
+            feature_definition=definition_record("feature", "completed_candle_history"),
         ),
     )
     research_root = tmp_path / "research-output"
@@ -223,6 +232,8 @@ def test_candidate_freeze_binds_experiment_and_appends_frozen_once(tmp_path: Pat
     record = artifact["candidate"]
     assert record["schema_version"] == 2
     assert record["candidate_family"] == "daily_weekly_trend_and_momentum"
+    assert record["definition_bindings"]["strategy"]["definition_sha256"]
+    assert record["definition_bindings"]["feature"]["definition_sha256"]
     assert [item["name"] for item in record["cost_scenarios"]] == ["base", "conservative", "stress", "extreme"]
     assert artifact["lifecycle_events"][-1]["to_status"] == "FROZEN"
     assert output_path.read_text() == _canonical(artifact) + "\n"

@@ -18,6 +18,7 @@ Reproducible commands for:
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -40,6 +41,14 @@ from .batch import BatchExperiment, run_research_batch
 from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
 from .candidate_freeze import CandidateFreezeError, freeze_candidate_experiment
 from .costs import SpotCostScenario
+from .paper_start_gate import PaperStartGateError, evaluate_paper_start_gates
+from .reliability_seal import ReliabilitySealError, write_reliability_seal
+from .definition_registry import (
+    DefinitionRegistryError,
+    FeatureDefinition,
+    StrategyDefinition,
+    VersionedDefinitionRegistry,
+)
 from .research_catalog import (
     HypothesisCatalog,
     default_candidate_families,
@@ -246,6 +255,37 @@ def cmd_candidate_freeze(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_paper_start(args: argparse.Namespace) -> int:
+    """Readiness-only gate check; never starts a runtime or contacts an exchange."""
+    try:
+        report = evaluate_paper_start_gates(
+            evidence_dir=Path(args.readiness_evidence_dir),
+            candidate_freeze=Path(args.candidate_freeze),
+            reliability_seal=Path(args.reliability_seal),
+        )
+    except (PaperStartGateError, OSError, ValueError, TypeError, KeyError, json.JSONDecodeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for name, check in report["checks"].items():
+        print(f"{name}={check['status']}: {check['reason']}")
+    print(f"PAPER_START_ALLOWED={report['PAPER_START_ALLOWED']}")
+    print("PAPER=NOT_STARTED; this command only validates gates")
+    return 0 if report["PAPER_START_ALLOWED"] else 1
+
+
+def cmd_reliability_seal(args: argparse.Namespace) -> int:
+    """Write a new local seal only for a verified terminal auditor PASS."""
+    try:
+        seal = write_reliability_seal(Path(args.terminal_audit), Path(args.output))
+    except (ReliabilitySealError, OSError, ValueError, TypeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(f"RELIABILITY_SEALED={seal['seal_sha256']}")
+    print(f"TERMINAL_AUDIT_SHA256={seal['terminal_audit_sha256']}")
+    print("This command seals local evidence only; it does not start PAPER or contact AWS.")
+    return 0
+
+
 def cmd_hypothesis_run(args: argparse.Namespace) -> None:
     """Run a single hypothesis evaluation.
 
@@ -394,7 +434,14 @@ def cmd_research_batch(args: argparse.Namespace) -> int:
             dataset_sha256=dataset_sha256,
             code_revision=code_revision,
             dataset_provenance=provenance,
-            experiments=definitions,
+            experiments=_register_experiment_definitions(
+                definitions,
+                VersionedDefinitionRegistry(
+                    Path(args.definition_registry).resolve()
+                    if args.definition_registry
+                    else Path(args.output).resolve() / "definition-registry.jsonl"
+                ),
+            ),
             cost_scenarios=scenarios,
             output_dir=output_dir,
             n_folds=args.folds,
@@ -405,7 +452,7 @@ def cmd_research_batch(args: argparse.Namespace) -> int:
             max_fold_cost_runs=args.max_fold_cost_runs,
             retry_failed=args.retry_failed,
         )
-    except (OSError, DataError, TypeError, ValueError, KeyError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+    except (OSError, DataError, DefinitionRegistryError, TypeError, ValueError, KeyError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
@@ -566,6 +613,57 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
     return tuple(experiments)
 
 
+def _register_experiment_definitions(
+    experiments: tuple[BatchExperiment, ...], registry: VersionedDefinitionRegistry
+) -> tuple[BatchExperiment, ...]:
+    package_root = Path(__file__).resolve().parents[1]
+    feature_source_paths = (
+        package_root / "models.py",
+        package_root / "research_infra" / "walk_forward_runner.py",
+    )
+    feature = registry.register(FeatureDefinition(
+        definition_id="completed_candle_history",
+        version="1.0.0",
+        implementation_sha256=_definition_sources_sha256(feature_source_paths),
+        config_schema={"type": "object"},
+        description="Causal completed OHLCV candle history passed to a train-only strategy.",
+    ))
+
+    registered: list[BatchExperiment] = []
+    for experiment in experiments:
+        strategy_paths = [package_root / "research_infra" / "builtin_strategies.py"]
+        if experiment.strategy_id in _DAILY_CANDIDATE_STRATEGIES:
+            strategy_paths.append(package_root / "daily_strategy_candidates.py")
+        strategy = registry.register(StrategyDefinition(
+            definition_id=experiment.strategy_id,
+            version="1.0.0",
+            implementation_sha256=_definition_sources_sha256(tuple(strategy_paths)),
+            config_schema={"type": "object"},
+            description=f"Governed local target-weight adapter for {experiment.strategy_id}.",
+        ))
+        registered.append(replace(
+            experiment,
+            strategy_definition=strategy,
+            feature_definition=feature,
+        ))
+    return tuple(registered)
+
+
+def _definition_sources_sha256(paths: tuple[Path, ...]) -> str:
+    package_root = Path(__file__).resolve().parents[1]
+    source_hashes: dict[str, str] = {}
+    for path in sorted(paths):
+        if path.is_symlink() or not path.is_file():
+            raise DefinitionRegistryError(f"definition implementation source is missing or a symlink: {path}")
+        try:
+            relative = path.relative_to(package_root.parent.parent).as_posix()
+        except ValueError as exc:
+            raise DefinitionRegistryError("definition implementation source escapes the repository") from exc
+        source_hashes[relative] = hashlib.sha256(path.read_bytes()).hexdigest()
+    encoded = json.dumps(source_hashes, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _require_clean_code_revision() -> str:
     revision = subprocess.run(
         ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=False
@@ -687,6 +785,21 @@ def build_parser() -> argparse.ArgumentParser:
     candidate_freeze.add_argument("--candidate-registry", default="research-data/candidate_registry.jsonl")
     candidate_freeze.add_argument("--output", default=None)
 
+    paper_start = sub.add_parser(
+        "paper-start",
+        help="Read-only fail-closed gate check; this command never starts PAPER",
+    )
+    paper_start.add_argument("--candidate-freeze", required=True)
+    paper_start.add_argument("--readiness-evidence-dir", required=True)
+    paper_start.add_argument("--reliability-seal", required=True)
+
+    reliability_seal = sub.add_parser(
+        "reliability-seal",
+        help="Write a new local hash-bound seal from a terminal-audit PASS",
+    )
+    reliability_seal.add_argument("--terminal-audit", required=True)
+    reliability_seal.add_argument("--output", required=True)
+
     # build
     build = sub.add_parser("build", help="Build canonical data")
     build.add_argument("--dataset", required=True)
@@ -716,6 +829,11 @@ def build_parser() -> argparse.ArgumentParser:
     batch.add_argument("--max-fold-cost-runs", type=int, default=2_000)
     batch.add_argument("--retry-failed", action="store_true")
     batch.add_argument("--output", required=True)
+    batch.add_argument(
+        "--definition-registry",
+        default=None,
+        help="Append-only definition registry (defaults to OUTPUT/definition-registry.jsonl)",
+    )
 
     # report
     sub.add_parser("report", help="Generate research report")
@@ -743,6 +861,8 @@ def main(argv: list[str] | None = None) -> int:
         ("candidate-families", "list"): cmd_candidate_families_list,
         ("candidate-families", "export"): cmd_candidate_families_export,
         ("candidate-freeze", None): cmd_candidate_freeze,
+        ("paper-start", None): cmd_paper_start,
+        ("reliability-seal", None): cmd_reliability_seal,
         ("build", None): cmd_build,
         ("paper-readiness", None): cmd_paper_readiness,
         ("research-batch", None): cmd_research_batch,

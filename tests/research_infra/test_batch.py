@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 import json
 from pathlib import Path
@@ -13,6 +14,7 @@ from bithumb_coin_trader.research_infra.batch import (
     run_research_batch,
 )
 from bithumb_coin_trader.research_infra.costs import SpotCostScenario
+from tests.research_infra.definition_fixtures import definition_record
 
 
 DATASET_SHA256 = "a" * 64
@@ -71,6 +73,8 @@ def _experiment(factory: Any = None) -> BatchExperiment:
         feature_config={"input": "completed-candles"},
         parameter_sets=({},),
         seed=19,
+        strategy_definition=definition_record("strategy", "cash-test"),
+        feature_definition=definition_record("feature", "completed_candle_history"),
     )
 
 
@@ -116,6 +120,12 @@ def test_batch_resumes_interrupted_attempt_without_repeating_completed_fold(tmp_
     assert len((attempts[0] / "events.jsonl").read_text().splitlines()) == 3
 
 
+def test_batch_api_rejects_missing_versioned_definitions(tmp_path: Path) -> None:
+    experiment = replace(_experiment(), strategy_definition=None)
+    with pytest.raises(ValueError, match="requires a registered strategy definition"):
+        _run(tmp_path, experiment)
+
+
 def test_batch_skips_identical_completed_experiment_and_refuses_changed_inputs(tmp_path: Path) -> None:
     calls = 0
 
@@ -139,6 +149,8 @@ def test_batch_skips_identical_completed_experiment_and_refuses_changed_inputs(t
         feature_config={"input": "completed-candles"},
         parameter_sets=({},),
         seed=19,
+        strategy_definition=definition_record("strategy", "cash-test"),
+        feature_definition=definition_record("feature", "completed_candle_history"),
     )
     different = _run(tmp_path, changed)
     assert different["batch_id"] != first["batch_id"]

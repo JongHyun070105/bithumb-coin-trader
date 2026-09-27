@@ -15,6 +15,7 @@ from typing import Any, Mapping
 from .batch import _baseline_comparisons, _read_complete, _read_events, fold_run_from_dict
 from .candidate_registry import CandidateLifecycle, CandidateLifecycleError, CandidateRegistry
 from .costs import CostScenarioError, SpotCostScenario
+from .definition_registry import DefinitionRegistryError, validate_definition_record
 from .result_schema import ExperimentResult, RESULT_SCHEMA_VERSION
 
 
@@ -407,6 +408,29 @@ def _validate_experiment(experiment_id: str, experiment: Mapping[str, Any]) -> d
     metrics = experiment["metrics"]
     if identity.get("candidate_family") != _DAILY_CANDIDATE_FAMILY or identity.get("strategy_id") not in _DAILY_CANDIDATE_IDS:
         raise CandidateFreezeError("only an inventoried project strategy with a governed adapter can be frozen")
+    bindings = identity.get("definition_bindings")
+    if not isinstance(bindings, dict):
+        raise CandidateFreezeError("immutable strategy and feature definition bindings are missing")
+    for kind, definition_id, config in (
+        ("strategy", identity.get("strategy_id"), identity.get("strategy_config")),
+        ("feature", "completed_candle_history", identity.get("feature_config")),
+    ):
+        binding = bindings.get(kind)
+        if not isinstance(binding, dict):
+            raise CandidateFreezeError(f"immutable {kind} definition binding is invalid")
+        try:
+            definition_record = validate_definition_record({
+                key: value for key, value in binding.items() if key != "config_sha256"
+            })
+        except DefinitionRegistryError as exc:
+            raise CandidateFreezeError(f"immutable {kind} definition binding is invalid: {exc}") from exc
+        if (
+            definition_record["kind"] != kind
+            or definition_record["definition_id"] != definition_id
+            or not _is_sha256(binding.get("config_sha256"))
+            or binding["config_sha256"] != _hash_json(config)
+        ):
+            raise CandidateFreezeError(f"immutable {kind} definition/config binding is invalid")
     if identity.get("experiment_id") not in (None, experiment_id):
         raise CandidateFreezeError("experiment identity does not match the requested id")
     manifest = provenance.get("dataset_manifest")
@@ -647,6 +671,7 @@ def _make_freeze_record(
         "strategy_config_sha256": source_hashes["strategy_config_sha256"],
         "feature_config": identity["feature_config"],
         "feature_config_sha256": source_hashes["feature_config_sha256"],
+        "definition_bindings": identity["definition_bindings"],
         "strategy_source_sha256": source_hashes["strategy_source_sha256"],
         "metrics_schema_version": RESULT_SCHEMA_VERSION,
         "metrics_definition_sha256": source_hashes["metrics_definition_sha256"],

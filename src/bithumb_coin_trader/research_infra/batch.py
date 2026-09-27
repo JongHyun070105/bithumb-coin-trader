@@ -19,6 +19,7 @@ from typing import Any, Callable, Mapping, Sequence
 
 from ..models import Candle
 from .costs import SpotCostScenario
+from .definition_registry import DefinitionRegistryError, validate_definition_record
 from .result_schema import ResultStatus
 from .walk_forward_runner import (
     TrainOnlyTargetWeightStrategy,
@@ -45,6 +46,8 @@ class BatchExperiment:
     feature_config: Mapping[str, Any]
     parameter_sets: tuple[Mapping[str, Any], ...] = ({},)
     seed: int = 0
+    strategy_definition: Mapping[str, Any] | None = None
+    feature_definition: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +198,20 @@ def _expand_experiments(
                 "strategy_id": spec.strategy_id,
                 "strategy_config": strategy_config,
                 "feature_config": dict(spec.feature_config),
+                "definition_bindings": {
+                    "strategy": _definition_binding(
+                        spec.strategy_definition,
+                        kind="strategy",
+                        definition_id=spec.strategy_id,
+                        config=strategy_config,
+                    ),
+                    "feature": _definition_binding(
+                        spec.feature_definition,
+                        kind="feature",
+                        definition_id="completed_candle_history",
+                        config=dict(spec.feature_config),
+                    ),
+                },
                 "cost_config": list(cost_payload),
                 "fold_config": dict(fold_config),
                 "seed": spec.seed,
@@ -608,3 +625,24 @@ def _json_bytes(value: Any) -> bytes:
 def _sha256(value: bytes | str) -> str:
     raw = value.encode("utf-8") if isinstance(value, str) else value
     return hashlib.sha256(raw).hexdigest()
+
+
+def _definition_binding(
+    definition: Mapping[str, Any] | None,
+    *,
+    kind: str,
+    definition_id: str,
+    config: Mapping[str, Any],
+) -> dict[str, Any]:
+    if definition is None:
+        raise ResearchBatchError(f"every batch experiment requires a registered {kind} definition: {definition_id}")
+    try:
+        record = validate_definition_record(definition)
+    except DefinitionRegistryError as exc:
+        raise ResearchBatchError(f"invalid registered {kind} definition for {definition_id}: {exc}") from exc
+    if record["kind"] != kind or record["definition_id"] != definition_id:
+        raise ResearchBatchError(f"registered {kind} definition identity does not match {definition_id}")
+    return {
+        **record,
+        "config_sha256": _sha256(_canonical(dict(config))),
+    }
