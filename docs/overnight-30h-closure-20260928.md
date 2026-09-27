@@ -69,6 +69,7 @@ PRIVATE_API = DISABLED
   ```
 
 - Compared all 14 failure cases against exact `origin/main` (`39e76ce`). Thirteen failed on the base; the remaining detached-scan timing case passed once on base but failed on the integration and readiness trees. Those test/source paths are unchanged in the integration diff. A prior green full-suite record on readiness HEAD was not reproducible for the targeted timing set: 13 failed and 1 passed on a later rerun at the same `bfdab735` HEAD.
+- Full-suite working directory: `/tmp/btc-post30h-dryrun-20260928`.
 - Completed one read-only independent review through the Phase 3 delegate budget. Auto-routing selected MiMo V2.5 Pro; no Gemini delegate was used, and Gemini availability was not independently established.
 - Adjudicated the delegate's claimed all-null-Sharpe crash as a false positive: `_aggregate()` explicitly returns `None` when all fold Sharpes are missing; a flat synthetic walk-forward reproduced `[null, null]` with no crash. The review identified a direct scenario-test coverage gap and a metric-definition caveat: cost sensitivity counts sell fills while walk-forward trade count counts completed round trips. No backtest execution defect was established from those findings.
 - Confirmed existing source/tests bind each walk-forward prediction to its point-in-time candle prefix, fit strategy parameters on train-only data, execute prior-close weights at the next open, and validate purge/embargo boundaries. The adversarial future-spike test passed in the full run.
