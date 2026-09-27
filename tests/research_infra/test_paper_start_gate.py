@@ -37,9 +37,12 @@ def test_paper_start_does_not_construct_runtime_when_a_gate_fails(
         raise AssertionError("runtime must not be constructed when a readiness gate fails")
 
     monkeypatch.setattr(cli, "run_local_paper_session", must_not_start)
+    monkeypatch.setattr(cli, "create_local_paper_runtime", must_not_start)
+    monkeypatch.setattr(cli, "run_bithumb_public_paper_feed", must_not_start)
     result = cli.main(
         [
             "paper-start",
+            "--public-websocket",
             "--candidate-freeze", str(tmp_path / "candidate.json"),
             "--readiness-evidence-dir", str(tmp_path / "readiness"),
             "--reliability-seal", str(tmp_path / "seal.json"),

@@ -35,9 +35,53 @@ def run_local_paper_session(
     allow_resume: bool,
 ) -> Iterator[dict[str, Any]]:
     """Yield event results and final metrics; no exchange or cloud client."""
+    events_path = _regular_file(events_jsonl, "normalized public event JSONL")
+    event_count = sum(1 for _ in _iter_events(events_path))
+    if event_count == 0:
+        raise PaperSessionError("normalized public event stream must contain at least one event")
+    runtime = create_local_paper_runtime(
+        candidate_freeze=candidate_freeze,
+        research_root=research_root,
+        warmup_csv=warmup_csv,
+        cost_scenario_json=cost_scenario_json,
+        risk_config_json=risk_config_json,
+        journal_path=journal_path,
+        initial_cash_krw=initial_cash_krw,
+        market=market,
+        allow_resume=allow_resume,
+    )
+    last_event_id: str | None = None
+    last_book: OrderBookSnapshot | None = None
+    for event in _iter_events(events_path):
+        result = runtime.process_event(event)
+        yield {"record_type": "event_result", "result": result}
+        last_event_id = event.event_id
+        last_book = event.orderbooks[-1]
+        if runtime.is_halted:
+            break
+    if last_event_id is not None and last_book is not None:
+        yield {
+            "record_type": "metrics_snapshot",
+            "as_of_event_id": last_event_id,
+            "metrics": runtime.metrics(last_book),
+        }
+
+
+def create_local_paper_runtime(
+    *,
+    candidate_freeze: Path,
+    research_root: Path,
+    warmup_csv: Path,
+    cost_scenario_json: Path,
+    risk_config_json: Path,
+    journal_path: Path,
+    initial_cash_krw: str,
+    market: str,
+    allow_resume: bool,
+) -> PaperRuntime:
+    """Validate local PAPER setup inputs, then construct the journal-backed runtime."""
     candidate_path = _regular_file(candidate_freeze, "candidate freeze")
     warmup_path = _regular_file(warmup_csv, "warmup candle CSV")
-    events_path = _regular_file(events_jsonl, "normalized public event JSONL")
     costs_path = _regular_file(cost_scenario_json, "cost scenario")
     risk_path = _regular_file(risk_config_json, "risk configuration")
     journal_path = Path(journal_path)
@@ -53,9 +97,6 @@ def run_local_paper_session(
     candidate = _read_object(candidate_path, "candidate freeze")
     scenario = SpotCostScenario.from_dict(_read_object(costs_path, "cost scenario"))
     risk_config = RiskEngineConfig(**_read_object(risk_path, "risk configuration"))
-    event_count = sum(1 for _ in _iter_events(events_path))
-    if event_count == 0:
-        raise PaperSessionError("normalized public event stream must contain at least one event")
     from .data import load_candles_csv
 
     warmup = load_candles_csv(warmup_path)
@@ -74,21 +115,7 @@ def run_local_paper_session(
         raise PaperSessionError(
             "durable PAPER halt is active; inspect state and acknowledge recovery explicitly before starting"
         )
-    last_event_id: str | None = None
-    last_book: OrderBookSnapshot | None = None
-    for event in _iter_events(events_path):
-        result = runtime.process_event(event)
-        yield {"record_type": "event_result", "result": result}
-        last_event_id = event.event_id
-        last_book = event.orderbooks[-1]
-        if runtime.is_halted:
-            break
-    if last_event_id is not None and last_book is not None:
-        yield {
-            "record_type": "metrics_snapshot",
-            "as_of_event_id": last_event_id,
-            "metrics": runtime.metrics(last_book),
-        }
+    return runtime
 
 
 def _iter_events(path: Path) -> Iterator[NormalizedPaperEvent]:

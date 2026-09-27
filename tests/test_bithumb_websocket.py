@@ -23,6 +23,7 @@ from bithumb_coin_trader.bithumb_websocket import (
     OrderbookObservation,
     ReconnectBackoff,
     TickerObservation,
+    TradeObservation,
     WebSocketTransport,
     WebSocketProtocolError,
     build_private_subscription,
@@ -35,6 +36,13 @@ from bithumb_coin_trader.bithumb_websocket import (
 
 
 class SubscriptionTests(unittest.TestCase):
+    def test_public_subscription_can_select_trade_and_orderbook_only(self) -> None:
+        payload = build_public_subscription(
+            ["KRW-BTC"], ticket="paper", ticker=False, trade=True
+        )
+
+        self.assertEqual([item.get("type") for item in payload], [None, "trade", "orderbook", None])
+
     def test_public_subscription_uses_v1_default_realtime_streams(self) -> None:
         payload = build_public_subscription(["KRW-BTC", "KRW-ETH"], ticket="scanner")
         self.assertEqual(
@@ -132,6 +140,36 @@ class JwtAndFrameTests(unittest.TestCase):
 
 
 class ObservationParserTests(unittest.TestCase):
+    def test_parses_public_trade_identity_and_exchange_time(self) -> None:
+        trade = parse_observation(
+            {
+                "type": "trade",
+                "code": "KRW-BTC",
+                "trade_price": 489700,
+                "trade_volume": 1.4825,
+                "ask_bid": "BID",
+                "trade_timestamp": 1725929934373,
+                "sequential_id": 17259299343730000,
+                "timestamp": 1725929934483,
+                "stream_type": "REALTIME",
+            }
+        ).observation
+        self.assertIsInstance(trade, TradeObservation)
+        assert isinstance(trade, TradeObservation)
+        self.assertEqual(trade.ask_bid, "BID")
+        self.assertEqual(trade.sequential_id, 17259299343730000)
+        self.assertEqual(trade.trade_price, Decimal("489700"))
+
+    def test_trade_parser_rejects_unsupported_side(self) -> None:
+        with self.assertRaises(ObservationValidationError):
+            parse_observation(
+                {
+                    "type": "trade", "code": "KRW-BTC", "trade_price": 100,
+                    "trade_volume": 1, "ask_bid": "HOLD", "trade_timestamp": 1,
+                    "sequential_id": 1, "timestamp": 1, "stream_type": "REALTIME",
+                }
+            )
+
     def test_parses_public_ticker_and_orderbook(self) -> None:
         ticker = parse_observation(
             {
@@ -331,9 +369,11 @@ class CacheAndReconnectTests(unittest.TestCase):
                 pass
 
         stop = threading.Event()
+        connection_states: list[bool] = []
         observer = BithumbWebSocketObserver(
             build_public_subscription(["KRW-BTC"], ticket="test"),
             callback=callbacks.append,
+            connection_callback=connection_states.append,
             backoff=ReconnectBackoff(0.001, 0.001, 1, 0),
             transport_factory=FakeTransport,
         )
@@ -341,6 +381,7 @@ class CacheAndReconnectTests(unittest.TestCase):
         self.assertEqual(len(callbacks), 1)
         self.assertIsInstance(callbacks[0].observation, TickerObservation)
         self.assertEqual(observer.cache.snapshot().health.message_count, 1)
+        self.assertEqual(connection_states, [True, False])
 
 
 if __name__ == "__main__":

@@ -221,17 +221,19 @@ minimum notional, tick/lot rules, and a declared depth-partial policy. Event,
 order, fill, account, and recovery state are checksum-bound in a local SQLite
 journal. Maker orders and probabilistic partial fills are unsupported. A durable
 sidecar halt latch survives restart and requires explicit recovery acknowledgement.
-This library does not start a feed process or PAPER.
+`PaperRuntime` itself consumes normalized events; the separate gated CLI provides
+the finite local-file and public-feed session adapters.
 
 `reliability-seal` writes a new local seal only from a terminal-audit PASS and
 binds it to the exact report bytes. After all start gates pass, `paper-start`
-can run a finite local session from a caller-prepared JSONL stream of normalized
-public candles and visible order books. The command has no exchange client and
-does not retrieve data; the caller must bind the stream and warmup CSV to an
-approved public source before a separately authorized PAPER start. Gate failures
-and malformed event files do not create a journal; deeper frozen-candidate
-validation occurs as the runtime is initialized. An existing journal requires
-explicit `--resume`. This command has been prepared but not
+accepts exactly one of a caller-prepared JSONL stream of normalized public
+candles/books or the unauthenticated Bithumb Public WebSocket v1 trade/book
+feed. The feed mode durably halts on disconnect or malformed input. The command
+does not use private endpoints; local-file callers remain responsible for
+binding event provenance and warmup data to an approved public source. Gate
+failures and malformed event files do not create a journal; deeper
+frozen-candidate validation occurs as the runtime is initialized. An existing
+journal requires explicit `--resume`. This command has been prepared but not
 invoked, so `PAPER=NOT_STARTED`. See
 [`docs/paper-local-session.md`](../paper-local-session.md) for the event schema
 and full invocation shape. The existing loopback dashboard API can read the

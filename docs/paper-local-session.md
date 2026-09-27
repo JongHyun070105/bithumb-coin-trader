@@ -1,12 +1,13 @@
 # Local PAPER session command
 
-`paper-start` is a finite local runner. It first verifies `RELIABILITY_SEALED`,
+`paper-start` is a gated local session runner. It first verifies `RELIABILITY_SEALED`,
 `DATA_QUALIFIED`, `CANDIDATE_FROZEN`, `RISK_READY`, `PAPER_ENGINE_READY`,
 `OBSERVABILITY_READY`, `SECRETS_SAFE`, and `PRIVATE_API_DISABLED`. A failed
 check returns before the session adapter is constructed and before a journal
-is created. With all checks passing, it runs the frozen candidate over a
-caller-supplied normalized public event stream. It does not fetch market data,
-start a websocket, contact AWS, or import an exchange client.
+is created. With all checks passing, it runs the frozen candidate using exactly
+one source: caller-supplied normalized public-event JSONL or Bithumb's
+unauthenticated Public WebSocket v1 trade/order-book streams. It does not
+contact AWS or import a private exchange/order client.
 
 The event file is UTF-8 JSONL, with one event per line and exactly these fields:
 
@@ -33,6 +34,20 @@ The event file is UTF-8 JSONL, with one event per line and exactly these fields:
   ]
 }
 ```
+
+For a foreground public feed session, use the same arguments and replace
+`--events-jsonl ...` with `--public-websocket`. This source uses the public
+`wss://ws-api.bithumb.com/websocket/v1` endpoint and subscribes only to trade
+and order-book data. The [official public stream overview](https://apidocs.bithumb.com/reference/%EA%B8%B0%EB%B3%B8-%EC%A0%95%EB%B3%B4)
+and [trade message schema](https://apidocs.bithumb.com/reference/%EC%B2%B4%EA%B2%B0-trade)
+document those streams and fields.
+
+Trade records build KST daily candles; order-book records drive fills. The first
+observed daily bar is discarded as potentially incomplete. A disconnect or
+malformed feed frame writes a durable PAPER halt and stops the process. Inspect
+the journal and feed before explicitly acknowledging recovery and restarting.
+There is no automatic restart after a halt. The post-30H orchestrator never
+invokes this mode.
 
 `candle` may be `null` for an order-book-only update. Timestamps must be
 non-negative integers in milliseconds (ISO timestamp with an explicit offset
