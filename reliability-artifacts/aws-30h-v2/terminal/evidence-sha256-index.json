@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "generated_at_utc": "2026-09-20T16:20:52.823370+00:00",
+  "hash_scope": "copied repository bytes; excludes only this self-referential index",
+  "files": [
+    {
+      "path": "terminal/archive-failures/2026-09-19_12/failure_2026-09-19_12.json",
+      "sha256": "73179aae3018ffb1f6eb85b1a35737695568d4b4fead4c06fa60f63a16752740",
+      "bytes": 6261
+    },
+    {
+      "path": "terminal/archive-receipts/cohort_2026-09-19_09_finalized.json",
+      "sha256": "8787910f38873dca3b6776ad88cef0a722123e8e7ec5556f4389721b4ec129bd",
+      "bytes": 391
+    },
+    {
+      "path": "terminal/archive-receipts/cohort_2026-09-19_10_finalized.json",
+      "sha256": "7c259fdaeb115e8071bb52e1374a0f714e393cfafd9ea2f400ba2fc5ea17b523",
+      "bytes": 280
+    },
+    {
+      "path": "terminal/archive-receipts/cohort_2026-09-19_11_finalized.json",
+      "sha256": "43c225388e843b91864eb4b764ef75fdceaeb194ef82a21cc903222634275ef4",
+      "bytes": 280
+    },
+    {
+      "path": "terminal/archive-receipts/cohort_2026-09-19_12_finalized.json",
+      "sha256": "a9d52adea394274612f591593beab0bb3bf3fe7d41b2301b5fdc4b129cc019e7",
+      "bytes": 2144
+    },
+    {
+      "path": "terminal/archive-receipts/full_scan_2026-09-19_10_report.json",
+      "sha256": "3e5acccebead52150058267bfb96e4a7f81283049a5c6eb3dd5c9e6a0152f9cb",
+      "bytes": 14089
+    },
+    {
+      "path": "terminal/archive-receipts/full_scan_2026-09-19_11_report.json",
+      "sha256": "9b312976d11e828ebe83b7e75f23d89840dae3688dbc6827772b3fa71d535bd9",
+      "bytes": 14091
+    },
+    {
+      "path": "terminal/collector-lifecycle.json",
+      "sha256": "eced11d62f8cc5519a00df8e6b1d98088afa7a7e9c4227112065bca515fbb119",
+      "bytes": 511
+    },
+    {
+      "path": "terminal/collector_metrics.json",
+      "sha256": "dbea5adf0add1946b6eb089ea41bbde546a5a14d9fc5ee8f29a878e5d371f6ff",
+      "bytes": 2895
+    },
+    {
+      "path": "terminal/health/archiver_latest.json",
+      "sha256": "77e8c250107a34a32f96cff8f2213bc30dfc9d825390bba4cf46303b2981fabd",
+      "bytes": 1879
+    },
+    {
+      "path": "terminal/health/latest.json",
+      "sha256": "d8b24cde00cebbb235168777b0000e63e18e7277a31ec0ffa167285c4eb3bf50",
+      "bytes": 2314
+    },
+    {
+      "path": "terminal/health/observer_latest.json",
+      "sha256": "cbdc4b5d24e31f35166e0a4a65c516b5c2ab5c26015c00770b253555ae3ae526",
+      "bytes": 2489
+    },
+    {
+      "path": "terminal/logs/supervisor.log",
+      "sha256": "0223618189aedbfa739b1800efc11976a952f546f1540595504f7ba0848633d1",
+      "bytes": 278039
+    },
+    {
+      "path": "terminal/receipt-observation-index.json",
+      "sha256": "fd151762498dc38a1896c898811bde20adcec93d92f5bc8db497797786c359f9",
+      "bytes": 9853
+    },
+    {
+      "path": "terminal/resources/minute/20260919T095000Z.json",
+      "sha256": "c3c32f6a4513c9a6118659f7c2ec49cca24dc93afe6f12fd027bb1ff3e83a3d8",
+      "bytes": 2037
+    },
+    {
+      "path": "terminal/resources/minute/20260919T154948Z.json",
+      "sha256": "f7e8e908b1754977b5b83a93b77d7d3024ef0626bc6ade6c88be78cba8d0812f",
+      "bytes": 2456
+    },
+    {
+      "path": "terminal/resources/minute/20260919T214934Z.json",
+      "sha256": "14c258aa01b5ce32d454f15af7c90137955e7e091c7cae86f969c7ea5019dd74",
+      "bytes": 2456
+    },
+    {
+      "path": "terminal/resources/minute/20260920T035021Z.json",
+      "sha256": "4ace7b9a4a721d542790c2340424a9e306dbc97cf9e0a4e28b6e131be14e5d38",
+      "bytes": 2458
+    },
+    {
+      "path": "terminal/resources/minute/20260920T095008Z.json",
+      "sha256": "211b1fe71694885c4bd8569aef13d6c1e8a23cab4237aee932d5736a4c4135d7",
+      "bytes": 2458
+    },
+    {
+      "path": "terminal/resources/minute/20260920T144936Z.json",
+      "sha256": "43ff6f2231856ef99de3ed89319a86d086d8e8b3e7b3614804d5b31aca124aaf",
+      "bytes": 2458
+    },
+    {
+      "path": "terminal/resources/minute/20260920T154954Z.json",
+      "sha256": "fecb3e64d90b139e420d1783766c9c2c9a93bc0590e4a003686e63067633ef1a",
+      "bytes": 2458
+    },
+    {
+      "path": "terminal/resources/snapshot-index.json",
+      "sha256": "76400a793c6a6094f8a977cf81598d27ca0c9f406e9a61a2a8f1c751fed9dbee",
+      "bytes": 3351
+    },
+    {
+      "path": "terminal/result.json",
+      "sha256": "f960bc54c1634c9ddc991a73e2573d0ced0f1b7ed1dddad3f7827050810e8119",
+      "bytes": 951
+    },
+    {
+      "path": "terminal/s3-inventory.json",
+      "sha256": "c37cf1d9bb842ab96d7461028ee797e7137d0dbedad6348be321cfb63c560438",
+      "bytes": 630122
+    },
+    {
+      "path": "terminal/terminal-audit-summary.json",
+      "sha256": "ff53580147d9ea6ad1955bb14f5a55d36c4b022688a6ae0ad0695c7cf665fcbb",
+      "bytes": 1383
+    },
+    {
+      "path": "terminal/terminal-receipt-20260920T155025Z.json",
+      "sha256": "3196e65f5cbedac336b8df3650f54cd4bbd85956e1856bfc75574c420d52c6d2",
+      "bytes": 5589
+    },
+    {
+      "path": "terminal/terminal-receipt.json",
+      "sha256": "3196e65f5cbedac336b8df3650f54cd4bbd85956e1856bfc75574c420d52c6d2",
+      "bytes": 5589
+    }
+  ]
+}

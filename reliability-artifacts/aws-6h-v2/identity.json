@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-6h-20260918-20260918T175000Z-v2",
+  "run_id": "aws-validation-observability-6h-run-20260918T175000Z-v2",
+  "software_commit_sha": "c033a85b857c0859529cf87cc667282aa79bcf45",
+  "software_tree_sha": "812cb20af709c64874c46b921faa399f1e7b5eda",
+  "config_fingerprint": "2744cb72113120a6b90ca9f142769b2ba924fca5299e794aeed4db1f13996c2b",
+  "sealed_at_utc": "2026-09-18T16:55:03.750973+00:00",
+  "feed_count": 76,
+  "duration_seconds": 21600,
+  "grace_seconds": 600,
+  "target_full_hours": 5,
+  "planned_start_utc": "2026-09-18T17:50:00+00:00",
+  "warmup_duration_seconds": 600.0,
+  "qualification_start_utc": "2026-09-18T18:00:00+00:00",
+  "qualifying_cohorts": [
+    "2026-09-18_18",
+    "2026-09-18_19",
+    "2026-09-18_20",
+    "2026-09-18_21",
+    "2026-09-18_22"
+  ],
+  "cohort_closure_utc": "2026-09-18T23:00:00+00:00",
+  "grace_expiry_utc": "2026-09-18T23:10:00+00:00",
+  "archive_settled_utc": "2026-09-18T23:13:00+00:00",
+  "total_pipeline_duration_seconds": 19380.0,
+  "partial_start_cohort": "2026-09-18_17",
+  "partial_end_cohort": "2026-09-18_23",
+  "health_schema_version": 1,
+  "observer_version": 1,
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-observability-6h-20260918-20260918T175000Z-v2",
+  "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+  "data_root": "/var/lib/bitcoin-trader/6h-validation/aws-validation-observability-6h-20260918-20260918T175000Z-v2",
+  "python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+  "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+  "trading_safety": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "sealed_artifact_hashes": {
+    "aws-validation-observability-6h-20260918-20260918T175000Z-v2.runtime.json": "4c722658ce7becda4adfdc6bef750f30ecfb06a0c5fa81437a985fc016f3335d",
+    "launch-command.json": "2e17d11bbe98c2d91c4dcfd96ed4285a4442c2e6e97132e44c7d872dcfb0c572",
+    "launch-ec2.sh": "fe82c41cf46055c14fb1973f7ec4dce119845e81d3b097e7f964399ae6d3034c",
+    "launch.sh": "dbc9d681b32c0d3275d99e3251483890641235414a8b2aab69b4c299dae93d0f"
+  }
+}

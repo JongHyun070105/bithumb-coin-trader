@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:bithumb-coin-trader:external-bitmex-market-context-source-manifest:schema:v1",
+  "title": "External BitMEX market-context source manifest",
+  "type": "object",
+  "required": ["artifacts"],
+  "properties": {
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "provider",
+          "endpoint_or_dataset",
+          "instrument",
+          "downloaded_at_utc",
+          "path",
+          "sha256"
+        ],
+        "properties": {
+          "provider": {"type": "string", "minLength": 1},
+          "endpoint_or_dataset": {"type": "string", "minLength": 1},
+          "instrument": {"type": "string", "minLength": 1},
+          "coverage_claim": {"type": "string"},
+          "frequency": {"type": "string"},
+          "downloaded_at_utc": {"type": "string", "format": "date-time"},
+          "path": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "publisher_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "checksum_manifest_path": {"type": "string"},
+          "checksum_manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "known_limitations": {"type": "array", "items": {"type": "string"}},
+          "bytes": {"type": "integer", "minimum": 0},
+          "http_status": {"type": "integer", "minimum": 100, "maximum": 599},
+          "server_date_header": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

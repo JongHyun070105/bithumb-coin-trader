@@ -1,0 +1,81 @@
+{
+  "archiver": {
+    "archive_errors": 0,
+    "archive_queue_depth": 26,
+    "last_closed_cohort": null,
+    "last_compression": null,
+    "last_receipt": null,
+    "last_s3_put": "2026-09-20T16:09:00.313510+00:00",
+    "status": "STALE",
+    "upload_failures": 0
+  },
+  "collector": {
+    "fatal_error": null,
+    "last_canonical_event": "2026-09-20T15:50:01.799625+00:00",
+    "last_loop_heartbeat": "2026-09-20T15:50:23.418603+00:00",
+    "last_websocket_activity": "2026-09-20T15:50:01.799625+00:00",
+    "reconnect_count": 2,
+    "status": "STALE",
+    "websocket_sessions": {
+      "binance": "DISCONNECTED",
+      "bithumb": "DISCONNECTED",
+      "upbit": "DISCONNECTED"
+    }
+  },
+  "config_fingerprint": "91a23bdd0c124f253665d48e6b01d9761f458c7e8d73664f08a31bd1a061b385",
+  "current_cohort": {
+    "expected_feed_count": 76,
+    "observed_feed_count": 76,
+    "utc_hour": "2026-09-20_15"
+  },
+  "epoch": "aws-validation-observability-30h-20260919-20260919T095000Z-v2",
+  "evidence": {
+    "current_hour_expected_slots": 76,
+    "current_hour_terminal_slots": 2356,
+    "last_coverage_evidence": null,
+    "last_heartbeat_evidence": null,
+    "last_manifest_update": null,
+    "status": "HEALTHY"
+  },
+  "last_exception": {
+    "component": null,
+    "message_hash": null,
+    "timestamp": null,
+    "type": null
+  },
+  "observed_at": "2026-09-20T16:09:00.313510+00:00",
+  "observer": {
+    "observer_errors": 0,
+    "observer_last_cycle": "2026-09-20T16:09:00.313510+00:00",
+    "observer_pid": 997427,
+    "observer_started_at": "2026-09-19T09:50:00.402444+00:00",
+    "status": "HEALTHY"
+  },
+  "resources": {
+    "disk_free_bytes": 46801084416,
+    "disk_used_bytes": 167867568128,
+    "fd_count": 9,
+    "rss_bytes": 189366272
+  },
+  "run_id": "aws-validation-observability-30h-run-20260919T095000Z-v2",
+  "schema_version": 1,
+  "software_sha": "4fcdd819366918fa86e5597ed7d2271454d926c7",
+  "supervisor": {
+    "active_state": "inactive",
+    "invocation_id": "",
+    "pid": 997492,
+    "process_start": "2026-09-19T09:50:01.563394+00:00",
+    "sub_state": "dead",
+    "unit": "bitcoin-trader-transient-aws-validation-observability-30h-run-20260919T095000Z-v2.service"
+  },
+  "writer": {
+    "current_open_raw_count": 0,
+    "last_dequeue": "2026-09-20T15:50:01.799830+00:00",
+    "last_local_raw_write": "2026-09-20T15:50:01.799830+00:00",
+    "max_queue_depth": 50000,
+    "queue_depth": 0,
+    "status": "HEALTHY",
+    "unpersisted_count": 0,
+    "writer_errors": 0
+  }
+}

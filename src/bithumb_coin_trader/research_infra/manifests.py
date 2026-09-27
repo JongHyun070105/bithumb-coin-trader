@@ -90,6 +90,18 @@ class ResearchManifest:
     # Schema
     schema_version: str = "1.0.0"
 
+    def __post_init__(self) -> None:
+        from .registry import EXTERNAL_BITMEX_DATASET_ID, DatasetRole
+
+        if EXTERNAL_BITMEX_DATASET_ID in self.dataset_ids:
+            if len(self.dataset_ids) != len(self.dataset_roles):
+                raise ValueError("Dataset IDs and roles must align")
+            for dataset_id, role in zip(self.dataset_ids, self.dataset_roles):
+                if dataset_id == EXTERNAL_BITMEX_DATASET_ID and role != DatasetRole.EXTERNAL_EXPERT_BEHAVIOR_DATASET.value:
+                    raise ValueError("External expert data cannot be assigned a prospective or holdout role")
+            if self.scientific_classification not in ("UNTESTED", "DESCRIPTIVE_ONLY", "HYPOTHESIS_GENERATION_ONLY"):
+                raise ValueError("External expert data cannot be candidate-promotion evidence")
+
     def to_dict(self) -> dict[str, Any]:
         d = {}
         for k, v in self.__dict__.items():

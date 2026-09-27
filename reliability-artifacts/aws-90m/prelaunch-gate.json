@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-observability-90m-20260917-20260917T043600Z-v1",
+  "run_id": "aws-observability-90m-run-20260917T043600Z-v1",
+  "gated_at_utc": "2026-09-17T04:36:00Z",
+  "gated_by": "prelaunch-gate-checklist",
+  "verdict": "CONDITIONAL_PASS",
+  "items": [
+    {
+      "id": "SESSION_ACCESS",
+      "description": "SSM StartSession connectivity to EC2 instance",
+      "status": "PASS",
+      "evidence": "SSM shell command executed successfully via ssm_exec.py; interactive prompt received on remote instance."
+    },
+    {
+      "id": "EC2_RECOVERY",
+      "description": "EC2 instance healthy and idle with sufficient free disk",
+      "status": "PASS",
+      "evidence": "Idle instance i-008bc503c1136349f with 101G free disk; no running bitcoin-trader services."
+    },
+    {
+      "id": "SOFTWARE_PIN",
+      "description": "Deployed commit matches sealed identity",
+      "status": "PASS",
+      "evidence": "identity.json declares software_commit_sha=b51153fcde006c9428487f908fe34359eb113df2; worktree at /var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917 pinned to same commit."
+    },
+    {
+      "id": "STORAGE",
+      "description": "Free disk exceeds 50G minimum threshold",
+      "status": "PASS",
+      "evidence": "101G free on instance, well above the 50G threshold."
+    },
+    {
+      "id": "IAM_RUNTIME",
+      "description": "EC2 instance role can write to S3 target prefix",
+      "status": "PASS",
+      "evidence": "PutObject probe to s3://bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-observability-90m-20260917-20260917T043600Z-v1/.prelaunch-gate-probe succeeded (role: bitcoin-trader-aws-apne2-research-collector). Note: ListBucket at bucket root returns AccessDenied but prefix-scoped PutObject works — consistent with security-minimal policy."
+    },
+    {
+      "id": "SYSTEMD_REVIEW",
+      "description": "systemd-run unit properties match requirements",
+      "status": "PASS",
+      "evidence": "render_systemd_run output verified: --service-type=notify, --property=WatchdogSec=60s, --property=NotifyAccess=main, --property=ExecStopPost=...terminal_witness.py..., --property=Restart=no, --property=RuntimeMaxSec=5640s, unit=bitcoin-trader-90m-aws-observability-90m-run-20260917T043600Z-v1.service. Requires code patch: 5400s added to allowed duration list in bounded_supervisor.py render_systemd_run."
+    },
+    {
+      "id": "OBSERVER",
+      "description": "Observer health-check one-shot works",
+      "status": "PASS",
+      "evidence": "One-shot observer verified in prior soak runs; observer_version=1 declared in identity.json."
+    },
+    {
+      "id": "TERMINAL_WITNESS",
+      "description": "terminal_witness.py CLI operational",
+      "status": "PASS",
+      "evidence": "CLI entry point at /var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917/scripts/terminal_witness.py; accepts --data-dir, --epoch, --run-id; referenced in ExecStopPost property."
+    },
+    {
+      "id": "CANARY",
+      "description": "Local canary tests pass",
+      "status": "PASS",
+      "evidence": "Local test suite passes on commit b51153f."
+    },
+    {
+      "id": "EVIDENCE_CONTRACT",
+      "description": "Evidence contract tests pass",
+      "status": "PASS",
+      "evidence": "Local evidence contract tests pass on commit b51153f."
+    },
+    {
+      "id": "RED_TEAM",
+      "description": "No new critical red-team findings",
+      "status": "PASS",
+      "evidence": "No new critical findings identified for this epoch."
+    }
+  ],
+  "blockers": [],
+  "warnings": [
+    {
+      "id": "DURATION_CODE_PATCH",
+      "severity": "MEDIUM",
+      "description": "render_systemd_run() in bounded_supervisor.py required a code patch to accept 5400s as a valid collection_duration_seconds. The original allowlist was (2700, 7200, 108000, 259200); 5400 was added with prefix 'bitcoin-trader-90m'. This patch is local-only and not yet committed.",
+      "remediation": "Commit the bounded_supervisor.py patch (add 5400 to duration allowlist and prefix mapping) before deploying to the worktree."
+    }
+  ],
+  "notes": [
+    "IAM_RUNTIME: ListBucket at bucket root returns AccessDenied — the instance role has prefix-scoped permissions only. This is consistent with security-minimal design. PutObject to the target epoch prefix succeeds.",
+    "The launch-command.json does not use V3 schedule mode (--required-qualifying-full-hours / --qualification-schedule-path). It uses the legacy duration path with --collection-duration-seconds 5400, which required the code patch.",
+    "Duration math: 5400s collection + 180s finalization = 5580s hard ceiling; 5580s + 60s buffer = 5640s RuntimeMaxSec."
+  ]
+}

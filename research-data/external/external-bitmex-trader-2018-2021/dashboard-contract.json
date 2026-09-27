@@ -1,0 +1,14 @@
+{
+  "title": "External Expert Dataset",
+  "dataset_id": "external-bitmex-trader-2018-2021",
+  "source": "Publisher-attributed BitMEX public release",
+  "claimed_coverage": "2018-03 through 2021-12",
+  "source_files": [],
+  "row_count": null,
+  "source_hashes": [],
+  "public_tape_verification": "NOT_RUN",
+  "author_identity": "NOT_INDEPENDENTLY_VERIFIED",
+  "research_role": "HYPOTHESIS_GENERATION_ONLY",
+  "research_status": "NOT_STARTED",
+  "raw_rows_exposed": false
+}

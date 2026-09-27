@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-90m-20260917-20260917T120000Z-v5",
+  "run_id": "aws-validation-observability-90m-run-20260917T120000Z-v5",
+  "software_commit_sha": "09a443b5f068ced61639bf2e06317405e64ac57a",
+  "software_tree_sha": "ef460a7e06c1a8b607c8814b354761381c3b2483",
+  "config_fingerprint": "527a3c47d2fba1494007819106ad8623ef78e17ecf7d4c2cbc17774a589fa4e4",
+  "status": "PREPARED_NOT_LAUNCHED_SUPERSEDED",
+  "consumed_by_launch": false,
+  "reusable": false,
+  "superseded_reason": "Planned start 2026-09-17T12:00:00Z elapsed without launch; no longer eligible for qualifying full UTC hour",
+  "sealed_at_utc": "",
+  "feed_count": 76,
+  "duration_seconds": 5400,
+  "grace_seconds": 600,
+  "target_full_hours": 1,
+  "planned_start_utc": "2026-09-17T12:00:00+00:00",
+  "warmup_duration_seconds": 0.0,
+  "qualification_start_utc": "2026-09-17T12:00:00+00:00",
+  "qualifying_cohorts": [
+    "2026-09-17_12"
+  ],
+  "cohort_closure_utc": "2026-09-17T13:00:00+00:00",
+  "grace_expiry_utc": "2026-09-17T13:10:00+00:00",
+  "archive_settled_utc": "2026-09-17T13:13:00+00:00",
+  "total_pipeline_duration_seconds": 4380.0,
+  "partial_start_cohort": null,
+  "partial_end_cohort": "2026-09-17_13",
+  "health_schema_version": 1,
+  "observer_version": 1,
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_prefix": "market-data/temporary/aws-validation-observability-90m-20260917-20260917T120000Z-v5",
+  "runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917",
+  "data_root": "/var/lib/bitcoin-trader/90m-validation/aws-validation-observability-90m-20260917-20260917T120000Z-v5",
+  "python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+  "purpose": "INFRASTRUCTURE_VALIDATION_ONLY",
+  "trading_safety": {
+    "alpha": "UNPROVEN",
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  }
+}

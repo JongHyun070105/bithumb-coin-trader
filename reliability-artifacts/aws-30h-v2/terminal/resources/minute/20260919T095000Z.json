@@ -1,0 +1,77 @@
+{
+  "archiver": {
+    "archive_errors": 0,
+    "archive_queue_depth": 0,
+    "last_closed_cohort": null,
+    "last_compression": null,
+    "last_receipt": null,
+    "last_s3_put": null,
+    "status": "STALE",
+    "upload_failures": 0
+  },
+  "collector": {
+    "fatal_error": null,
+    "last_canonical_event": null,
+    "last_loop_heartbeat": null,
+    "last_websocket_activity": null,
+    "reconnect_count": 0,
+    "status": "WAITING_FOR_COLLECTOR",
+    "websocket_sessions": {}
+  },
+  "config_fingerprint": "",
+  "current_cohort": {
+    "expected_feed_count": 76,
+    "observed_feed_count": 0,
+    "utc_hour": ""
+  },
+  "epoch": "aws-validation-observability-30h-20260919-20260919T095000Z-v2",
+  "evidence": {
+    "current_hour_expected_slots": 76,
+    "current_hour_terminal_slots": 0,
+    "last_coverage_evidence": null,
+    "last_heartbeat_evidence": null,
+    "last_manifest_update": null,
+    "status": "HEALTHY"
+  },
+  "last_exception": {
+    "component": null,
+    "message_hash": null,
+    "timestamp": null,
+    "type": null
+  },
+  "observed_at": "2026-09-19T09:50:00.404222+00:00",
+  "observer": {
+    "observer_errors": 0,
+    "observer_last_cycle": "2026-09-19T09:50:00.404222+00:00",
+    "observer_pid": 997427,
+    "observer_started_at": "2026-09-19T09:50:00.402444+00:00",
+    "status": "HEALTHY"
+  },
+  "resources": {
+    "disk_free_bytes": 0,
+    "disk_used_bytes": 0,
+    "fd_count": 0,
+    "rss_bytes": 0
+  },
+  "run_id": "aws-validation-observability-30h-run-20260919T095000Z-v2",
+  "schema_version": 1,
+  "software_sha": "",
+  "supervisor": {
+    "active_state": "inactive",
+    "invocation_id": "",
+    "pid": null,
+    "process_start": null,
+    "sub_state": "dead",
+    "unit": "bitcoin-trader-transient-aws-validation-observability-30h-run-20260919T095000Z-v2.service"
+  },
+  "writer": {
+    "current_open_raw_count": 0,
+    "last_dequeue": null,
+    "last_local_raw_write": null,
+    "max_queue_depth": 0,
+    "queue_depth": 0,
+    "status": "UNKNOWN",
+    "unpersisted_count": 0,
+    "writer_errors": 0
+  }
+}

@@ -29,10 +29,15 @@ async def _run(args: argparse.Namespace) -> None:
     upbit_mkts = ["KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP"]
     config = _load_runtime_config(args.config_file, args.config_fingerprint)
     _validate_runtime_config(config, args, bithumb_mkts, binance_syms, upbit_mkts)
+    redundancy = config.get("bithumb_redundancy")
+    bithumb_connection_count = (
+        int(redundancy["physical_connections"]) if isinstance(redundancy, dict) else 1
+    )
 
     print("=" * 80)
     print("  LAUNCHING MULTI-EXCHANGE MICROSTRUCTURE COLLECTOR DAEMON (V9)")
     print(f"  - Bithumb KRW Markets ({len(bithumb_mkts)}): {bithumb_mkts[:5]} ...")
+    print(f"  - Bithumb physical connections: {bithumb_connection_count}")
     print(f"  - Binance Global Benchmark ({len(binance_syms)}): {binance_syms}")
     print(f"  - Upbit Domestic Benchmark ({len(upbit_mkts)}): {upbit_mkts}")
     print(f"  - Mode: {'INDEFINITE (DAEMON)' if args.duration is None else f'{args.duration} SECONDS'}")
@@ -52,6 +57,7 @@ async def _run(args: argparse.Namespace) -> None:
         collector_run_id=args.run_id,
         collector_config_fingerprint=args.config_fingerprint,
         collector_git_commit=args.runtime_commit,
+        bithumb_connection_count=bithumb_connection_count,
     )
 
     collector_error: BaseException | None = None
@@ -235,6 +241,7 @@ def _validate_runtime_config(
     archive = config.get("archive")
     metrics = config.get("metrics")
     disk = config.get("disk_threshold_percent")
+    redundancy = config.get("bithumb_redundancy")
     if not all(isinstance(value, dict) for value in (feeds, paths, archive, metrics, disk)):
         raise ValueError("runtime config sections are incomplete")
     assert isinstance(feeds, dict)
@@ -278,6 +285,17 @@ def _validate_runtime_config(
         "raw schema": config.get("raw_schema_version") == 4,
         "clock source": config.get("clock_source") == "Amazon Time Sync Service 169.254.169.123",
         "public data only": config.get("public_data_only") is True,
+        "Bithumb redundancy": (
+            redundancy is None  # immutable legacy configs retain their one-socket behavior
+            or redundancy == {
+                "mode": "ACTIVE_ACTIVE",
+                "physical_connections": 2,
+                "dedup_max_entries": 100000,
+                "dedup_retention_seconds": 180,
+                "connection_attempt_interval_seconds": 0.25,
+                "established_retry_delay_seconds": {"minimum": 0.05, "maximum": 0.20},
+            }
+        ),
         "sealed environment": args.environment_id not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed epoch": args.collector_epoch not in {"", "UNKNOWN", "NOT-SEALED"},
         "sealed run ID": args.run_id not in {"", "UNKNOWN", "NOT-SEALED"},

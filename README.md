@@ -34,6 +34,11 @@
 - **터미널 포렌식**: 계획 종료 시각(2026-09-16 17:00 UTC) 이후 검증 결과 확정(`VALIDATION_OUTCOME_FINALIZED = true`). 10시 구간 76개 커버리지(534 KB)만 존재하고 원시 데이터가 전무함. SSM 권한 부재로 프로세스 직접 확인은 불가(`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = NOT_VERIFIABLE`)하며, 원인은 초기 1시간 이후 수집/아카이브 파이프라인 중단으로 판정.
 - **최종 판정**: **`OVERALL: FAIL`**, **`NOT_RESEARCH_USABLE`** (태그 `archive/aws-v4-final` 보존).
 
+### 5) Fresh 30H-v2 신뢰성 검증 (`20260919T095000Z-v2`)
+- **종료**: 2026-09-21 00:50 KST, 108,000초 수집 완료 및 감독 프로세스 정상 종료.
+- **공식 기술 판정**: **FAIL**. 적격 시간대 29개 중 PASS 2개, FAIL 1개(빗썸 피드 60개), 확정 영수증 누락 26개. 이 실행의 데이터는 연구용으로 승격하지 않음.
+- [터미널 감사 보고서](reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)와 원본 증거 사본 및 SHA-256 색인을 보존함. 신규 AWS 실행 잔여 횟수는 0/10.
+
 ---
 
 ## 3. 핵심 아키텍처 및 모듈 구성
@@ -113,8 +118,8 @@ cd dashboard && npm run dev
 | 45m (Fresh) | aws-validation-45m-20260911-1976f0f (1976f0f) | 45분 | **PASS** | 이전 45m S3 Race 실패 → 동시성 패치 재검증 합격 |
 | 3h (Fresh) | aws-observability-3h-20260918-…-v1 (e752c3d) | 10,800s | **PASS (기술)** | 2,247,583건 / 2코호트×76피드 0실패, 거버넌스 위반 별도(SSM_SEND_COMMAND_ATTEMPTED = YES) |
 | 6h (Fresh) | aws-observability-6h-20260919-…-v3 (4fcdd819) | 21,600s | **TECHNICAL PASS** | 380/380 슬롯(5코호트×76피드) 0실패, 7,287,432건, CLEAN_SUCCESS, exit code 0 |
-| 30h (Fresh) | aws-observability-30h-20260919-…-v2 (4fcdd819) | 108,000s | **RUNNING / PENDING** | 29 적격 풀 아워 목표, 2026-09-20T15:50 UTC 예정 종료, 결과 미공개 |
+| 30h (Fresh) | aws-observability-30h-20260919-…-v2 (4fcdd819) | 108,000s | **TECHNICAL FAIL** | 수집 감독 정상 종료; 2/29 적격 코호트 PASS, 1 FAIL, 26 영수증 누락 |
 
 **6h-v3 (2026-09-19 기동)**: 21,600초 무중단 수집 완수. collector / archive-scheduler / publisher 모두 exit code 0, NRestarts 0, final queue 0, `full_duration_satisfied=true`, terminal witness `CLEAN_SUCCESS`, receipt immutability 5/5 PASS, 5/5 qualifying cohorts, 380/380 qualifying slots, 0 failed feeds, 검증 레코드 7,287,432건. 커밋된 증거는 `reliability-artifacts/aws-6h-v3/` sealed launch manifest(유효한 런타임 소프트웨어 정체 `4fcdd819…`, tree `68dab673…`); terminal 영수증은 보존된 EC2/S3 런타임 증거에서 검증 — 모든 terminal 증거가 현재 Git에 커밋된 것은 아님. **인프라 신뢰성만 증명** — 알파/수익 가능성은 불증명.
 
-**30h-v2 (진행 중)**: 2026-09-19 18:50 KST (09:50 UTC) 기동. 6h-v3 검증 런타임(`4fcdd819`) 재사용, 108,000초(30시간) 수집 예정, 29 적격 풀 아워 목표, 자연 종료 2026-09-20T15:50 UTC. 30h는 **PENDING**(미검증)이므로 "인프라 검증 완료"라는 한 단어도 철하기 전까지 절대 주장하지 않습니다.
+**30h-v2 (최종 FAIL)**: 2026-09-19 18:50 KST 기동, 2026-09-21 00:50:25 KST 자연 종료. 감독 프로세스는 108,000초 수집을 완료했으나 `2026-09-19_12` 적격 코호트가 빗썸 60개 피드 실패로 FAIL이며, 26개 코호트 영수증이 누락되었습니다. [터미널 감사 보고서](reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md)를 참조하십시오. 새 데이터의 연구 승격은 보류합니다.

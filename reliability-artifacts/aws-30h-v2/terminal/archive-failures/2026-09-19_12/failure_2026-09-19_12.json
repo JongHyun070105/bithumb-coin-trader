@@ -1,0 +1,255 @@
+{
+  "schema_version": 1,
+  "artifact_kind": "ARCHIVE_FAILURE_EVIDENCE",
+  "epoch": "aws-validation-observability-30h-20260919-20260919T095000Z-v2",
+  "run_id": "aws-validation-observability-30h-run-20260919T095000Z-v2",
+  "cohort": "2026-09-19_12",
+  "cohort_qualification": "QUALIFYING_FULL_HOUR",
+  "terminal_archive_state": "FAIL",
+  "failed_count": 60,
+  "total_slots": 76,
+  "failure_reason_summary": {
+    "bithumb/orderbook/KRW-ADA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-APT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-AVAX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-AXS": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-BCH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-BTC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-DOGE": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-DOT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-ETC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-ETH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-LINK": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-MANA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-NEAR": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-SAND": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-SHIB": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-SOL": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-SUI": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-TRX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-XLM": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/orderbook/KRW-XRP": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-ADA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-APT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-AVAX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-AXS": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-BCH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-BTC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-DOGE": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-DOT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-ETC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-ETH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-LINK": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-MANA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-NEAR": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-SAND": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-SHIB": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-SOL": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-SUI": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-TRX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-XLM": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/ticker/KRW-XRP": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-ADA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-APT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-AVAX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-AXS": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-BCH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-BTC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-DOGE": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-DOT": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-ETC": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-ETH": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-LINK": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-MANA": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-NEAR": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-SAND": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-SHIB": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-SOL": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-SUI": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-TRX": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-XLM": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ],
+    "bithumb/trade/KRW-XRP": [
+      "COLLECTION_GAP",
+      "HEARTBEAT_GAP_EXCEEDED"
+    ]
+  },
+  "receipt_checksum": "d73e7d5058df5e613e4c6cc5a384582ba0c3f503cee05b5caba51c97ee177e17",
+  "captured_at_utc": "2026-09-19T13:10:17.225843+00:00"
+}

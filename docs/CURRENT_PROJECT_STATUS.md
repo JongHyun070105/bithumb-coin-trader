@@ -1,9 +1,15 @@
 # Bithumb Coin Trader — 현재 프로젝트 상태 (Current Project Status)
 
-- **최종 갱신 일시**: 2026-09-17T01:00:00Z
+- **최종 갱신 일시**: 2026-09-21 01:19 KST (Fresh 30H-v2 보충)
+
+> ⚠️ **갱신 필요**: 아래 내용은 2026-09-21 기준이며 다음 사항이 반영되지 않음:
+> - Fresh 6H-v4r1 **FAIL** (2026-09-22, 원인: BITHUMB_CONFLICTING_DUPLICATE + 단일세션 GAP 오분류; 로컬 remediation 브랜치 `gpt/fresh-6h-v4r1-failure-fix-20260922` 존재, PR#16)
+> - Fresh 6H-v5r1 **실행 중** (~2026-09-23 15:50 KST 자연 종료 예정, runtime `94b9293`)
+> - 외부 BitMEX 전문가 데이터셋 레인 준비 완료 (PR#15, 가설 생성 전용)
+> - 전체 상태 갱신은 Fresh 6H-v5r1 터미널 감사 완료 후 수행 예정
 - **작성 주체**: 자율 연구 및 엔지니어링 디렉터 (Autonomous Research & Engineering Director)
-- **Git HEAD**: `develop` 브랜치
-- **원격 브랜치**: `origin/main`, `origin/develop` (모든 기능 브랜치 정리 및 태그 아카이브 완료)
+- **기준 Git 이력**: Fresh 30H-v2 봉인은 `develop`의 `9615be8`; 사후 감사는 별도 작업 브랜치에서 진행.
+- **원격 기준**: `origin/main`, `origin/develop`은 2026-09-21 감사 시점에 분기되어 있으며, 통합 PR은 별도 검토 대상.
 
 ---
 
@@ -28,6 +34,7 @@
 | **Authoritative V2 30h**<br>(`20260912-6576f63`) | 30시간 연속<br>(2,272 오브젝트, 535.8 MB) | **PASS** | **유효 (DEV 연구)** | 2,272 정상 수집, 8 누락. 18h DEV 분할을 통한 가설 연구 및 체결 시뮬레이션 완수. |
 | **AWS 30h V3**<br>(`20260915-v3`) | 0시간 | **FAIL** | 부적격 | 기동 인가 단계 후 프로세스 시작 실패. |
 | **AWS 30h V4**<br>(`20260915-v4`) | 1시간 수집 후 중단<br>(76 오브젝트, 0 원시) | **OVERALL: FAIL** | **부적격**<br>(`NOT_RESEARCH_USABLE`) | 자연 계획 시각(2026-09-16 17:00 UTC) 경과 후 검증 확정(`VALIDATION_OUTCOME_FINALIZED = true`). 76개 오브젝트(커버리지 1시간 534 KB), 원시 데이터 0건. SSM 권한 부재로 프로세스 직접 확인은 불가(`COLLECTOR_TERMINAL_PROCESS_DIRECTLY_VERIFIED = false`, `collector_process = NOT_VERIFIABLE`), 초기 1시간 이후 파이프라인 중단으로 최종 실패 판정. 태그 `archive/aws-v4-final` 보존. |
+| **Fresh 30H-v2**<br>(`20260919T095000Z-v2`) | 수집 감독 30시간 완료 | **TECHNICAL: FAIL** | **부적격** | 29개 적격 코호트 중 2 PASS, 1 FAIL(빗썸 60개 피드), 26개 확정 영수증 누락. [터미널 감사](../reliability-artifacts/aws-30h-v2/30H_RUN_AUDIT_REPORT.md). 신규 AWS 실행 잔여 0/10. |
 
 ---
 

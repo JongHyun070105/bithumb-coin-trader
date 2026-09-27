@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "External expert dataset immutable source manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["dataset_id", "schema_version", "source_class", "claimed_author", "author_identity_verified", "primary_use", "raw_immutable", "public_release_page", "public_download_page", "source_files"],
+  "properties": {
+    "dataset_id": {"const": "external-bitmex-trader-2018-2021"},
+    "schema_version": {"const": "1"},
+    "source_class": {"const": "EXTERNAL_EXPERT_BEHAVIOR_DATASET"},
+    "claimed_author": {"const": "워뇨띠"},
+    "author_identity_verified": {"const": false},
+    "primary_use": {"const": "HYPOTHESIS_GENERATION_ONLY"},
+    "raw_immutable": {"const": true},
+    "public_release_page": {"type": "string", "format": "uri"},
+    "public_download_page": {"type": "string", "format": "uri"},
+    "source_files": {
+      "type": "array", "minItems": 1,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["dataset_id", "source_class", "source_reference", "original_filename", "sha256", "size_bytes", "imported_at_utc", "claimed_coverage_start", "claimed_coverage_end", "parser_status", "row_count", "schema_fingerprint"],
+        "properties": {
+          "dataset_id": {"const": "external-bitmex-trader-2018-2021"},
+          "source_class": {"const": "EXTERNAL_EXPERT_BEHAVIOR_DATASET"},
+          "source_reference": {"type": "string", "minLength": 1},
+          "original_filename": {"type": "string", "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+          "size_bytes": {"type": "integer", "minimum": 0},
+          "imported_at_utc": {"type": "string", "format": "date-time"},
+          "claimed_coverage_start": {"const": "2018-03"},
+          "claimed_coverage_end": {"const": "2021-12"},
+          "parser_status": {"enum": ["PROFILED", "NOT_APPLICABLE"]},
+          "row_count": {"type": ["integer", "null"], "minimum": 0},
+          "schema_fingerprint": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    }
+  }
+}

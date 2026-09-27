@@ -1,0 +1,12 @@
+{
+  "status": "SKIPPED_NON_QUALIFYING",
+  "cohort": "2026-09-19_09",
+  "cohort_qualification": "TOUCHED_PARTIAL",
+  "total_slots": 76,
+  "data_present_count": 0,
+  "verified_zero_count": 0,
+  "failed_count": 0,
+  "failed_feeds": [],
+  "reason": "Cohort was touched partially and is ineligible for full-hour integrity finalization",
+  "finalized_at_utc": "2026-09-19T10:10:03.172935+00:00"
+}

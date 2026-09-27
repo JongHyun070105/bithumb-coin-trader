@@ -828,5 +828,429 @@ def test_legacy_finalize_produces_v3_receipt(tmp_path: Path) -> None:
     assert receipt.restore_verified_at is not None
 
 
+def test_manifest_schema_version_5_accepted(tmp_path: Path) -> None:
+    raw_root = tmp_path / "raw"
+    manifest_root = tmp_path / "manifests"
+    rel = "2026-09-01/binance/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    source_file = raw_root / rel
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    records = [{"exchange": "binance", "stream": "trade", "market": "BTCUSDT", "data": i} for i in range(10)]
+    source_file.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    data = source_file.read_bytes()
+    raw_sha = hashlib.sha256(data).hexdigest()
+
+    manifest_file = manifest_root / f"manifest_{source_file.stem}.json"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema_version": 5,
+        "partition_path": rel,
+        "bytes": len(data),
+        "sha256": raw_sha,
+        "record_count": 10,
+        "environment_id": "aws-apne2-research",
+        "collector_epoch": "test-epoch",
+        "collector_run_id": "test-run",
+        "cohort": "2026-09-01_10",
+        "exchange": "binance",
+        "stream": "trade",
+        "market": "btcusdt",
+        "feed_identity": "binance/trade/btcusdt",
+    }
+    manifest_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    art = ImmutableArtifact(
+        kind=ArtifactKind.RAW_DATA,
+        source_path=source_file,
+        relative_path=rel,
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-01_10",
+        exchange="binance",
+        stream="trade",
+        market="btcusdt",
+        source_sha256=raw_sha,
+        source_size=len(data),
+        source_record_count=10,
+        manifest_path=manifest_file,
+        manifest_sha256=file_sha256(manifest_file),
+    )
+    receipt = pipeline(tmp_path).finalize_artifact(art)
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def _create_test_raw_and_manifest(
+    tmp_path: Path,
+    *,
+    schema_version: int = 5,
+    payload_overrides: dict[str, Any] | None = None,
+    corrupt_hash: bool = False,
+    corrupt_count: bool = False,
+) -> tuple[ArchivePipeline, ImmutableArtifact]:
+    raw_root = tmp_path / "raw"
+    manifest_root = tmp_path / "manifests"
+    rel = "2026-09-01/binance/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    source_file = raw_root / rel
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    records = [{"exchange": "binance", "stream": "trade", "market": "BTCUSDT", "data": i} for i in range(10)]
+    source_file.write_text("".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    data = source_file.read_bytes()
+    raw_sha = hashlib.sha256(data).hexdigest()
+
+    manifest_file = manifest_root / f"manifest_{source_file.stem}.json"
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    if schema_version == 4:
+        payload: dict[str, Any] = {
+            "schema_version": 4,
+            "partition_path": rel,
+            "bytes": len(data),
+            "sha256": raw_sha if not corrupt_hash else "badhash" * 8,
+            "record_count": 10 if not corrupt_count else 99,
+        }
+    else:
+        payload = {
+            "schema_version": schema_version,
+            "partition_path": rel,
+            "bytes": len(data),
+            "sha256": raw_sha if not corrupt_hash else "badhash" * 8,
+            "record_count": 10 if not corrupt_count else 99,
+            "environment_id": "aws-apne2-research",
+            "collector_epoch": "test-epoch",
+            "collector_run_id": "test-run",
+            "cohort": "2026-09-01_10",
+            "exchange": "binance",
+            "stream": "trade",
+            "market": "btcusdt",
+            "feed_identity": "binance/trade/btcusdt",
+        }
+    if payload_overrides:
+        for k, v in payload_overrides.items():
+            if v is None:
+                payload.pop(k, None)
+            else:
+                payload[k] = v
+
+    manifest_file.write_text(json.dumps(payload), encoding="utf-8")
+
+    art = ImmutableArtifact(
+        kind=ArtifactKind.RAW_DATA,
+        source_path=source_file,
+        relative_path=rel,
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-01_10",
+        exchange="binance",
+        stream="trade",
+        market="btcusdt",
+        source_sha256=raw_sha,
+        source_size=len(data),
+        source_record_count=10,
+        manifest_path=manifest_file,
+        manifest_sha256=file_sha256(manifest_file),
+    )
+    pipe = pipeline(tmp_path)
+    return pipe, art
+
+
+def test_schema4_legacy_accepted(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=4)
+    receipt = pipe.finalize_artifact(art)
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def test_schema5_correct_identity_accepted(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5)
+    receipt = pipe.finalize_artifact(art)
+    assert receipt.artifact_kind == "RAW_DATA"
+    assert receipt.source_record_count == 10
+    assert receipt.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def test_schema5_missing_identity_field_rejected(tmp_path: Path) -> None:
+    required = [
+        "environment_id",
+        "collector_epoch",
+        "collector_run_id",
+        "cohort",
+        "exchange",
+        "stream",
+        "market",
+        "feed_identity",
+    ]
+    for missing_field in required:
+        sub = tmp_path / missing_field
+        pipe, art = _create_test_raw_and_manifest(sub, schema_version=5, payload_overrides={missing_field: None})
+        with pytest.raises(ValueError, match="missing required identity field"):
+            pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_exchange_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"exchange": None})
+    with pytest.raises(ValueError, match="missing required identity field: exchange"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_stream_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"stream": None})
+    with pytest.raises(ValueError, match="missing required identity field: stream"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_missing_market_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"market": None})
+    with pytest.raises(ValueError, match="missing required identity field: market"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_exchange_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"exchange": "bithumb"})
+    with pytest.raises(ValueError, match="manifest exchange mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_stream_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"stream": "orderbook"})
+    with pytest.raises(ValueError, match="manifest stream mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_market_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"market": "ethusdt"})
+    with pytest.raises(ValueError, match="manifest market mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_partition_directory_same_filename_rejected(tmp_path: Path) -> None:
+    wrong_dir_same_name = "2026-09-01/bithumb/trade/binance_trade_btcusdt_2026-09-01_10.jsonl"
+    pipe, art = _create_test_raw_and_manifest(
+        tmp_path,
+        schema_version=5,
+        payload_overrides={"partition_path": wrong_dir_same_name},
+    )
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_correct_partition_path_accepted(tmp_path: Path) -> None:
+    # 1. Exact canonical relative path
+    pipe1, art1 = _create_test_raw_and_manifest(tmp_path / "case1", schema_version=5)
+    r1 = pipe1.finalize_artifact(art1)
+    assert r1.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+    # 2. Path prefixed with raw/
+    pipe2, art2 = _create_test_raw_and_manifest(
+        tmp_path / "case2",
+        schema_version=5,
+        payload_overrides={"partition_path": f"raw/{art1.relative_path}"},
+    )
+    r2 = pipe2.finalize_artifact(art2)
+    assert r2.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+    # 3. Path prefixed with data/microstructure/raw/
+    pipe3, art3 = _create_test_raw_and_manifest(
+        tmp_path / "case3",
+        schema_version=5,
+        payload_overrides={"partition_path": f"data/microstructure/raw/{art1.relative_path}"},
+    )
+    r3 = pipe3.finalize_artifact(art3)
+    assert r3.state == ArchiveState.CLEANUP_ELIGIBLE.value
+
+
+def test_schema5_wrong_environment_id_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"environment_id": "wrong-env"})
+    with pytest.raises(ValueError, match="manifest environment_id mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_collector_epoch_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"collector_epoch": "wrong-epoch"})
+    with pytest.raises(ValueError, match="manifest collector_epoch mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_collector_run_id_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"collector_run_id": "wrong-run"})
+    with pytest.raises(ValueError, match="manifest collector_run_id mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_cohort_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"cohort": "2026-09-01_99"})
+    with pytest.raises(ValueError, match="manifest cohort mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema5_wrong_feed_identity_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=5, payload_overrides={"feed_identity": "bithumb/orderbook/KRW-BTC"})
+    with pytest.raises(ValueError, match="manifest feed_identity mismatch"):
+        pipe.finalize_artifact(art)
+
+
+def test_schema6_rejected(tmp_path: Path) -> None:
+    pipe, art = _create_test_raw_and_manifest(tmp_path, schema_version=6)
+    with pytest.raises(ValueError, match="raw manifest is missing or unsupported"):
+        pipe.finalize_artifact(art)
+
+
+def test_raw_hash_or_count_mismatch_still_rejected(tmp_path: Path) -> None:
+    sub1 = tmp_path / "bad_hash"
+    pipe1, art1 = _create_test_raw_and_manifest(sub1, schema_version=5, corrupt_hash=True)
+    with pytest.raises(ValueError, match="raw partition does not match its manifest"):
+        pipe1.finalize_artifact(art1)
+
+    sub2 = tmp_path / "bad_count"
+    pipe2, art2 = _create_test_raw_and_manifest(sub2, schema_version=5, corrupt_count=True)
+    with pytest.raises(ValueError, match="raw partition does not match its manifest"):
+        pipe2.finalize_artifact(art2)
+
+
+def _setup_realistic_producer_env(tmp_path: Path):
+    from types import SimpleNamespace
+    from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
+
+    # Realistic layout:
+    # /var/lib/bitcoin-trader/90m-validation/test-epoch/raw/
+    #   2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl
+    base_dir = tmp_path / "var" / "lib" / "bitcoin-trader" / "90m-validation" / "test-epoch" / "raw"
+    rel_path = "2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl"
+    file_path = base_dir / rel_path
+    file_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rec = {
+        "exchange": "binance",
+        "stream": "orderbook",
+        "market": "btcusdt",
+        "exchange_ts": "2026-09-18T01:00:00Z",
+        "local_recv_ts": "2026-09-18T01:00:00.010Z",
+        "local_write_ts": "2026-09-18T01:00:00.012Z",
+        "payload": {"bids": [], "asks": []},
+    }
+    file_path.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+
+    storage = RawMicrostructureStorage(base_dir=base_dir)
+    identity = SimpleNamespace(
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        feed_identity="binance/orderbook/btcusdt",
+    )
+    return storage, file_path, rel_path, identity
+
+
+def test_schema5_producer_partition_path_relative_to_raw_root(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert manifest.partition_path == "2026-09-18/binance/orderbook/binance_orderbook_btcusdt_2026-09-18_01.jsonl"
+    assert manifest.partition_path == rel_path
+
+
+def test_schema5_producer_does_not_include_epoch_prefix(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert "test-epoch" not in manifest.partition_path
+
+
+def test_schema5_producer_does_not_include_raw_prefix(tmp_path: Path) -> None:
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    assert not manifest.partition_path.startswith("raw/")
+    assert "/raw/" not in manifest.partition_path
+
+
+def test_schema5_producer_manifest_passes_archive_identity_verifier(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    _verify_manifest_identity(
+        manifest.to_dict(),
+        environment_id="aws-apne2-research",
+        collector_epoch="test-epoch",
+        collector_run_id="test-run",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        source_path=file_path,
+        relative_path=rel_path,
+    )
+
+
+def test_schema5_wrong_epoch_prefixed_partition_path_rejected(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    payload = manifest.to_dict()
+    payload["partition_path"] = f"test-epoch/raw/{rel_path}"
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        _verify_manifest_identity(
+            payload,
+            environment_id="aws-apne2-research",
+            collector_epoch="test-epoch",
+            collector_run_id="test-run",
+            cohort="2026-09-18_01",
+            exchange="binance",
+            stream="orderbook",
+            market="btcusdt",
+            source_path=file_path,
+            relative_path=rel_path,
+        )
+
+
+def test_schema5_wrong_directory_same_filename_rejected(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, identity = _setup_realistic_producer_env(tmp_path)
+    manifest = storage.generate_partition_manifest(file_path, identity=identity)
+    payload = manifest.to_dict()
+    payload["partition_path"] = f"2026-09-18/bithumb/orderbook/{file_path.name}"
+    with pytest.raises(ValueError, match="manifest partition_path mismatch"):
+        _verify_manifest_identity(
+            payload,
+            environment_id="aws-apne2-research",
+            collector_epoch="test-epoch",
+            collector_run_id="test-run",
+            cohort="2026-09-18_01",
+            exchange="binance",
+            stream="orderbook",
+            market="btcusdt",
+            source_path=file_path,
+            relative_path=rel_path,
+        )
+
+
+def test_schema4_legacy_behavior_remains_accepted(tmp_path: Path) -> None:
+    from bithumb_coin_trader.pre_soak_archive import _verify_manifest_identity
+
+    storage, file_path, rel_path, _ = _setup_realistic_producer_env(tmp_path)
+    manifest4 = storage.generate_partition_manifest(file_path, identity=None)
+    assert manifest4.schema_version == 4
+    # Legacy schema 4 preserves relative_to(base_dir.parent.parent)
+    assert "test-epoch/raw/" in manifest4.partition_path
+    # Schema 4 verifier accepts legacy partition_path
+    _verify_manifest_identity(
+        manifest4.to_dict(),
+        environment_id="any",
+        collector_epoch="any",
+        collector_run_id="any",
+        cohort="2026-09-18_01",
+        exchange="binance",
+        stream="orderbook",
+        market="btcusdt",
+        source_path=file_path,
+        relative_path=rel_path,
+    )
+
+
 if __name__ == "__main__":
     unittest.main()

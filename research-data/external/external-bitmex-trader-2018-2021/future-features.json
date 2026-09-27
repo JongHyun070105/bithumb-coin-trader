@@ -1,0 +1,11 @@
+{
+  "status": "PLANNED_NOT_RUN",
+  "required_per_feature": ["source_fields", "causal_timestamp", "lookahead_risk", "missing_data_handling"],
+  "feature_families": {
+    "POSITION_RISK": ["gross_exposure", "net_exposure", "exposure_over_reconstructed_equity", "position_duration", "scale_in_out", "reversal_frequency", "post_drawdown_exposure_change"],
+    "EXECUTION": ["maker_taker_ratio", "fills_per_order", "order_splitting", "execution_vwap", "execution_duration", "fee_rebate_contribution"],
+    "REGIME": ["realized_volatility", "momentum", "drawdown", "volume", "funding", "open_interest_if_available", "liquidation_intensity_if_available"],
+    "BEHAVIOR": ["flat_time_fraction", "trading_frequency", "direction_persistence", "reaction_after_wins_losses", "extreme_regime_risk_concentration"]
+  },
+  "research_questions_not_findings": ["H1_VOLATILITY_ADAPTIVE_SIZING", "H2_DRAWDOWN_RISK_REDUCTION", "H3_REGIME_REVERSALS", "H4_FLAT_STATE_SELECTION", "H5_MAKER_TAKER_SELECTION", "H6_EXTREME_VOLATILITY_CONCENTRATION"]
+}

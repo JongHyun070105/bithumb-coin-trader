@@ -12,6 +12,7 @@ import argparse
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import fcntl
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -55,6 +56,11 @@ DEFAULT_SCAN_TIMEOUT_SECONDS = 1800.0
 SCAN_GRACE_KILL_SECONDS = 5.0
 
 
+class FinalReceiptCorruptionError(RuntimeError):
+    """Raised when an existing finalized receipt is corrupted or has an identity mismatch."""
+    pass
+
+
 def _atomic_write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -78,6 +84,60 @@ def _atomic_write_json(path: Path, payload: Any) -> None:
             except OSError:
                 pass
         raise
+
+
+def _write_final_receipt_immutable(
+    report_path: Path,
+    payload: Dict[str, Any],
+    cohort_key: str,
+) -> tuple[Dict[str, Any], bool]:
+    """Write finalized receipt exactly once with atomic create/rename semantics.
+
+    If the receipt already exists:
+    - Verifies identity and schema.
+    - Fails closed on corruption or identity mismatch.
+    - If valid, preserves existing receipt byte-for-byte and returns (existing_payload, False).
+    If it does not exist:
+    - Atomically writes payload and returns (payload, True).
+    """
+    if report_path.exists():
+        try:
+            existing_data = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise FinalReceiptCorruptionError(
+                f"Existing finalized receipt is corrupted: {report_path}: {exc}"
+            ) from exc
+
+        existing_cohort = existing_data.get("cohort")
+        if existing_cohort != cohort_key:
+            raise FinalReceiptCorruptionError(
+                f"Existing receipt cohort mismatch: expected {cohort_key}, found {existing_cohort} in {report_path}"
+            )
+
+        if "status" not in existing_data or "finalized_at_utc" not in existing_data:
+            raise FinalReceiptCorruptionError(
+                f"Existing receipt missing required schema fields in {report_path}"
+            )
+
+        # Existing receipt is valid and immutable: do not overwrite!
+        return existing_data, False
+
+    _atomic_write_json(report_path, payload)
+    return payload, True
+
+
+def _upload_json_to_store(store: Any, key: str, payload: Dict[str, Any], temp_dir: Path) -> None:
+    data = (json.dumps(payload, indent=2) + "\n").encode("utf-8")
+    sha256_hex = hashlib.sha256(data).hexdigest()
+    tmp_path = temp_dir / f".tmp_upload_{os.getpid()}_{hashlib.md5(key.encode()).hexdigest()[:8]}.json"
+    tmp_path.write_bytes(data)
+    try:
+        if hasattr(store, "upload"):
+            store.upload(tmp_path, key, sha256_hex)
+        elif hasattr(store, "put_bytes"):
+            store.put_bytes(data, key)
+    finally:
+        tmp_path.unlink(missing_ok=True)
 
 
 def is_global_full_scan_running(receipt_root: Path) -> bool:
@@ -711,6 +771,7 @@ def orchestrate_closed_hour_archive(
     dry_run: bool = False,
     disk_critical_percent: float = 90.0,
     scan_timeout_seconds: float = DEFAULT_SCAN_TIMEOUT_SECONDS,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Execute preflight ownership check, partition archiving, and detached full-scan launch."""
     raw_root = base_dir / "raw"
@@ -732,7 +793,7 @@ def orchestrate_closed_hour_archive(
     lock_file = receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
 
     with orchestrator_lock(lock_file, expected_owner=expected_owner):
-        now = datetime.now(timezone.utc)
+        current_now = now or datetime.now(timezone.utc)
         grace_period = timedelta(seconds=grace_seconds)
         active_paths = load_active_paths(metrics_path, raw_root)
 
@@ -753,9 +814,103 @@ def orchestrate_closed_hour_archive(
                     pass
 
         if v3_target_cohort is not None:
+            # Defect A: Enforce canonical grace period past cohort closure
+            cohort_close_time = datetime.fromisoformat(
+                f"{v3_target_cohort.date_str}T{v3_target_cohort.hour_str}:00:00+00:00"
+            ) + timedelta(hours=1)
+            if current_now < cohort_close_time + grace_period:
+                return {
+                    "status": "WAITING_FOR_GRACE",
+                    "cohort": v3_target_cohort.key,
+                    "message": f"Cohort {v3_target_cohort.key} is within grace period (closes {cohort_close_time.isoformat()}, grace {grace_seconds}s, now {current_now.isoformat()})",
+                    "archive_job_failures": 0,
+                    "closed_files_count": 0,
+                    "archived_count": 0,
+                    "already_verified_count": 0,
+                    "failed_count": 0,
+                    "manifests_generated": 0,
+                    "archive_errors": [],
+                    "scan_launched": False,
+                }
+
+            # Defect C: Check if finalized receipt already exists (immutable)
+            cohort_report_path = receipt_root / f"cohort_{v3_target_cohort.key}_finalized.json"
+            if cohort_report_path.exists():
+                existing_data, was_written = _write_final_receipt_immutable(
+                    cohort_report_path, {}, v3_target_cohort.key
+                )
+                existing_status = existing_data.get("status", "UNKNOWN")
+                existing_failures = existing_data.get("failed_count", 0)
+                return {
+                    "status": existing_status,
+                    "cohort": v3_target_cohort.key,
+                    "cohort_qualification": existing_data.get("cohort_qualification", "UNKNOWN"),
+                    "already_finalized": True,
+                    "closed_files_count": existing_data.get("data_present_count", 0),
+                    "archived_count": existing_data.get("data_present_count", 0) + existing_data.get("verified_zero_count", 0),
+                    "already_verified_count": 0,
+                    "failed_count": existing_failures,
+                    "manifests_generated": 0,
+                    "archive_job_failures": existing_failures,
+                    "archive_errors": [f"{f}: EXISTING_FAILURE" for f in existing_data.get("failed_feeds", [])],
+                    "scan_launched": False,
+                    "scan_results": {},
+                    "total_slots": existing_data.get("total_slots", 0),
+                    "data_present_count": existing_data.get("data_present_count", 0),
+                    "verified_zero_count": existing_data.get("verified_zero_count", 0),
+                }
+
             # V3 journal-driven finalization
             journal_path = journals_dir / f"journal_{v3_target_cohort.key}.json"
             observations = load_frozen_journal(journal_path)
+
+            # Defect B: Partial Cohort Eligibility Check
+            qualifications = {obs.cohort_qualification for obs in observations}
+            if not qualifications:
+                raise ValueError(f"Empty observations in journal {journal_path}")
+
+            known_qualifications = {"QUALIFYING_FULL_HOUR", "TOUCHED_PARTIAL"}
+            for q in qualifications:
+                if q not in known_qualifications:
+                    raise ValueError(f"Unknown or ambiguous cohort qualification '{q}' in journal {journal_path}")
+
+            is_qualifying_full_hour = (qualifications == {"QUALIFYING_FULL_HOUR"})
+            if not is_qualifying_full_hour:
+                # Ineligible partial cohort: do NOT submit to full-hour integrity finalization
+                report_payload = {
+                    "status": "SKIPPED_NON_QUALIFYING",
+                    "cohort": v3_target_cohort.key,
+                    "epoch": epoch,
+                    "run_id": run_id,
+                    "cohort_qualification": "TOUCHED_PARTIAL",
+                    "total_slots": len(observations),
+                    "data_present_count": 0,
+                    "verified_zero_count": 0,
+                    "failed_count": 0,
+                    "failed_feeds": [],
+                    "reason": "Cohort was touched partially and is ineligible for full-hour integrity finalization",
+                    "finalized_at_utc": current_now.isoformat(),
+                }
+                final_data, _ = _write_final_receipt_immutable(
+                    cohort_report_path, report_payload, v3_target_cohort.key
+                )
+                return {
+                    "status": "SKIPPED_NON_QUALIFYING",
+                    "cohort": v3_target_cohort.key,
+                    "cohort_qualification": "TOUCHED_PARTIAL",
+                    "closed_files_count": 0,
+                    "archived_count": 0,
+                    "already_verified_count": 0,
+                    "failed_count": 0,
+                    "manifests_generated": 0,
+                    "archive_job_failures": 0,
+                    "archive_errors": [],
+                    "scan_launched": False,
+                    "scan_results": {},
+                    "total_slots": len(observations),
+                    "data_present_count": 0,
+                    "verified_zero_count": 0,
+                }
 
             if dry_run:
                 actions: list[dict[str, Any]] = []
@@ -866,18 +1021,51 @@ def orchestrate_closed_hour_archive(
             failures = len(failed_slots)
             status = "PASS" if failures == 0 else "FAIL"
 
-            cohort_report_path = receipt_root / f"cohort_{v3_target_cohort.key}_finalized.json"
             report_payload = {
                 "status": status,
                 "cohort": v3_target_cohort.key,
+                "epoch": epoch,
+                "run_id": run_id,
+                "cohort_qualification": "QUALIFYING_FULL_HOUR",
                 "total_slots": len(results),
                 "data_present_count": len(data_present_slots),
                 "verified_zero_count": len(verified_zero_slots),
                 "failed_count": failures,
                 "failed_feeds": [r.coverage.feed_identity for r in failed_slots],
-                "finalized_at_utc": datetime.now(timezone.utc).isoformat(),
+                "finalized_at_utc": current_now.isoformat(),
             }
-            _atomic_write_json(cohort_report_path, report_payload)
+            final_report_data, was_written = _write_final_receipt_immutable(
+                cohort_report_path, report_payload, v3_target_cohort.key
+            )
+
+            # Defect D: Remote Durability of Failure Evidence
+            archive_errors_list = [f"{r.coverage.feed_identity}: {list(r.failure_reason_codes)}" for r in failed_slots]
+            if status == "FAIL":
+                failure_payload = {
+                    "schema_version": 1,
+                    "artifact_kind": "ARCHIVE_FAILURE_EVIDENCE",
+                    "epoch": epoch,
+                    "run_id": run_id,
+                    "cohort": v3_target_cohort.key,
+                    "cohort_qualification": "QUALIFYING_FULL_HOUR",
+                    "terminal_archive_state": "FAIL",
+                    "failed_count": failures,
+                    "total_slots": len(results),
+                    "failure_reason_summary": {
+                        r.coverage.feed_identity: list(r.failure_reason_codes) for r in failed_slots
+                    },
+                    "receipt_checksum": hashlib.sha256(json.dumps(final_report_data, sort_keys=True).encode("utf-8")).hexdigest(),
+                    "captured_at_utc": current_now.isoformat(),
+                }
+                failure_rel_key = f"{prefix}/archive-failures/{v3_target_cohort.key}/failure_{v3_target_cohort.key}.json"
+                receipt_rel_key = f"{prefix}/archive-receipts/cohort_{v3_target_cohort.key}_finalized.json"
+                failure_bytes = json.dumps(failure_payload, indent=2).encode("utf-8")
+                receipt_bytes = json.dumps(final_report_data, indent=2).encode("utf-8")
+                try:
+                    _upload_json_to_store(store, failure_rel_key, failure_payload, receipt_root)
+                    _upload_json_to_store(store, receipt_rel_key, final_report_data, receipt_root)
+                except Exception as exc:
+                    archive_errors_list.append(f"FAILED_REMOTE_FAILURE_UPLOAD: {exc}")
 
             scan_results: Dict[str, Any] = {}
             if run_full_scan and failures == 0:
@@ -901,7 +1089,7 @@ def orchestrate_closed_hour_archive(
                 "failed_count": failures,
                 "manifests_generated": len(data_present_slots),
                 "archive_job_failures": failures,
-                "archive_errors": [f"{r.coverage.feed_identity}: {list(r.failure_reason_codes)}" for r in failed_slots],
+                "archive_errors": archive_errors_list,
                 "scan_launched": len(scan_results) > 0,
                 "scan_results": scan_results,
                 "total_slots": len(results),
@@ -1032,7 +1220,7 @@ def orchestrate_closed_hour_archive(
             raw_root=raw_root,
             receipt_root=receipt_root,
             active_paths=active_paths,
-            now=now,
+            now=current_now,
             grace_period=grace_period,
             closed_files=closed_files,
             cohorts_seen=sorted_cohorts,

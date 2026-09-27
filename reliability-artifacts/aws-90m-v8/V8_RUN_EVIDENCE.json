@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-90m-20260917-20260917T145000Z-v8",
+  "run_id": "aws-validation-observability-90m-run-20260917T145000Z-v8",
+  "official_90m_gate": "FAIL",
+  "failure_reason": "ARCHIVE_QUALIFICATION_FAIL",
+  "root_cause": "microstructure_storage.py generates manifest schema_version=5 with identity, but pre_soak_archive.py lines 930 and 976 required schema_version==4, throwing ValueError('raw manifest is missing or unsupported')",
+  "remediation_commit_sha": "ea825ee2fa4fe2025d900b3bb1fc739aef08a728",
+  "remediation_tree_sha": "60be5d4bb752b5cec114f8f217cd6298c940517a",
+  "regression_test": "tests/test_pre_soak_archive.py::test_manifest_schema_version_5_accepted",
+  "regression_test_result": "PASS",
+  "legacy_test_restored": true,
+  "schema5_identity_binding_tests": "PASS",
+  "full_pytest_result": "1566 passed, 2 skipped in 129.58s",
+  "sub_verdicts": {
+    "full_utc_collection_window": "PASS",
+    "canonical_full_utc_hour_completeness": "FAIL",
+    "terminal_witness": "NOT_VERIFIABLE",
+    "receipt_immutability": "NOT_VERIFIABLE",
+    "final_message_count": "NOT_VERIFIABLE"
+  },
+  "t0_sequencing": {
+    "observer_service_start": "2026-09-17T14:50:00.001440Z",
+    "observer_ready_time": "2026-09-17T14:50:00.357518Z",
+    "collector_start_time": "2026-09-17T14:50:01.767231Z",
+    "qualification_start": "2026-09-17T15:00:00.000000Z",
+    "observer_from_t0": "PASS"
+  },
+  "governance": {
+    "privileged_launch_wrapper_used": true,
+    "observer_runtime_user": "bitcoin-trader",
+    "collector_runtime_user": "bitcoin-trader",
+    "ssm_send_command_attempted": true,
+    "governance_compliance": "DEVIATION_RECORDED",
+    "main_branch_preserved": "0b819eaa7af39b9a30e74ddadef67e8a677fc6be",
+    "test_results_untouched": true
+  },
+  "runtime_metrics": {
+    "peak_mem_available_mb": 3350,
+    "terminal_mem_available_mb": "NOT_VERIFIABLE",
+    "swap_used_mb": 0,
+    "total_messages_collected": "NOT_VERIFIABLE",
+    "intermediate_message_count_at_1515": 392672,
+    "feed_count": 76,
+    "queue_depth_max": 1,
+    "writer_errors": 0,
+    "reconnect_count": 0
+  },
+  "archive_evidence": {
+    "cohort": "2026-09-17_15",
+    "cohort_qualification": "QUALIFYING_FULL_HOUR",
+    "receipt_file": "cohort_2026-09-17_15_finalized.json",
+    "receipt_sha256": "3962c0705cb68fcb002a658c0bec769947a86f997d41692dfc12d487047ca4d6",
+    "receipt_status": "FAIL",
+    "failed_count": 76,
+    "total_slots": 76,
+    "failure_reason_codes": [
+      "MISSING_DATA_BINDING",
+      "RAW_ARCHIVE_ERROR: raw manifest is missing or unsupported"
+    ]
+  }
+}

@@ -51,7 +51,10 @@ class TransientLaunchTests(unittest.TestCase):
     def test_renderer_accepts_all_closed_production_durations_with_correct_prefixes(self) -> None:
         cases = [
             (2700, "bitcoin-trader-short-smoke-test-run.service"),
+            (5400, "bitcoin-trader-90m-test-run.service"),
             (7200, "bitcoin-trader-120m-test-run.service"),
+            (10800, "bitcoin-trader-3h-test-run.service"),
+            (21600, "bitcoin-trader-6h-test-run.service"),
             (108000, "bitcoin-trader-30h-test-run.service"),
             (259200, "bitcoin-trader-72h-soak-test-run.service"),
         ]
@@ -74,7 +77,7 @@ class TransientLaunchTests(unittest.TestCase):
                 self.assertIn(f"--property=RuntimeMaxSec={runtime_max}s", command)
 
     def test_renderer_rejects_unapproved_production_duration_and_unsafe_run_id(self) -> None:
-        expected_duration_error = "production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds"
+        expected_duration_error = "production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds"
         for duration in (2699, 5000, 108001, 3600):
             with self.subTest(duration=duration):
                 with self.assertRaisesRegex(ValueError, expected_duration_error):
@@ -270,7 +273,7 @@ class TransientLaunchTests(unittest.TestCase):
 
         # Arbitrary unapproved launcher duration fails closed
         unapproved_cmd = json.dumps(["python", "run.py", "--collection-duration-seconds", "5000"])
-        with self.assertRaisesRegex(ValueError, "production supervisor duration must be exactly 2700, 7200, 108000, or 259200 seconds"):
+        with self.assertRaisesRegex(ValueError, "production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds"):
             launch_transient_main([
                 "--run-id", "aws-30h-run-20260912",
                 "--workdir", "/opt/bitcoin-trader",

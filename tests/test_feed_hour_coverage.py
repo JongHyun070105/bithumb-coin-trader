@@ -447,6 +447,108 @@ def test_opening_cohort_marked_touched_partial() -> None:
     assert obs_13[0].observation_start_utc == "2026-09-14T13:00:00Z"
 
 
+def test_conflicts_are_scoped_across_0350_warmup_and_first_full_cohort() -> None:
+    bithumb = _make_feed("bithumb", "trade", "KRW-BTC")
+    binance = _make_feed("binance", "trade", "btcusdt")
+    upbit = _make_feed("upbit", "trade", "KRW-BTC")
+    tracker = FeedHourCoverageTracker(
+        [bithumb, binance, upbit],
+        actual_start_utc=datetime(2026, 9, 22, 3, 50, 0, tzinfo=timezone.utc),
+    )
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+
+    for _ in range(7):
+        tracker.record_conflicting_duplicate(
+            bithumb, datetime(2026, 9, 22, 3, 55, 0, tzinfo=timezone.utc)
+        )
+    for _ in range(3):
+        tracker.record_conflicting_duplicate(
+            bithumb, datetime(2026, 9, 22, 4, 30, 0, tzinfo=timezone.utc)
+        )
+
+    cumulative_health = WriterHealthSnapshot(conflicting_duplicate_frames=10)
+    warmup = tracker.freeze_completed(
+        datetime(2026, 9, 22, 4, 0, 0, tzinfo=timezone.utc), sessions, cumulative_health
+    )
+    first_full = tracker.freeze_completed(
+        datetime(2026, 9, 22, 5, 0, 0, tzinfo=timezone.utc), sessions, cumulative_health
+    )
+
+    warmup_by_feed = {obs.feed: obs for obs in warmup}
+    full_by_feed = {obs.feed: obs for obs in first_full}
+    assert warmup_by_feed[bithumb].cohort_qualification == "TOUCHED_PARTIAL"
+    assert warmup_by_feed[bithumb].health.conflicting_duplicate_frames == 7
+    assert warmup_by_feed[binance].health.conflicting_duplicate_frames == 0
+    assert warmup_by_feed[upbit].health.conflicting_duplicate_frames == 0
+    assert full_by_feed[bithumb].cohort_qualification == "QUALIFYING_FULL_HOUR"
+    assert full_by_feed[bithumb].health.conflicting_duplicate_frames == 3
+    assert full_by_feed[binance].health.conflicting_duplicate_frames == 0
+    assert full_by_feed[upbit].health.conflicting_duplicate_frames == 0
+
+
+def test_0350_warmup_sessions_qualify_first_full_cohort_across_exchanges() -> None:
+    bithumb = _make_feed("bithumb", "trade", "KRW-BTC")
+    binance = _make_feed("binance", "trade", "btcusdt")
+    upbit = _make_feed("upbit", "trade", "KRW-BTC")
+    feeds = [bithumb, binance, upbit]
+    tracker = FeedHourCoverageTracker(
+        feeds,
+        actual_start_utc=datetime(2026, 9, 22, 3, 50, 0, tzinfo=timezone.utc),
+        bithumb_redundancy_enabled=True,
+    )
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+    session_ids: list[str] = []
+    for feed, copies in ((bithumb, 2), (binance, 1), (upbit, 1)):
+        for _ in range(copies):
+            sid = sessions.open_session(feed.exchange, [feed.canonical], "2026-09-22T03:50:04Z")
+            sessions.confirm(
+                sid, [feed.canonical], "STREAM_CONFIRMATION", "2026-09-22T03:50:05Z", None
+            )
+            session_ids.append(sid)
+
+    tracker.freeze_completed(
+        datetime(2026, 9, 22, 4, 0, 0, tzinfo=timezone.utc),
+        sessions,
+        WriterHealthSnapshot(conflicting_duplicate_frames=716),
+    )
+    base = datetime(2026, 9, 22, 4, 0, 0, tzinfo=timezone.utc)
+    for seconds in range(0, 3601, 10):
+        observed = datetime.fromtimestamp(base.timestamp() + seconds, tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        for sid in session_ids:
+            sessions.record_heartbeat(sid, observed)
+    for feed in feeds:
+        tracker.record_persisted_event(feed, datetime(2026, 9, 22, 4, 30, 0, tzinfo=timezone.utc))
+
+    first_full = tracker.freeze_completed(
+        datetime(2026, 9, 22, 5, 0, 0, tzinfo=timezone.utc),
+        sessions,
+        WriterHealthSnapshot(conflicting_duplicate_frames=6_887),
+    )
+
+    by_feed = {obs.feed: obs for obs in first_full}
+    assert len(by_feed[bithumb].session_segments) == 2
+    assert all(
+        segment.connected_at_utc < "2026-09-22T04:00:00Z"
+        for segment in by_feed[bithumb].session_segments
+    )
+    assert all(
+        segment.confirmed_at_utc is not None
+        and segment.confirmed_at_utc < "2026-09-22T04:00:00Z"
+        for segment in by_feed[bithumb].session_segments
+    )
+    for feed in feeds:
+        observation = by_feed[feed]
+        assert observation.cohort_qualification == "QUALIFYING_FULL_HOUR"
+        assert observation.health.conflicting_duplicate_frames == 0
+        coverage = materialize_feed_hour_coverage(
+            observation, _make_policy(), _make_binding(1), closed_at_utc="2026-09-22T05:00:01Z"
+        )
+        assert coverage.coverage_state == "DATA_PRESENT"
+        assert coverage.failure_reason_codes == ()
+
+
 def test_coverage_save_already_coverage_dir(tmp_path: Path) -> None:
     obs = _make_observation(event_count=10)
     coverage = materialize_feed_hour_coverage(obs, _make_policy(), _make_binding(10))
@@ -482,3 +584,40 @@ def test_frozen_journal_save_and_load_roundtrip(tmp_path: Path) -> None:
 def test_frozen_journal_empty_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="cannot save empty observations"):
         save_frozen_journal([], tmp_path / "coverage" / "journals")
+
+
+def test_to_segment_effective_gap_bounds() -> None:
+    tracker = SessionEvidenceTracker(epoch="test", run_id="run1")
+    sid = tracker.open_session("binance", ["binance/trade/btcusdt"], "2026-09-14T11:50:00Z")
+    # Record heartbeats during 12:00 to 12:20
+    tracker.record_heartbeat(sid, "2026-09-14T12:00:05Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:10:00Z")
+    tracker.record_heartbeat(sid, "2026-09-14T12:20:00Z")
+    tracker.close_session(sid, "2026-09-14T12:20:05Z", reason="TEST")
+
+    sess = tracker._sessions[sid]
+    seg = sess.to_segment("2026-09-14T12:00:00Z", "2026-09-14T13:00:00Z")
+    # The max gap should NOT include the remaining time from 12:20 to 13:00 (2400s)
+    # Gaps: (12:00:05 - 12:00:00) = 5s, (12:10:00 - 12:00:05) = 595s, (12:20:00 - 12:10:00) = 600s, (12:20:05 - 12:20:00) = 5s
+    assert seg.maximum_heartbeat_gap_seconds is not None
+    assert seg.maximum_heartbeat_gap_seconds <= 600.0
+
+
+def test_mid_hour_reconnect_segment_not_late_confirmation() -> None:
+    f = _make_feed("binance", "trade", "btcusdt")
+    # Segment 2 connected and confirmed mid-hour
+    seg = _make_segment(
+        f,
+        connected_at_utc="2026-09-14T12:20:05Z",
+        disconnected_at_utc=None,
+    )
+    seg = replace(seg, confirmed_at_utc="2026-09-14T12:20:06Z")
+    obs = _make_observation(
+        feed=f,
+        event_count=100,
+        session_segments=(seg,),
+        disconnect_count=0,
+        reconnect_count=0,
+    )
+    res = materialize_feed_hour_coverage(obs, _make_policy(60), _make_binding(100))
+    assert "LATE_CONFIRMATION" not in res.failure_reason_codes

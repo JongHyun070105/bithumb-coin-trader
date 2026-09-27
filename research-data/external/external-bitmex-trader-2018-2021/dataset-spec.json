@@ -1,0 +1,31 @@
+{
+  "dataset_id": "external-bitmex-trader-2018-2021",
+  "schema_version": "1",
+  "source_class": "EXTERNAL_EXPERT_BEHAVIOR_DATASET",
+  "claimed_author": "워뇨띠",
+  "author_identity_verification": "NOT_INDEPENDENTLY_VERIFIED",
+  "author_identity_verified": false,
+  "primary_use": "HYPOTHESIS_GENERATION_ONLY",
+  "allowed_uses": [
+    "BEHAVIORAL_DESCRIPTION",
+    "HYPOTHESIS_GENERATION",
+    "EXECUTION_STYLE_ANALYSIS",
+    "POSITION_SIZING_HYPOTHESIS_GENERATION",
+    "RISK_MANAGEMENT_HYPOTHESIS_GENERATION",
+    "REGIME_HYPOTHESIS_GENERATION"
+  ],
+  "prohibited_uses": [
+    "PROSPECTIVE_VALIDATION",
+    "PROSPECTIVE_HOLDOUT",
+    "FINAL_CANDIDATE_PROMOTION_EVIDENCE",
+    "PROOF_OF_ALPHA",
+    "LIVE_TRADING_JUSTIFICATION"
+  ],
+  "raw_immutable": true,
+  "claimed_coverage_start": "2018-03",
+  "claimed_coverage_end": "2021-12",
+  "source_status": "PUBLIC_RELEASE_CONFIRMED_RAW_NOT_IMPORTED",
+  "public_tape_verification": "NOT_RUN",
+  "research_status": "NOT_STARTED",
+  "hypothesis_followup": "INDEPENDENT_PROSPECTIVE_MARKET_DATA_REQUIRED"
+}

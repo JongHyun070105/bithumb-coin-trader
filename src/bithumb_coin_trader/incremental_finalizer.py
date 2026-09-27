@@ -911,8 +911,21 @@ class IncrementalManifestFinalizer:
             artifact_kind=artifact_kind,
         )
 
-    def finalize_pending(self) -> FinalizationSummary:
+    def finalize_cohort(self, cohort: str) -> FinalizationSummary:
+        """Finalize pending partitions strictly scoped to a specific cohort."""
+        return self.finalize_pending(cohort=cohort)
+
+    def finalize_pending(
+        self,
+        *,
+        cohort: str | None = None,
+        exclude_cohort: str | None = None,
+    ) -> FinalizationSummary:
         for entry in self.store.pending_entries():
+            if cohort is not None and entry.identity.cohort != cohort:
+                continue
+            if exclude_cohort is not None and entry.identity.cohort == exclude_cohort:
+                continue
             try:
                 receipt_file, receipt_dict = self._find_receipt(entry)
                 if receipt_dict is not None and receipt_file is not None:

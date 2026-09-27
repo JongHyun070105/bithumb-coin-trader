@@ -10,11 +10,12 @@ Dataset roles:
     FROZEN_HOLDOUT           - Untouched future holdout for final alpha claims
     INFRA_VALIDATION_ONLY    - Fresh45/45m: infrastructure validation reference
     QUARANTINED              - V4 while running or before infrastructure PASS
+    EXTERNAL_EXPERT_BEHAVIOR_DATASET - Publisher-attributed history; hypotheses only
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace
 from datetime import datetime, timezone
 from enum import Enum
 import json
@@ -28,6 +29,10 @@ class DatasetRole(str, Enum):
     FROZEN_HOLDOUT = "FROZEN_HOLDOUT"
     INFRA_VALIDATION_ONLY = "INFRA_VALIDATION_ONLY"
     QUARANTINED = "QUARANTINED"
+    EXTERNAL_EXPERT_BEHAVIOR_DATASET = "EXTERNAL_EXPERT_BEHAVIOR_DATASET"
+
+
+EXTERNAL_BITMEX_DATASET_ID = "external-bitmex-trader-2018-2021"
 
 
 class DatasetValidationError(ValueError):
@@ -60,6 +65,9 @@ class DatasetRegistration:
     collector_epoch: str | None = None
     provenance_confidence: str = "PROVEN"  # PROVEN, PARTIALLY_PROVEN, AMBIGUOUS, UNATTRIBUTED
     registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    source_class: str = "MARKET_DATA"
+    primary_use: str = "UNSPECIFIED"
+    author_identity_verified: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -91,6 +99,9 @@ class DatasetRegistration:
             collector_epoch=d.get("collector_epoch"),
             provenance_confidence=d.get("provenance_confidence", "PROVEN"),
             registered_at=d.get("registered_at", ""),
+            source_class=d.get("source_class", "MARKET_DATA"),
+            primary_use=d.get("primary_use", "UNSPECIFIED"),
+            author_identity_verified=d.get("author_identity_verified"),
         )
 
 
@@ -105,6 +116,15 @@ class DatasetRegistry:
             raise DatasetValidationError(
                 f"Dataset '{dataset.dataset_id}' already registered"
             )
+        if dataset.dataset_id == EXTERNAL_BITMEX_DATASET_ID and dataset.source_class != "EXTERNAL_EXPERT_BEHAVIOR_DATASET":
+            raise DatasetValidationError("Reserved external dataset identity requires external source class")
+        if dataset.source_class == "EXTERNAL_EXPERT_BEHAVIOR_DATASET":
+            if (dataset.dataset_role != DatasetRole.EXTERNAL_EXPERT_BEHAVIOR_DATASET
+                    or dataset.primary_use != "HYPOTHESIS_GENERATION_ONLY"
+                    or dataset.author_identity_verified is not False
+                    or dataset.allowed_for_candidate_selection
+                    or dataset.allowed_for_final_holdout):
+                raise DatasetValidationError("External expert data cannot be promoted or used as holdout evidence")
         self._datasets[dataset.dataset_id] = dataset
 
     def get(self, dataset_id: str) -> DatasetRegistration:
@@ -128,7 +148,7 @@ class DatasetRegistry:
 
     def require_candidate_selection_allowed(self, dataset_id: str) -> DatasetRegistration:
         ds = self.get(dataset_id)
-        if not ds.allowed_for_candidate_selection:
+        if ds.source_class == "EXTERNAL_EXPERT_BEHAVIOR_DATASET" or not ds.allowed_for_candidate_selection:
             raise DatasetValidationError(
                 f"Dataset '{dataset_id}' (role={ds.dataset_role.value}) "
                 f"is not allowed for candidate selection"
@@ -137,7 +157,7 @@ class DatasetRegistry:
 
     def require_final_holdout_allowed(self, dataset_id: str) -> DatasetRegistration:
         ds = self.get(dataset_id)
-        if not ds.allowed_for_final_holdout:
+        if ds.source_class == "EXTERNAL_EXPERT_BEHAVIOR_DATASET" or not ds.allowed_for_final_holdout:
             raise DatasetValidationError(
                 f"Dataset '{dataset_id}' (role={ds.dataset_role.value}) "
                 f"is not allowed for final holdout"
@@ -146,30 +166,9 @@ class DatasetRegistry:
 
     def update_role(self, dataset_id: str, new_role: DatasetRole) -> None:
         ds = self.get(dataset_id)
-        updated = DatasetRegistration(
-            dataset_id=ds.dataset_id,
-            dataset_role=new_role,
-            description=ds.description,
-            source_type=ds.source_type,
-            source_roots=ds.source_roots,
-            time_range_start=ds.time_range_start,
-            time_range_end=ds.time_range_end,
-            exchange_universe=ds.exchange_universe,
-            feed_universe=ds.feed_universe,
-            raw_schema_version=ds.raw_schema_version,
-            manifest_schema_version=ds.manifest_schema_version,
-            known_integrity_status=ds.known_integrity_status,
-            known_data_quality_issues=ds.known_data_quality_issues,
-            allowed_for_exploration=ds.allowed_for_exploration,
-            allowed_for_candidate_selection=ds.allowed_for_candidate_selection,
-            allowed_for_final_holdout=ds.allowed_for_final_holdout,
-            immutable_source=ds.immutable_source,
-            notes=ds.notes,
-            source_run_id=ds.source_run_id,
-            collector_epoch=ds.collector_epoch,
-            registered_at=ds.registered_at,
-        )
-        self._datasets[dataset_id] = updated
+        if ds.source_class == "EXTERNAL_EXPERT_BEHAVIOR_DATASET" and new_role != ds.dataset_role:
+            raise DatasetValidationError("External expert dataset role is immutable")
+        self._datasets[dataset_id] = replace(ds, dataset_role=new_role)
 
     def save(self, path: Path) -> None:
         data = [ds.to_dict() for ds in self._datasets.values()]
@@ -311,4 +310,29 @@ def register_default_datasets(registry: DatasetRegistry) -> None:
         notes="UNATTRIBUTED local development data. "
               "NOT Fresh45 unless provenance evidence is found. "
               "DEVELOPMENT / EXPLORATORY ONLY.",
+    ))
+
+    registry.register(DatasetRegistration(
+        dataset_id=EXTERNAL_BITMEX_DATASET_ID,
+        dataset_role=DatasetRole.EXTERNAL_EXPERT_BEHAVIOR_DATASET,
+        description="Publisher-attributed historical BitMEX execution and wallet data; source files not imported.",
+        source_type="external_csv_archive",
+        source_roots=(f".external-research-data/{EXTERNAL_BITMEX_DATASET_ID}/raw/",),
+        time_range_start=None,
+        time_range_end=None,
+        exchange_universe=("bitmex",),
+        feed_universe=("execution", "wallet"),
+        raw_schema_version="UNOBSERVED",
+        manifest_schema_version="1",
+        known_integrity_status="UNKNOWN",
+        known_data_quality_issues=("Original files not yet imported or profiled",),
+        allowed_for_exploration=True,
+        allowed_for_candidate_selection=False,
+        allowed_for_final_holdout=False,
+        immutable_source=True,
+        provenance_confidence="PARTIALLY_PROVEN",
+        notes="Publisher attribution is not independent author identity verification. Hypothesis generation only.",
+        source_class="EXTERNAL_EXPERT_BEHAVIOR_DATASET",
+        primary_use="HYPOTHESIS_GENERATION_ONLY",
+        author_identity_verified=False,
     ))

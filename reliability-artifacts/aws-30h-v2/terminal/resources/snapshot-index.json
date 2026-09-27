@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "snapshots": [
+    {
+      "etag_md5": "754559857ac69063693677b2752dddf8",
+      "last_modified": "2026-09-19T09:50:01+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260919T095000Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260919T095000Z.json",
+      "sha256": "c3c32f6a4513c9a6118659f7c2ec49cca24dc93afe6f12fd027bb1ff3e83a3d8",
+      "size": 2037
+    },
+    {
+      "etag_md5": "3747e80be49564b6ac3bd176ee967f9e",
+      "last_modified": "2026-09-19T15:49:49+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260919T154948Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260919T154948Z.json",
+      "sha256": "f7e8e908b1754977b5b83a93b77d7d3024ef0626bc6ade6c88be78cba8d0812f",
+      "size": 2456
+    },
+    {
+      "etag_md5": "c0ab908c6fdaf2be90223c8910c5143b",
+      "last_modified": "2026-09-19T21:49:35+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260919T214934Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260919T214934Z.json",
+      "sha256": "14c258aa01b5ce32d454f15af7c90137955e7e091c7cae86f969c7ea5019dd74",
+      "size": 2456
+    },
+    {
+      "etag_md5": "077624f162607dd1948bffd5c85187e2",
+      "last_modified": "2026-09-20T03:50:22+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260920T035021Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260920T035021Z.json",
+      "sha256": "4ace7b9a4a721d542790c2340424a9e306dbc97cf9e0a4e28b6e131be14e5d38",
+      "size": 2458
+    },
+    {
+      "etag_md5": "fe0e7eef06af2d8a1b5a6dd2a21fd95b",
+      "last_modified": "2026-09-20T09:50:09+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260920T095008Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260920T095008Z.json",
+      "sha256": "211b1fe71694885c4bd8569aef13d6c1e8a23cab4237aee932d5736a4c4135d7",
+      "size": 2458
+    },
+    {
+      "etag_md5": "ae22582d5d46bfb9a8ee6810e3b124c7",
+      "last_modified": "2026-09-20T14:49:37+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260920T144936Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260920T144936Z.json",
+      "sha256": "43ff6f2231856ef99de3ed89319a86d086d8e8b3e7b3614804d5b31aca124aaf",
+      "size": 2458
+    },
+    {
+      "etag_md5": "07e0b1018a34d2bb90c187ed89c513c8",
+      "last_modified": "2026-09-20T15:49:55+00:00",
+      "local_path": "reliability-artifacts/aws-30h-v2/terminal/resources/minute/20260920T154954Z.json",
+      "s3_key": "market-data/temporary/aws-validation-observability-30h-20260919-20260919T095000Z-v2/observability/minute/20260920T154954Z.json",
+      "sha256": "fecb3e64d90b139e420d1783766c9c2c9a93bc0590e4a003686e63067633ef1a",
+      "size": 2458
+    }
+  ]
+}

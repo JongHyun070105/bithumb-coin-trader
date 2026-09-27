@@ -164,3 +164,14 @@ def test_heartbeats_sorted_in_segment() -> None:
     # (12:00:40 - 12:00:30) = 10s
     # Max gap should be 10.0, NOT 30.0!
     assert segments[0].maximum_heartbeat_gap_seconds == 10.0
+
+
+def test_prune_preserves_boundary_with_out_of_order_heartbeat() -> None:
+    tracker = SessionEvidenceTracker(epoch="epoch", run_id="run")
+    sid = tracker.open_session("bithumb", ["bithumb/orderbook/KRW-BTC"], "2026-09-14T12:00:00Z")
+    for second in (30, 10, 40, 20, 20):
+        tracker.record_heartbeat(sid, f"2026-09-14T12:00:{second:02d}Z")
+    assert tracker.prune_older_than("2026-09-14T12:00:35Z") == 2
+    assert tracker._sessions[sid].heartbeat_observations_utc == [
+        "2026-09-14T12:00:30Z", "2026-09-14T12:00:40Z"
+    ]
