@@ -32,6 +32,12 @@
     "terminal_time_known": false
   },
   "actual_run_audit_performed": false,
+  "offline_auditor_calibration": {
+    "auditor_revision": "f341f7eaccca40aafd6cb36853f77e415252b91a",
+    "auditor_path": "scripts/audit_fresh_30h_v3_terminal.py",
+    "auditor_sha256": "21440547adff372c3782f69566a5e3d40c991696291b9aa2b48d2f7db4ce649b",
+    "same_code_hash_at_readiness_head": "bfdab735b17991943f104179061f4f6896a4b386"
+  },
   "missing_evidence": [
     {
       "name": "current Fresh 30H-v3 launch identity and timing contract",
