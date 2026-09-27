@@ -1,0 +1,148 @@
+{
+  "artifacts": [
+    {
+      "bytes": 37986,
+      "downloaded_at_utc": "2026-09-27T04:38:03.883596+00:00",
+      "endpoint_or_dataset": "https://api.bithumb.com/v1/market/all?isDetails=false",
+      "frequency": "snapshot",
+      "http_status": 200,
+      "instrument": "all KRW markets",
+      "known_limitations": [
+        "A point-in-time public response is not a historical execution sample.",
+        "No private account fee, borrow, or order-permission data are requested."
+      ],
+      "path": "raw/bithumb_market_list.json",
+      "provider": "bithumb",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:03 GMT",
+      "sha256": "e803f7fca7f521e0a69d3625737ff447de8b160dc073e5d7fc47f8d27924f5e0"
+    },
+    {
+      "bytes": 2660,
+      "downloaded_at_utc": "2026-09-27T04:38:03.913332+00:00",
+      "endpoint_or_dataset": "https://api.bithumb.com/v1/orderbook?markets=KRW-BTC,KRW-ETH",
+      "frequency": "snapshot",
+      "http_status": 200,
+      "instrument": "KRW-BTC,KRW-ETH",
+      "known_limitations": [
+        "A point-in-time public response is not a historical execution sample.",
+        "No private account fee, borrow, or order-permission data are requested."
+      ],
+      "path": "raw/bithumb_orderbook.json",
+      "provider": "bithumb",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:03 GMT",
+      "sha256": "76a38f4e0387da3894807dc925b3ec679770098f7225ed6c25b5a3ce9814d54b"
+    },
+    {
+      "bytes": 64201,
+      "downloaded_at_utc": "2026-09-27T04:38:03.954773+00:00",
+      "endpoint_or_dataset": "https://api.bithumb.com/v1/candles/minutes/60?market=KRW-BTC&count=200",
+      "frequency": "1h candles, latest 200",
+      "http_status": 200,
+      "instrument": "KRW-BTC",
+      "known_limitations": [
+        "A current snapshot is not a historical execution sample.",
+        "This candle endpoint returns at most the latest 200 hourly observations in this run."
+      ],
+      "path": "raw/bithumb_candles_KRW_BTC.json",
+      "provider": "bithumb",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:03 GMT",
+      "sha256": "0c450e59000bc32a90601f232211af7403ca3fed1993f17c778adaad86ffe78f"
+    },
+    {
+      "bytes": 66860,
+      "downloaded_at_utc": "2026-09-27T04:38:03.995967+00:00",
+      "endpoint_or_dataset": "https://api.bithumb.com/v1/candles/minutes/60?market=KRW-ETH&count=200",
+      "frequency": "1h candles, latest 200",
+      "http_status": 200,
+      "instrument": "KRW-ETH",
+      "known_limitations": [
+        "A current snapshot is not a historical execution sample.",
+        "This candle endpoint returns at most the latest 200 hourly observations in this run."
+      ],
+      "path": "raw/bithumb_candles_KRW_ETH.json",
+      "provider": "bithumb",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:03 GMT",
+      "sha256": "72cd55b973b2d68ec28c2d670510707ee3c0c4334c8806aee6244834ac6a7850"
+    },
+    {
+      "bytes": 66452,
+      "downloaded_at_utc": "2026-09-27T04:38:04.161796+00:00",
+      "endpoint_or_dataset": "https://api.upbit.com/v1/market/all?is_details=false",
+      "frequency": "snapshot",
+      "http_status": 200,
+      "instrument": "all KRW markets",
+      "known_limitations": [
+        "A point-in-time public response is not a historical execution sample.",
+        "No private account fee, borrow, or order-permission data are requested."
+      ],
+      "path": "raw/upbit_market_list.json",
+      "provider": "upbit",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:04 GMT",
+      "sha256": "c4e82472a0f214d31a663443a4840343b0d71e240ef923d907f3728028011b37"
+    },
+    {
+      "bytes": 5566,
+      "downloaded_at_utc": "2026-09-27T04:38:04.197314+00:00",
+      "endpoint_or_dataset": "https://api.upbit.com/v1/orderbook?markets=KRW-BTC,KRW-ETH",
+      "frequency": "snapshot",
+      "http_status": 200,
+      "instrument": "KRW-BTC,KRW-ETH",
+      "known_limitations": [
+        "A point-in-time public response is not a historical execution sample.",
+        "No private account fee, borrow, or order-permission data are requested."
+      ],
+      "path": "raw/upbit_orderbook.json",
+      "provider": "upbit",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:04 GMT",
+      "sha256": "09960dbaed2b9879bd7a8df5bc03270eef96f5f869f316fe6baa033664495e01"
+    },
+    {
+      "bytes": 254,
+      "downloaded_at_utc": "2026-09-27T04:38:04.232860+00:00",
+      "endpoint_or_dataset": "https://api.upbit.com/v1/orderbook/instruments?markets=KRW-BTC,KRW-ETH",
+      "frequency": "snapshot",
+      "http_status": 200,
+      "instrument": "KRW-BTC,KRW-ETH",
+      "known_limitations": [
+        "A point-in-time public response is not a historical execution sample.",
+        "No private account fee, borrow, or order-permission data are requested."
+      ],
+      "path": "raw/upbit_orderbook_instruments.json",
+      "provider": "upbit",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:04 GMT",
+      "sha256": "7ff43b3cd8707bc11683b4ceed39d0fe82957100f43f7b301ab34315f84a93b6"
+    },
+    {
+      "bytes": 72242,
+      "downloaded_at_utc": "2026-09-27T04:38:04.291160+00:00",
+      "endpoint_or_dataset": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-BTC&count=200",
+      "frequency": "1h candles, latest 200",
+      "http_status": 200,
+      "instrument": "KRW-BTC",
+      "known_limitations": [
+        "A current snapshot is not a historical execution sample.",
+        "This candle endpoint returns at most the latest 200 hourly observations in this run."
+      ],
+      "path": "raw/upbit_candles_KRW_BTC.json",
+      "provider": "upbit",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:04 GMT",
+      "sha256": "49c8b2a832801f54cb66d2fc9f917158786ea1b2a103ed81c07ca9cf76f3baf6"
+    },
+    {
+      "bytes": 70886,
+      "downloaded_at_utc": "2026-09-27T04:38:04.347332+00:00",
+      "endpoint_or_dataset": "https://api.upbit.com/v1/candles/minutes/60?market=KRW-ETH&count=200",
+      "frequency": "1h candles, latest 200",
+      "http_status": 200,
+      "instrument": "KRW-ETH",
+      "known_limitations": [
+        "A current snapshot is not a historical execution sample.",
+        "This candle endpoint returns at most the latest 200 hourly observations in this run."
+      ],
+      "path": "raw/upbit_candles_KRW_ETH.json",
+      "provider": "upbit",
+      "server_date_header": "Sun, 27 Sep 2026 04:38:04 GMT",
+      "sha256": "fe17c7b343e1efe1d9e040f4acd94b752a60b819fea90c47cfa47de53442f8b7"
+    }
+  ]
+}
