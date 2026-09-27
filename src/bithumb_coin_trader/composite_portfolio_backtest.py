@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import sqrt
+from math import isfinite, sqrt
 from statistics import mean, pstdev
 from typing import Any, Sequence
 
@@ -49,6 +49,14 @@ def run_composite_portfolio_backtest(
     """Combine Core and Satellite weight streams and evaluate under specified fee settings."""
     if len(core_weights) != len(candles) or len(satellite_weights) != len(candles):
         raise ValueError("Weights and candles length mismatch")
+    if any(
+        not isfinite(value) or not 0.0 <= value <= 1.0
+        for value in (core_ratio, satellite_ratio)
+    ):
+        raise ValueError("core and satellite ratios must be finite fractions in [0, 1]")
+    for name, weights in (("core", core_weights), ("satellite", satellite_weights)):
+        if any(not isfinite(float(weight)) or not 0.0 <= float(weight) <= 1.0 for weight in weights):
+            raise ValueError(f"{name} weights must be finite fractions in [0, 1]")
 
     # Combine weights: total weight = core_ratio * core_w + satellite_ratio * sat_w
     combined_weights: list[float] = [

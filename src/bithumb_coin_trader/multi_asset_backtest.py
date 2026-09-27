@@ -105,6 +105,16 @@ class MultiAssetSharedCashBacktester:
         drift_per_asset_exposure_limit: float = 0.18,
         min_listing_days: int = 30,
     ) -> None:
+        exposure_values = {
+            "target_total_exposure": target_total_exposure,
+            "drift_total_exposure_limit": drift_total_exposure_limit,
+            "target_per_asset_exposure": target_per_asset_exposure,
+            "drift_per_asset_exposure_limit": drift_per_asset_exposure_limit,
+        }
+        if any(not isfinite(value) or not 0.0 <= value <= 1.0 for value in exposure_values.values()):
+            raise ValueError("exposure settings must be finite fractions in [0, 1]")
+        if isinstance(min_listing_days, bool) or not isinstance(min_listing_days, int) or min_listing_days < 0:
+            raise ValueError("min_listing_days must be a non-negative integer")
         self.settings = settings or TradingSettings()
         self.target_total_exposure = target_total_exposure
         self.drift_total_exposure_limit = drift_total_exposure_limit
@@ -117,6 +127,36 @@ class MultiAssetSharedCashBacktester:
         candles_by_market: Mapping[str, Sequence[Candle]],
         target_weights_by_market: Mapping[str, Sequence[float]],
     ) -> MultiAssetBacktestResult:
+        if not candles_by_market:
+            raise ValueError("at least one market series is required")
+        unknown_weight_markets = set(target_weights_by_market) - set(candles_by_market)
+        if unknown_weight_markets:
+            raise ValueError(
+                "target weights contain markets without candles: "
+                + ", ".join(sorted(unknown_weight_markets))
+            )
+
+        normalized_weights: dict[str, tuple[float, ...]] = {}
+        for market, candle_series in candles_by_market.items():
+            if not candle_series:
+                raise ValueError(f"candle series for {market} is empty")
+            timestamps = [c.timestamp for c in candle_series]
+            if any(left >= right for left, right in zip(timestamps, timestamps[1:])):
+                raise ValueError(f"candles for {market} must have unique chronological timestamps")
+            if any(c.market != market for c in candle_series):
+                raise ValueError(f"candle market does not match mapping key {market}")
+
+            weights = target_weights_by_market.get(market, (0.0,) * len(candle_series))
+            if len(candle_series) != len(weights):
+                raise ValueError(f"Weight length mismatch for market {market}")
+            try:
+                values = tuple(float(weight) for weight in weights)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"target weights for {market} must be numeric fractions") from exc
+            if any(not isfinite(weight) or not 0.0 <= weight <= 1.0 for weight in values):
+                raise ValueError(f"target weights for {market} must be finite fractions in [0, 1]")
+            normalized_weights[market] = values
+
         all_timestamps = sorted(
             {c.timestamp for c_list in candles_by_market.values() for c in c_list}
         )
@@ -129,10 +169,8 @@ class MultiAssetSharedCashBacktester:
             for c in c_list
         }
         target_map: dict[tuple[str, datetime], float] = {}
-        for market, weights in target_weights_by_market.items():
+        for market, weights in normalized_weights.items():
             c_list = candles_by_market[market]
-            if len(c_list) != len(weights):
-                raise ValueError(f"Weight length mismatch for market {market}")
             for c, w in zip(c_list, weights):
                 target_map[(market, c.timestamp)] = w
 
@@ -320,11 +358,13 @@ class MultiAssetSharedCashBacktester:
 
             # 5. Phase 2: Execute BUYS with shared cash and total exposure room
             available_cash = max(0.0, cash - self.settings.cash_reserve_krw)
-            current_crypto_val = sum(
-                quantities[m] * (candle_map.get((m, current_time)).open if candle_map.get((m, current_time)) is not None else last_known_open_price.get(m, 0.0))
-                for m in markets
-                if quantities[m] > 0
-            )
+            current_crypto_val = 0.0
+            for m in markets:
+                if quantities[m] <= 0:
+                    continue
+                candle = candle_map.get((m, current_time))
+                open_price = candle.open if candle is not None else last_known_open_price.get(m, 0.0)
+                current_crypto_val += quantities[m] * open_price
             max_allowed_crypto = current_equity * self.target_total_exposure
             remaining_exposure_room = max(0.0, max_allowed_crypto - current_crypto_val)
 
