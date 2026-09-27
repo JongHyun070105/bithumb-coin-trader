@@ -104,7 +104,10 @@ def test_position_intent_classification() -> None:
         make_fill(11, "Buy", "2000", "10000", "o11", "e11", "Taker"),
     ]
 
-    events = PositionReconstructor.reconstruct_positions(fills)
+    events = PositionReconstructor.reconstruct_positions(
+        fills,
+        initial_positions={"XBTUSD": Decimal(0)},
+    )
     intents = [ev.intent for ev in events]
 
     expected = [
@@ -121,6 +124,62 @@ def test_position_intent_classification() -> None:
         "FLIP_SHORT_TO_LONG",
     ]
     assert intents == expected
+
+
+def test_position_intent_is_ambiguous_without_initial_snapshot() -> None:
+    fill = ExecutionRow(
+        timestamp=datetime(2020, 1, 1, tzinfo=timezone.utc),
+        symbol="XBTUSD",
+        side="Buy",
+        price=Decimal("10000"),
+        size=Decimal("1000"),
+        order_id="o1",
+        trade_match_id="m1",
+        execution_id="e1",
+        execution_type="Trade",
+        order_type="Limit",
+        liquidity="AddedLiquidity",
+        fee=Decimal(0),
+        fee_currency="XBt",
+        raw_fields={},
+    )
+
+    event = PositionReconstructor.reconstruct_positions([fill])[0]
+
+    assert event.intent == "AMBIGUOUS"
+    assert event.confidence == "LOW"
+    assert event.estimated_position_after == Decimal("1000")
+
+
+def test_direct_flip_splits_cycles_without_crossing_directional_pnl() -> None:
+    ts = datetime(2020, 1, 1, tzinfo=timezone.utc)
+
+    def make_fill(minute: int, side: str, qty: str, event_id: str) -> ExecutionRow:
+        return ExecutionRow(
+            timestamp=ts.replace(minute=minute),
+            symbol="XBTUSD",
+            side=side,
+            price=Decimal("10000"),
+            size=Decimal(qty),
+            order_id=f"o-{event_id}",
+            trade_match_id=f"m-{event_id}",
+            execution_id=event_id,
+            execution_type="Trade",
+            order_type="Limit",
+            liquidity="RemovedLiquidity",
+            fee=Decimal("0.001"),
+            fee_currency="XBt",
+            raw_fields={},
+        )
+
+    fills = [make_fill(1, "Buy", "10", "e1"), make_fill(2, "Sell", "15", "e2"), make_fill(3, "Buy", "5", "e3")]
+    events = PositionReconstructor.reconstruct_positions(fills, initial_positions={"XBTUSD": Decimal(0)})
+    cycles = CycleReconstructor.extract_cycles(events)
+
+    assert [cycle.direction for cycle in cycles] == ["LONG", "SHORT"]
+    assert [cycle.execution_count for cycle in cycles] == [2, 2]
+    assert [cycle.close_time for cycle in cycles] == [events[1].timestamp, events[2].timestamp]
+    assert sum(cycle.fees for cycle in cycles) == sum(event.fee for event in events)
 
 
 def test_position_cycle_confidence_model() -> None:

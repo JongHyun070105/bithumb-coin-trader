@@ -57,6 +57,20 @@ def test_reproducibility_synthetic_rebuild(tmp_path: Path) -> None:
     assert comparison["reconstruction_match"] is True
 
 
+def test_rebuild_refuses_to_overwrite_existing_target(tmp_path: Path) -> None:
+    zip_path = tmp_path / "test_archive.zip"
+    create_synthetic_zip(zip_path)
+    target = tmp_path / "existing"
+    target.mkdir()
+    sentinel = target / "keep.txt"
+    sentinel.write_text("preserve existing evidence", encoding="utf-8")
+
+    with pytest.raises(FileExistsError, match="Refusing to delete or overwrite"):
+        clean_rebuild_from_zip(zip_path, target)
+
+    assert sentinel.read_text(encoding="utf-8") == "preserve existing evidence"
+
+
 def test_compare_rebuild_manifests_detects_mismatch() -> None:
     run1 = {
         "canonical_counts": {"total": 10},

@@ -10,7 +10,7 @@ Enforces:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
@@ -250,7 +250,7 @@ class OrderReconstructor:
 
 
 class PositionReconstructor:
-    """Sequential position tracker with symbol-specific contract semantics."""
+    """Track fill flow; absolute intent needs an explicit opening-position snapshot."""
 
     @staticmethod
     def reconstruct_positions(
@@ -270,7 +270,8 @@ class PositionReconstructor:
             symbol = fill.symbol or "UNKNOWN"
             current_pos = positions.get(symbol, Decimal(0))
             qty = fill.size or Decimal(0)
-            delta = qty if fill.side == "Buy" else -qty
+            valid_fill = fill.side in {"Buy", "Sell"} and qty > 0
+            delta = qty if fill.side == "Buy" else -qty if fill.side == "Sell" else Decimal(0)
             new_pos = current_pos + delta
             positions[symbol] = new_pos
 
@@ -280,30 +281,35 @@ class PositionReconstructor:
             eid = fill.execution_id or ""
 
             pos_before = current_pos
-            if pos_before == 0:
-                intent = "OPEN_LONG" if delta > 0 else "OPEN_SHORT"
+            if not valid_fill:
+                conditional_intent = "AMBIGUOUS"
+            elif pos_before == 0:
+                conditional_intent = "OPEN_LONG" if delta > 0 else "OPEN_SHORT"
             elif pos_before > 0:
                 if delta > 0:
-                    intent = "ADD_LONG"
+                    conditional_intent = "ADD_LONG"
                 else:
                     if new_pos > 0:
-                        intent = "REDUCE_LONG"
+                        conditional_intent = "REDUCE_LONG"
                     elif new_pos == 0:
-                        intent = "CLOSE_LONG"
+                        conditional_intent = "CLOSE_LONG"
                     else:
-                        intent = "FLIP_LONG_TO_SHORT"
+                        conditional_intent = "FLIP_LONG_TO_SHORT"
             elif pos_before < 0:
                 if delta < 0:
-                    intent = "ADD_SHORT"
+                    conditional_intent = "ADD_SHORT"
                 else:
                     if new_pos < 0:
-                        intent = "REDUCE_SHORT"
+                        conditional_intent = "REDUCE_SHORT"
                     elif new_pos == 0:
-                        intent = "CLOSE_SHORT"
+                        conditional_intent = "CLOSE_SHORT"
                     else:
-                        intent = "FLIP_SHORT_TO_LONG"
+                        conditional_intent = "FLIP_SHORT_TO_LONG"
             else:
-                intent = "AMBIGUOUS"
+                conditional_intent = "AMBIGUOUS"
+
+            state_observed = initial_positions is not None and symbol in initial_positions
+            intent = conditional_intent if state_observed and valid_fill else "AMBIGUOUS"
 
             events.append(PositionEvent(
                 timestamp=fill.timestamp,  # type: ignore[arg-type]
@@ -315,7 +321,7 @@ class PositionReconstructor:
                 execution_price=price,
                 maker_taker=liq,
                 fee=fee,
-                confidence="HIGH" if initial_positions is not None else "MEDIUM",
+                confidence="HIGH" if state_observed and valid_fill else "LOW",
                 intent=intent,
             ))
 
@@ -337,6 +343,35 @@ class CycleReconstructor:
         for symbol, evs in by_symbol.items():
             current_evs: list[PositionEvent] = []
             for ev in evs:
+                if ev.intent.startswith("FLIP_"):
+                    position_before = ev.estimated_position_after - ev.signed_quantity_delta
+                    close_qty = abs(position_before)
+                    open_qty = abs(ev.estimated_position_after)
+                    full_qty = close_qty + open_qty
+                    close_fee = ev.fee * close_qty / full_qty if full_qty else Decimal(0)
+                    open_fee = ev.fee - close_fee
+                    close_event = replace(
+                        ev,
+                        signed_quantity_delta=-position_before,
+                        estimated_position_after=Decimal(0),
+                        fee=close_fee,
+                        intent="CLOSE_LONG" if position_before > 0 else "CLOSE_SHORT",
+                    )
+                    open_event = replace(
+                        ev,
+                        signed_quantity_delta=ev.estimated_position_after,
+                        fee=open_fee,
+                        intent="OPEN_SHORT" if ev.estimated_position_after < 0 else "OPEN_LONG",
+                    )
+                    current_evs.append(close_event)
+                    cycle_counter += 1
+                    cycles.append(CycleReconstructor._build_cycle(
+                        cycle_id=f"cycle-{symbol}-{cycle_counter:05d}",
+                        symbol=symbol,
+                        events=current_evs,
+                    ))
+                    current_evs = [open_event]
+                    continue
                 current_evs.append(ev)
                 # Check if position reached flat
                 if ev.estimated_position_after == 0:
@@ -421,12 +456,15 @@ class CycleReconstructor:
 
         # Boundary censoring and confidence scoring
         pos_before_first = events[0].estimated_position_after - events[0].signed_quantity_delta
-        left_censored = (pos_before_first != 0)
+        position_state_unverified = any(ev.confidence != "HIGH" for ev in events)
+        left_censored = pos_before_first != 0 or position_state_unverified
         right_censored = is_open or (events[-1].estimated_position_after != 0)
 
         reasons: list[str] = []
-        if left_censored:
+        if pos_before_first != 0:
             reasons.append("LEFT_BOUNDARY_CENSORED_INITIAL_POSITION_NON_ZERO")
+        if position_state_unverified:
+            reasons.append("INITIAL_POSITION_SNAPSHOT_NOT_PROVIDED")
         if right_censored:
             reasons.append("RIGHT_BOUNDARY_CENSORED_POSITION_NOT_FLAT_AT_CLOSE")
         if len(events) < 2:
@@ -444,7 +482,7 @@ class CycleReconstructor:
             conf_score = 0.2
             conf_class = "LOW"
 
-        confidence = "RECONSTRUCTED" if not is_open else "PARTIAL"
+        confidence = "RECONSTRUCTED" if conf_class == "HIGH" else "PARTIAL"
 
         return PositionCycle(
             cycle_id=cycle_id,
@@ -479,10 +517,25 @@ class WalletReconciler:
         wallet_events: Sequence[WalletEvent],
         trades: Sequence[ExecutionRow],
     ) -> dict[str, Any]:
-        # Filter wallet events by type
-        pnl_events = [ev for ev in wallet_events if ev.event_type == "REALIZED_PNL" and ev.timestamp]
-        deposit_events = [ev for ev in wallet_events if ev.event_type == "DEPOSIT"]
-        withdrawal_events = [ev for ev in wallet_events if ev.event_type == "WITHDRAWAL"]
+        # Canceled withdrawals are requests, not ledger cash flows. Treat any
+        # missing/unknown status as unverified rather than silently summing it.
+        completed_events = [
+            ev for ev in wallet_events
+            if (ev.raw_fields.get("transactstatus") or ev.raw_fields.get("transactStatus") or "").strip().lower() == "completed"
+        ]
+        canceled_withdrawals = [
+            ev for ev in wallet_events
+            if ev.event_type == "WITHDRAWAL"
+            and (ev.raw_fields.get("transactstatus") or ev.raw_fields.get("transactStatus") or "").strip().lower() == "canceled"
+        ]
+        unknown_status_count = sum(
+            1 for ev in wallet_events
+            if (ev.raw_fields.get("transactstatus") or ev.raw_fields.get("transactStatus") or "").strip().lower()
+            not in {"completed", "canceled"}
+        )
+        pnl_events = [ev for ev in completed_events if ev.event_type == "REALIZED_PNL" and ev.timestamp]
+        deposit_events = [ev for ev in completed_events if ev.event_type == "DEPOSIT"]
+        withdrawal_events = [ev for ev in completed_events if ev.event_type == "WITHDRAWAL"]
 
         total_wallet_pnl = sum((ev.amount or Decimal(0) for ev in pnl_events), Decimal(0))
         total_deposits = sum((ev.amount or Decimal(0) for ev in deposit_events), Decimal(0))
@@ -513,6 +566,22 @@ class WalletReconciler:
                 "status": "RECORDED_CASH_FLOW_ANCHOR",
             })
 
+        final_balance_candidates = [
+            ev for ev in completed_events if ev.balance is not None and ev.timestamp is not None
+        ]
+        final_balance_event = max(
+            final_balance_candidates,
+            key=lambda ev: ev.timestamp or datetime.min.replace(tzinfo=timezone.utc),
+            default=None,
+        )
+        completed_cashflow_sum = total_wallet_pnl + total_deposits + total_withdrawals
+        final_balance = final_balance_event.balance if final_balance_event else None
+        continuity = (
+            "MATCHED" if unknown_status_count == 0 and final_balance is not None and completed_cashflow_sum == final_balance
+            else "MISMATCH" if final_balance is not None and unknown_status_count == 0
+            else "NOT_VERIFIABLE"
+        )
+
         return {
             "summary": {
                 "total_wallet_realized_pnl_satoshi": int(total_wallet_pnl),
@@ -527,9 +596,16 @@ class WalletReconciler:
                 "withdrawal_events_count": len(withdrawal_events),
             },
             "reconciliation_classification": {
-                "cash_flow_continuity": "MATCHED",
-                "trade_pnl_anchor": "APPROXIMATELY_MATCHED",
-                "note": "BitMEX wallet records 12:00 UTC batch settlement including funding and liquidation adjustments.",
+                "cash_flow_continuity": continuity,
+                "trade_pnl_anchor": "NOT_IDENTIFIABLE",
+                "completed_wallet_cashflow_sum_satoshi": int(completed_cashflow_sum),
+                "final_recorded_balance_satoshi": int(final_balance) if final_balance is not None else None,
+                "unverified_status_event_count": unknown_status_count,
+                "canceled_withdrawal_count_excluded": len(canceled_withdrawals),
+                "canceled_withdrawal_amount_satoshi_excluded": int(
+                    sum((ev.amount or Decimal(0) for ev in canceled_withdrawals), Decimal(0))
+                ),
+                "note": "Only completed wallet events enter cash-flow totals. Trade-PnL attribution is not inferred from account cash flows.",
             },
             "sample_comparisons": sample_comparisons,
         }

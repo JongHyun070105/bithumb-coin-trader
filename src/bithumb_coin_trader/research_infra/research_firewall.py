@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
+import math
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
@@ -111,6 +112,10 @@ class ResearchFirewall:
             raise FirewallViolationError(
                 "Training aborted: Unattributed historical data violates provenance rules."
             )
+        if provenance == DatasetProvenance.EXTERNAL_EXPERT:
+            raise FirewallViolationError(
+                "Training aborted: External expert data is hypothesis-generation only and cannot train a candidate model."
+            )
 
         # Check prohibited features
         for f in feature_names:
@@ -159,6 +164,20 @@ class ResearchFirewall:
     ) -> bool:
         """Enforces that candidate promotion to alpha/paper requires canonical prospective holdout pass."""
         cls.validate_holdout_evaluation(eval_provenance, candidate)
+
+        if candidate.training_data_provenance in {
+            DatasetProvenance.EXTERNAL_EXPERT,
+            DatasetProvenance.HISTORICAL_UNATTRIBUTED,
+            DatasetProvenance.SYNTHETIC_TEST,
+        }:
+            raise FirewallViolationError(
+                f"Candidate training provenance '{candidate.training_data_provenance.value}' cannot support promotion."
+            )
+
+        if not math.isfinite(candidate.threshold_pass_value):
+            raise FirewallViolationError("Candidate promotion threshold must be finite.")
+        if not math.isfinite(metric_value):
+            raise FirewallViolationError("Candidate evaluation metric must be finite.")
 
         if metric_value < candidate.threshold_pass_value:
             raise FirewallViolationError(

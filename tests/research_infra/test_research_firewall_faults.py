@@ -86,6 +86,15 @@ def test_fault_unattributed_dataset_training() -> None:
         )
 
 
+def test_fault_external_expert_data_cannot_train_candidate() -> None:
+    with pytest.raises(FirewallViolationError, match="hypothesis-generation only"):
+        ResearchFirewall.validate_training_dataset(
+            provenance=DatasetProvenance.EXTERNAL_EXPERT,
+            feature_names=["spread_bps"],
+            target_name="forward_return",
+        )
+
+
 def test_fault_holdout_external_expert_dataset_blocked() -> None:
     cand = _make_dummy_candidate()
     with pytest.raises(FirewallViolationError, match="External expert dataset CANNOT be used as holdout"):
@@ -121,6 +130,42 @@ def test_fault_candidate_promotion_threshold_failure() -> None:
             candidate=cand,
             eval_provenance=DatasetProvenance.CANONICAL_PROSPECTIVE,
             metric_value=1.2,  # 1.2 < 1.5
+        )
+
+
+def test_fault_non_finite_metric_cannot_promote_candidate() -> None:
+    cand = _make_dummy_candidate()
+    with pytest.raises(FirewallViolationError, match="metric must be finite"):
+        ResearchFirewall.validate_candidate_promotion(
+            candidate=cand,
+            eval_provenance=DatasetProvenance.CANONICAL_PROSPECTIVE,
+            metric_value=float("nan"),
+        )
+
+
+def test_fault_non_finite_threshold_cannot_promote_candidate() -> None:
+    cand = _make_dummy_candidate(threshold=float("nan"))
+    with pytest.raises(FirewallViolationError, match="threshold must be finite"):
+        ResearchFirewall.validate_candidate_promotion(
+            candidate=cand,
+            eval_provenance=DatasetProvenance.CANONICAL_PROSPECTIVE,
+            metric_value=2.0,
+        )
+
+
+def test_fault_external_expert_training_provenance_cannot_promote() -> None:
+    candidate = _make_dummy_candidate()
+    candidate = CandidateFreezeContract(
+        **{
+            **candidate.__dict__,
+            "training_data_provenance": DatasetProvenance.EXTERNAL_EXPERT,
+        }
+    )
+    with pytest.raises(FirewallViolationError, match="cannot support promotion"):
+        ResearchFirewall.validate_candidate_promotion(
+            candidate=candidate,
+            eval_provenance=DatasetProvenance.CANONICAL_PROSPECTIVE,
+            metric_value=2.0,
         )
 
 

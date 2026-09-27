@@ -4,7 +4,7 @@ Enforces:
 - Section 14: Clear schema and interface for external market context data
   (orderbook top-of-book, bbo, depth, 1m/5m OHLCV bars)
 - Section 15: Strict as-of join invariant where market state at trade time t
-  MUST strictly satisfy: t_market <= t (strictly no future data leakage)
+  MUST strictly satisfy: t_market < t (strictly no future data leakage)
 - Fail-closed behavior on timestamp violations or forward lookahead
 """
 
@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
+import math
 from typing import Any, Iterator, Protocol, Sequence
 
 
@@ -87,45 +88,64 @@ class StrictAsOfJoiner:
         max_lookback_seconds: float = 60.0,
     ) -> list[dict[str, Any]]:
         """
-        Joins each trade event with the most recent market snapshot occurring AT OR BEFORE trade.timestamp.
+        Joins each trade event with the most recent completed market snapshot strictly before trade.timestamp.
         Guarantees:
-        1. t_market <= t_trade
+        1. t_market < t_trade (equal-time completed bars are conservatively excluded)
         2. If t_market > t_trade, raises LookaheadViolationError immediately.
         3. If t_trade - t_market > max_lookback_seconds, flags state as STALE.
         """
-        # Ensure market snapshots are strictly ordered by timestamp
-        for i in range(1, len(market_snapshots)):
-            if market_snapshots[i].timestamp < market_snapshots[i - 1].timestamp:
-                raise ValueError(
-                    f"Market snapshots out of chronological order at index {i}: "
-                    f"{market_snapshots[i].timestamp} < {market_snapshots[i-1].timestamp}"
-                )
+        if not math.isfinite(max_lookback_seconds) or max_lookback_seconds < 0:
+            raise ValueError("max_lookback_seconds must be finite and non-negative")
 
+        # A single global pointer can attach another instrument's snapshot to a
+        # trade when symbols are interleaved. Keep one chronological stream and
+        # cursor per symbol instead.
+        snapshots_by_symbol: dict[str, list[TopOfBookSnapshot]] = {}
+        for snapshot in market_snapshots:
+            snapshots_by_symbol.setdefault(snapshot.symbol, []).append(snapshot)
+
+        for symbol, snapshots in snapshots_by_symbol.items():
+            for i in range(1, len(snapshots)):
+                previous = snapshots[i - 1].timestamp
+                current = snapshots[i].timestamp
+                if current < previous:
+                    raise ValueError(
+                        f"Market snapshots for {symbol} out of chronological order at index {i}: "
+                        f"{current} < {previous}"
+                    )
+                if current == previous:
+                    raise ValueError(
+                        f"Duplicate market snapshot timestamp for {symbol}: {current}"
+                    )
+
+        snapshot_indices = {symbol: 0 for symbol in snapshots_by_symbol}
+        latest_snapshots: dict[str, TopOfBookSnapshot] = {}
         joined: list[dict[str, Any]] = []
-        m_idx = 0
-        m_len = len(market_snapshots)
 
         for trade in sorted(trade_events, key=lambda x: x.timestamp):
             t_time = trade.timestamp
             symbol = trade.symbol
 
-            # Advance market index to the latest snapshot where snapshot.timestamp <= t_time
-            matching_snapshot: TopOfBookSnapshot | None = None
-            while m_idx < m_len and market_snapshots[m_idx].timestamp <= t_time:
-                matching_snapshot = market_snapshots[m_idx]
-                m_idx += 1
+            snapshots = snapshots_by_symbol.get(symbol, [])
+            m_idx = snapshot_indices.get(symbol, 0)
+            matching_snapshot = latest_snapshots.get(symbol)
 
-            # Rewind m_idx by 1 if we advanced past the latest valid snapshot
-            if m_idx > 0 and matching_snapshot is not None:
-                # Keep pointer at the current valid snapshot for subsequent trades
-                m_idx -= 1
+            # Bar and snapshot timestamps describe when the aggregate became
+            # complete. Require a strictly earlier timestamp so equal-time
+            # executions cannot observe a bar that may include that execution.
+            while m_idx < len(snapshots) and snapshots[m_idx].timestamp < t_time:
+                matching_snapshot = snapshots[m_idx]
+                m_idx += 1
+            snapshot_indices[symbol] = m_idx
+            if matching_snapshot is not None:
+                latest_snapshots[symbol] = matching_snapshot
 
             if matching_snapshot is not None:
                 # Explicit No-Lookahead Assert
-                if matching_snapshot.timestamp > t_time:
+                if matching_snapshot.timestamp >= t_time:
                     raise LookaheadViolationError(
-                        f"CRITICAL: Future market snapshot leaked into trade join! "
-                        f"Market TS: {matching_snapshot.timestamp} > Trade TS: {t_time}"
+                        f"CRITICAL: Same-time or future market snapshot leaked into trade join! "
+                        f"Market TS: {matching_snapshot.timestamp} >= Trade TS: {t_time}"
                     )
 
                 latency_seconds = (t_time - matching_snapshot.timestamp).total_seconds()

@@ -16,7 +16,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import tempfile
 from typing import Any
 import zipfile
@@ -61,8 +60,10 @@ def compute_table_hashes(table_dir: Path) -> dict[str, Any]:
     for pf in parquet_files:
         byte_hasher.update(pf.read_bytes())
 
-    # Read entire dataset table
+    # Read and combine chunks so logical hashing does not depend on Parquet
+    # fragment boundaries chosen by the writer.
     table = pq.read_table(table_dir)
+    table = table.combine_chunks()
     total_rows = len(table)
     schema_str = str(table.schema)
 
@@ -142,8 +143,11 @@ def clean_rebuild_from_zip(
     verification_dir = target_root / "verification"
 
     if target_root.exists():
-        shutil.rmtree(target_root)
+        raise FileExistsError(
+            f"Refusing to delete or overwrite existing rebuild target: {target_root}"
+        )
 
+    target_root.mkdir(parents=True, exist_ok=False)
     raw_dir.mkdir(parents=True, exist_ok=True)
     derived_dir.mkdir(parents=True, exist_ok=True)
     verification_dir.mkdir(parents=True, exist_ok=True)
@@ -293,10 +297,14 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="rebuild_run1_") as td1, \
          tempfile.TemporaryDirectory(prefix="rebuild_run2_") as td2:
         print(f"Executing Clean Rebuild Run 1 in {td1}...")
-        run1 = clean_rebuild_from_zip(args.zip_path, Path(td1), max_reconstruct_sample=args.reconstruct_sample)
+        run1 = clean_rebuild_from_zip(
+            args.zip_path, Path(td1) / "rebuild", max_reconstruct_sample=args.reconstruct_sample
+        )
 
         print(f"Executing Clean Rebuild Run 2 in {td2}...")
-        run2 = clean_rebuild_from_zip(args.zip_path, Path(td2), max_reconstruct_sample=args.reconstruct_sample)
+        run2 = clean_rebuild_from_zip(
+            args.zip_path, Path(td2) / "rebuild", max_reconstruct_sample=args.reconstruct_sample
+        )
 
         print("Comparing Run 1 vs Run 2 manifests...")
         comparison = compare_rebuild_manifests(run1, run2)
