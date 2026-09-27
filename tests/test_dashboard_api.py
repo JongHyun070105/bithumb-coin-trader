@@ -1,8 +1,14 @@
 from __future__ import annotations
 
 import unittest
+import json
+import os
+from pathlib import Path
+import sqlite3
+from tempfile import TemporaryDirectory
 from io import BytesIO
-from unittest.mock import MagicMock
+from http.client import HTTPMessage
+from unittest.mock import patch
 
 from bithumb_coin_trader.dashboard_api import (
     DashboardHandler,
@@ -10,6 +16,7 @@ from bithumb_coin_trader.dashboard_api import (
     get_datasets,
     get_evidence,
     get_maker_research,
+    get_paper_runtime,
     get_research_state,
     get_safety,
     get_status,
@@ -107,6 +114,34 @@ class DashboardApiUnitTests(unittest.TestCase):
         self.assertEqual(data["private_api"], "DISABLED")
         self.assertEqual(data["paper_trading"], "NOT STARTED")
 
+    def test_get_paper_runtime_reads_latest_snapshot_read_only(self):
+        with TemporaryDirectory() as directory:
+            journal = Path(directory) / "paper.sqlite"
+            with sqlite3.connect(journal) as connection:
+                connection.execute(
+                    "CREATE TABLE paper_runtime_events (event_id TEXT, timestamp_ms INTEGER, result_json TEXT)"
+                )
+                connection.execute(
+                    "INSERT INTO paper_runtime_events VALUES (?, ?, ?)",
+                    ("event-1", 1234, json.dumps({"metrics": {"risk_state": "READY", "cash_krw": "1000"}})),
+                )
+            with patch.dict(os.environ, {"BITHUMB_PAPER_JOURNAL_PATH": str(journal)}):
+                data = get_paper_runtime()
+
+            self.assertEqual(data["status"], "AVAILABLE")
+            self.assertEqual(data["event_id"], "event-1")
+            self.assertEqual(data["metrics_integrity"], "NOT_VERIFIED")
+            self.assertEqual(data["metrics"]["risk_state"], "READY")
+            with sqlite3.connect(journal) as connection:
+                self.assertEqual(
+                    connection.execute("SELECT COUNT(*) FROM paper_runtime_events").fetchone()[0], 1
+                )
+
+    def test_get_paper_runtime_is_unconfigured_by_default(self):
+        with patch.dict(os.environ):
+            os.environ.pop("BITHUMB_PAPER_JOURNAL_PATH", None)
+            self.assertEqual(get_paper_runtime()["status"], "NOT_CONFIGURED")
+
 
 class MockDashboardHandler(DashboardHandler):
     def __init__(self, path: str):
@@ -115,7 +150,7 @@ class MockDashboardHandler(DashboardHandler):
         self.request_version = "HTTP/1.1"
         self.command = "GET"
         self.wfile = BytesIO()
-        self.headers = {}
+        self.headers = HTTPMessage()
         self.status_code = None
         self.response_headers = {}
 
@@ -145,6 +180,7 @@ class DashboardHandlerRoutingTests(unittest.TestCase):
             "/api/evidence",
             "/api/storage",
             "/api/safety",
+            "/api/paper/runtime",
             "/api/v2/research",
             "/api/v2/summary",
             "/api/v4/status",

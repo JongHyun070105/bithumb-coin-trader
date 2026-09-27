@@ -234,7 +234,10 @@ validation occurs as the runtime is initialized. An existing journal requires
 explicit `--resume`. This command has been prepared but not
 invoked, so `PAPER=NOT_STARTED`. See
 [`docs/paper-local-session.md`](../paper-local-session.md) for the event schema
-and full invocation shape. `scripts/post30h_orchestrator.py` runs the terminal
+and full invocation shape. The existing loopback dashboard API can read the
+latest snapshot through `/api/paper/runtime` when configured with
+`BITHUMB_PAPER_JOURNAL_PATH`; it uses SQLite read-only mode and labels snapshot
+integrity unverified. `scripts/post30h_orchestrator.py` runs the terminal
 audit, reliability seal, verified source-integration and dataset-DQ receipts,
 research batch, evidence-only candidate report, existing candidate freeze,
 and PAPER readiness in fail-stop order. It never merges source, selects a

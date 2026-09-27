@@ -81,6 +81,14 @@ fill semantics. The authoritative event and accounting history remains in the
 SQLite journal; standard output is an operational view, not a replacement for
 that journal.
 
+The existing loopback dashboard API exposes the latest journal snapshot at
+`GET /api/paper/runtime` when its process is started with
+`BITHUMB_PAPER_JOURNAL_PATH=/path/to/paper-session.sqlite`. The endpoint opens
+the configured journal in SQLite read-only mode. It returns
+`metrics_integrity=NOT_VERIFIED` because the runtime result JSON is not
+independently hashed; use the journal recovery checks as the accounting source
+of truth.
+
 The PAPER fill path is taker-only and consumes observable book depth with
 configured positive latency, taker fee, and slippage, plus tick, lot, and
 minimum notional rounding. Depth-limited partial fills are explicit. Maker
