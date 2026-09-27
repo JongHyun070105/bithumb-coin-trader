@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "record_type": "overnight_terminal_adjudication_checkpoint",
+  "recorded_at_utc": "2026-09-27T18:05:42Z",
+  "verdict": "NOT_VERIFIABLE",
+  "actual_natural_termination_confirmed": false,
+  "actual_terminal_time_utc": null,
+  "expected_natural_end_utc": null,
+  "run_identity": {
+    "epoch": null,
+    "run_id": null,
+    "launch_id": null,
+    "runtime_commit": null,
+    "runtime_tree": null,
+    "identity_status": "NOT_VERIFIABLE"
+  },
+  "runtime_revision_observed_in_readiness_inventory": {
+    "commit": "22e06b9527798567e185fb0dd41dca3a448f444e",
+    "tree": "a44c9591045f3634cda1066d582927f277b79e2d",
+    "source": "docs/project-readiness-20260927.md",
+    "binding_to_current_run": "NOT_VERIFIED"
+  },
+  "aws_auth": {
+    "valid_at_start": false,
+    "valid_at_latest_check": false,
+    "valid_at_terminal": null,
+    "latest_error": "InvalidClientTokenId",
+    "region": "ap-northeast-2",
+    "account": null,
+    "principal": null,
+    "expiration_utc": null,
+    "terminal_time_known": false
+  },
+  "actual_run_audit_performed": false,
+  "missing_evidence": [
+    {
+      "name": "current Fresh 30H-v3 launch identity and timing contract",
+      "why_required": "Needed to bind evidence to epoch, run, launch, runtime tree, T0, expected natural end, settle window, and required cohorts/feed slots.",
+      "where_expected": "Authoritative current-run launch artifacts; the local checkout contains only older 2026-09-15 v3/v4 seal artifacts and no verified current run ID or evidence prefix."
+    },
+    {
+      "name": "authoritative terminal evidence bundle",
+      "why_required": "Needed to establish natural termination and audit process status, persistence, feed health, cohort slots, receipts, and restart idempotency.",
+      "where_expected": "The current run's documented AWS/S3 evidence location and/or its synchronized read-only local export; the prefix cannot be derived without the current launch identity."
+    }
+  ],
+  "idempotency_audit": {
+    "defect_triggered_in_actual_run": null,
+    "exposed_but_not_triggered_in_actual_run": null,
+    "impact_in_actual_run": null,
+    "synthetic_retry_with_changed_closed_at_and_evidence_hash": "FAIL",
+    "synthetic_retry_details": "Same logical slot, different closed_at_utc and evidence hash, with an archive receipt already present; the auditor surfaced duplicate finalization and stability violations."
+  },
+  "offline_auditor_calibration": {
+    "synthetic_positive_fixture": "PASS",
+    "negative_fixture_results": {
+      "missing_receipt": "FAIL",
+      "receipt_hash_mismatch": "FAIL",
+      "failed_feed_slot": "FAIL",
+      "incomplete_cohort": "FAIL",
+      "writer_error": "FAIL",
+      "nonzero_queue": "FAIL",
+      "unpersisted_records": "FAIL",
+      "NRestarts_over_limit": "FAIL",
+      "bad_exit_code": "FAIL",
+      "missing_terminal_witness": "NOT_VERIFIABLE",
+      "short_duration": "FAIL",
+      "runtime_commit_mismatch": "FAIL",
+      "restart_idempotency_retry_changed_close_and_hash": "FAIL"
+    }
+  },
+  "last_known_state": "The local readiness inventory describes Fresh 30H-v3 as in progress and records an intended runtime revision, but it contains no verified current-run launch identity or terminal evidence. Current terminal state remains unknown.",
+  "safe_recovery_action": "After normal AWS reauthentication, run aws sts get-caller-identity --output json; recover the exact current run identity and expected natural-end contract from its authoritative launch artifacts; only after natural end, export evidence read-only and run scripts/audit_fresh_30h_v3_terminal.py against that local bundle. Do not restart or mutate runtime/evidence."
+}
