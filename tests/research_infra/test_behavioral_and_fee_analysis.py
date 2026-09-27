@@ -1,49 +1,34 @@
-"""Tests for fee economics, CUSUM structural breaks, and Oaxaca-Blinder composition analysis."""
+"""Tests for retired legacy analysis guards and the composition identity."""
 
 from __future__ import annotations
 
-from decimal import Decimal
+import pytest
 
 from bithumb_coin_trader.research_infra.behavioral_and_fee_analysis import (
     ChangePointAnalyzer,
     CompositionAnalyzer,
     FeeEconomicsAnalyzer,
+    LegacyAnalysisDisabled,
+    run_full_behavioral_and_fee_analysis,
 )
 
 
-def test_fee_counterfactual_scenarios() -> None:
-    scenarios = FeeEconomicsAnalyzer.evaluate_scenarios()
-    assert len(scenarios) == 3
-
-    # Check Zero Maker Rebate scenario
-    zero_rebate = next(s for s in scenarios if s.scenario_name == "ZERO_MAKER_REBATE")
-    assert zero_rebate.counterfactual_maker_fee_btc == Decimal("0")
-    # PnL delta should be exactly the negative of the rebate received (-298.46 BTC lost)
-    assert zero_rebate.pnl_delta_btc < Decimal("0")
-
-    # Check Bithumb Spot Portability scenario
-    spot = next(s for s in scenarios if s.scenario_name == "BITHUMB_SPOT_PORTABILITY")
-    assert spot.counterfactual_funding_btc == Decimal("0")
-    # Under spot fees (+4bps maker, +4bps taker), total fees must be positive and large
-    assert spot.counterfactual_total_fee_btc > Decimal("100")
-    assert not spot.is_economically_viable or spot.fail_reason is not None
-
-    # Check No Funding scenario
-    no_funding = next(s for s in scenarios if s.scenario_name == "NO_FUNDING_INCOME")
-    assert no_funding.counterfactual_funding_btc == Decimal("0")
-    assert no_funding.pnl_delta_btc < Decimal("0")
+def test_legacy_fee_counterfactual_fails_closed() -> None:
+    with pytest.raises(LegacyAnalysisDisabled, match="hardcoded and unverified"):
+        FeeEconomicsAnalyzer.evaluate_scenarios()
 
 
-def test_cusum_structural_break_detection() -> None:
-    # Stable series with sudden regime shift in the middle
+def test_legacy_ols_cusum_fails_closed() -> None:
     series = [0.45] * 12 + [0.85] * 12
     labels = [f"2020-{i:02d}" for i in range(1, 13)] + [f"2021-{i:02d}" for i in range(1, 13)]
 
-    breaks = ChangePointAnalyzer.detect_cusum_breaks(series, labels)
-    assert len(breaks) == 1
-    assert breaks[0].is_statistically_significant
-    # Break should be detected around the jump boundary
-    assert "2021" in breaks[0].label or "2020-12" in breaks[0].label
+    with pytest.raises(LegacyAnalysisDisabled, match="hardcoded and unverified"):
+        ChangePointAnalyzer.detect_cusum_breaks(series, labels)
+
+
+def test_legacy_report_fails_closed() -> None:
+    with pytest.raises(LegacyAnalysisDisabled, match="hardcoded and unverified"):
+        run_full_behavioral_and_fee_analysis()
 
 
 def test_composition_decomposition_exact_identity() -> None:
