@@ -30,6 +30,11 @@ from bithumb_coin_trader.research_infra.backtesting import SpotResearchBackteste
 from bithumb_coin_trader.research_infra.batch import BatchExperiment, run_research_batch
 from bithumb_coin_trader.research_infra.candidate_freeze import freeze_candidate_experiment
 from bithumb_coin_trader.research_infra.costs import SpotCostScenario
+from bithumb_coin_trader.research_infra.definition_registry import (
+    FeatureDefinition,
+    StrategyDefinition,
+    VersionedDefinitionRegistry,
+)
 from bithumb_coin_trader.research_infra.walk_forward_runner import run_walk_forward
 from bithumb_coin_trader.risk_engine import RiskEngine, RiskEngineConfig
 
@@ -108,18 +113,37 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     with tempfile.TemporaryDirectory(prefix="research-pipeline-benchmark-") as temporary:
         output_root = Path(temporary)
-        experiments = tuple(
-            BatchExperiment(
+        registry = VersionedDefinitionRegistry(output_root / "definition-registry.jsonl")
+        benchmark_source_sha256 = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+        feature_definition = registry.register(FeatureDefinition(
+            definition_id="completed_candle_history",
+            version="1.0.0",
+            implementation_sha256=hashlib.sha256((ROOT / "src/bithumb_coin_trader/models.py").read_bytes()).hexdigest(),
+            config_schema={"type": "object"},
+            description="Synthetic benchmark consumes point-in-time completed OHLCV candles.",
+        ))
+        experiments_list: list[BatchExperiment] = []
+        for index in range(args.batch_size):
+            strategy_id = f"benchmark_strategy_{index:03d}"
+            strategy_definition = registry.register(StrategyDefinition(
+                definition_id=strategy_id,
+                version="1.0.0",
+                implementation_sha256=benchmark_source_sha256,
+                config_schema={"type": "object"},
+                description="Synthetic train-only timing fixture.",
+            ))
+            experiments_list.append(BatchExperiment(
                 candidate_family="benchmark",
-                strategy_id=f"benchmark_strategy_{index:03d}",
+                strategy_id=strategy_id,
                 strategy_factory=lambda _seed, _params: _TrainOnly(),
                 strategy_config={"variant": index},
                 feature_config={"input": "completed_candle_history"},
                 parameter_sets=({},),
                 seed=7,
-            )
-            for index in range(args.batch_size)
-        )
+                strategy_definition=strategy_definition,
+                feature_definition=feature_definition,
+            ))
+        experiments = tuple(experiments_list)
         start = time.perf_counter()
         batch = run_research_batch(
             candles=candles,
