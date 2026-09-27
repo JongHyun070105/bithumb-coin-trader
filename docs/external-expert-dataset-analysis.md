@@ -1,5 +1,7 @@
 # 외부 전문가 데이터셋 정밀 감사, 2차 독립 검증 및 연구 거버넌스 보고서
 
+> **2026-09-27 independent senior audit supersedes the conclusions below.** The earlier sections are retained as historical evidence, not current results. In particular, the asserted $10.57B exposure, 2020-10/11 OLS-CUSUM break and p-value, 52.3%/85.78% annual maker rates, +12.85pp composition effect, absolute position-cycle labels, profitability/portability conclusions, and claimed full reproducibility were not independently supported as stated. See the audit appendix at the end before using any earlier number.
+
 - **데이터셋 식별자:** `external-bitmex-trader-2018-2021`
 - **학술적/연구적 역할:** `EXTERNAL_EXPERT_BEHAVIOR_DATASET` (가설 발굴 전용 외부 전문가 행동 데이터)
 - **기본 활용 범위:** `HYPOTHESIS_GENERATION_ONLY` (최종 홀드아웃 및 모델 타겟 편입 절대 금지)
@@ -241,3 +243,168 @@ $$\Delta R = \sum w_{2020} \Delta r + \sum \Delta w r_{2020} + \sum \Delta w \De
   - `PRIVATE_API = DISABLED`
 - **AWS 30H 검증 연계:** 본 작업은 격리된 로컬 브랜치/작업트리에서만 진행되었으며, 현재 AWS에서 백그라운드로 실행 중인 Fresh 30H-v3 신뢰성 검증 런타임, 커밋 `22e06b9`, EC2 인프라 및 S3 객체에는 일체의 영향을 주지 않았습니다.
 - **다음 단계:** Fresh 30H 신뢰성 검증 완료 및 공식 PASS 판정 이후, 동결된 가설 카탈로그를 바탕으로 순수 빗썸 공개 데이터에 대한 독립적 연구를 안전하게 개시할 수 있는 완전한 인프라가 준비되었습니다.
+
+---
+
+## 11. Independent Senior Audit — 2026-09-27
+
+### 11.1 Scope, evidence, and disposition
+
+This audit reviewed the PR #17 branch at `c1605a45614292db5772fd3ada2d366f2c4f5cca` and the raw source files independently. The independent claim script uses only Python's CSV reader and `Decimal`; it does not call the production ingester, verifier, contract mapper, wallet reconciler, behavior analyzer, or decomposition code. Separate market and behavior scripts consume public source files and emit ignored artifacts under `.external-research-data/`.
+
+PR #17 is still a Draft. Its current diff from `main` spans 50 commits, 279 files, approximately 50,860 additions and 541 deletions. The scope combines reliability infrastructure, dataset ingestion/reconstruction, audit outputs, research governance, and market-context work. It is too broad for a single substantive review, but this audit did not rewrite its history. Safest future decomposition: (A) ingestion/provenance/DQ, (B) contract and reconstruction semantics, (C) wallet/behavior/statistical audit, (D) market context and joins, (E) research governance/handoff. Create stacked PRs only after agreeing on ownership and dependency boundaries; preserve this Draft and its evidence in the meantime.
+
+### 11.2 Module-by-module code audit
+
+| Area | Status | Audit finding |
+|---|---|---|
+| Independent verifier | `UNVERIFIED` | It has an independent PyArrow read path, but its baseline is hardcoded/stale, a discrepancy can be forced to `DISCREPANCY_EXPLAINED`, and verdict execution is not bound to source checksums. It is not independent proof of every prior summary. |
+| Reproducibility | `TRUSTED_WITH_LIMITATIONS` | Logical hashing now combines Arrow chunks; a pre-existing destination is refused instead of recursively deleted, and CLI output uses a unique child directory. Row-order normalization is useful. Byte hashes remain informational and the clean rebuild covered a sample, not the whole provenance lifecycle. |
+| Canonical ingestion | `NEEDS_FIX` | Monetary values are converted through float64 in parts of the path; sorting is batch-local rather than globally guaranteed; invalid timestamps can be skipped without a complete rejection ledger. Do not treat it as an exact canonical accounting ledger yet. |
+| DQ | `NEEDS_FIX` | Archive row mismatch is only a warning; one provenance-key check is tautological; the old wallet continuity path did not properly exclude canceled withdrawals and used floating point. Adversarial unit tests do not establish fail-closed behavior for every source-level fault. |
+| Contract specifications | `NEEDS_FIX` | ETHUSD USD notional was calculated as contracts × price despite quanto semantics; XRPUSD notional omitted its price factor; prefix fallback can misclassify XBTUSDT; historical contract/fee provenance is incomplete. Independent raw contract counts therefore do not validate the prior USD-equivalent total. |
+| Order reconstruction | `TRUSTED_WITH_LIMITATIONS` | Groups observed fills, but cannot recover unfilled/canceled orders or queue state. Mixed order IDs and status history limit behavioral interpretation. |
+| Position reconstruction | `TRUSTED_WITH_LIMITATIONS` only with supplied snapshots | Missing per-symbol initial inventory now produces `AMBIGUOUS`/low confidence. Direct flips split into close/open events. This dataset has no independent initial-position snapshot, so absolute OPEN/ADD/REDUCE/CLOSE/FLIP intent remains `NOT_IDENTIFIABLE`; all flat-start labels are conditional. |
+| Cycle reconstruction | `TRUSTED_WITH_LIMITATIONS` | Flip events and left-censored initial state are handled more carefully. Average-cost PnL is approximate, funding attribution is incomplete, and there is no starting inventory here. No cycle-performance result from this dataset is high-confidence. |
+| Stratified reconstruction audit | `NEEDS_FIX` | The old “100 samples, zero mismatches” check largely checks vocabulary/sign/type or invokes the same production semantics; it does not independently recompute position/cycle state, and its symbol/year strata are not representative. |
+| Wallet reconciliation | `TRUSTED_WITH_LIMITATIONS` after fix | Completed-only cash flows exclude canceled withdrawals, unknown statuses are counted, final balance continuity is calculated, and trade PnL anchoring is explicitly `NOT_IDENTIFIABLE`. This validates the raw cashflow identity, not trading profitability. |
+| Behavioral / fee production analysis | `NEEDS_FIX` | The old module contains hardcoded monthly ratios, fee/notional assumptions and toy weights. The raw Decimal audit and sensitivity script below supersede its claims; the old production analysis still needs refactoring before use. |
+| CUSUM | `NEEDS_FIX` | The result labeled OLS-CUSUM is a simple cumulative-deviation screen on a hardcoded/untraceable series, not recursive-residual Brown–Durbin–Evans OLS-CUSUM. Its reported p-value is unsupported. |
+| Oaxaca/composition decomposition | `TRUSTED_WITH_LIMITATIONS` as an identity only | The algebraic identity is correct, but old input rates/weights are not raw-derived. A separate raw fill-count decomposition reproduces the identity and materially changes all three terms. |
+| Market context | `TRUSTED_WITH_LIMITATIONS` | The joiner now isolates symbols and excludes same-time bars, and checks finite nonnegative lookback. Acquired data are hourly; no spread/depth/queue/liquidation fields exist, and 170,772 other-instrument fills are unmatched. |
+| Research firewall | `TRUSTED_WITH_LIMITATIONS` after fix | External-expert data are blocked from training/promotion and non-finite promotion metrics fail closed. This is a provenance policy gate, not evidence of statistical quality or alpha. |
+| `external_behavior.py` | `NEEDS_FIX` | Raw quantity units are mixed across symbols, feature/phase definitions are hardcoded, and several risk/percentile claims cannot be reproduced from a traceable input series. |
+
+The most consequential fixes in this audit are: removing destructive rebuild behavior, fail-closing on absent starting position, splitting flips and marking left-censored cycles, filtering wallet cash flows by completed status, and blocking external-expert training/promotion including NaN metrics. The incorrect contract-notional code and hardcoded legacy analysis remain unresolved and block treating PR #17 as scientifically ready.
+
+### 11.3 Independent raw re-computation of reported claims
+
+| Claim | Independent result | Disposition |
+|---|---:|---|
+| Wallet final balance | `737.26973405 BTC` (73,726,973,405 sat) | `MATCH`. Recomputed as completed deposits + realized PnL − completed withdrawals; equals the final logged balance. |
+| Canceled withdrawals | 7 events; `17.98581713 BTC` absolute | `MATCH`. Excluded from completed cash flow. |
+| XBTUSD contracts | 23,574,456,258 absolute `lastqty` | Reported 9,258,603,804 does not match raw gross fills. |
+| ETHUSD contracts | 170,343,814 absolute `lastqty` | Reported 13,777,628 does not match raw gross fills. |
+| XRPUSD contracts | 40,789,838 absolute `lastqty` | Reported 29,413,562 does not match raw gross fills. |
+| Aggregate USD-equivalent exposure | `NOT VERIFIED` | Reported ≈$10.57B is not reproducible from the asserted component contract counts. XBTUSD alone is $23.57B gross contract turnover at $1/contract; ETH/XRP require correct historical quanto terms and dated specs. Gross turnover is not position exposure or PnL. |
+| Maker rebate / taker fees / net trading fees | −298.46242759 / +376.46255730 / +78.00012971 BTC | Raw `execcomm` values reproduce rounded claims. |
+| Funding | −14,957,544,093 sat in signed `execcomm`; +149.57544093 BTC credit if negative denotes income | Rounded claim matches under that sign convention. It is not USD-comparable without dated conversion and position attribution. |
+| Annual maker ratio, fill weighted | 2018 49.1124%; 2019 45.0248%; 2020 46.9184%; 2021 85.8912% | 2020's stated 52.3% is wrong under the raw known-liquidity fill denominator. 2021's 85.78% is close but not exact. |
+| 2020→2021 composition | total +38.9728pp = within-symbol +25.2979pp + composition +17.9529pp + interaction −4.2780pp | Raw XBTUSD/ETHUSD/OTHER fill-count decomposition. Prior +22.40pp / +12.85pp / −1.77pp is not supported by these raw inputs. Identity error < 1e−15. |
+| Structural break | No uniquely supported breakpoint | The exact 2020-10/11 OLS-CUSUM p<0.001 claim is unsupported; see §11.5. |
+
+Raw executions include 1,439,207 Trade rows, 5,368 Funding rows and 8 Settlement rows. Trade timestamps span 2018-03-05 through 2021-12-24. These are raw-CSV/Decimal results in `.external-research-data/external-bitmex-market-context-2018-2021/derived/independent-raw-claims-audit.json`; the source archive and derived raw data remain untracked.
+
+### 11.4 Historical public market data acquired and cross-checked
+
+The resumable acquisition script fetched **92 checksummed official Binance Public Data hourly archives** (BTCUSDT and ETHUSDT, each month from 2018-03 through 2021-12), **120 BitMEX hourly bucket pages** (XBTUSD and ETHUSD), and **25 BitMEX funding-history pages**. Per-artifact manifests record provider, endpoint/dataset, instrument, month/coverage, frequency, download UTC time, archive and publisher checksum, and limitations. Binance's official repository describes monthly klines and `.CHECKSUM` files and notes archives can be corrected; BitMEX documents bucket timestamps as interval ends and bucket open as the previous bucket close ([Binance Public Data](https://github.com/binance/binance-public-data/blob/master/README.md), [BitMEX Trade Bucketed](https://docs.bitmex.com/api-explorer/get-trade-bucketed)).
+
+Canonical execution-aligned series is BitMEX hourly data; Binance spot is an independent cross-check/fallback, never silently mixed into the canonical series. BTCUSDT and ETHUSDT use USDT while BitMEX XBTUSD/ETHUSD use USD; the measured cross-venue differences include market basis and USDT/USD differences, so they are not pure data-error rates.
+
+| Instrument | BitMEX hourly rows / missing from 33,648-hour grid | Binance rows / missing from grid | Aligned | Absolute close difference median / p95 / max |
+|---|---:|---:|---:|---:|
+| XBTUSD vs BTCUSDT | 33,648 / 0 | 33,561 / 87 | 33,561 | 10.12 / 118.13 / 1,022.98 bps |
+| ETHUSD vs ETHUSDT | 29,942 / 3,706 (leading coverage gap; none internal after first bar) | 33,561 / 87 | 29,874 | 15.91 / 122.36 / 923.40 bps |
+
+Volume differences are not expected to match: BitMEX `foreignNotional` is USD-equivalent contract turnover, while Binance quote-asset volume is USDT spot turnover. Their median BitMEX/Binance ratios were 3.91 for BTC and 1.36 for ETH; this is venue turnover, not price-series disagreement. Acquired features include hourly OHLCV/contract volume, rolling returns, realized volatility, ATR/range, trend and volume regimes, and latest as-of funding sign. Historical spread, depth, queue position, liquidation flow, and order-flow imbalance were unavailable and are not imputed.
+
+### 11.5 As-of join, regimes, intent, and behavior
+
+The join covers **1,268,435 of 1,439,207** Trade fills; **170,772** fills in other instruments remain unmatched. XBTUSD joined 941,007/941,007 and ETHUSD 327,428/327,428. The feature join uses a completed context bar with `context_timestamp < execution_timestamp` (stricter than `<=`, excluding same-time bars). Independent full-file recheck: `FUTURE_LEAKAGE_COUNT=0`; maximum context age 3,599.992 seconds, median 1,683.284 seconds, p95 3,393.010 seconds. The audit is in `execution-context-join-audit.json`. Hourly features cannot resolve the requested ±5m/±15m event windows.
+
+Regime rules use prior observations only: 24-hour realized volatility, 14-bar ATR percentage, 24-hour return/trend, prior 168 observed hourly buckets for volatility/volume thresholds (minimum warmup 120), and the latest funding rate available by the completed bar. Entry counts are small: high-vol 217 maker / 402 taker, low-vol 144 / 169; negative-funding 105 / 312, positive-funding 260 / 271. These are descriptive fill counts under assumed-flat intent reconstruction, not causal evidence that volatility, trend, or funding changes aggressiveness.
+
+Position state supports OPEN_LONG, ADD_LONG, REDUCE_LONG, CLOSE_LONG, OPEN_SHORT, ADD_SHORT, REDUCE_SHORT, CLOSE_SHORT, flips, and AMBIGUOUS. However, with no independent initial inventory, absolute intent is `NOT_IDENTIFIABLE`; observed “ENTRY/EXIT/ADD/REDUCE/FLIP” results below are conditional on starting flat. Complete conditional reconstruction has 3,176 cycles and 9 open at the terminal boundary, but **0 HIGH_CONFIDENCE cycles**. Consequently, high-confidence event study and cycle-only attribution are `NOT_IDENTIFIABLE`.
+
+| Conditional descriptive result | Estimate |
+|---|---:|
+| Entry taker share | 57.384% |
+| Close-only exit taker share | 57.228% |
+| Exit minus entry taker share | −0.156pp |
+| XBTUSD fill-to-fill adverse-add proxy / favorable-or-flat | 76,483 / 390,916 |
+| ETHUSD fill-to-fill adverse-add proxy / favorable-or-flat | 5,551 / 153,847 |
+
+The entry/exit difference does not support a claim that exits are more taker aggressive. Fill-to-fill direction is a crude prior-fill reference, not an observed market path or account PnL. Maker rates rose within both primary symbols (XBTUSD 45.10%→71.19%; ETHUSD 70.99%→95.05%, 2020→2021), so the raw aggregate change is not solely composition. Still, the leave-one-year-out annual maker-share slope is −0.01097/year when 2021 is omitted: the apparent multiyear increase is driven by 2021. No queue data or unfilled orders identify passive execution skill.
+
+### 11.6 Uncertainty, structural-break methods, robustness, and falsification
+
+Uncertainty estimates use seeded 7-day moving blocks over active UTC days (500 bootstrap replicates; median metrics 250), not iid resampling. The full year-by-year estimates and 95% block intervals for maker/taker share, fills/order, median contract order size, conditional maker-at-entry, conditional maker-at-close, per-active-day fee contribution, per-calendar-day funding contribution, and conditional cycle duration are stored in `execution-behavior-audit-v3.json`. Illustrative 2021 results: maker 85.89% [83.13, 88.06], taker 14.11% [12.06, 16.82]; fills/order 189.78 [155.33, 226.02]; conditional maker at entry 28.57% [15.94, 40.91] and close 73.24% [60.56, 85.06]; median cycle duration XBT 55,875s [37,211, 133,545], ETH 70,603s [21,246, 196,941] (conditional sample sizes 125 and 64); maker fee contribution −0.273 BTC/active day [−0.344, −0.206], taker contribution +0.187 [0.149, 0.231]; signed funding credit +0.477 BTC/calendar day [0.194, 0.789]. Sparse entry/exit and cycle samples yield broad intervals. Fee/funding intervals describe cash flows and are not return estimates.
+
+The old “OLS-CUSUM” result fails review: its series is hardcoded/untraceable, its implementation is not recursive-residual OLS-CUSUM, and monthly proportions have variable denominators, serial dependence, and likely overdispersion. There are only 46 observed months (beginning March 2018), not the previously reported 43-month series. Re-analysis used raw monthly maker fills over known-liquidity fills, descriptive CUSUM and CUSUMSQ screens (no p-values), rolling three-month divergence, and exact dynamic-programming binomial piecewise-constant segmentation across minimum segment lengths and BIC-style penalties. This is not a validated Bai–Perron or `ruptures` PELT implementation. Results:
+
+- `ROBUST_BREAKS = []`.
+- `METHOD_DEPENDENT_BREAKS` include 2020-10 with a 6-month minimum segment, 2020-12 with a 3-month minimum, and many dates in other segments. CUSUM screen's maximum is before 2020-11; CUSUMSQ's maximum is before 2020-03; rolling 3-month divergence is largest at 2020-04 (56.44% vs 26.10%).
+- `UNSUPPORTED_BREAKS`: the single 2020-10/11 OLS-CUSUM break with p<0.001. No unique breakpoint is identified. Trend vs breaks, serial dependence, heteroskedasticity/overdispersion, multiple testing, and short monthly sample all remain unresolved.
+
+Adversarial robustness findings:
+
+- **Leave one year out:** omitting 2021 reverses the annual maker-share slope; bubble-era dominance is material.
+- **Symbol holdout-style check:** ETHUSD and XBTUSD both rise from 2020 to 2021, but this is descriptive replication, not a formal holdout.
+- **Outlier/weight sensitivity:** overall fill-weighted maker share is 67.16%, equal-active-day 57.57%. XBTUSD is 53.60% by fills, 59.12% equal-order and 54.03% log-size weighted; removing the largest 1% or 0.1% by a tied-size cutoff barely changes it. ETHUSD is 92.06% by fills but 71.35% equal-order, a large weighting sensitivity. No high-confidence-cycle-only result exists.
+- **Placebo:** approximate 999-draw shuffle of conditional entry/close labels inside symbol × volatility × funding-sign blocks gives observed exit-minus-entry maker share +0.310pp, approximate p=0.889, null 95% interval [−4.355pp, +4.097pp]. Normal-approximation hypergeometric draws and fill shuffling do not preserve temporal clusters; treat this as exploratory, not an inferential p-value.
+- **Falsification:** symbol composition changes part but not all of the aggregate maker rise; removing 2021 removes the positive time slope; equal-order weighting changes ETH materially; conditional entry/exit effect is near zero and placebo-like; no order book exists to test passive queue skill; and fee/rebate removal is large relative to plausible execution-cost differences. No directional or execution hypothesis survives as a validated edge.
+
+### 11.7 Fee/rebate sensitivity and domain-transfer assessment
+
+An independent Decimal grid evaluates five schedules (maker/taker −2.5/7.5, 0/7.5, 1/4, 4/4, 10/10 bps), 50/75/100% of recorded maker/taker turnover assumed filled, and 0/1/3/5 bps additional slippage per side: 60 combinations. BTC/ETH recorded gross USD-equivalent turnover proxies are approximately $23.574B XBTUSD and $3.939B ETHUSD, with the quanto conversion limitations above. Under historical-like fees and 100% observed turnover, transaction cost ranges from a $169.7k credit at zero added slippage to $2.582M cost at 1bp, $8.084M at 3bps, and $13.587M at 5bps. At 4/4bps and zero additional slippage, cost is $11.005M. These are cost sensitivities only; they do not reconstruct PnL, fill probability, borrowing costs, or a Bithumb forecast. Removing funding is separately +149.575 BTC historical cashflow credit and cannot be netted into USD without dated conversion and position attribution.
+
+| Dimension | BitMEX derivatives, 2018–2021 | Korean BTC spot in 2026 | Transfer classification |
+|---|---|---|---|
+| Fees/rebates | Observed maker rebate and taker fee; historical rate/model must be tied to contract and date | Per-market/account fee schedule can change; order-chance endpoint is private and was not called | `STRUCTURALLY_NON_TRANSFERABLE` for historical rebate economics; current rate `UNKNOWN` |
+| Shorting / leverage | Inverse/quanto derivatives and leverage; contract payoff differs by instrument | Spot holdings do not create a native short or the same leverage/payoff | `STRUCTURALLY_NON_TRANSFERABLE` |
+| Funding | Perpetual funding cashflows exist and were observed | Spot has no perpetual funding transfer | `STRUCTURALLY_NON_TRANSFERABLE` |
+| Contract payoff | XBT inverse and ETH/XRP quanto conversion; historical contract specs needed | KRW-denominated spot units with ordinary asset ownership | `STRUCTURALLY_NON_TRANSFERABLE` for sizing/payoff; instrument-specific research required |
+| Spread/depth/tick/lot | Historical snapshots and queue position are absent; fills alone do not reveal these | Venue publishes current order books and market policies; no historical execution-depth parity established | `UNKNOWN` |
+| Latency/partial fills | Source records only realized fills and coarse order metadata | Venue/network/API path differs; queue/latency data not collected here | `UNKNOWN` |
+| Participant mix, efficiency, volatility, liquidity | Only BTC/ETH hourly prices and BitMEX venue volume/funding acquired | Current 2026 Korean spot state not measured in this audit | `UNKNOWN` |
+| Cross-exchange divergence | BTCUSDT/ETHUSDT comparison exists but no USDT/USD adjustment | KRW markets add FX and local premium/basis | `TRANSFERABLE_WITH_ADAPTATION` as a research measurement concept only |
+| Regime-conditioned passive/aggressive response | Coarse conditional counts; no robust relation established | Requires new local public data, frozen rules, and independent validation | `UNKNOWN` |
+
+Official Bithumb docs expose public market list, candles, trades, ticker, and orderbook endpoints; its per-market order-chance endpoint returns fees/constraints but requires JWT/private API and was deliberately not used. Upbit documents market-specific price ticks and KRW orderbook aggregation ([Bithumb public API reference](https://apidocs.bithumb.com/reference/api-%EB%A0%88%ED%8D%BC%EB%9F%B0%EC%8A%A4), [Bithumb order chance](https://apidocs.bithumb.com/reference/%EC%A3%BC%EB%AC%B8-%EA%B0%80%EB%8A%A5-%EC%A0%95%EB%B3%B4), [Upbit KRW market policy](https://docs.upbit.com/kr/docs/krw-market-info)). Therefore current fee, symbol-level tick/lot, and account-specific constraints remain `UNKNOWN` here; do not reuse 4bps as a verified current schedule.
+
+### 11.8 Hypothesis catalog and disposition
+
+This catalog is for future hypothesis registration only. Context-conditioned counts are available only for XBTUSD/ETHUSD and rely on flat-start intent. Every falsification status is intentionally conservative.
+
+| ID | Descriptive source observation | Contradictions/confounds searched | Status / transfer | Falsification rule and minimum future data |
+|---|---|---|---|---|
+| `HYP-PASSIVE-ENTRY-REGIME-01` | Conditional entry maker share varies by year and coarse volatility/funding regime. | Small entries; start-state assumption; symbol/year composition; no order-book/queue outcome; placebo shows no entry-vs-exit separation. | `WEAK`; `UNKNOWN` transfer. Nothing survives as an edge. | Freeze regime and quote rule; reject if net fill-adjusted outcome versus time/symbol/regime-matched control is nonpositive after real fees, queue fills, and slippage. Need point-in-time best bid/ask/depth and all order acknowledgements/fills. |
+| `HYP-AGGRESSIVE-EXIT-01` | Conditional exit taker share 57.23% vs entry 57.38%. | Difference −0.156pp; placebo p≈0.889; label uncertainty and time clustering. | `REJECTED` as a claim that exits are more taker aggressive; transfer `UNKNOWN`. | Replicate only with independently snapshotted position transitions and order intent; reject if paired block CI includes zero or matched-stratum relation disappears. |
+| `HYP-INVENTORY-SCALE-ADVERSE-01` | Some sequential adds are below prior fill price (BTC/ETH counts above). | Fill-to-fill proxy, no market path or initial inventory, large symbol composition, no adverse/favorable movement horizon. | `UNIDENTIFIABLE`; transfer `UNKNOWN`. | Require timestamped position snapshots and point-in-time market returns; reject if adverse-add rate is no greater than symbol × volatility × trend matched placebo. |
+| `HYP-MAKER-RISE-2021-01` | Maker share rose within XBTUSD and ETHUSD in 2021. | 2021 alone drives the annual slope; equal-order ETH differs from fill weighting; no spread/queue or fill-quality evidence; fee schedule effects. | `WEAK` descriptive behavior, not skill; historical rebate component `STRUCTURALLY_NON_TRANSFERABLE`. | Require multi-year independent replication with order-level queue/fill outcomes; reject if year/symbol matched confidence interval includes no improvement after rebate removal and fee/slippage costs. |
+| `HYP-FUNDING-HOLD-DURATION-01` | Funding cash flows are material in BTC terms. | No independent positions/funding attribution to reconstructed cycle and no valid cycle confidence. Spot has no funding. | `UNIDENTIFIABLE`; `STRUCTURALLY_NON_TRANSFERABLE` to spot funding economics. | Requires signed position snapshots and funding event attribution; reject if risk-adjusted holding outcome does not differ across predeclared funding states. |
+| `HYP-CROSS-VENUE-DIVERGENCE-01` | Independent hourly BTC/ETH price series are available with measurable basis. | USDT/USD basis unadjusted, asynchronous coverage, hourly rather than execution-grade observations, no local KRW historical series. | `WEAK` as a data-collection hypothesis; `TRANSFERABLE_WITH_ADAPTATION` only as a measurement concept. | Freeze synchronized multi-venue prices and FX/basis model; reject if divergence has no out-of-sample relation after costs and latency. |
+
+No listed hypothesis is `SURVIVES_FALSIFICATION`. Counts by current disposition: 0 survives, 3 weak/descriptive, 1 rejected as a specific claim, 2 unidentifiable. These are not candidate strategies, alpha, or proof of transfer.
+
+### 11.9 Validation, artifact policy, and post-30H handoff
+
+- Targeted tests after fixes: 34 passed. Focused Pyright on changed/new source and scripts: 0 diagnostics.
+- Canonical full test command is `pytest`. The system-Python 3.14 attempt could not collect because that interpreter lacks PyArrow. The full rerun used `/Users/macintosh/Documents/ChatGPT/bitcoin-trader/.venv/bin/python -m pytest -q`: **1,731 passed, 2 skipped, 0 failed in 153.26s**. This is the final full-suite result. An earlier pre-final run had one host process-group `PermissionError` in `test_bounded_supervisor`; the final rerun passed that test.
+- Full-project Pyright (`src tests scripts`) analyzed 392 files and reported **614 errors**; none were in files changed or added by this audit (0 audit-touch-set diagnostics). This is not a clean project-wide static result, and without a base-branch Pyright comparison the 614 are not classified as pre-existing relative to all of PR #17. Full diagnostic JSON: `/tmp/external-bitmex-full-pyright-final.json`. Scoped Pyright on changed/new source and scripts reported 0 diagnostics. `python3 -m compileall -q src scripts` passed.
+- `git diff --check` and final raw-data tracking checks must pass before delivery. Raw market/execution data, joined rows, and audit JSON stay gitignored. No raw data are tracked by this change.
+- No AWS, validation runtime, EC2 worktree, collector, scheduler, observer, S3 validation prefix, Launch #14, thresholds, or runtime commit `22e06b9` was touched. AWS validation mutation remains `NONE`.
+
+After authoritative Fresh 30H-v3 PASS, the safe handoff order is: (1) seal reliability evidence and confirm exact authoritative revision; (2) integrate research infrastructure through the agreed small PR stack; (3) acquire and checksum current public Bithumb/Upbit context without private endpoints; (4) register frozen, falsifiable hypotheses with costs/metrics/acceptance thresholds; (5) run retrospective research, select only governed candidates, freeze all logic and assumptions, then begin a separate prospective holdout. Do not consume the future holdout during this handoff.
+
+### 11.10 Corrected current state
+
+```text
+wallet final balance = 737.26973405 BTC (independent raw match)
+contract totals = reported counts NOT VERIFIED; raw gross counts differ materially
+aggregate USD-equivalent exposure ≈ $10.57B = NOT VERIFIED
+maker/taker/net trading fee and funding totals = rounded values match raw execcomm
+2020 maker ratio = 46.9184%; 2021 maker ratio = 85.8912%
+raw 2020→2021 composition contribution = +17.9529pp (not +12.85pp)
+robust structural break = none; 2020-10/11 OLS-CUSUM claim unsupported
+position intent and high-confidence event study = NOT_IDENTIFIABLE
+execution skill vs direction/PnL attribution = NOT_IDENTIFIABLE
+market context join = 1,268,435 joined; 170,772 unmatched; future leakage = 0
+raw data tracked = NO
+30H runtime touched = NO
+AWS validation mutation = NONE
+ALPHA = UNPROVEN
+PAPER = NOT_STARTED
+LIVE = DISABLED
+PRIVATE_API = DISABLED
+```
