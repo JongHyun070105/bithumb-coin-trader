@@ -39,10 +39,17 @@ from .paper_readiness import evaluate_paper_readiness, write_paper_readiness_rep
 from .batch import BatchExperiment, run_research_batch
 from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
 from .costs import SpotCostScenario
+from .research_catalog import (
+    HypothesisCatalog,
+    default_candidate_families,
+    export_candidate_families,
+)
 from ..data import DataError, load_candles_csv
 
 
 _RESEARCH_BATCH_ROLE = "DEVELOPMENT_EXPLORATORY"
+_HYPOTHESIS_CATALOG_PATH = Path("research-data/hypothesis_catalog.jsonl")
+_CANDIDATE_FAMILY_PATH = Path("research-data/candidate_families.json")
 
 
 def _get_data_root() -> Path:
@@ -156,6 +163,52 @@ def cmd_hypotheses_list(args: argparse.Namespace) -> None:
         print(f"  Target: {h.target_type} @ {h.target_horizon_s}s")
         print(f"  Expected sign: {h.expected_sign}")
         print(f"  Metric: {h.evaluation_metric}")
+
+
+def cmd_hypotheses_catalog_seed(args: argparse.Namespace) -> int:
+    """Append the source-present hypothesis inventory to a durable ledger."""
+    catalog_path = Path(args.path)
+    try:
+        added = HypothesisCatalog(catalog_path).seed_defaults()
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(f"Added {added} hypotheses; catalog contains {len(HypothesisCatalog(catalog_path).read())}: {catalog_path}")
+    return 0
+
+
+def cmd_hypotheses_catalog_list(args: argparse.Namespace) -> int:
+    catalog_path = Path(args.path)
+    try:
+        events = HypothesisCatalog(catalog_path).read()
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    for event in events:
+        record = event["record"]
+        print(f"{record['hypothesis_id']} | {record['strategy_family']} | {record['research_status']} | {record['role']}")
+    print(f"Hypotheses: {len(events)}")
+    return 0
+
+
+def cmd_candidate_families_list(args: argparse.Namespace) -> int:
+    for family in default_candidate_families():
+        print(f"{family.family_id} | {family.current_status} | retest={family.retest_required}")
+    print(f"Candidate families: {len(default_candidate_families())}")
+    return 0
+
+
+def cmd_candidate_families_export(args: argparse.Namespace) -> int:
+    destination = Path(args.path)
+    try:
+        digest = export_candidate_families(destination)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    print(f"Candidate-family inventory: {destination}")
+    print(f"SHA-256: {digest}")
+    print(f"Families: {len(default_candidate_families())}")
+    return 0
 
 
 def cmd_hypothesis_run(args: argparse.Namespace) -> None:
@@ -398,6 +451,7 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
     if not isinstance(raw_experiments, list) or not raw_experiments:
         raise ValueError("hypothesis file must contain a non-empty experiments array")
     experiments: list[BatchExperiment] = []
+    candidate_families = {family.family_id for family in default_candidate_families()}
     for index, raw in enumerate(raw_experiments):
         if not isinstance(raw, dict):
             raise ValueError(f"experiments[{index}] must be an object")
@@ -415,6 +469,19 @@ def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, .
             )
         if not isinstance(family, str) or not family.strip():
             raise ValueError(f"experiments[{index}].candidate_family must be non-empty")
+        if family not in candidate_families:
+            raise ValueError(
+                f"experiments[{index}].candidate_family must be registered; "
+                f"known families: {', '.join(sorted(candidate_families))}"
+            )
+        if strategy_id in {"cash", "buy_and_hold", "randomized_placebo"}:
+            if family != "baseline_controls":
+                raise ValueError(f"baseline strategy {strategy_id!r} must use candidate_family='baseline_controls'")
+        elif family != "builtin_sma_trend_example":
+            raise ValueError(
+                f"strategy {strategy_id!r} has no governed execution adapter for family {family!r}; "
+                "only builtin_sma_trend_example is currently executable by research-batch"
+            )
         strategy_config = raw["strategy_config"]
         feature_config = raw["feature_config"]
         parameter_sets = raw["parameter_sets"]
@@ -546,9 +613,19 @@ def build_parser() -> argparse.ArgumentParser:
     hyp = sub.add_parser("hypotheses", help="Hypothesis management")
     hyp_sub = hyp.add_subparsers(dest="subcommand")
     hyp_sub.add_parser("list", help="List hypotheses")
+    hyp_catalog_seed = hyp_sub.add_parser("catalog-seed", help="Append source-present hypotheses to the persistent ledger")
+    hyp_catalog_seed.add_argument("--path", default=str(_HYPOTHESIS_CATALOG_PATH))
+    hyp_catalog_list = hyp_sub.add_parser("catalog-list", help="Verify and list the persistent hypothesis ledger")
+    hyp_catalog_list.add_argument("--path", default=str(_HYPOTHESIS_CATALOG_PATH))
     hyp_run = hyp_sub.add_parser("run", help="Run hypothesis")
     hyp_run.add_argument("--hypothesis", required=True)
     hyp_run.add_argument("--dataset", required=True)
+
+    families = sub.add_parser("candidate-families", help="Candidate-family source inventory; no promotion")
+    family_sub = families.add_subparsers(dest="subcommand")
+    family_sub.add_parser("list", help="List inventoried strategy families")
+    family_export = family_sub.add_parser("export", help="Write the immutable candidate-family snapshot")
+    family_export.add_argument("--path", default=str(_CANDIDATE_FAMILY_PATH))
 
     # build
     build = sub.add_parser("build", help="Build canonical data")
@@ -600,7 +677,11 @@ def main(argv: list[str] | None = None) -> int:
         ("dq", "build"): cmd_dq_build,
         ("dq", "report"): cmd_dq_report,
         ("hypotheses", "list"): cmd_hypotheses_list,
+        ("hypotheses", "catalog-seed"): cmd_hypotheses_catalog_seed,
+        ("hypotheses", "catalog-list"): cmd_hypotheses_catalog_list,
         ("hypotheses", "run"): cmd_hypothesis_run,
+        ("candidate-families", "list"): cmd_candidate_families_list,
+        ("candidate-families", "export"): cmd_candidate_families_export,
         ("build", None): cmd_build,
         ("paper-readiness", None): cmd_paper_readiness,
         ("research-batch", None): cmd_research_batch,

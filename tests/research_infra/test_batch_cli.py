@@ -65,7 +65,7 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
         },
         "experiments": [
             {
-                "candidate_family": "BASELINE",
+                "candidate_family": "baseline_controls",
                 "strategy_id": "cash",
                 "strategy_config": {},
                 "feature_config": {"input": "completed_candles"},
@@ -73,7 +73,7 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
                 "seed": 11,
             },
             {
-                "candidate_family": "BASELINE",
+                "candidate_family": "baseline_controls",
                 "strategy_id": "buy_and_hold",
                 "strategy_config": {},
                 "feature_config": {"input": "completed_candles"},
@@ -81,7 +81,7 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
                 "seed": 11,
             },
             {
-                "candidate_family": "trend-exploration",
+                "candidate_family": "builtin_sma_trend_example",
                 "strategy_id": "sma_trend",
                 "strategy_config": {"mode": "long_flat"},
                 "feature_config": {"input": "completed_candles"},
