@@ -18,10 +18,12 @@ Reproducible commands for:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import cast
 
 from .registry import DatasetRegistry, register_default_datasets
 from .dq import (
@@ -34,6 +36,13 @@ from .dq import (
 from .hypotheses import HypothesisRegistry, register_default_hypotheses
 from .build import CanonicalBuildError, build_canonical_dataset
 from .paper_readiness import evaluate_paper_readiness, write_paper_readiness_report
+from .batch import BatchExperiment, run_research_batch
+from .builtin_strategies import create_builtin_strategy, registered_strategy_ids
+from .costs import SpotCostScenario
+from ..data import DataError, load_candles_csv
+
+
+_RESEARCH_BATCH_ROLE = "DEVELOPMENT_EXPLORATORY"
 
 
 def _get_data_root() -> Path:
@@ -250,6 +259,225 @@ def cmd_paper_readiness(args: argparse.Namespace) -> int:
     return 2
 
 
+def cmd_research_batch(args: argparse.Namespace) -> int:
+    """Run the bounded local walk-forward batch; never accesses network data."""
+    try:
+        if not args.walk_forward:
+            raise ValueError("the research-batch CLI currently requires explicit --walk-forward")
+        dataset_path = Path(args.dataset_manifest).resolve(strict=True)
+        specification_path = Path(args.hypotheses).resolve(strict=True)
+        dataset_manifest = _load_json_object(dataset_path)
+        experiment_spec = _load_json_object(specification_path)
+        _validate_research_dataset_manifest(dataset_manifest)
+
+        candle_root = dataset_path.parent.resolve()
+        candle_path = (candle_root / cast(str, dataset_manifest["data_path"])).resolve(strict=True)
+        try:
+            candle_path.relative_to(candle_root)
+        except ValueError as exc:
+            raise ValueError("dataset data_path must resolve beneath its manifest directory") from exc
+        candle_bytes = candle_path.read_bytes()
+        dataset_sha256 = hashlib.sha256(candle_bytes).hexdigest()
+        if dataset_sha256 != dataset_manifest["data_sha256"]:
+            raise ValueError("dataset candle file SHA-256 does not match its manifest")
+        candles = load_candles_csv(candle_path)
+        if len(candles) != cast(int, dataset_manifest["candle_count"]):
+            raise ValueError("dataset candle count does not match its manifest")
+
+        scenarios = _load_cost_grid(experiment_spec, args.cost_grid)
+        definitions = _load_batch_experiments(experiment_spec)
+        output_dir = Path(args.output).resolve()
+        code_revision = _require_clean_code_revision()
+        provenance = {
+            "dataset_role": dataset_manifest["dataset_role"],
+            "allowed_for_candidate_selection": dataset_manifest["allowed_for_candidate_selection"],
+            "integrity_status": dataset_manifest["integrity_status"],
+            "provenance_confidence": dataset_manifest["provenance_confidence"],
+            "manifest_sha256": hashlib.sha256(dataset_path.read_bytes()).hexdigest(),
+        }
+        report = run_research_batch(
+            candles=candles,
+            dataset_id=cast(str, dataset_manifest["dataset_id"]),
+            dataset_sha256=dataset_sha256,
+            code_revision=code_revision,
+            dataset_provenance=provenance,
+            experiments=definitions,
+            cost_scenarios=scenarios,
+            output_dir=output_dir,
+            n_folds=args.folds,
+            window_mode=args.window_mode,
+            purge_s=args.purge_seconds,
+            embargo_s=args.embargo_seconds,
+            max_experiments=args.max_experiments,
+            max_fold_cost_runs=args.max_fold_cost_runs,
+            retry_failed=args.retry_failed,
+        )
+    except (OSError, DataError, TypeError, ValueError, KeyError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    batch_path = output_dir / "batches" / report["batch_id"]
+    print(f"Batch: {report['batch_id']}")
+    print(f"Status: {report['status']}")
+    print(f"Experiments: {report['completed_count']}/{report['experiment_count']}")
+    print(f"Evidence: {batch_path}")
+    if report["status"] == "NEEDS_RETRY":
+        print("A prior failed attempt requires an explicit retry with --retry-failed", file=sys.stderr)
+        return 2
+    return 0 if report["status"] == "COMPLETE" else 1
+
+
+def _load_json_object(path: Path) -> dict[str, object]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must contain a JSON object")
+    return value
+
+
+def _validate_research_dataset_manifest(value: dict[str, object]) -> None:
+    required = {
+        "schema_version", "dataset_id", "dataset_role", "allowed_for_candidate_selection",
+        "integrity_status", "provenance_confidence", "data_path", "data_sha256", "candle_count",
+    }
+    if set(value) != required:
+        raise ValueError("dataset manifest fields must be exactly: " + ", ".join(sorted(required)))
+    if value["schema_version"] != 1:
+        raise ValueError("unsupported dataset manifest schema_version")
+    if not isinstance(value["dataset_id"], str) or not value["dataset_id"].strip():
+        raise ValueError("dataset_id must be non-empty")
+    if value["dataset_role"] != _RESEARCH_BATCH_ROLE:
+        raise ValueError("research-batch only accepts DEVELOPMENT_EXPLORATORY datasets")
+    if value["allowed_for_candidate_selection"] is not True:
+        raise ValueError("dataset is not authorized for candidate selection")
+    if value["integrity_status"] != "PASS" or value["provenance_confidence"] != "PROVEN":
+        raise ValueError("dataset provenance and integrity must be PASS/PROVEN")
+    if not isinstance(value["data_path"], str) or not value["data_path"].strip():
+        raise ValueError("data_path must be non-empty")
+    digest = value["data_sha256"]
+    if not isinstance(digest, str) or len(digest) != 64 or any(
+        char not in "0123456789abcdefABCDEF" for char in digest
+    ):
+        raise ValueError("data_sha256 must be a SHA-256 hex digest")
+    count = value["candle_count"]
+    if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
+        raise ValueError("candle_count must be a positive integer")
+
+
+def _load_cost_grid(spec: dict[str, object], name: str) -> tuple[SpotCostScenario, ...]:
+    grids = spec.get("cost_grids")
+    if not isinstance(grids, dict) or name not in grids:
+        raise ValueError(f"hypothesis file must declare cost_grids[{name!r}]")
+    raw = grids[name]
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("selected cost grid must be a non-empty array of explicit scenarios")
+    scenarios = tuple(SpotCostScenario.from_dict(item) for item in raw if isinstance(item, dict))
+    if len(scenarios) != len(raw):
+        raise ValueError("every cost scenario must be a JSON object")
+    if len(scenarios) < 2:
+        raise ValueError("cost sensitivity requires at least two distinct scenarios")
+    if len({scenario.name for scenario in scenarios}) != len(scenarios):
+        raise ValueError("cost scenario names must be unique")
+    assumption_signatures = {
+        json.dumps(
+            {key: value for key, value in scenario.to_dict().items() if key != "name"},
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        for scenario in scenarios
+    }
+    if len(assumption_signatures) < 2:
+        raise ValueError("cost sensitivity scenarios must contain at least two distinct assumption sets")
+    return scenarios
+
+
+def _load_batch_experiments(spec: dict[str, object]) -> tuple[BatchExperiment, ...]:
+    if spec.get("schema_version") != 1:
+        raise ValueError("unsupported hypotheses specification schema_version")
+    raw_experiments = spec.get("experiments")
+    if not isinstance(raw_experiments, list) or not raw_experiments:
+        raise ValueError("hypothesis file must contain a non-empty experiments array")
+    experiments: list[BatchExperiment] = []
+    for index, raw in enumerate(raw_experiments):
+        if not isinstance(raw, dict):
+            raise ValueError(f"experiments[{index}] must be an object")
+        required = {
+            "candidate_family", "strategy_id", "strategy_config", "feature_config",
+            "parameter_sets", "seed",
+        }
+        if set(raw) != required:
+            raise ValueError(f"experiments[{index}] fields must be exactly: {', '.join(sorted(required))}")
+        strategy_id = raw["strategy_id"]
+        family = raw["candidate_family"]
+        if not isinstance(strategy_id, str) or strategy_id not in registered_strategy_ids():
+            raise ValueError(
+                f"experiments[{index}] strategy_id must be one of: {', '.join(registered_strategy_ids())}"
+            )
+        if not isinstance(family, str) or not family.strip():
+            raise ValueError(f"experiments[{index}].candidate_family must be non-empty")
+        strategy_config = raw["strategy_config"]
+        feature_config = raw["feature_config"]
+        parameter_sets = raw["parameter_sets"]
+        seed = raw["seed"]
+        if not isinstance(strategy_config, dict) or not isinstance(feature_config, dict):
+            raise ValueError(f"experiments[{index}] configs must be JSON objects")
+        if not isinstance(parameter_sets, list) or not parameter_sets or any(
+            not isinstance(item, dict) for item in parameter_sets
+        ):
+            raise ValueError(f"experiments[{index}].parameter_sets must be non-empty JSON objects")
+        if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+            raise ValueError(f"experiments[{index}].seed must be a non-negative integer")
+        experiments.append(BatchExperiment(
+            candidate_family=family,
+            strategy_id=strategy_id,
+            strategy_factory=lambda current_seed, parameters, name=strategy_id: create_builtin_strategy(
+                name, current_seed, parameters
+            ),
+            strategy_config=strategy_config,
+            feature_config=feature_config,
+            parameter_sets=tuple(parameter_sets),
+            seed=seed,
+        ))
+    strategy_ids = {experiment.strategy_id for experiment in experiments}
+    if any(strategy_id not in {"cash", "buy_and_hold", "randomized_placebo"} for strategy_id in strategy_ids):
+        missing_baselines = {"cash", "buy_and_hold"} - strategy_ids
+        if missing_baselines:
+            raise ValueError(
+                "candidate experiments require explicit cash and buy_and_hold baselines; missing: "
+                + ", ".join(sorted(missing_baselines))
+            )
+    return tuple(experiments)
+
+
+def _require_clean_code_revision() -> str:
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=5, check=False
+    )
+    if revision.returncode != 0 or not revision.stdout.strip():
+        raise ValueError("research-batch must run inside a Git checkout")
+    tracked = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=no"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    source_untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "--", "src", "pyproject.toml", "setup.cfg"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    if tracked.returncode != 0 or source_untracked.returncode != 0:
+        raise ValueError("unable to verify repository source state")
+    if tracked.stdout.strip() or source_untracked.stdout.strip():
+        raise ValueError(
+            "research-batch requires committed source code so the experiment is bound to an immutable revision"
+        )
+    return revision.stdout.strip()
+
+
 def cmd_report_generate(args: argparse.Namespace) -> None:
     """Generate a human-readable research report."""
     print("=== Microstructure Research Infrastructure Report ===")
@@ -335,6 +563,23 @@ def build_parser() -> argparse.ArgumentParser:
     paper_readiness.add_argument("--evidence-dir", required=True)
     paper_readiness.add_argument("--output-dir", required=True)
 
+    batch = sub.add_parser(
+        "research-batch",
+        help="Run a bounded, resumable, train-only walk-forward research batch",
+    )
+    batch.add_argument("--dataset-manifest", required=True)
+    batch.add_argument("--hypotheses", required=True)
+    batch.add_argument("--cost-grid", default="conservative")
+    batch.add_argument("--walk-forward", action="store_true")
+    batch.add_argument("--folds", type=int, default=5)
+    batch.add_argument("--window-mode", choices=("ROLLING", "EXPANDING"), default="EXPANDING")
+    batch.add_argument("--purge-seconds", type=float, required=True)
+    batch.add_argument("--embargo-seconds", type=float, required=True)
+    batch.add_argument("--max-experiments", type=int, default=100)
+    batch.add_argument("--max-fold-cost-runs", type=int, default=2_000)
+    batch.add_argument("--retry-failed", action="store_true")
+    batch.add_argument("--output", required=True)
+
     # report
     sub.add_parser("report", help="Generate research report")
 
@@ -358,6 +603,7 @@ def main(argv: list[str] | None = None) -> int:
         ("hypotheses", "run"): cmd_hypothesis_run,
         ("build", None): cmd_build,
         ("paper-readiness", None): cmd_paper_readiness,
+        ("research-batch", None): cmd_research_batch,
         ("report", None): cmd_report_generate,
     }
 
