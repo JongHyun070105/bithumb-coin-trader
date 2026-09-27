@@ -40,6 +40,7 @@ jobs:
           python -m pytest -q
           tests/test_dashboard_api.py
           tests/test_paper_public_feed.py
+          tests/test_paper_feed_receipt.py
           tests/test_bithumb_websocket.py
           tests/test_paper_session.py
           tests/test_paper_runtime.py

@@ -51,6 +51,7 @@ class NormalizedPaperEvent:
     received_at_ms: int
     candle: Candle | None
     orderbooks: tuple[OrderBookSnapshot, ...]
+    source_observation_sha256: tuple[str, ...] = ()
 
 
 class PaperRuntime:
@@ -372,6 +373,20 @@ class PaperRuntime:
     def is_halted(self) -> bool:
         """Whether a durable or in-memory runtime halt is active."""
         return bool(self._state.get("halted"))
+
+    @property
+    def halt_reason(self) -> str:
+        """Return the persisted halt reason or an empty string when active."""
+        return str(self._state.get("halt_reason", ""))
+
+    @property
+    def feed_receipt_binding(self) -> dict[str, str]:
+        """Identity fields a public feed receipt must bind to this frozen runtime."""
+        return {
+            "candidate_id": self._candidate_id,
+            "experiment_id": str(self._candidate.get("experiment_id", "")),
+            "freeze_hash": str(self._candidate.get("freeze_hash", "")),
+        }
 
     def metrics(self, book: OrderBookSnapshot) -> dict[str, Any]:
         mid = Decimal(str(book.mid_price))
@@ -1151,6 +1166,7 @@ def _event_dict(event: NormalizedPaperEvent) -> dict[str, Any]:
         "received_at_ms": event.received_at_ms,
         "candle": _candle_dict(event.candle) if event.candle is not None else None,
         "orderbooks": [_book_dict(book) for book in event.orderbooks],
+        "source_observation_sha256": list(event.source_observation_sha256),
     }
 
 

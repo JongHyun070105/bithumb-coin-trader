@@ -140,8 +140,29 @@ class JwtAndFrameTests(unittest.TestCase):
 
 
 class ObservationParserTests(unittest.TestCase):
+    def test_raw_payload_hash_binds_exact_text_and_canonical_mapping(self) -> None:
+        payload = {
+            "type": "trade",
+            "code": "KRW-BTC",
+            "trade_price": 100,
+            "trade_volume": 1,
+            "ask_bid": "BID",
+            "trade_timestamp": 10,
+            "sequential_id": 20,
+            "timestamp": 11,
+            "stream_type": "REALTIME",
+        }
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+        mapping_event = parse_observation(payload)
+        text_event = parse_observation(canonical.decode())
+        spaced_event = parse_observation(canonical.decode() + " ")
+
+        self.assertEqual(mapping_event.raw_payload_sha256, hashlib.sha256(canonical).hexdigest())
+        self.assertEqual(text_event.raw_payload_sha256, hashlib.sha256(canonical).hexdigest())
+        self.assertNotEqual(text_event.raw_payload_sha256, spaced_event.raw_payload_sha256)
+
     def test_parses_public_trade_identity_and_exchange_time(self) -> None:
-        trade = parse_observation(
+        event = parse_observation(
             {
                 "type": "trade",
                 "code": "KRW-BTC",
@@ -153,7 +174,9 @@ class ObservationParserTests(unittest.TestCase):
                 "timestamp": 1725929934483,
                 "stream_type": "REALTIME",
             }
-        ).observation
+        )
+        trade = event.observation
+        self.assertEqual(len(event.raw_payload_sha256), 64)
         self.assertIsInstance(trade, TradeObservation)
         assert isinstance(trade, TradeObservation)
         self.assertEqual(trade.ask_bid, "BID")

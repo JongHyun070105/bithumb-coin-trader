@@ -51,13 +51,18 @@ def _book(
 
 def test_adapter_discards_partial_startup_bar_and_emits_complete_daily_candle() -> None:
     adapter = BithumbPaperEventAdapter("KRW-BTC")
+    first_day = _trade("2024-01-01T01:00:00+09:00", 1, 100)
+    second_day_open = _trade("2024-01-02T00:00:01+09:00", 2, 105, "2")
+    second_day_close = _trade("2024-01-02T12:00:00+09:00", 3, 110, "3")
+    third_day_open = _trade("2024-01-03T00:00:01+09:00", 4, 108, "1")
+    final_book = _book("2024-01-03T00:00:02+09:00", 108)
+    assert adapter.accept(first_day) is None
     assert adapter.accept(_trade("2024-01-01T01:00:00+09:00", 1, 100)) is None
-    assert adapter.accept(_trade("2024-01-01T01:00:00+09:00", 1, 100)) is None
-    assert adapter.accept(_trade("2024-01-02T00:00:01+09:00", 2, 105, "2")) is None
-    assert adapter.accept(_trade("2024-01-02T12:00:00+09:00", 3, 110, "3")) is None
-    assert adapter.accept(_trade("2024-01-03T00:00:01+09:00", 4, 108, "1")) is None
+    assert adapter.accept(second_day_open) is None
+    assert adapter.accept(second_day_close) is None
+    assert adapter.accept(third_day_open) is None
 
-    event = adapter.accept(_book("2024-01-03T00:00:02+09:00", 108))
+    event = adapter.accept(final_book)
 
     assert event is not None
     assert event.candle is not None
@@ -68,6 +73,12 @@ def test_adapter_discards_partial_startup_bar_and_emits_complete_daily_candle() 
     assert event.candle.close == 110
     assert event.candle.volume == 5
     assert event.orderbooks[0].market == "KRW-BTC"
+    assert event.source_observation_sha256 == (
+        second_day_open.raw_payload_sha256,
+        second_day_close.raw_payload_sha256,
+        final_book.raw_payload_sha256,
+    )
+    assert first_day.raw_payload_sha256 not in event.source_observation_sha256
 
 
 def test_disconnect_invalidates_the_current_daily_candle() -> None:
@@ -144,6 +155,7 @@ def test_orderbook_snapshot_is_not_used_as_a_paper_execution_book() -> None:
 
 def test_public_feed_supervisor_never_authenticates_and_halts_on_disconnect(monkeypatch) -> None:  # type: ignore[no-untyped-def]
     captured: dict[str, Any] = {}
+    receipts: list[dict[str, Any]] = []
 
     class RuntimeStub:
         is_halted = False
@@ -169,8 +181,12 @@ def test_public_feed_supervisor_never_authenticates_and_halts_on_disconnect(monk
         market="KRW-BTC",
         stop_event=stop_event,
         record_callback=lambda _result, _metrics: None,
+        receipt_callback=receipts.append,
     )
 
     assert captured["private"] is False
     assert [part.get("type") for part in captured["subscription"]] == [None, "trade", "orderbook", None]
     assert captured["halt_reason"] == "PUBLIC_FEED_DISCONNECTED"
+    assert [item["record_type"] for item in receipts] == ["CONNECTION", "SESSION_TERMINAL"]
+    assert receipts[-1]["status"] == "HALTED"
+    assert receipts[-1]["reason_code"] == "PUBLIC_FEED_DISCONNECTED"

@@ -519,6 +519,7 @@ class ObservationEvent:
     observation: Observation
     received_at: datetime
     reconciliation_hints: tuple[ReconciliationHint, ...] = ()
+    raw_payload_sha256: str = ""
 
 
 def _optional_decimal(
@@ -543,17 +544,27 @@ def parse_observation(message: str | bytes | Mapping[str, Any]) -> ObservationEv
     """Validate one DEFAULT-format Bithumb message and produce read-side hints."""
 
     if isinstance(message, bytes):
+        raw_payload = message
         try:
             message = message.decode("utf-8")
         except UnicodeDecodeError as exc:
             raise ObservationValidationError("message is not UTF-8") from exc
     if isinstance(message, str):
+        raw_payload = message.encode("utf-8")
         try:
             payload = json.loads(message)
         except json.JSONDecodeError as exc:
             raise ObservationValidationError("message is not valid JSON") from exc
     else:
         payload = dict(message)
+        raw_payload = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            allow_nan=False,
+            default=str,
+        ).encode("utf-8")
     if not isinstance(payload, Mapping):
         raise ObservationValidationError("message must be a JSON object")
     message_type = payload.get("type")
@@ -696,6 +707,7 @@ def parse_observation(message: str | bytes | Mapping[str, Any]) -> ObservationEv
         observation=observation,
         received_at=datetime.now(timezone.utc),
         reconciliation_hints=hints,
+        raw_payload_sha256=hashlib.sha256(raw_payload).hexdigest(),
     )
 
 

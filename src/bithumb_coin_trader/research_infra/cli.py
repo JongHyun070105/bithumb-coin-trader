@@ -27,6 +27,7 @@ import subprocess
 import sys
 from threading import Event
 from typing import cast
+import uuid
 
 from .registry import DatasetRegistry, register_default_datasets
 from .dq import (
@@ -44,6 +45,8 @@ from ..paper_session import (
     create_local_paper_runtime,
     run_local_paper_session,
 )
+from ..bithumb_websocket import build_public_subscription
+from ..paper_feed_receipt import PaperFeedReceiptWriter
 from ..paper_public_feed import PaperPublicFeedError, run_bithumb_public_paper_feed
 from .batch import BatchExperiment, run_research_batch
 from .builtin_strategies import (
@@ -296,6 +299,7 @@ def cmd_paper_start(args: argparse.Namespace) -> int:
     if args.public_websocket:
         stop_event = Event()
         runtime: PaperRuntime | None = None
+        receipt_path: Path | None = None
         try:
             runtime = create_local_paper_runtime(
                 candidate_freeze=Path(args.candidate_freeze),
@@ -308,18 +312,32 @@ def cmd_paper_start(args: argparse.Namespace) -> int:
                 market=args.market,
                 allow_resume=args.resume,
             )
-            run_bithumb_public_paper_feed(
-                runtime=runtime,
-                market=args.market,
-                stop_event=stop_event,
-                record_callback=lambda result, metrics: print(
-                    json.dumps(
-                        {"record_type": "paper_public_event", "result": result, "metrics": metrics},
-                        sort_keys=True,
-                        separators=(",", ":"),
-                    )
-                ),
+            session_id = uuid.uuid4().hex
+            receipt_path = Path(f"{args.journal}.feed-{session_id}.jsonl")
+            subscription = build_public_subscription(
+                [args.market], ticker=False, trade=True, orderbook=True, realtime_only=True
             )
+            with PaperFeedReceiptWriter(
+                receipt_path,
+                session_id=session_id,
+                market=args.market,
+                candidate_binding=runtime.feed_receipt_binding,
+                subscription=subscription,
+            ) as receipt:
+                run_bithumb_public_paper_feed(
+                    runtime=runtime,
+                    market=args.market,
+                    stop_event=stop_event,
+                    receipt_callback=receipt.record,
+                    subscription=subscription,
+                    record_callback=lambda result, metrics: print(
+                        json.dumps(
+                            {"record_type": "paper_public_event", "result": result, "metrics": metrics},
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        )
+                    ),
+                )
         except KeyboardInterrupt:
             stop_event.set()
         except (
@@ -331,6 +349,8 @@ def cmd_paper_start(args: argparse.Namespace) -> int:
         if runtime is None:
             print("PAPER_SESSION=NOT_STARTED; interrupted during local preflight")
             return 2
+        if receipt_path is not None:
+            print(f"PAPER_FEED_RECEIPT={receipt_path}")
         if runtime.is_halted:
             print("PAPER_SESSION=HALTED; explicit recovery acknowledgement is required")
             return 1
