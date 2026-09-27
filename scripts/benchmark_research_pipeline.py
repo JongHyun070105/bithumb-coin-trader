@@ -105,8 +105,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         feature_config={"input": "completed_candle_history"},
         n_folds=args.folds,
         window_mode="EXPANDING",
-        purge_s=0,
-        embargo_s=0,
+        purge_s=1.0,
+        embargo_s=1.0,
         seed=7,
     )
     walk_forward_s = time.perf_counter() - start
@@ -156,8 +156,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=output_root,
             n_folds=args.folds,
             window_mode="EXPANDING",
-            purge_s=0,
-            embargo_s=0,
+            purge_s=1.0,
+            embargo_s=1.0,
             max_experiments=max(args.batch_size, 1),
             max_fold_cost_runs=max(args.batch_size * args.folds * len(scenarios), 1),
         )
