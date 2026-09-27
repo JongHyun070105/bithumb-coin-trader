@@ -33,6 +33,7 @@ from .dq import (
 )
 from .hypotheses import HypothesisRegistry, register_default_hypotheses
 from .build import CanonicalBuildError, build_canonical_dataset
+from .paper_readiness import evaluate_paper_readiness, write_paper_readiness_report
 
 
 def _get_data_root() -> Path:
@@ -227,6 +228,28 @@ def cmd_build(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_paper_readiness(args: argparse.Namespace) -> int:
+    """Audit local evidence for prospective paper eligibility; never starts PAPER."""
+    evidence_dir = Path(args.evidence_dir)
+    output_dir = Path(args.output_dir)
+    report = evaluate_paper_readiness(evidence_dir)
+    try:
+        write_paper_readiness_report(report, output_dir, evidence_dir)
+    except (OSError, ValueError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+    for name, check in report["checks"].items():
+        print(f"{name}={check['status']}: {check['reason']}")
+    print(f"PAPER_ELIGIBLE={report['PAPER_ELIGIBLE']}")
+    print(f"Report: {output_dir}")
+    if report["PAPER_ELIGIBLE"]:
+        return 0
+    if any(check["status"] == "FAIL" for check in report["checks"].values()):
+        return 1
+    return 2
+
+
 def cmd_report_generate(args: argparse.Namespace) -> None:
     """Generate a human-readable research report."""
     print("=== Microstructure Research Infrastructure Report ===")
@@ -305,6 +328,13 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--data-root", default=None)
     build.add_argument("--output-dir", default=None)
 
+    paper_readiness = sub.add_parser(
+        "paper-readiness",
+        help="Verify a local evidence bundle for PAPER eligibility; does not start PAPER",
+    )
+    paper_readiness.add_argument("--evidence-dir", required=True)
+    paper_readiness.add_argument("--output-dir", required=True)
+
     # report
     sub.add_parser("report", help="Generate research report")
 
@@ -327,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
         ("hypotheses", "list"): cmd_hypotheses_list,
         ("hypotheses", "run"): cmd_hypothesis_run,
         ("build", None): cmd_build,
+        ("paper-readiness", None): cmd_paper_readiness,
         ("report", None): cmd_report_generate,
     }
 

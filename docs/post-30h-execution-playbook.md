@@ -81,7 +81,7 @@ Expected: focused regression suite passes and worktree is clean after committing
 
 ## Step 4 — Build the current public dataset
 
-The current `research build` command is a counting placeholder. Do not use it as a canonical build. First select the exact qualifying 30H-derived public data and update a dataset registration with immutable run/epoch, source roots, time bounds, feed universe, schema version, raw-file hashes, and DQ role. Never register runtime validation data as a candidate holdout. Run the currently implemented raw integrity, canonicalization, and DQ tools against an **exported local copy** only; emit separate manifests and preserve source bytes.
+The readiness branch now has an offline `research build` implementation that streams supported local JSONL inputs into canonical JSONL and a source/output-hash manifest. It does not establish DQ or dataset eligibility. First select the exact qualifying 30H-derived public data and update a dataset registration with immutable run/epoch, source roots, time bounds, feed universe, schema version, raw-file hashes, and DQ role. Never register runtime validation data as a candidate holdout. Run raw integrity and DQ tools against an **exported local copy** only; emit separate manifests and preserve source bytes.
 
 Command, using only a local export selected after the terminal audit PASS:
 
@@ -114,21 +114,29 @@ Command: existing family-specific walk-forward/cost scripts are available, but n
 
 Only a candidate supported by the governed retrospective/robustness evidence can be frozen. Record candidate ID, hypothesis origin, dataset/source hashes, code revision, parameters, features, date boundaries, cost/latency assumptions, seed, metrics, baselines, and the evaluation/acceptance rules. External BitMEX/AOA material can only be tagged `HYPOTHESIS_GENERATION_ONLY`; it cannot meet a promotion gate.
 
-Command: existing `FrozenCandidate` can create a manifest in isolated code paths, but there is no universal `candidate-freeze` CLI or registry. Do not call an existing per-family `PAPER_CANDIDATE` label a final approval. If no central, machine-verifiable transition evidence exists, stop and report `CANDIDATE_FROZEN=false`.
+Command: lifecycle evidence can be recorded through `research_infra.candidate_registry.CandidateRegistry` in code, and the readiness bundle verifier checks the complete hash chain through `FROZEN`. There is still no universal `candidate-freeze` CLI and family candidate paths are not wired to the registry. Do not call an existing per-family `PAPER_CANDIDATE` label a final approval. If the central event chain and its research/freeze hashes do not verify, stop and report `CANDIDATE_FROZEN=false`.
 
 Artifact: candidate freeze manifest plus hash and reviewed lifecycle transition record. No final prospective data is opened to prepare this artifact.
 
 ## Step 8 — Paper readiness
 
-Run a single readiness report that verifies `DATA_READY`, `RESEARCH_READY`, `CANDIDATE_FROZEN`, risk config, durable execution/recovery, observability, secrets safe, private API disabled, and `PAPER_ELIGIBLE`. At present there is no such paper-specific command. The existing `readiness.py` evaluates **live** readiness and demands API-key presence plus a read-only account probe; do not invoke it for paper readiness and do not configure credentials to make it pass.
+Prepare an evidence directory containing `paper-readiness-bundle.json`. The bundle points to seven JSON artifacts (`dataset`, `research`, `candidate`, `risk`, `execution`, `observability`, and `security`), each with a path relative to the evidence directory and an exact SHA-256. Dataset and research artifacts must cross-bind by manifest hash; the frozen candidate must bind the research report and include a verified hash chain through `FROZEN`; external-only roles fail. The command validates event-file bytes, DQ, experiment reproducibility/cost/walk-forward/placebo evidence, freeze hash, complete risk limits, restart/idempotency/cancel controls, required PAPER metrics, a zero-secret scan, and explicit private/LIVE disablement.
 
-Expected output: every required check individually reported PASS/FAIL/NOT_VERIFIABLE; aggregate `PAPER_ELIGIBLE` stays false unless all machine-verifiable prerequisites pass. Missing candidate evidence, event replay, health/metrics wiring, or risk thresholds blocks eligibility.
+Command:
+
+```sh
+python -m bithumb_coin_trader.research_infra.cli paper-readiness \
+  --evidence-dir "$PAPER_READINESS_EVIDENCE_DIR" \
+  --output-dir "$NEW_PAPER_READINESS_REPORT_DIR"
+```
+
+Expected artifacts: `paper-readiness.json` and `paper-readiness.md`, with every check reported `PASS`, `FAIL`, or `NOT_VERIFIABLE`. Exit `0` means all required conditions passed; `1` means at least one explicit gate failed; `2` means evidence is missing/unverifiable or the report cannot be written. Today there is no production readiness bundle, so the command remains fail-closed. It never starts PAPER. The existing `readiness.py` evaluates **live** readiness and demands API-key presence plus a read-only account probe; do not invoke it for paper readiness or configure credentials to make it pass.
 
 ## Step 9 — Start prospective PAPER
 
 `PAPER = NOT_STARTED` remains until a separately approved candidate is actually run prospectively. The project has no unified supported paper-start command spanning the persistent daily ledger and event-driven order engine. Do not start paper in this preparation workflow. Before a future start, require a separate explicit authorization, public market data only, a fresh state directory, frozen manifest hash, explicit cost/risk configuration and no private keys.
 
-Command: **not available as a governed prospective start command**. A future command must print the candidate/dataset/config hashes and selected simulator before starting; reject LIVE/private flags and fail if the paper journal is not recoverable. Expected artifacts include orders, acknowledgements, partial/full fills, cancellations, positions, cash, realized/unrealized PnL, fees, risk decisions, errors and restart reconciliation. `paper_engine.py` validates event/order bindings, rejects duplicate or overfilled events and rolls back multi-level fills atomically. `PaperEventJournal` now provides a local SQLite snapshot/event ledger with atomic commits, persisted idempotency, checksum verification and restart recovery; it has not yet been integrated with the public market-data pipeline, stale-order reconciliation, risk, or a governed readiness/start command. Persistent daily `paper.py` still does not model partial order events.
+Command: **not available as a governed prospective start command**. A future command must print the candidate/dataset/config hashes and selected simulator before starting; reject LIVE/private flags and fail if the paper journal is not recoverable. Expected artifacts include orders, acknowledgements, partial/full fills, cancellations, positions, cash, realized/unrealized PnL, fees, risk decisions, errors and restart reconciliation. `paper-readiness` only verifies evidence and never starts paper. `paper_engine.py` validates event/order bindings, rejects duplicate or overfilled events and rolls back multi-level fills atomically. `PaperEventJournal` provides a local SQLite snapshot/event ledger with atomic commits, persisted idempotency, checksum verification and restart recovery; it has not yet been integrated with the public market-data pipeline, stale-order reconciliation, risk, or a governed start command. Persistent daily `paper.py` still does not model partial order events.
 
 ## Step 10 — Monitor PAPER
 

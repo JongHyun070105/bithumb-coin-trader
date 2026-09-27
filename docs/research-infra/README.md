@@ -27,6 +27,10 @@ Chronological Evaluator (evaluation.py)
       ↓
 Research Manifest / Freeze (manifests.py + freeze.py)
       ↓
+Candidate Lifecycle Evidence (candidate_registry.py)
+      ↓
+Fail-closed PAPER Readiness (paper_readiness.py)
+      ↓
 Human-readable Research Report
 ```
 
@@ -47,6 +51,8 @@ src/bithumb_coin_trader/research_infra/
 ├── evaluation.py         # Chronological evaluation framework
 ├── manifests.py          # Research manifest system
 ├── freeze.py             # Candidate freeze mechanism
+├── candidate_registry.py # Append-only, hash-chained lifecycle evidence
+├── paper_readiness.py    # Offline evidence verifier; never starts PAPER
 ├── exploratory.py        # Exploratory research runner
 └── cli.py                # CLI entry points
 
@@ -144,11 +150,18 @@ python -m bithumb_coin_trader.research_infra.cli build \
   --data-root "$OFFLINE_RAW_DATA_ROOT" \
   --output-dir "$NEW_OUTPUT_DIRECTORY"
 
+# Verify an assembled, hash-bound PAPER readiness bundle (does not start PAPER)
+python -m bithumb_coin_trader.research_infra.cli paper-readiness \
+  --evidence-dir "$PAPER_READINESS_EVIDENCE_DIR" \
+  --output-dir "$NEW_PAPER_READINESS_REPORT_DIR"
+
 # Generate report
 python -m bithumb_coin_trader.research_infra.cli report
 ```
 
 The build writes `events.jsonl` and a source/output-hash `manifest.json`. It refuses final holdouts and existing output directories. Its status is `BUILT_DQ_NOT_RUN`; run the DQ build/report separately before treating the dataset as research-ready.
+
+`CandidateRegistry` persists local append-only JSONL state with hash-chained events for the required lifecycle and evidence gates. External hypothesis-generation-only data may be recorded in retrospective research, but it cannot advance to robustness or candidate promotion. The readiness checker verifies the complete chain through `FROZEN`, binds it to the candidate freeze hash and research report, and reports `PAPER_ELIGIBLE` only when every evidence section passes. These APIs do not execute, authorize, or start PAPER. Candidate-generation families are not yet universally wired to the registry.
 
 ## Tests
 
