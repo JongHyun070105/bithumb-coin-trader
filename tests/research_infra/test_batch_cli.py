@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -35,10 +36,11 @@ def _scenario(name: str, *, fee_bps: float, slip_bps: float, latency_ms: float) 
 def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(tmp_path: Path, monkeypatch, capsys) -> None:
     data = tmp_path / "candles.csv"
     rows = ["market,timestamp,open,high,low,close,volume"]
-    prices = [100, 100, 100, 100, 100, 102, 103, 104, 101, 99, 100, 102]
+    prices = [100.0 * (1.001**index) for index in range(400)]
+    start = datetime(2023, 1, 1, 15, tzinfo=UTC)
     for index, price in enumerate(prices):
         rows.append(
-            f"KRW-BTC,2024-01-{index + 1:02d}T00:00:00+00:00,{price},{price},{price},{price},100"
+            f"KRW-BTC,{(start + timedelta(days=index)).isoformat()},{price},{price},{price},{price},100"
         )
     data_bytes = ("\n".join(rows) + "\n").encode()
     data.write_bytes(data_bytes)
@@ -99,6 +101,14 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
                 ],
                 "seed": 11,
             },
+            {
+                "candidate_family": "v4_v4b_regime_breakout_and_trend",
+                "strategy_id": "v4_trend_volatility_regime",
+                "strategy_config": {"frozen_source_parameters": True},
+                "feature_config": {"input": "completed_daily_candles"},
+                "parameter_sets": [{}],
+                "seed": 11,
+            },
         ],
     })
     monkeypatch.setattr(cli, "_require_clean_code_revision", lambda: "b" * 40)
@@ -121,11 +131,11 @@ def test_research_batch_cli_writes_machine_readable_evidence_and_skips_holdout(t
     batch_id = next((tmp_path / "research-output" / "batches").iterdir()).name
     batch_dir = tmp_path / "research-output" / "batches" / batch_id
     aggregate = json.loads((batch_dir / "aggregate_report.json").read_text())
-    assert aggregate["experiment_count"] == 5
-    assert aggregate["completed_count"] == 5
-    assert len(aggregate["baseline_comparisons"]) == 24
-    assert len(list((batch_dir / "runs").glob("*/attempt-*/manifest.json"))) == 5
-    assert len(list((batch_dir / "runs").glob("*/attempt-*/metrics.json"))) == 5
+    assert aggregate["experiment_count"] == 6
+    assert aggregate["completed_count"] == 6
+    assert len(aggregate["baseline_comparisons"]) == 36
+    assert len(list((batch_dir / "runs").glob("*/attempt-*/manifest.json"))) == 6
+    assert len(list((batch_dir / "runs").glob("*/attempt-*/metrics.json"))) == 6
     definition_registry = tmp_path / "research-output" / "definition-registry.jsonl"
     definition_records = [json.loads(line) for line in definition_registry.read_text().splitlines()]
     assert {record["kind"] for record in definition_records} == {"feature", "strategy"}

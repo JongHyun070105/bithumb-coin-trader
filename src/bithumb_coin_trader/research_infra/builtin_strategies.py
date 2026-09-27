@@ -10,14 +10,21 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, is_dataclass
 import hashlib
 import math
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Callable, Mapping, Protocol, Sequence
 
 from ..daily_strategy_candidates import DailyCandidate, daily_candidate_factories
 from ..models import Candle, Signal
 from ..strategy_v4_candidates import (
     V4AdaptiveDonchianAtrStrategy,
+    V4AdxKamaConfluenceStrategy,
+    V4KamaTrendStrategy,
+    V4TripleMomentumFilterStrategy,
     V4TrendVolatilityRegimeStrategy,
+    V4VolatilityAdjustedMomentumStrategy,
 )
+from ..strategy_v3_candidates import strategy_v3_candidate_factories
+from ..strategy_v4b_candidates import V452WeekHighBreakoutStrategy, V4TrendQualityFilterStrategy
+from ..strategy_v5_candidates import V5RegimeAdaptiveDonchianStrategy, V5TrendPullbackStrategy
 from ..strategy_v6_candidates import V6DailyEmaPullbackStrategy, V6FastDonchianSwingStrategy
 from .walk_forward_runner import TrainOnlyTargetWeightStrategy
 
@@ -27,8 +34,11 @@ class UnsupportedStrategyError(ValueError):
 
 
 class _TargetWeightCandidate(Protocol):
-    name: str
-    required_history_bars: int
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def required_history_bars(self) -> int: ...
 
     def generate(self, candles: Sequence[Candle]) -> list[float]: ...
 
@@ -198,15 +208,60 @@ class _CoreSatelliteAdapter:
 
 _BASELINE_IDS = {"cash", "buy_and_hold", "randomized_placebo"}
 _DAILY_CANDIDATE_IDS = set(daily_candidate_factories()) - {"daily_buy_hold_benchmark"}
-_V4_CANDIDATE_IDS = {"v4_adaptive_donchian_atr", "v4_trend_volatility_regime"}
+_V3_CANDIDATE_FACTORIES = strategy_v3_candidate_factories()
+_V3_CANDIDATE_IDS = set(_V3_CANDIDATE_FACTORIES)
+_V4_CANDIDATE_IDS = {
+    "v4_adaptive_donchian_atr",
+    "v4_trend_volatility_regime",
+    "v4_kama_trend",
+    "v4_triple_momentum_filter",
+    "v4_adx_kama_confluence",
+    "v4_volatility_adjusted_momentum",
+}
+_V4B_CANDIDATE_IDS = {"v4_52week_high_breakout", "v4_trend_quality_filter"}
+_V5_CANDIDATE_IDS = {
+    "v5_regime_adaptive_donchian",
+    "v5_trend_pullback_fixed30",
+    "v5_trend_pullback_voltarget25",
+    "v5_trend_pullback_kelly025",
+}
 _V6_CANDIDATE_IDS = {"v6_fast_donchian_swing", "v6_daily_ema_pullback"}
 _CORE_SATELLITE_IDS = {
     "core70_satellite30_v6_fast_donchian",
     "core70_satellite30_v6_daily_ema_pullback",
 }
 _GOVERNED_CANDIDATE_IDS = (
-    _DAILY_CANDIDATE_IDS | _V4_CANDIDATE_IDS | _V6_CANDIDATE_IDS | _CORE_SATELLITE_IDS
+    _DAILY_CANDIDATE_IDS
+    | _V3_CANDIDATE_IDS
+    | _V4_CANDIDATE_IDS
+    | _V4B_CANDIDATE_IDS
+    | _V5_CANDIDATE_IDS
+    | _V6_CANDIDATE_IDS
+    | _CORE_SATELLITE_IDS
 )
+_TARGET_WEIGHT_CANDIDATE_FACTORIES: dict[str, Callable[[], _TargetWeightCandidate]] = {
+    **_V3_CANDIDATE_FACTORIES,
+    "v4_adaptive_donchian_atr": V4AdaptiveDonchianAtrStrategy,
+    "v4_trend_volatility_regime": V4TrendVolatilityRegimeStrategy,
+    "v4_kama_trend": V4KamaTrendStrategy,
+    "v4_triple_momentum_filter": V4TripleMomentumFilterStrategy,
+    "v4_adx_kama_confluence": V4AdxKamaConfluenceStrategy,
+    "v4_volatility_adjusted_momentum": V4VolatilityAdjustedMomentumStrategy,
+    "v4_52week_high_breakout": V452WeekHighBreakoutStrategy,
+    "v4_trend_quality_filter": V4TrendQualityFilterStrategy,
+    "v5_regime_adaptive_donchian": V5RegimeAdaptiveDonchianStrategy,
+    "v5_trend_pullback_fixed30": lambda: V5TrendPullbackStrategy(
+        name="v5_trend_pullback_fixed30", sizing_mode="fixed30"
+    ),
+    "v5_trend_pullback_voltarget25": lambda: V5TrendPullbackStrategy(
+        name="v5_trend_pullback_voltarget25", sizing_mode="voltarget25"
+    ),
+    "v5_trend_pullback_kelly025": lambda: V5TrendPullbackStrategy(
+        name="v5_trend_pullback_kelly025", sizing_mode="kelly025"
+    ),
+    "v6_fast_donchian_swing": V6FastDonchianSwingStrategy,
+    "v6_daily_ema_pullback": V6DailyEmaPullbackStrategy,
+}
 
 
 def registered_strategy_ids() -> tuple[str, ...]:
@@ -224,8 +279,14 @@ def governed_candidate_strategy_ids() -> frozenset[str]:
 def candidate_family_for_strategy(strategy_id: str) -> str:
     if strategy_id in _DAILY_CANDIDATE_IDS:
         return "daily_weekly_trend_and_momentum"
+    if strategy_id in _V3_CANDIDATE_IDS:
+        return "v3_daily_target_weight"
     if strategy_id in _V4_CANDIDATE_IDS:
         return "v4_v4b_regime_breakout_and_trend"
+    if strategy_id in _V4B_CANDIDATE_IDS:
+        return "v4_v4b_regime_breakout_and_trend"
+    if strategy_id in _V5_CANDIDATE_IDS:
+        return "v5_regime_dual_momentum_pullback"
     if strategy_id in _V6_CANDIDATE_IDS | _CORE_SATELLITE_IDS:
         return "v6_satellite_and_core_satellite"
     if strategy_id in _BASELINE_IDS:
@@ -240,17 +301,35 @@ def strategy_source_modules(strategy_id: str) -> tuple[str, ...]:
     sources = ["research_infra/builtin_strategies.py"]
     if strategy_id in _DAILY_CANDIDATE_IDS:
         sources.append("daily_strategy_candidates.py")
+    elif strategy_id in _V3_CANDIDATE_IDS:
+        sources.extend(("daily_strategy_candidates.py", "strategy_v3_candidates.py"))
     elif strategy_id in _V4_CANDIDATE_IDS:
-        sources.extend(("daily_strategy_candidates.py", "strategy_v4_candidates.py"))
+        sources.extend((
+            "daily_strategy_candidates.py",
+            "strategy_v3_candidates.py",
+            "strategy_v4_candidates.py",
+        ))
+    elif strategy_id in _V4B_CANDIDATE_IDS:
+        sources.extend(("daily_strategy_candidates.py", "strategy_v4b_candidates.py"))
+    elif strategy_id in _V5_CANDIDATE_IDS:
+        sources.extend((
+            "daily_strategy_candidates.py",
+            "indicators.py",
+            "strategy_v3_candidates.py",
+            "strategy_v4_candidates.py",
+            "strategy_v5_candidates.py",
+        ))
     elif strategy_id in _V6_CANDIDATE_IDS:
         sources.extend((
             "daily_strategy_candidates.py",
+            "strategy_v3_candidates.py",
             "strategy_v4_candidates.py",
             "strategy_v6_candidates.py",
         ))
     elif strategy_id in _CORE_SATELLITE_IDS:
         sources.extend((
             "daily_strategy_candidates.py",
+            "strategy_v3_candidates.py",
             "strategy_v4_candidates.py",
             "strategy_v6_candidates.py",
         ))
@@ -330,23 +409,13 @@ def create_builtin_strategy(
                 f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
             )
         return _DailyCandidateAdapter(strategy_id, daily_candidate_factories()[strategy_id]())
-    v4_factories = {
-        "v4_adaptive_donchian_atr": V4AdaptiveDonchianAtrStrategy,
-        "v4_trend_volatility_regime": V4TrendVolatilityRegimeStrategy,
-    }
-    v6_factories = {
-        "v6_fast_donchian_swing": V6FastDonchianSwingStrategy,
-        "v6_daily_ema_pullback": V6DailyEmaPullbackStrategy,
-    }
-    if strategy_id in set(v4_factories) | set(v6_factories) | _CORE_SATELLITE_IDS:
+    if strategy_id in _TARGET_WEIGHT_CANDIDATE_FACTORIES or strategy_id in _CORE_SATELLITE_IDS:
         if parameters:
             raise UnsupportedStrategyError(
                 f"{strategy_id} uses its existing frozen implementation parameters and accepts no overrides"
             )
-        if strategy_id in v4_factories:
-            return _TargetWeightCandidateAdapter(v4_factories[strategy_id]())
-        if strategy_id in v6_factories:
-            return _TargetWeightCandidateAdapter(v6_factories[strategy_id]())
+        if strategy_id in _TARGET_WEIGHT_CANDIDATE_FACTORIES:
+            return _TargetWeightCandidateAdapter(_TARGET_WEIGHT_CANDIDATE_FACTORIES[strategy_id]())
         if strategy_id == "core70_satellite30_v6_fast_donchian":
             satellite = V6FastDonchianSwingStrategy()
         else:

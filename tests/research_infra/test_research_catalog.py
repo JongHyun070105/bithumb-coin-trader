@@ -117,7 +117,10 @@ def test_governed_candidate_families_are_accepted_with_all_control_strategies() 
         ("buy_and_hold", "baseline_controls", {}),
         ("randomized_placebo", "baseline_controls", {"exposure_probability": 0.5, "target_weight": 1.0}),
         ("daily_weekly_absolute_momentum_126_63", "daily_weekly_trend_and_momentum", {}),
+        ("v3_frozen_majority_2_of_3", "v3_daily_target_weight", {}),
         ("v4_adaptive_donchian_atr", "v4_v4b_regime_breakout_and_trend", {}),
+        ("v4_52week_high_breakout", "v4_v4b_regime_breakout_and_trend", {}),
+        ("v5_regime_adaptive_donchian", "v5_regime_dual_momentum_pullback", {}),
         ("v6_daily_ema_pullback", "v6_satellite_and_core_satellite", {}),
         ("core70_satellite30_v6_fast_donchian", "v6_satellite_and_core_satellite", {}),
     ):

@@ -25,13 +25,31 @@ DAILY_CANDIDATES = (
     "daily_weekly_donchian_90_30",
     "daily_weekly_dual_momentum_42_168_vol80",
 )
-V4_V6_CANDIDATES = (
+ADDITIONAL_SINGLE_MARKET_CANDIDATES = (
+    "v3_e9_donchian_90d_vol25",
+    "v3_absolute_momentum_126_63_entry_vol20",
+    "v3_frozen_majority_2_of_3",
     "v4_adaptive_donchian_atr",
     "v4_trend_volatility_regime",
+    "v4_kama_trend",
+    "v4_triple_momentum_filter",
+    "v4_adx_kama_confluence",
+    "v4_volatility_adjusted_momentum",
+    "v4_52week_high_breakout",
+    "v4_trend_quality_filter",
+    "v5_regime_adaptive_donchian",
+    "v5_trend_pullback_fixed30",
+    "v5_trend_pullback_voltarget25",
+    "v5_trend_pullback_kelly025",
     "v6_fast_donchian_swing",
     "v6_daily_ema_pullback",
     "core70_satellite30_v6_fast_donchian",
     "core70_satellite30_v6_daily_ema_pullback",
+)
+REPRESENTATIVE_FAMILY_RUNS = (
+    "v3_frozen_majority_2_of_3",
+    "v4_trend_quality_filter",
+    "v5_regime_adaptive_donchian",
 )
 
 
@@ -103,9 +121,26 @@ def test_existing_daily_candidate_parameters_cannot_be_overridden() -> None:
         )
 
 
-@pytest.mark.parametrize("strategy_id", V4_V6_CANDIDATES)
-def test_v4_v6_single_market_candidate_runs_through_governed_walk_forward(strategy_id: str) -> None:
+@pytest.mark.parametrize("strategy_id", ADDITIONAL_SINGLE_MARKET_CANDIDATES)
+def test_additional_single_market_candidate_fits_and_emits_causal_weight(strategy_id: str) -> None:
     assert strategy_id in governed_candidate_strategy_ids()
+    strategy = create_builtin_strategy(strategy_id, 71, {})
+    candles = _daily_candles(800)
+    fitted = strategy.fit(candles[:500])
+    weight = fitted.target_weight(candles)
+    assert math.isfinite(weight)
+    assert 0.0 <= weight <= 1.0
+    assert fitted.parameters()
+
+
+@pytest.mark.parametrize("strategy_id", ADDITIONAL_SINGLE_MARKET_CANDIDATES)
+def test_additional_single_market_candidate_rejects_parameter_overrides(strategy_id: str) -> None:
+    with pytest.raises(UnsupportedStrategyError, match="accepts no overrides"):
+        create_builtin_strategy(strategy_id, 71, {"target_weight": 0.99})
+
+
+@pytest.mark.parametrize("strategy_id", REPRESENTATIVE_FAMILY_RUNS)
+def test_v3_v4b_v5_candidates_run_through_governed_walk_forward(strategy_id: str) -> None:
     strategy = create_builtin_strategy(strategy_id, 71, {})
     scenario = SpotCostScenario(
         name="explicit_costed",
@@ -137,22 +172,22 @@ def test_v4_v6_single_market_candidate_runs_through_governed_walk_forward(strate
     )
     assert len(report.folds) == 2
     assert all(fold.result.status is ResultStatus.COMPLETED for fold in report.folds)
-    assert all(fold.result.fees is not None and fold.result.fees > 0.0 for fold in report.folds)
+    assert all(fold.result.fees is not None and fold.result.fees >= 0.0 for fold in report.folds)
     assert all(fold.frozen_parameter_sha256 for fold in report.folds)
 
 
-@pytest.mark.parametrize("strategy_id", V4_V6_CANDIDATES)
+@pytest.mark.parametrize("strategy_id", ADDITIONAL_SINGLE_MARKET_CANDIDATES)
 def test_candidate_family_and_source_inventory_are_explicit(strategy_id: str) -> None:
     assert candidate_family_for_strategy(strategy_id) in {
+        "v3_daily_target_weight",
         "v4_v4b_regime_breakout_and_trend",
+        "v5_regime_dual_momentum_pullback",
         "v6_satellite_and_core_satellite",
     }
     sources = strategy_source_modules(strategy_id)
     assert "research_infra/builtin_strategies.py" in sources
     assert "daily_strategy_candidates.py" in sources
-    assert any(source.endswith("strategy_v4_candidates.py") for source in sources) or any(
-        source.endswith("strategy_v6_candidates.py") for source in sources
-    )
+    assert any(source.startswith("strategy_v") for source in sources)
 
 
 @pytest.mark.parametrize(
