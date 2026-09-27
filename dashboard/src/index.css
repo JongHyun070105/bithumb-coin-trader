@@ -1327,6 +1327,12 @@ main {
 .pill-paper { background: var(--locked-bg); color: var(--locked); border: 1px solid var(--locked-border); }
 .pill-live { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
 
+.paper-runtime-section { margin-top: 24px; }
+.paper-runtime-content { display: flex; flex-direction: column; gap: 10px; }
+.paper-runtime-summary { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; }
+.paper-runtime-summary code { font-family: var(--font-mono); font-size: 11px; }
+.paper-runtime-section > small { display: inline-flex; align-items: center; gap: 5px; }
+
 .prereq-container {
   margin-top: 20px;
   text-align: left;

@@ -8,9 +8,12 @@ Reusable pipeline for historical microstructure analysis with:
 - Label engine
 - Execution simulator
 - Hypothesis registry
+- Explicit spot cost scenario model
+- Append-only candidate lifecycle evidence registry
 - Chronological evaluation
 - Research manifests
 - Candidate freeze mechanism
+- Fail-closed PAPER readiness evidence checker
 
 All historical results from Old72H/V2 are DEVELOPMENT / EXPLORATORY ONLY.
 Alpha remains UNPROVEN until prospective validation.

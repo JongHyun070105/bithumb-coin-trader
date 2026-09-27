@@ -12,6 +12,12 @@ from typing import Any, Mapping, Sequence
 from .config import TradingSettings
 from .market_registry import MarketMetadata, get_market_metadata
 from .models import Candle
+from .research_infra.costs import (
+    CostScenarioError,
+    SpotCostScenario,
+    spot_fill_terms,
+    spot_quantity_for_notional,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +30,9 @@ class MultiAssetFill:
     notional: float
     fee: float
     reason: str = "rebalance"  # rebalance, delist_exit, final_liquidation
+    reference_price: float | None = None
+    slippage_cost: float = 0.0
+    order_type: str = "TAKER"
 
     def to_canonical_dict(self) -> dict[str, Any]:
         return {
@@ -35,6 +44,9 @@ class MultiAssetFill:
             "notional": round(self.notional, 2),
             "fee": round(self.fee, 2),
             "reason": self.reason,
+            "reference_price": self.reference_price,
+            "slippage_cost": round(self.slippage_cost, 2),
+            "order_type": self.order_type,
         }
 
 
@@ -71,6 +83,8 @@ class MultiAssetBacktestResult:
     cash_curve: tuple[float, ...]
     exposure_curve: tuple[float, ...]
     per_asset_exposure_curves: dict[str, tuple[float, ...]]
+    execution_assumptions: dict[str, Any] | None = None
+    unsupported_execution_semantics: tuple[str, ...] = ()
 
     def canonical_json_dump(self) -> str:
         payload = {
@@ -105,6 +119,16 @@ class MultiAssetSharedCashBacktester:
         drift_per_asset_exposure_limit: float = 0.18,
         min_listing_days: int = 30,
     ) -> None:
+        exposure_values = {
+            "target_total_exposure": target_total_exposure,
+            "drift_total_exposure_limit": drift_total_exposure_limit,
+            "target_per_asset_exposure": target_per_asset_exposure,
+            "drift_per_asset_exposure_limit": drift_per_asset_exposure_limit,
+        }
+        if any(not isfinite(value) or not 0.0 <= value <= 1.0 for value in exposure_values.values()):
+            raise ValueError("exposure settings must be finite fractions in [0, 1]")
+        if isinstance(min_listing_days, bool) or not isinstance(min_listing_days, int) or min_listing_days < 0:
+            raise ValueError("min_listing_days must be a non-negative integer")
         self.settings = settings or TradingSettings()
         self.target_total_exposure = target_total_exposure
         self.drift_total_exposure_limit = drift_total_exposure_limit
@@ -116,7 +140,39 @@ class MultiAssetSharedCashBacktester:
         self,
         candles_by_market: Mapping[str, Sequence[Candle]],
         target_weights_by_market: Mapping[str, Sequence[float]],
+        *,
+        cost_scenario: SpotCostScenario | None = None,
     ) -> MultiAssetBacktestResult:
+        if not candles_by_market:
+            raise ValueError("at least one market series is required")
+        unknown_weight_markets = set(target_weights_by_market) - set(candles_by_market)
+        if unknown_weight_markets:
+            raise ValueError(
+                "target weights contain markets without candles: "
+                + ", ".join(sorted(unknown_weight_markets))
+            )
+
+        normalized_weights: dict[str, tuple[float, ...]] = {}
+        for market, candle_series in candles_by_market.items():
+            if not candle_series:
+                raise ValueError(f"candle series for {market} is empty")
+            timestamps = [c.timestamp for c in candle_series]
+            if any(left >= right for left, right in zip(timestamps, timestamps[1:])):
+                raise ValueError(f"candles for {market} must have unique chronological timestamps")
+            if any(c.market != market for c in candle_series):
+                raise ValueError(f"candle market does not match mapping key {market}")
+
+            weights = target_weights_by_market.get(market, (0.0,) * len(candle_series))
+            if len(candle_series) != len(weights):
+                raise ValueError(f"Weight length mismatch for market {market}")
+            try:
+                values = tuple(float(weight) for weight in weights)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(f"target weights for {market} must be numeric fractions") from exc
+            if any(not isfinite(weight) or not 0.0 <= weight <= 1.0 for weight in values):
+                raise ValueError(f"target weights for {market} must be finite fractions in [0, 1]")
+            normalized_weights[market] = values
+
         all_timestamps = sorted(
             {c.timestamp for c_list in candles_by_market.values() for c in c_list}
         )
@@ -129,10 +185,8 @@ class MultiAssetSharedCashBacktester:
             for c in c_list
         }
         target_map: dict[tuple[str, datetime], float] = {}
-        for market, weights in target_weights_by_market.items():
+        for market, weights in normalized_weights.items():
             c_list = candles_by_market[market]
-            if len(c_list) != len(weights):
-                raise ValueError(f"Weight length mismatch for market {market}")
             for c, w in zip(c_list, weights):
                 target_map[(market, c.timestamp)] = w
 
@@ -140,6 +194,15 @@ class MultiAssetSharedCashBacktester:
         metadata_map = {m: get_market_metadata(m) for m in markets}
 
         cash = float(self.settings.initial_capital_krw)
+        fee_rate = (
+            cost_scenario.fee_rate("TAKER")
+            if cost_scenario is not None
+            else self.settings.fee_rate
+        )
+        minimum_order = max(
+            float(self.settings.minimum_order_krw),
+            cost_scenario.minimum_order_notional if cost_scenario is not None else 0.0,
+        )
         quantities: dict[str, float] = {m: 0.0 for m in markets}
         last_known_open_price: dict[str, float] = {}
         last_known_close_price: dict[str, float] = {}
@@ -198,9 +261,23 @@ class MultiAssetSharedCashBacktester:
                     c = candle_map.get((m, current_time))
                     if c is not None:
                         # Liquidate at actual present open price
-                        price = c.open * (1.0 - self.settings.slippage_bps / 10_000.0)
-                        notional = quantities[m] * price
-                        fee = notional * self.settings.fee_rate
+                        if cost_scenario is not None:
+                            fill_terms = spot_fill_terms(
+                                cost_scenario,
+                                reference_price=c.open,
+                                requested_quantity=quantities[m],
+                                side="SELL",
+                            )
+                            self._require_full_lot_fill(fill_terms.quantity, quantities[m], cost_scenario)
+                            price = fill_terms.fill_price
+                            notional = fill_terms.notional
+                            fee = fill_terms.fee
+                            slippage_cost = fill_terms.slippage_cost
+                        else:
+                            price = c.open * (1.0 - self.settings.slippage_bps / 10_000.0)
+                            notional = quantities[m] * price
+                            fee = notional * self.settings.fee_rate
+                            slippage_cost = abs(c.open - price) * quantities[m]
                         cash += notional - fee
                         fills.append(
                             MultiAssetFill(
@@ -212,6 +289,8 @@ class MultiAssetSharedCashBacktester:
                                 notional=notional,
                                 fee=fee,
                                 reason="delist_exit",
+                                reference_price=c.open,
+                                slippage_cost=slippage_cost,
                             )
                         )
                         quantities[m] = 0.0
@@ -288,16 +367,36 @@ class MultiAssetSharedCashBacktester:
                 if meta.is_suspended(current_time):
                     suspended_orders_blocked += 1
                     continue
-                if delta < -self.settings.minimum_order_krw and quantities[m] > 0:
+                if delta < -minimum_order and quantities[m] > 0:
                     c = candle_map.get((m, current_time))
                     if c is None:
                         phantom_fills += 1
                         continue
                     sell_notional = min(-delta, quantities[m] * c.open)
-                    price = c.open * (1.0 - self.settings.slippage_bps / 10_000.0)
-                    sold_qty = min(quantities[m], sell_notional / c.open)
-                    notional = sold_qty * price
-                    fee = notional * self.settings.fee_rate
+                    requested_quantity = min(quantities[m], sell_notional / c.open)
+                    if cost_scenario is not None:
+                        try:
+                            fill_terms = spot_fill_terms(
+                                cost_scenario,
+                                reference_price=c.open,
+                                requested_quantity=requested_quantity,
+                                side="SELL",
+                            )
+                        except CostScenarioError:
+                            continue
+                        if fill_terms.notional < minimum_order:
+                            continue
+                        sold_qty = fill_terms.quantity
+                        price = fill_terms.fill_price
+                        notional = fill_terms.notional
+                        fee = fill_terms.fee
+                        slippage_cost = fill_terms.slippage_cost
+                    else:
+                        price = c.open * (1.0 - self.settings.slippage_bps / 10_000.0)
+                        sold_qty = requested_quantity
+                        notional = sold_qty * price
+                        fee = notional * self.settings.fee_rate
+                        slippage_cost = abs(c.open - price) * sold_qty
                     cash += notional - fee
                     quantities[m] -= sold_qty
                     fills.append(
@@ -310,6 +409,8 @@ class MultiAssetSharedCashBacktester:
                             notional=notional,
                             fee=fee,
                             reason="rebalance",
+                            reference_price=c.open,
+                            slippage_cost=slippage_cost,
                         )
                     )
                     if quantities[m] <= 1e-8:
@@ -320,15 +421,17 @@ class MultiAssetSharedCashBacktester:
 
             # 5. Phase 2: Execute BUYS with shared cash and total exposure room
             available_cash = max(0.0, cash - self.settings.cash_reserve_krw)
-            current_crypto_val = sum(
-                quantities[m] * (candle_map.get((m, current_time)).open if candle_map.get((m, current_time)) is not None else last_known_open_price.get(m, 0.0))
-                for m in markets
-                if quantities[m] > 0
-            )
+            current_crypto_val = 0.0
+            for m in markets:
+                if quantities[m] <= 0:
+                    continue
+                candle = candle_map.get((m, current_time))
+                open_price = candle.open if candle is not None else last_known_open_price.get(m, 0.0)
+                current_crypto_val += quantities[m] * open_price
             max_allowed_crypto = current_equity * self.target_total_exposure
             remaining_exposure_room = max(0.0, max_allowed_crypto - current_crypto_val)
 
-            buy_orders = [(m, delta) for m, delta in deltas.items() if delta >= self.settings.minimum_order_krw]
+            buy_orders = [(m, delta) for m, delta in deltas.items() if delta >= minimum_order]
             buy_orders.sort(key=lambda x: x[0])
 
             for m, delta in buy_orders:
@@ -348,12 +451,37 @@ class MultiAssetSharedCashBacktester:
                     phantom_fills += 1
                     continue
 
-                desired_buy = min(delta, available_cash / (1.0 + self.settings.fee_rate), remaining_exposure_room)
-                if desired_buy >= self.settings.minimum_order_krw:
-                    price = c.open * (1.0 + self.settings.slippage_bps / 10_000.0)
-                    bought_qty = desired_buy / price
-                    notional = bought_qty * price
-                    fee = notional * self.settings.fee_rate
+                desired_buy = min(delta, available_cash / (1.0 + fee_rate), remaining_exposure_room)
+                if desired_buy >= minimum_order:
+                    if cost_scenario is not None:
+                        try:
+                            requested_quantity = spot_quantity_for_notional(
+                                cost_scenario,
+                                reference_price=c.open,
+                                requested_notional=desired_buy,
+                                side="BUY",
+                            )
+                            fill_terms = spot_fill_terms(
+                                cost_scenario,
+                                reference_price=c.open,
+                                requested_quantity=requested_quantity,
+                                side="BUY",
+                            )
+                        except CostScenarioError:
+                            continue
+                        if fill_terms.notional < minimum_order:
+                            continue
+                        price = fill_terms.fill_price
+                        bought_qty = fill_terms.quantity
+                        notional = fill_terms.notional
+                        fee = fill_terms.fee
+                        slippage_cost = fill_terms.slippage_cost
+                    else:
+                        price = c.open * (1.0 + self.settings.slippage_bps / 10_000.0)
+                        bought_qty = desired_buy / price
+                        notional = bought_qty * price
+                        fee = notional * self.settings.fee_rate
+                        slippage_cost = abs(price - c.open) * bought_qty
                     cash -= notional + fee
                     quantities[m] += bought_qty
                     available_cash -= notional + fee
@@ -368,6 +496,8 @@ class MultiAssetSharedCashBacktester:
                             notional=notional,
                             fee=fee,
                             reason="rebalance",
+                            reference_price=c.open,
+                            slippage_cost=slippage_cost,
                         )
                     )
                     was_in_position[m] = True
@@ -379,8 +509,19 @@ class MultiAssetSharedCashBacktester:
                 c = candle_map.get((m, current_time))
                 close_p = c.close if c is not None else last_known_close_price.get(m, 0.0)
                 if close_p > 0 and quantities[m] > 0:
-                    exit_price = close_p * (1.0 - self.settings.slippage_bps / 10_000.0)
-                    crypto_val = quantities[m] * exit_price * (1.0 - self.settings.fee_rate)
+                    if cost_scenario is not None:
+                        mark = spot_fill_terms(
+                            cost_scenario,
+                            reference_price=close_p,
+                            requested_quantity=quantities[m],
+                            side="SELL",
+                            enforce_minimum=False,
+                        )
+                        exit_price = mark.fill_price
+                        crypto_val = mark.notional - mark.fee
+                    else:
+                        exit_price = close_p * (1.0 - self.settings.slippage_bps / 10_000.0)
+                        crypto_val = quantities[m] * exit_price * (1.0 - self.settings.fee_rate)
                     marked_equity += crypto_val
                     total_crypto_marked += crypto_val
                     per_asset_ratio = (crypto_val / marked_equity) if marked_equity > 0 else 0.0
@@ -407,9 +548,23 @@ class MultiAssetSharedCashBacktester:
                 c = candle_map.get((m, final_time))
                 close_p = c.close if c is not None else last_known_close_price.get(m, 0.0)
                 if close_p > 0:
-                    exit_price = close_p * (1.0 - self.settings.slippage_bps / 10_000.0)
-                    notional = quantities[m] * exit_price
-                    fee = notional * self.settings.fee_rate
+                    if cost_scenario is not None:
+                        fill_terms = spot_fill_terms(
+                            cost_scenario,
+                            reference_price=close_p,
+                            requested_quantity=quantities[m],
+                            side="SELL",
+                        )
+                        self._require_full_lot_fill(fill_terms.quantity, quantities[m], cost_scenario)
+                        exit_price = fill_terms.fill_price
+                        notional = fill_terms.notional
+                        fee = fill_terms.fee
+                        slippage_cost = fill_terms.slippage_cost
+                    else:
+                        exit_price = close_p * (1.0 - self.settings.slippage_bps / 10_000.0)
+                        notional = quantities[m] * exit_price
+                        fee = notional * self.settings.fee_rate
+                        slippage_cost = abs(close_p - exit_price) * quantities[m]
                     cash += notional - fee
                     fills.append(
                         MultiAssetFill(
@@ -421,6 +576,8 @@ class MultiAssetSharedCashBacktester:
                             notional=notional,
                             fee=fee,
                             reason="final_liquidation",
+                            reference_price=close_p,
+                            slippage_cost=slippage_cost,
                         )
                     )
                     quantities[m] = 0.0
@@ -486,4 +643,30 @@ class MultiAssetSharedCashBacktester:
             cash_curve=tuple(cash_curve),
             exposure_curve=tuple(exposure_curve),
             per_asset_exposure_curves={m: tuple(c) for m, c in per_asset_exposure_curves.items()},
+            execution_assumptions=cost_scenario.to_dict() if cost_scenario else None,
+            unsupported_execution_semantics=(
+                self._unsupported_cost_semantics(cost_scenario)
+                if cost_scenario is not None
+                else ()
+            ),
         )
+
+    @staticmethod
+    def _require_full_lot_fill(
+        filled_quantity: float,
+        requested_quantity: float,
+        scenario: SpotCostScenario,
+    ) -> None:
+        if abs(filled_quantity - requested_quantity) > scenario.lot_size * 1e-6:
+            raise CostScenarioError("position quantity is not aligned to the scenario lot size")
+
+    @staticmethod
+    def _unsupported_cost_semantics(scenario: SpotCostScenario) -> tuple[str, ...]:
+        unsupported: list[str] = []
+        if scenario.latency_ms > 0:
+            unsupported.append("LATENCY_NOT_MODELED_AT_CANDLE_RESOLUTION")
+        if scenario.partial_fill_probability is None:
+            unsupported.append("PARTIAL_FILLS_EXPLICITLY_UNSUPPORTED_BY_SCENARIO")
+        elif scenario.partial_fill_probability > 0:
+            unsupported.append("PARTIAL_FILL_PROBABILITY_NOT_MODELED_BY_CANDLE_ENGINE")
+        return tuple(unsupported)

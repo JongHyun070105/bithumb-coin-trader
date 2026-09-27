@@ -4,11 +4,17 @@ from dataclasses import dataclass
 from datetime import timedelta, timezone
 from math import sqrt
 from statistics import mean, median, pstdev
-from typing import Sequence
+from typing import Any, Sequence
 
 from .config import TradingSettings
 from .models import Candle, Signal
 from .risk import RiskContext, RiskLimits, evaluate_pretrade
+from .research_infra.costs import (
+    CostScenarioError,
+    SpotCostScenario,
+    spot_fill_terms,
+    spot_quantity_for_notional,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +32,10 @@ class Trade:
     net_pnl: float
     is_final_liquidation: bool = False
     is_gap_liquidation: bool = False
+    entry_slippage_cost: float = 0.0
+    exit_slippage_cost: float = 0.0
+    entry_order_type: str = "TAKER"
+    exit_order_type: str = "TAKER"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +56,9 @@ class BacktestResult:
     gross_traded_notional: float = 0.0
     turnover: float = 0.0
     entry_rejections: tuple["EntryRejection", ...] = ()
+    execution_assumptions: dict[str, Any] | None = None
+    unsupported_execution_semantics: tuple[str, ...] = ()
+    total_slippage_cost: float = 0.0
 
     def __post_init__(self) -> None:
         if self.trade_count != len(self.trades):
@@ -67,6 +80,7 @@ class _OpenPosition:
     quantity: float
     notional: float
     equity_after_entry_fee: float
+    entry_slippage_cost: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +114,7 @@ class Backtester:
         signals: Sequence[Signal],
         *,
         target_allocations: Sequence[float] | None = None,
+        cost_scenario: SpotCostScenario | None = None,
     ) -> BacktestResult:
         if len(candles) != len(signals):
             raise ValueError("candles and signals must have the same length")
@@ -113,12 +128,23 @@ class Backtester:
                 for value in target_allocations
             ):
                 raise ValueError("target allocations must be finite fractions in [0, 1]")
+        if cost_scenario is not None and self.allow_short:
+            raise CostScenarioError("SpotCostScenario supports long-only spot execution")
         if any(
             candles[index].timestamp <= candles[index - 1].timestamp
             for index in range(1, len(candles))
         ):
             raise ValueError("candles must be strictly chronological")
         equity = float(self.settings.initial_capital_krw)
+        fee_rate = (
+            cost_scenario.fee_rate("TAKER")
+            if cost_scenario is not None
+            else self.settings.fee_rate
+        )
+        minimum_order = max(
+            float(self.settings.minimum_order_krw),
+            cost_scenario.minimum_order_notional if cost_scenario is not None else 0.0,
+        )
         curve = [equity]
         position_curve = [Signal.FLAT]
         position: _OpenPosition | None = None
@@ -147,6 +173,7 @@ class Backtester:
                         position,
                         open_price,
                         index,
+                        cost_scenario=cost_scenario,
                         is_gap_liquidation=True,
                     )
                     trades.append(trade)
@@ -162,7 +189,9 @@ class Backtester:
                 else:
                     suppressed_side = None
             if position is not None and requested is not position.side:
-                equity, trade = self._close(position, open_price, index)
+                equity, trade = self._close(
+                    position, open_price, index, cost_scenario=cost_scenario
+                )
                 trades.append(trade)
                 position = None
             if position is None and requested is not Signal.FLAT:
@@ -174,7 +203,7 @@ class Backtester:
                 )
                 notional = min(
                     equity * allocation,
-                    available / (1 + self.settings.fee_rate),
+                    available / (1 + fee_rate),
                     float(self.settings.maximum_order_krw),
                 )
                 entries = entries_by_kst_day.get(entry_day, 0)
@@ -193,17 +222,30 @@ class Backtester:
                         limits=self.risk_limits,
                     ).reasons
                 if not rejection_reasons and (
-                    notional >= self.settings.minimum_order_krw
+                    notional >= minimum_order
                     and entries < self.settings.maximum_daily_entries
                 ):
-                    position = self._open(requested, open_price, index, notional, equity)
-                    equity = position.equity_after_entry_fee
-                    entries_by_kst_day[entry_day] = entries + 1
+                    try:
+                        position = self._open(
+                            requested,
+                            open_price,
+                            index,
+                            notional,
+                            equity,
+                            cost_scenario=cost_scenario,
+                        )
+                    except CostScenarioError as exc:
+                        rejection_reasons = (str(exc),)
+                        entry_rejections.append(EntryRejection(index, rejection_reasons))
+                        suppressed_side = requested
+                    else:
+                        equity = position.equity_after_entry_fee
+                        entries_by_kst_day[entry_day] = entries + 1
                 else:
                     if not rejection_reasons:
                         rejection_reasons = (
                             "order is below the exchange minimum"
-                            if notional < self.settings.minimum_order_krw
+                            if notional < minimum_order
                             else "daily entry limit reached",
                         )
                     entry_rejections.append(EntryRejection(index, rejection_reasons))
@@ -211,7 +253,9 @@ class Backtester:
             marked = equity
             if position is not None:
                 exposed_periods += 1
-                marked = self._mark_equity(position, candles[index].close)
+                marked = self._mark_equity(
+                    position, candles[index].close, cost_scenario=cost_scenario
+                )
             curve.append(marked)
             peak_equity = max(peak_equity, marked)
             position_curve.append(position.side if position is not None else Signal.FLAT)
@@ -221,6 +265,7 @@ class Backtester:
                 position,
                 candles[-1].close,
                 len(candles) - 1,
+                cost_scenario=cost_scenario,
                 is_final_liquidation=True,
             )
             trades.append(trade)
@@ -258,6 +303,15 @@ class Backtester:
             gross_traded_notional=gross_traded_notional,
             turnover=(gross_traded_notional / average_equity if average_equity > 0 else 0.0),
             entry_rejections=tuple(entry_rejections),
+            execution_assumptions=(cost_scenario.to_dict() if cost_scenario else None),
+            unsupported_execution_semantics=(
+                self._unsupported_cost_semantics(cost_scenario)
+                if cost_scenario is not None
+                else ()
+            ),
+            total_slippage_cost=sum(
+                trade.entry_slippage_cost + trade.exit_slippage_cost for trade in trades
+            ),
         )
 
     def slice_result(
@@ -332,6 +386,11 @@ class Backtester:
                 for rejection in result.entry_rejections
                 if start < rejection.index <= end
             ),
+            execution_assumptions=result.execution_assumptions,
+            unsupported_execution_semantics=result.unsupported_execution_semantics,
+            total_slippage_cost=sum(
+                trade.entry_slippage_cost + trade.exit_slippage_cost for trade in trades
+            ),
         )
 
     def _open(
@@ -341,17 +400,42 @@ class Backtester:
         index: int,
         notional: float,
         equity: float,
+        *,
+        cost_scenario: SpotCostScenario | None = None,
     ) -> _OpenPosition:
-        slip = self.settings.slippage_bps / 10_000
-        entry_price = price * (1 + slip if side is Signal.LONG else 1 - slip)
-        entry_fee = notional * self.settings.fee_rate
+        if cost_scenario is not None:
+            requested_quantity = spot_quantity_for_notional(
+                cost_scenario,
+                reference_price=price,
+                requested_notional=notional,
+                side="BUY",
+            )
+            entry = spot_fill_terms(
+                cost_scenario,
+                reference_price=price,
+                requested_quantity=requested_quantity,
+                side="BUY",
+            )
+            entry_price = entry.fill_price
+            quantity = entry.quantity
+            filled_notional = entry.notional
+            entry_fee = entry.fee
+            entry_slippage_cost = entry.slippage_cost
+        else:
+            slip = self.settings.slippage_bps / 10_000
+            entry_price = price * (1 + slip if side is Signal.LONG else 1 - slip)
+            quantity = notional / entry_price
+            filled_notional = notional
+            entry_fee = notional * self.settings.fee_rate
+            entry_slippage_cost = abs(entry_price - price) * quantity
         return _OpenPosition(
             side,
             index,
             entry_price,
-            notional / entry_price,
-            notional,
+            quantity,
+            filled_notional,
             equity - entry_fee,
+            entry_slippage_cost,
         )
 
     def _close(
@@ -360,16 +444,36 @@ class Backtester:
         price: float,
         index: int,
         *,
+        cost_scenario: SpotCostScenario | None = None,
         is_final_liquidation: bool = False,
         is_gap_liquidation: bool = False,
     ) -> tuple[float, Trade]:
-        slip = self.settings.slippage_bps / 10_000
-        exit_price = price * (1 - slip if position.side is Signal.LONG else 1 + slip)
+        if cost_scenario is not None:
+            exit_fill = spot_fill_terms(
+                cost_scenario,
+                reference_price=price,
+                requested_quantity=position.quantity,
+                side="SELL",
+            )
+            exit_price = exit_fill.fill_price
+            exit_notional = exit_fill.notional
+            exit_fee = exit_fill.fee
+            exit_slippage_cost = exit_fill.slippage_cost
+            if abs(exit_fill.quantity - position.quantity) > cost_scenario.lot_size * 1e-6:
+                raise CostScenarioError("position quantity is not aligned to the scenario lot size")
+        else:
+            slip = self.settings.slippage_bps / 10_000
+            exit_price = price * (1 - slip if position.side is Signal.LONG else 1 + slip)
+            exit_notional = position.quantity * exit_price
+            exit_fee = exit_notional * self.settings.fee_rate
+            exit_slippage_cost = abs(exit_price - price) * position.quantity
         gross_pnl = int(position.side) * position.quantity * (exit_price - position.entry_price)
-        exit_notional = position.quantity * exit_price
-        exit_fee = exit_notional * self.settings.fee_rate
         net_equity = position.equity_after_entry_fee + gross_pnl - exit_fee
-        total_entry_fee = position.notional * self.settings.fee_rate
+        total_entry_fee = (
+            position.notional * cost_scenario.fee_rate("TAKER")
+            if cost_scenario is not None
+            else position.notional * self.settings.fee_rate
+        )
         trade = Trade(
             side=position.side,
             entry_index=position.entry_index,
@@ -384,17 +488,48 @@ class Backtester:
             net_pnl=gross_pnl - total_entry_fee - exit_fee,
             is_final_liquidation=is_final_liquidation,
             is_gap_liquidation=is_gap_liquidation,
+            entry_slippage_cost=position.entry_slippage_cost,
+            exit_slippage_cost=exit_slippage_cost,
         )
         return net_equity, trade
 
-    def _mark_equity(self, position: _OpenPosition, price: float) -> float:
-        slip = self.settings.slippage_bps / 10_000
-        exit_price = price * (1 - slip if position.side is Signal.LONG else 1 + slip)
+    def _mark_equity(
+        self,
+        position: _OpenPosition,
+        price: float,
+        *,
+        cost_scenario: SpotCostScenario | None = None,
+    ) -> float:
+        if cost_scenario is not None:
+            exit_fill = spot_fill_terms(
+                cost_scenario,
+                reference_price=price,
+                requested_quantity=position.quantity,
+                side="SELL",
+                enforce_minimum=False,
+            )
+            exit_price = exit_fill.fill_price
+            fee_rate = cost_scenario.fee_rate("TAKER")
+        else:
+            slip = self.settings.slippage_bps / 10_000
+            exit_price = price * (1 - slip if position.side is Signal.LONG else 1 + slip)
+            fee_rate = self.settings.fee_rate
         gross_pnl = int(position.side) * position.quantity * (
             exit_price - position.entry_price
         )
-        exit_fee = position.quantity * exit_price * self.settings.fee_rate
+        exit_fee = position.quantity * exit_price * fee_rate
         return position.equity_after_entry_fee + gross_pnl - exit_fee
+
+    @staticmethod
+    def _unsupported_cost_semantics(scenario: SpotCostScenario) -> tuple[str, ...]:
+        unsupported: list[str] = []
+        if scenario.latency_ms > 0:
+            unsupported.append("LATENCY_NOT_MODELED_AT_CANDLE_RESOLUTION")
+        if scenario.partial_fill_probability is None:
+            unsupported.append("PARTIAL_FILLS_EXPLICITLY_UNSUPPORTED_BY_SCENARIO")
+        elif scenario.partial_fill_probability > 0:
+            unsupported.append("PARTIAL_FILL_PROBABILITY_NOT_MODELED_BY_CANDLE_ENGINE")
+        return tuple(unsupported)
 
     @staticmethod
     def _max_drawdown(curve: Sequence[float]) -> float:
