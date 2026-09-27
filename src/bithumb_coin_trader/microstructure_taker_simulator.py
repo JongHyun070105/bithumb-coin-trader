@@ -138,7 +138,7 @@ class RealisticTakerExecutionSimulator:
                 # Partial fill of this depth level
                 needed_size = remaining_krw / adj_price
                 slices.append(FillSlice(price=adj_price, size=needed_size, notional_krw=remaining_krw))
-                total_size += size
+                total_size += needed_size
                 remaining_krw = 0.0
                 break
 
