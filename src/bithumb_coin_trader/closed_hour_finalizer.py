@@ -352,6 +352,7 @@ class ClosedHourFinalizer:
             runtime_commit=self.runtime_commit,
             runtime_config_fingerprint=self.runtime_config_fingerprint,
             environment_id=self.environment_id,
+            closed_at_utc=observation.observation_end_utc,
         )
         combined_reasons = tuple(sorted(set(temp_coverage.failure_reason_codes).union(all_reasons)))
         cov_dict = temp_coverage.to_dict()
@@ -411,6 +412,7 @@ class ClosedHourFinalizer:
                 runtime_commit=self.runtime_commit,
                 runtime_config_fingerprint=self.runtime_config_fingerprint,
                 environment_id=self.environment_id,
+                closed_at_utc=observation.observation_end_utc,
             )
             if coverage.coverage_state != "VERIFIED_ZERO_EVENT":
                 return self._persist_failed(observation, coverage.failure_reason_codes)
@@ -592,6 +594,7 @@ class ClosedHourFinalizer:
             runtime_commit=self.runtime_commit,
             runtime_config_fingerprint=self.runtime_config_fingerprint,
             environment_id=self.environment_id,
+            closed_at_utc=observation.observation_end_utc,
         )
 
         if coverage.coverage_state != "DATA_PRESENT":

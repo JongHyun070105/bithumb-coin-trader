@@ -26,6 +26,7 @@ from bithumb_coin_trader.closed_hour_finalizer import (
     ClosedHourFinalizer,
     evaluate_common_gate,
 )
+from bithumb_coin_trader import feed_hour_coverage
 from bithumb_coin_trader.feed_hour_coverage import (
     FrozenFeedHourObservation,
     save_frozen_journal,
@@ -355,14 +356,27 @@ def test_progress_store_transitions_to_reused(tmp_path: Path) -> None:
     assert entry_after.receipt_relative_path is not None
 
 
-def test_restart_idempotency(tmp_path: Path) -> None:
+def test_restart_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     bundle = FixtureBundle(tmp_path)
     feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
     obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
 
+    class BoundaryClock(datetime):
+        calls = 0
+
+        @classmethod
+        def now(cls, tz: timezone | None = None) -> datetime:
+            cls.calls += 1
+            value = datetime(2026, 9, 27, 12, 0, 10 + cls.calls - 1, tzinfo=timezone.utc)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(feed_hour_coverage, "datetime", BoundaryClock)
+
     result1 = bundle.finalizer.finalize_slot(obs)
     result2 = bundle.finalizer.finalize_slot(obs)
 
+    assert result1.coverage.closed_at_utc == obs.observation_end_utc
+    assert result2.coverage.closed_at_utc == obs.observation_end_utc
     assert result1.coverage.evidence_sha256 == result2.coverage.evidence_sha256
     assert result1.coverage_receipt is not None and result2.coverage_receipt is not None
     assert result1.coverage_receipt.remote_checksum == result2.coverage_receipt.remote_checksum
