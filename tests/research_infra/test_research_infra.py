@@ -562,14 +562,14 @@ class TestChronologicalEvaluation(unittest.TestCase):
     """Tests for time-aware evaluation."""
 
     def test_chronological_folds_are_sequential(self) -> None:
-        timestamps = list(range(0, 100_000, 100))
+        timestamps = list(range(0, 100_000_000_000, 100_000_000))
         folds = create_chronological_folds(timestamps, n_folds=3, embargo_s=0.001)
         self.assertEqual(len(folds), 3)
         for i in range(len(folds) - 1):
             self.assertLess(folds[i].test_end_ns, folds[i + 1].test_start_ns)
 
     def test_embargo_separates_train_test(self) -> None:
-        timestamps = list(range(0, 100_000, 100))
+        timestamps = list(range(0, 100_000_000_000, 100_000_000))
         folds = create_chronological_folds(timestamps, n_folds=3, embargo_s=1.0)
         for fold in folds:
             gap = fold.test_start_ns - fold.train_end_ns
@@ -636,6 +636,81 @@ class TestManifestReproducibility(unittest.TestCase):
         fp1 = m.compute_fingerprint()
         fp2 = m.compute_fingerprint()
         self.assertEqual(fp1, fp2)
+
+    def test_experiment_id_binds_logical_inputs_not_run_metadata_or_results(self) -> None:
+        common = {
+            "hypothesis_id": "H1",
+            "hypothesis_description": "Test",
+            "dataset_ids": ["dev"],
+            "dataset_roles": ["DEVELOPMENT_EXPLORATORY"],
+            "feature_config": {"feature_names": ["mid_price"], "window": 5},
+            "label_config": {"target_horizon_s": 5},
+            "execution_assumptions": {"fee_rate": 0.0025, "slippage_bps": 8.0},
+            "metrics": {"net_return": 0.01},
+            "scientific_classification": "EXPLORATORY",
+            "source_fingerprints": {"dev": "a" * 64},
+            "random_seed": 17,
+            "train_range": ("2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z"),
+            "validation_range": ("2025-02-01T00:00:00Z", "2025-02-15T00:00:00Z"),
+            "test_range": ("2025-02-15T00:00:00Z", "2025-03-01T00:00:00Z"),
+        }
+        first = create_manifest(**common)
+        rerun = create_manifest(**{**common, "metrics": {"net_return": 0.02}})
+
+        self.assertNotEqual(first.research_run_id, rerun.research_run_id)
+        self.assertNotEqual(first.timestamp, rerun.timestamp)
+        self.assertEqual(first.compute_experiment_id(), rerun.compute_experiment_id())
+        self.assertTrue(first.reproducible_inputs_complete)
+
+        changed_cost = create_manifest(
+            **{**common, "execution_assumptions": {"fee_rate": 0.005, "slippage_bps": 8.0}}
+        )
+        changed_source = create_manifest(
+            **{**common, "source_fingerprints": {"dev": "b" * 64}}
+        )
+        self.assertNotEqual(first.compute_experiment_id(), changed_cost.compute_experiment_id())
+        self.assertNotEqual(first.compute_experiment_id(), changed_source.compute_experiment_id())
+
+    def test_saved_manifest_records_input_identity_and_completeness(self) -> None:
+        manifest = create_manifest(
+            hypothesis_id="H1",
+            hypothesis_description="Test",
+            dataset_ids=["dev"],
+            dataset_roles=["DEVELOPMENT_EXPLORATORY"],
+            feature_config={"feature_names": ["mid_price"]},
+            label_config={"target_horizon_s": 5},
+            execution_assumptions={"fee_rate": 0.0025},
+            metrics={},
+            scientific_classification="EXPLORATORY",
+            source_fingerprints={"dev": "c" * 64},
+            train_range=("2025-01-01T00:00:00Z", "2025-02-01T00:00:00Z"),
+            test_range=("2025-02-01T00:00:00Z", "2025-03-01T00:00:00Z"),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
+            path = Path(f.name)
+        try:
+            manifest.save(path)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["experiment_id"], manifest.compute_experiment_id())
+            self.assertTrue(payload["reproducible_inputs_complete"])
+        finally:
+            path.unlink()
+
+    def test_manifest_with_missing_ranges_is_marked_incomplete(self) -> None:
+        manifest = create_manifest(
+            hypothesis_id="H1",
+            hypothesis_description="Test",
+            dataset_ids=["dev"],
+            dataset_roles=["DEVELOPMENT_EXPLORATORY"],
+            feature_config={"feature_names": ["mid_price"]},
+            label_config={"target_horizon_s": 5},
+            execution_assumptions={"fee_rate": 0.0025},
+            metrics={},
+            scientific_classification="EXPLORATORY",
+            source_fingerprints={"dev": "d" * 64},
+        )
+
+        self.assertFalse(manifest.reproducible_inputs_complete)
 
     def test_manifest_save_load_roundtrip(self) -> None:
         m = create_manifest(
