@@ -25,6 +25,7 @@ from .execution_simulator import ExecutionResult
 class OrderStatus(str, Enum):
     CREATED = "CREATED"
     RISK_APPROVED = "RISK_APPROVED"
+    ACCEPTED = "ACCEPTED"
     SUBMITTED = "SUBMITTED"
     PENDING_FILL = "PENDING_FILL"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -49,6 +50,12 @@ VALID_TRANSITIONS: dict[OrderStatus, set[OrderStatus]] = {
         OrderStatus.CANCELLED,
     },
     OrderStatus.RISK_APPROVED: {
+        OrderStatus.ACCEPTED,
+        OrderStatus.SUBMITTED,
+        OrderStatus.CANCELLED,
+        OrderStatus.REJECTED,
+    },
+    OrderStatus.ACCEPTED: {
         OrderStatus.SUBMITTED,
         OrderStatus.CANCELLED,
         OrderStatus.REJECTED,
@@ -154,11 +161,27 @@ class PaperPortfolio:
     realized_pnl_krw: Decimal = Decimal("0.0")
     total_fees_paid_krw: Decimal = Decimal("0.0")
 
+    def __post_init__(self) -> None:
+        self._assert_invariants()
+
     def _assert_invariants(self) -> None:
+        values = (
+            self.cash_krw,
+            self.base_quantity,
+            self.cost_basis_krw,
+            self.realized_pnl_krw,
+            self.total_fees_paid_krw,
+        )
+        if any(not value.is_finite() for value in values):
+            raise ValueError("paper accounting values must be finite")
         if self.cash_krw < Decimal("0"):
             raise NegativeBalanceError(f"Cash balance cannot be negative: {self.cash_krw} KRW")
         if self.base_quantity < Decimal("0"):
             raise NegativeBalanceError(f"Base asset balance cannot be negative: {self.base_quantity}")
+        if self.cost_basis_krw < Decimal("0"):
+            raise CashConservationError(f"Cost basis cannot be negative: {self.cost_basis_krw} KRW")
+        if self.total_fees_paid_krw < Decimal("0"):
+            raise CashConservationError(f"Fees cannot be negative: {self.total_fees_paid_krw} KRW")
 
     def apply_fill(
         self,
@@ -273,9 +296,14 @@ class PaperPortfolio:
         # Advance order through SUBMITTED -> PENDING_FILL if needed
         if order.status == OrderStatus.CREATED:
             order.transition_to(OrderStatus.RISK_APPROVED, timestamp_ms)
+            order.transition_to(OrderStatus.ACCEPTED, timestamp_ms)
             order.transition_to(OrderStatus.SUBMITTED, timestamp_ms)
             order.transition_to(OrderStatus.PENDING_FILL, timestamp_ms)
         elif order.status == OrderStatus.RISK_APPROVED:
+            order.transition_to(OrderStatus.ACCEPTED, timestamp_ms)
+            order.transition_to(OrderStatus.SUBMITTED, timestamp_ms)
+            order.transition_to(OrderStatus.PENDING_FILL, timestamp_ms)
+        elif order.status == OrderStatus.ACCEPTED:
             order.transition_to(OrderStatus.SUBMITTED, timestamp_ms)
             order.transition_to(OrderStatus.PENDING_FILL, timestamp_ms)
         elif order.status == OrderStatus.SUBMITTED:

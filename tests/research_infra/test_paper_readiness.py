@@ -199,6 +199,11 @@ def _valid_bundle(root: Path) -> None:
         "fill_idempotency": PASS,
         "partial_fills": PASS,
         "cancel_reconciliation": PASS,
+        "crash_recovery": PASS,
+        "accounting_invariants": PASS,
+        "conservative_fill_model": PASS,
+        "public_data_only": PASS,
+        "private_order_path_absent": PASS,
         "private_api_enabled": False,
         "live_enabled": False,
         "private_api_env_gate": "DISABLED",
@@ -261,6 +266,26 @@ def test_complete_synthetic_bundle_passes_and_cli_writes_report(tmp_path: Path, 
     assert json.loads((output_dir / "paper-readiness.json").read_text())["PAPER_ELIGIBLE"] is True
     assert (output_dir / "paper-readiness.md").is_file()
     assert "PAPER_ELIGIBLE=True" in capsys.readouterr().out
+
+
+def test_paper_engine_gate_requires_crash_accounting_fill_and_private_path_evidence(tmp_path: Path) -> None:
+    evidence_dir = tmp_path / "bundle"
+    evidence_dir.mkdir()
+    _valid_bundle(evidence_dir)
+    execution_path = evidence_dir / "execution" / "config.json"
+    execution = json.loads(execution_path.read_text())
+    del execution["crash_recovery"]
+    execution_ref = _write_json(evidence_dir, "execution/config.json", execution)
+    bundle_path = evidence_dir / "paper-readiness-bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["artifacts"]["execution"] = execution_ref
+    bundle_path.write_text(json.dumps(bundle))
+
+    report = evaluate_paper_readiness(evidence_dir)
+
+    assert report["PAPER_ELIGIBLE"] is False
+    assert report["checks"]["EXECUTION_READY"]["status"] == NOT_VERIFIABLE
+    assert "crash_recovery" in report["checks"]["EXECUTION_READY"]["reason"]
 
 
 def test_hash_mismatch_fails_readiness(tmp_path: Path) -> None:

@@ -453,7 +453,11 @@ def _check_execution(payload: dict[str, Any]) -> dict[str, str]:
         return _status(FAIL, "execution backend is not PAPER")
     if payload.get("durable_journal") is not True:
         return _status(FAIL, "durable paper journal is not enabled")
-    for name in ("restart_recovery", "fill_idempotency", "partial_fills", "cancel_reconciliation"):
+    for name in (
+        "restart_recovery", "fill_idempotency", "partial_fills", "cancel_reconciliation",
+        "crash_recovery", "accounting_invariants", "conservative_fill_model",
+        "public_data_only", "private_order_path_absent",
+    ):
         if payload.get(name) != PASS:
             return _status(NOT_VERIFIABLE, f"execution evidence {name} is not PASS")
     return _status(PASS, "paper execution recovery and order-event controls are verified")

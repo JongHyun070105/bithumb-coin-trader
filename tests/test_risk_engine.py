@@ -108,6 +108,64 @@ def test_daily_drawdown_circuit_breaker_halt(clean_book):
     assert verdict2 == RiskVerdict.HALT
 
 
+def test_peak_to_trough_drawdown_halts_with_structured_reason(clean_book):
+    engine = RiskEngine(RiskEngineConfig(max_drawdown_fraction=0.15))
+    verdict, _reasons, audit = engine.evaluate_preflight(
+        order_id="drawdown-limit",
+        side="BUY",
+        requested_notional_krw=100_000.0,
+        current_equity_krw=20_000_000.0,
+        current_position_notional_krw=0.0,
+        daily_loss_fraction=0.0,
+        orderbook=clean_book,
+        current_time_ms=1050,
+        current_drawdown_fraction=0.16,
+    )
+    assert verdict == RiskVerdict.HALT
+    assert "MAX_DRAWDOWN" in audit.reason_codes
+
+
+def test_position_notional_limit_has_structured_rejection_code(clean_book):
+    engine = RiskEngine(RiskEngineConfig(max_position_notional_krw=1_000_000.0))
+    verdict, _reasons, audit = engine.evaluate_preflight(
+        order_id="position-limit",
+        side="BUY",
+        requested_notional_krw=600_000.0,
+        current_equity_krw=2_000_000.0,
+        current_position_notional_krw=500_000.0,
+        daily_loss_fraction=0.0,
+        orderbook=clean_book,
+        current_time_ms=1050,
+    )
+    assert verdict == RiskVerdict.REJECT
+    assert "MAX_POSITION_NOTIONAL" in audit.reason_codes
+
+
+def test_runtime_health_halts_on_stale_data_and_kill_switch():
+    engine = RiskEngine(RiskEngineConfig(max_data_age_ms=1_000.0))
+    verdict, reasons = engine.evaluate_runtime_health(
+        market_data_age_ms=1_001.0,
+        daily_loss_fraction=0.0,
+        drawdown_fraction=0.0,
+        journal_healthy=True,
+        strategy_fresh=True,
+    )
+    assert verdict == RiskVerdict.HALT
+    assert "MARKET_DATA_STALE" in reasons
+
+    engine.reset_circuit_breaker()
+    engine.set_kill_switch(True)
+    verdict, reasons = engine.evaluate_runtime_health(
+        market_data_age_ms=0.0,
+        daily_loss_fraction=0.0,
+        drawdown_fraction=0.0,
+        journal_healthy=True,
+        strategy_fresh=True,
+    )
+    assert verdict == RiskVerdict.HALT
+    assert "KILL_SWITCH_ACTIVE" in reasons
+
+
 def test_consecutive_rejections_halt(clean_book):
     engine = RiskEngine(RiskEngineConfig(consecutive_rejection_limit=3))
     engine.record_execution_outcome(False)

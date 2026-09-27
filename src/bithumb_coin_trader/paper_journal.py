@@ -46,6 +46,12 @@ class PaperEventJournal:
                     payload_json TEXT NOT NULL,
                     state_hash TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS paper_order_metadata (
+                    order_id TEXT PRIMARY KEY,
+                    payload_json TEXT NOT NULL,
+                    state_hash TEXT NOT NULL,
+                    FOREIGN KEY(order_id) REFERENCES paper_orders(order_id)
+                );
                 CREATE TABLE IF NOT EXISTS paper_execution_events (
                     idempotency_key TEXT PRIMARY KEY,
                     order_id TEXT NOT NULL,
@@ -53,13 +59,60 @@ class PaperEventJournal:
                     payload_json TEXT NOT NULL,
                     applied_at_ms INTEGER NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS paper_runtime_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_hash TEXT NOT NULL,
+                    result_json TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS paper_incoming_events (
+                    event_id TEXT PRIMARY KEY,
+                    event_hash TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    timestamp_ms INTEGER NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS paper_runtime_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    payload_json TEXT NOT NULL,
+                    state_hash TEXT NOT NULL
+                );
                 """
             )
 
-    def register_order(self, order: PaperOrder, portfolio: PaperPortfolio) -> None:
-        """Persist initial order/account state; existing state must match exactly."""
+    def initialize_portfolio(self, portfolio: PaperPortfolio) -> PaperPortfolio:
+        """Create the account once, or return its verified durable state."""
+        payload = _encode(_portfolio_to_dict(portfolio))
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                row = db.execute(
+                    "SELECT payload_json, state_hash FROM paper_portfolio WHERE singleton = 1"
+                ).fetchone()
+                if row is None:
+                    db.execute(
+                        "INSERT INTO paper_portfolio(singleton, payload_json, state_hash) VALUES (1, ?, ?)",
+                        (payload, _sha256(payload)),
+                    )
+                    db.commit()
+                    return portfolio
+                _verify_hash(row[0], row[1], "portfolio")
+                db.commit()
+                return _portfolio_from_dict(json.loads(row[0]))
+            except Exception:
+                db.rollback()
+                raise
+
+    def register_order(
+        self,
+        order: PaperOrder,
+        portfolio: PaperPortfolio,
+        *,
+        runtime_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist an order and its recovery metadata in one local transaction."""
         portfolio_json = _encode(_portfolio_to_dict(portfolio))
         order_json = _encode(_order_to_dict(order))
+        metadata_json = _encode(runtime_metadata) if runtime_metadata is not None else None
         with closing(self._connect()) as db:
             db.execute("BEGIN IMMEDIATE")
             try:
@@ -84,6 +137,21 @@ class PaperEventJournal:
                     )
                 elif existing_order[0] != order_json:
                     raise PaperJournalIntegrityError("initial order differs from persisted state")
+
+                if metadata_json is not None:
+                    existing_metadata = db.execute(
+                        "SELECT payload_json, state_hash FROM paper_order_metadata WHERE order_id = ?",
+                        (order.order_id,),
+                    ).fetchone()
+                    if existing_metadata is None:
+                        db.execute(
+                            "INSERT INTO paper_order_metadata(order_id, payload_json, state_hash) VALUES (?, ?, ?)",
+                            (order.order_id, metadata_json, _sha256(metadata_json)),
+                        )
+                    else:
+                        _verify_hash(existing_metadata[0], existing_metadata[1], f"order metadata {order.order_id}")
+                        if existing_metadata[0] != metadata_json:
+                            raise PaperJournalIntegrityError("order recovery metadata differs from persisted intent")
                 db.commit()
             except Exception:
                 db.rollback()
@@ -98,6 +166,206 @@ class PaperEventJournal:
             raise PaperJournalIntegrityError(f"paper order {order_id!r} is not registered")
         _verify_hash(row[0], row[1], f"order {order_id}")
         return _order_from_dict(json.loads(row[0]))
+
+    def load_order_if_exists(self, order_id: str) -> PaperOrder | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT payload_json, state_hash FROM paper_orders WHERE order_id = ?", (order_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        _verify_hash(row[0], row[1], f"order {order_id}")
+        return _order_from_dict(json.loads(row[0]))
+
+    def load_order_metadata(self, order_id: str) -> dict[str, Any] | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT payload_json, state_hash FROM paper_order_metadata WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        _verify_hash(row[0], row[1], f"order metadata {order_id}")
+        payload = json.loads(row[0])
+        if not isinstance(payload, dict):
+            raise PaperJournalIntegrityError("order recovery metadata is not an object")
+        return payload
+
+    def get_execution_event(self, idempotency_key: str) -> dict[str, Any] | None:
+        """Return a hash-verified durable execution payload for crash replay."""
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT payload_hash, payload_json FROM paper_execution_events WHERE idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        _verify_hash(row[1], row[0], f"execution event {idempotency_key}")
+        payload = json.loads(row[1])
+        if not isinstance(payload, dict):
+            raise PaperJournalIntegrityError("execution event payload is not an object")
+        return payload
+
+    def latest_execution_timestamp(self, order_id: str) -> int | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT MAX(applied_at_ms) FROM paper_execution_events WHERE order_id = ?",
+                (order_id,),
+            ).fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+
+    def load_open_orders(self) -> list[PaperOrder]:
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT payload_json, state_hash FROM paper_orders ORDER BY order_id"
+            ).fetchall()
+        result: list[PaperOrder] = []
+        terminal = {OrderStatus.FILLED, OrderStatus.CANCELLED, OrderStatus.REJECTED, OrderStatus.EXPIRED}
+        for payload, state_hash in rows:
+            _verify_hash(payload, state_hash, "order")
+            order = _order_from_dict(json.loads(payload))
+            if order.status not in terminal:
+                result.append(order)
+        return result
+
+    def update_order(self, order: PaperOrder) -> None:
+        """Persist an explicit local lifecycle transition without changing balances."""
+        payload = _encode(_order_to_dict(order))
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                current = self._read_order(db, order.order_id)
+                if current.idempotency_key != order.idempotency_key:
+                    raise PaperJournalIntegrityError("order id was reused with a different intent key")
+                db.execute(
+                    "UPDATE paper_orders SET payload_json = ?, state_hash = ? WHERE order_id = ?",
+                    (payload, _sha256(payload), order.order_id),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+
+    def load_runtime_state(self) -> dict[str, Any] | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT payload_json, state_hash FROM paper_runtime_state WHERE singleton = 1"
+            ).fetchone()
+        if row is None:
+            return None
+        _verify_hash(row[0], row[1], "runtime state")
+        payload = json.loads(row[0])
+        if not isinstance(payload, dict):
+            raise PaperJournalIntegrityError("persisted runtime state is not an object")
+        return payload
+
+    def get_runtime_event(self, event_id: str) -> tuple[str, dict[str, Any]] | None:
+        with closing(self._connect()) as db:
+            row = db.execute(
+                "SELECT event_hash, result_json FROM paper_runtime_events WHERE event_id = ?", (event_id,)
+            ).fetchone()
+        if row is None:
+            return None
+        result = json.loads(row[1])
+        if not isinstance(result, dict):
+            raise PaperJournalIntegrityError("persisted runtime event result is not an object")
+        return str(row[0]), result
+
+    def record_incoming_runtime_event(
+        self, event_id: str, event_hash: str, timestamp_ms: int, payload: dict[str, Any]
+    ) -> None:
+        """Durably stage a normalized event before any order/account mutation."""
+        payload_json = _encode(payload)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                existing = db.execute(
+                    "SELECT event_hash, payload_json FROM paper_incoming_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if existing is not None:
+                    if existing[0] != event_hash or existing[1] != payload_json:
+                        raise PaperJournalIntegrityError("incoming event id was reused with different data")
+                    db.commit()
+                    return
+                db.execute(
+                    "INSERT INTO paper_incoming_events(event_id, event_hash, payload_json, timestamp_ms) VALUES (?, ?, ?, ?)",
+                    (event_id, event_hash, payload_json, timestamp_ms),
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+
+    def load_uncommitted_runtime_events(self) -> list[dict[str, Any]]:
+        with closing(self._connect()) as db:
+            rows = db.execute(
+                "SELECT i.event_hash, i.payload_json FROM paper_incoming_events AS i "
+                "LEFT JOIN paper_runtime_events AS r ON r.event_id = i.event_id "
+                "WHERE r.event_id IS NULL ORDER BY i.timestamp_ms, i.event_id"
+            ).fetchall()
+        result: list[dict[str, Any]] = []
+        for event_hash, payload_json in rows:
+            if _sha256(payload_json) != event_hash:
+                raise PaperJournalIntegrityError("incoming market event hash mismatch")
+            payload = json.loads(payload_json)
+            if not isinstance(payload, dict):
+                raise PaperJournalIntegrityError("incoming market event is not an object")
+            result.append(payload)
+        return result
+
+    def record_runtime_event(
+        self,
+        event_id: str,
+        event_hash: str,
+        timestamp_ms: int,
+        result: dict[str, Any],
+        state: dict[str, Any],
+    ) -> bool:
+        """Commit one normalized event result and its recovery state atomically."""
+        result_json = _encode(result)
+        state_json = _encode(state)
+        with closing(self._connect()) as db:
+            db.execute("BEGIN IMMEDIATE")
+            try:
+                previous = db.execute(
+                    "SELECT event_hash, result_json FROM paper_runtime_events WHERE event_id = ?",
+                    (event_id,),
+                ).fetchone()
+                if previous is not None:
+                    if previous[0] != event_hash or previous[1] != result_json:
+                        raise PaperJournalIntegrityError("market event id was reused with different input or output")
+                    db.commit()
+                    return False
+                latest = db.execute(
+                    "SELECT MAX(timestamp_ms) FROM paper_runtime_events"
+                ).fetchone()[0]
+                if latest is not None and timestamp_ms <= int(latest):
+                    raise PaperJournalIntegrityError("runtime event timestamp is not strictly increasing")
+                db.execute(
+                    "INSERT INTO paper_runtime_events(event_id, event_hash, result_json, timestamp_ms) VALUES (?, ?, ?, ?)",
+                    (event_id, event_hash, result_json, timestamp_ms),
+                )
+                db.execute(
+                    "INSERT INTO paper_runtime_state(singleton, payload_json, state_hash) VALUES (1, ?, ?) "
+                    "ON CONFLICT(singleton) DO UPDATE SET payload_json=excluded.payload_json, state_hash=excluded.state_hash",
+                    (state_json, _sha256(state_json)),
+                )
+                db.execute("DELETE FROM paper_incoming_events WHERE event_id = ?", (event_id,))
+                db.commit()
+                return True
+            except Exception:
+                db.rollback()
+                raise
+
+    def save_runtime_state(self, state: dict[str, Any]) -> None:
+        payload = _encode(state)
+        with closing(self._connect()) as db:
+            db.execute(
+                "INSERT INTO paper_runtime_state(singleton, payload_json, state_hash) VALUES (1, ?, ?) "
+                "ON CONFLICT(singleton) DO UPDATE SET payload_json=excluded.payload_json, state_hash=excluded.state_hash",
+                (payload, _sha256(payload)),
+            )
 
     def load_portfolio(self) -> PaperPortfolio:
         with closing(self._connect()) as db:
