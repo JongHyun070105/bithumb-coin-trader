@@ -34,8 +34,16 @@ export PYTHONPATH="$PROJECT_DIR/src:$PROJECT_DIR"
 
 # 3. 트레이딩 환경변수 설정
 export PYTHONUNBUFFERED=1
-export BITHUMB_LIVE_TRADING=true
-export TRADING_MODE=live
+case "${BITHUMB_LIVE_TRADING:-false}" in
+    1|true|TRUE|True|yes|YES|on|ON)
+        export BITHUMB_LIVE_TRADING=true
+        export TRADING_MODE=live
+        ;;
+    *)
+        export BITHUMB_LIVE_TRADING=false
+        export TRADING_MODE=simulation
+        ;;
+esac
 export BITHUMB_NEW_ENTRIES=false
 
 # 4. 로그 디렉토리 생성

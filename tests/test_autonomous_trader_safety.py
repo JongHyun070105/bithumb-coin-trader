@@ -1027,6 +1027,13 @@ class AutonomousTraderSafetyTests(unittest.TestCase):
                     autonomous_trader.main()
                 acquire_lock.assert_not_called()
 
+    def test_macos_daemon_wrapper_does_not_enable_live_without_explicit_opt_in(self) -> None:
+        wrapper = Path(__file__).resolve().parents[1] / "scripts" / "run_daemon_macos.sh"
+        source = wrapper.read_text(encoding="utf-8")
+        self.assertIn('case "${BITHUMB_LIVE_TRADING:-false}" in', source)
+        self.assertIn("export BITHUMB_LIVE_TRADING=false", source)
+        self.assertNotIn("export BITHUMB_LIVE_TRADING=true\nexport TRADING_MODE=live", source)
+
 
 if __name__ == "__main__":
     unittest.main()
