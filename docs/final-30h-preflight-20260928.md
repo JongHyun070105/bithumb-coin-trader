@@ -630,3 +630,179 @@ REPORT_INTRODUCTION_COMMIT = acc62a1
 PRS = #23 OPEN/DRAFT; report pushed, no merge performed
 USER_ACTION_REQUIRED = capacity-action authorization, then separate exact-identity GO before 30H
 ============================================================
+
+## Operational continuation — 2026-09-28
+
+This continuation preserves the preceding report as a point-in-time record. It
+does not alter the official historical 30H FAIL or authorize a new run.
+
+### Fresh guest resource sample
+
+Read-only guest evidence was collected through an SSM interactive session at
+`2026-09-28T10:33:05Z`. The root volume remains the encrypted 300 GiB `gp3`
+volume `vol-0d46ca4af0d463549`, attached to `i-008bc503c1136349f`. Its root
+filesystem is XFS on `/dev/nvme0n1p1`; XFS has no ext4-style reserved-block
+pool. No volume modification was in progress.
+
+```text
+DISK_TOTAL = 322,042,834,944 bytes (300 GiB EBS volume)
+DISK_USED = 226,226,307,072 bytes
+DISK_FREE = 95,816,527,872 bytes = 89.236095 GiB
+INODES_FREE = 157,073,850
+AVAILABLE_MEMORY = 3,414,827,008 bytes = 3.180 GiB
+SWAP = 0
+```
+
+The prior source evidence remains the conservative growth basis: maximum
+observed raw data of `1,217,418,119` bytes/hour, multiplied by 30 hours, plus
+`5,454,994,823` bytes of non-raw run data. This yields `41,977,538,393` bytes
+(`39.094629 GiB`) of projected run growth. The observed Sep 26 run used
+`33,198,192,742` bytes and the preceding successful 30H run used
+`23,176,503,335` bytes; neither is deleted or changed.
+
+```text
+RUNBOOK_HARD_FLOOR = 50 GiB free before run, per V4 runbook §3.1
+PREFLIGHT_EXTRA_MARGIN = 5 GiB beyond the modeled 50 GiB post-run reserve
+TARGET_POSTRUN_FREE = 55 GiB
+RECOMMENDED_FREE_BEFORE_RUN = 101,033,338,713 bytes = 94.094629 GiB
+PROJECTED_POSTRUN_FREE = 53,838,989,479 bytes = 50.141466 GiB
+SHORTFALL = 5,216,810,841 bytes = 4.858534 GiB
+RESOURCE_HEADROOM = FAIL
+```
+
+The legacy pre-run 50 GiB check passes. The stricter post-run reserve plus
+buffer check fails; neither threshold was lowered.
+
+### Capacity remediation assessment
+
+The following bounded candidates were measured. Paths containing receipts,
+witnesses, historical runs, or unclassified temporary files are preserved.
+
+| Path | Size | Owner / purpose | Historical evidence | Safe to remove now? | Assessment |
+|---|---:|---|---|---|---|
+| `/tmp` | 229,376 bytes | OS temporary files; per-file owners not classified | Unknown | No | Not enough space; no files individually approved for deletion. |
+| `/var/tmp` | 16,384 bytes | OS temporary files; per-file owners not classified | Unknown | No | Not enough space; no files individually approved for deletion. |
+| `/var/cache/dnf` | 182,214,656 bytes | DNF package cache and metadata | No run evidence identified | No action taken | Potentially rebuildable, but only about 0.170 GiB; insufficient and remote cleanup still requires authorization. |
+| `/var/lib/bitcoin-trader/30h-validation/aws-validation-witness-e2e-smoke-20260928T054945Z-1e6877af` | 41,516,834 bytes | Owner run `aws-validation-witness-e2e-smoke-run-20260928T054945Z-1e6877af`; 120-second witness smoke | Yes; local receipt SHA-256 `11f3108420c724e437aa53fed7061368fb4c3f0972658d31cb2b10d136017b6e` | No | Preserve smoke receipt and data; far below shortfall. |
+| `/var/lib/bitcoin-trader/30h-validation/aws-validation-witness-e2e-smoke-20260928T060612Z-3aa9f841` | 43,486,012 bytes | Owner run `aws-validation-witness-e2e-smoke-run-20260928T060612Z-3aa9f841`; accepted 120-second witness E2E | Yes; receipt SHA-256 `d761a975880f0d6fd3d7d33a275b40e2b880e31db485da0c757c6a3ac35288d9` | No | Preserve the local receipt and remote-witness evidence; far below shortfall. |
+| Sep 26 30H evidence root | 33,198,192,742 bytes | Historical 30H run `aws-validation-observability-30h-run-20260926T135000Z-v3` | Yes; official historical FAIL | No | Immutable reliability evidence. |
+| Prior successful 30H evidence root | 23,176,503,335 bytes | Prior successful 30H run | Yes; historical reliability evidence | No | Preserve. |
+
+The measured temporary/cache candidates are insufficient. No archived run
+evidence or test results were removed. The cleanest bounded capacity action is
+to increase the existing root EBS volume by the minimum whole-GiB amount that
+clears the measured shortfall: `300 GiB → 305 GiB` (`+5 GiB`). At current
+measurements this projects `55.141466 GiB` after the modeled run, about
+`0.141466 GiB` above the 55 GiB target. This small remaining allowance must be
+rechecked against a fresh measurement after any authorized expansion; do not
+reuse this projection as the final resource gate.
+
+The root partition is `/dev/nvme0n1p1`; `growpart` and `xfs_growfs` are already
+installed. If separately authorized, the capacity-only procedure is:
+
+```bash
+aws ec2 modify-volume \
+  --volume-id vol-0d46ca4af0d463549 \
+  --size 305 \
+  --region ap-northeast-2 \
+  --profile bitcoin-trader-provisioner
+
+# Wait for the EBS volume modification to reach optimizing/completed, then:
+sudo growpart /dev/nvme0n1 1
+sudo xfs_growfs -d /
+df -B1 /
+df -i /
+```
+
+This is a proposal only. No snapshot, EBS resize, partition change, filesystem
+change, or cache cleanup was performed. The project infrastructure gate
+requires explicit human GO for AWS mutation, and EBS volume size cannot be
+decreased after expansion. AWS documents the volume modification flow and the
+subsequent partition/XFS growth procedure in its [EBS volume modification
+guide](https://docs.aws.amazon.com/ebs/latest/userguide/ebs-modify-volume.html)
+and [Linux filesystem expansion guide](https://docs.aws.amazon.com/ebs/latest/userguide/recognize-expanded-volume-linux.html).
+
+### Observer and guest state
+
+The two exact smoke observers requested for resolution were stopped with
+`systemctl stop` at `2026-09-28T10:24:00Z`. Both received SIGTERM (15), logged
+their graceful shutdown, and were deactivated successfully at `10:24:01Z`.
+Their units now have `MainPID=0`, `ActiveState=inactive`, `SubState=dead`,
+`Result=success`, and `Restart=no`. No `kill -9` was used. Both smoke roots and
+receipts remain present with the hashes and sizes above; their last health-file
+updates were before the stop.
+
+Before stopping, each smoke observer had an HTTPS socket in `CLOSE_WAIT`; no
+established socket was observed. No collector, supervisor, archive scheduler,
+publisher, finalizer, or terminal-witness process was running after the stop.
+The only remaining runtime process is the historical observer below.
+
+```text
+HISTORICAL_OBSERVER = NON_BLOCKING_PRESERVED
+PID = 1652530; PPID = 1
+RUN_ID = aws-validation-observability-30h-run-20260926T135000Z-v3
+EPOCH = aws-validation-observability-30h-20260926-20260926T135000Z-v3
+PURPOSE = continue health observation for the historical Sep 26 30H run
+WHY_STILL_RUNNING = detached observer lifecycle has no run-duration bound
+EXPECTED_LIFETIME = unbounded until SIGINT/SIGTERM or an authorized stop
+INTERFERENCE_WITH_NEW_RUN = separate data root, unit name, run ID, epoch, and S3 prefix;
+                            small shared-disk/network activity only
+```
+
+Its systemd unit is active/running with `Restart=no` and
+`RuntimeMaxUSec=infinity`. Preserve it with the historical run evidence. The
+two historical launch helper units remain loaded, `active/exited`,
+`Result=success`, `MainPID=0`, and `Restart=no`; they remain
+`NON_BLOCKING_HISTORICAL` and were not reset.
+
+The guest's general writer-process baseline is idle, and the only active
+observer is isolated to the historical identity. Exact new-target process and
+unit collision checks remain `NOT VERIFIABLE` until the final identity exists.
+
+### Exact-identity gate, readiness window, and review
+
+The stale `aws-validation-observability-30h-run-20260928T061814Z-v1` identity
+was not reused. Capacity remains below target, so no new run ID or epoch was
+minted and no final 30H artifacts were generated. Consequently, final
+run/epoch freshness, all path collisions, the exact S3-prefix collision gate,
+artifact determinism for the final identity, and its one-shot fail-closed
+prelaunch gate are still pending. The 15-minute readiness window was not
+started because the resource gate is still failing; an observation before the
+capacity decision would not qualify the final environment.
+
+The retry of the independent read-only review timed out after 600 seconds and
+returned no findings. It is `NOT VERIFIABLE`, not PASS. Primary self-review
+confirmed: `b4d4823^{tree}` is still
+`5c96ed79fee107c1604ee7018621835910221fdf`; the exact-runtime suite remains
+`1704 passed, 2 skipped, 181 subtests`; the repository suite at `4660e77`
+remains `1712 passed, 2 skipped, 181 subtests`; the diff after `4660e77` is
+documentation only. The witness CLI rejects missing exact epoch/run ID and
+requires explicit exact S3 settings; its internal helper's snapshot inference
+is not reachable through the CLI without those required arguments. The gate
+binds runtime commit/tree, 108000-second duration, 30 full hours, run/epoch,
+witness target, S3 target, and disabled private/PAPER/LIVE states. No new
+concrete software defect was found in this bounded self-check; the review is
+still not independent.
+
+```text
+FINAL_RUN_ID = DEFERRED
+FINAL_EPOCH = DEFERRED
+FINAL_ARTIFACTS = NOT CREATED
+RESOURCE_HEADROOM = FAIL
+GUEST_PROCESS_READY = PASS for the empty new-writer baseline only
+GUEST_UNIT_READY = PASS for the idle baseline only
+FINAL_TARGET_COLLISIONS = NOT VERIFIABLE until identity creation
+READINESS_WINDOW = NOT STARTED; 15 minutes required after capacity remediation
+READINESS_BUNDLE = NOT CREATED
+INDEPENDENT_REVIEW = NOT VERIFIABLE
+MANDATORY_GATES_PASS = 17 / 20 under the prior matrix; not rescored for a fresh identity
+PRELAUNCH_GATE = NO-GO: resource gate fails; final-identity gate not run
+NEXT_30H_LAUNCH_READY = NO
+NEXT_30H_LAUNCHED = NO
+```
+
+Only the capacity approval is being requested now. After approved capacity
+remediation and fresh measurement, continue with a newly generated identity,
+all exact collision checks, deterministic final artifacts, final gate, and a
+new 15-minute readiness window. The long 30H launch still needs a separate
+explicit GO for that final exact identity.
