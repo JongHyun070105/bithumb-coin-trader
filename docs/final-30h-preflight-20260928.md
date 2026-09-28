@@ -1,232 +1,170 @@
-# FINAL 30H PREFLIGHT
-
-```text
 ============================================================
 FINAL 30H PREFLIGHT
 ============================================================
 
-PREVIOUS_30H =
-FAIL
+PREVIOUS_30H = FAIL
+PREVIOUS_RUNTIME_EXECUTION = FULL 30H COMPLETED
+PREVIOUS_FAIL_CAUSE = TERMINAL WITNESS / S3 EVIDENCE CONTRACT
 
-PREVIOUS_RUNTIME_EXECUTION =
-FULL 30H COMPLETED
+PR22_REVIEW = PARTIAL
+WITNESS_BINDING_FIX = PRESENT IN CANDIDATE; E2E NOT VERIFIED
 
-PREVIOUS_FAIL_CAUSE =
-TERMINAL WITNESS / S3 EVIDENCE CONTRACT
+WITNESS_SMOKE_RUN_ID = NOT ISSUED
+WITNESS_SMOKE_RESULT = NOT RUN
+LOCAL_WITNESS = NOT CREATED
+REMOTE_WITNESS = NOT CREATED
+WITNESS_HASH_PARITY = NOT VERIFIABLE
+AUDITOR_SMOKE_RESULT = NOT RUN
 
-PR22_REVIEW =
-WITNESS_BINDING_FIX = PASS WITH FOLLOW-UP CORRECTIONS
+RUNTIME_S3_UPLOAD_PERMISSION = NOT VERIFIABLE
+AUDITOR_S3_EXACT_READ_PERMISSION = LAST OBSERVED 403; CURRENT STATE NOT VERIFIABLE
 
-WITNESS_SMOKE_RUN_ID =
-aws-validation-witness-e2e-smoke-run-20260928T052441Z-v1 (PREPARED ONLY)
+IDEMPOTENCY_FIX = INCLUDED AND LOCALLY TESTED
+DEFAULT_LIVE_SAFE = YES; DEFAULT INVOCATION EXITS BEFORE DAEMON STATE/LOCK
 
-WITNESS_SMOKE_RESULT =
-NOT VERIFIABLE — AWS PROFILE EXPIRED; SMOKE NOT EXECUTED
+NEXT_RUNTIME_COMMIT = 054d43c3a43ef79919ac38bed4fa74d1b0689f53
+NEXT_RUNTIME_TREE = 8c872ae7d3353c4d4e8649758266d2ec103dba63
 
-LOCAL_WITNESS =
-NOT CREATED
+FULL_TESTS = 1704 PASSED, 2 SKIPPED
+FOCUSED_TESTS = 199 PASSED
+PYRIGHT = 0 ERRORS, 0 WARNINGS, 0 INFORMATIONS
+COMPILEALL = PASS
+BASH_SYNTAX = PASS
+DIFF_CHECK = PASS
+DETERMINISTIC_ARTIFACT_TESTS = PASS
 
-REMOTE_WITNESS =
-NOT UPLOADED OR READ
-
-WITNESS_HASH_PARITY =
-NOT VERIFIABLE REMOTELY; LOCAL BYTE-PARITY TEST PASSES
-
-AUDITOR_SMOKE_RESULT =
-LOCAL MALFORMED/CORRECTED PREDICATE TESTS PASS; END-TO-END BUNDLE NOT RUN
-
-RUNTIME_S3_UPLOAD_PERMISSION =
-SOURCE POLICY DECLARES SCOPED GET/PUT; LIVE ROLE NOT VERIFIABLE
-
-AUDITOR_S3_EXACT_READ_PERMISSION =
-NOT VERIFIABLE NOW; PRIOR EXACT READ RETURNED HTTP 403
-
-IDEMPOTENCY_FIX =
-INCLUDED; RETRY ACROSS UTC SECOND BOUNDARY PASSES LOCALLY
-
-DEFAULT_LIVE_SAFE =
-PASS BY CODE AND REGRESSION TEST; REAL_ORDER_POSSIBLE_BY_DEFAULT = NO
-
-NEXT_RUNTIME_COMMIT =
-054d43c3a43ef79919ac38bed4fa74d1b0689f53
-
-NEXT_RUNTIME_TREE =
-8c872ae7d3353c4d4e8649758266d2ec103dba63
-
-FULL_TESTS =
-1704 PASSED, 2 SKIPPED
-
-PYRIGHT =
-0 ERRORS, 0 WARNINGS, 0 INFORMATIONS (ALL CHANGED PYTHON FILES)
-
-PRELAUNCH_GATE =
-FAIL
-
-NEXT_RUN_ID =
-aws-validation-observability-30h-run-20260928T052441Z-v1 (LOCAL CANDIDATE; FRESHNESS NOT VERIFIED)
-
-NEXT_EPOCH =
-aws-validation-observability-30h-20260928-20260928T052441Z-v1 (LOCAL CANDIDATE; FRESHNESS NOT VERIFIED)
-
-NEXT_30H_LAUNCH_READY =
-NO
-
-NEXT_30H_LAUNCHED =
-NO
+PRELAUNCH_GATE = FAIL
+NEXT_RUN_ID = NOT ISSUED
+NEXT_EPOCH = NOT ISSUED
+NEXT_30H_LAUNCH_READY = NO
+NEXT_30H_LAUNCHED = NO
 
 ALPHA = UNPROVEN
+DATASET_QUALIFIED = NO
+RETROSPECTIVE = NOT_STARTED
+CANDIDATE_FROZEN = NO
 PAPER = NOT_STARTED
 LIVE = DISABLED
 PRIVATE_API = DISABLED
 ============================================================
-```
 
-## Scope and authority
+## Decision
 
-This branch is a narrow reliability lineage rooted at historical runtime `22e06b9527798567e185fb0dd41dca3a448f444e`. It includes the closed-hour idempotency fix, PR #22's exact-witness binding work and corrective follow-ups, the default-live safety guard, the exact-target terminal auditor, and the final prelaunch gate. The broad research integration branch was not used as the runtime source.
+NO-GO for a new 30H run. The short terminal-witness smoke was not started because the configured bitcoin-trader-bootstrap AWS session expired and returned: “Your session has expired. Please reauthenticate using 'aws login'.” Runtime-role permissions, auditor exact-object reads, a new identity's S3 prefix, guest capacity/process state, S3 upload/retrieval, byte parity, and live auditor acceptance therefore remain unproven. No long run or IAM mutation occurred.
 
-No AWS or guest mutation was performed. No SSM command, `systemd-run`, S3 write, Terraform operation, IAM edit, private exchange call, order, paper run, or 30H launch was issued. The explicitly named `bitcoin-trader-bootstrap` AWS profile returned `Your session has expired. Please reauthenticate using 'aws login'` (exit 255). I did not start an interactive login or request credentials.
+The operator may reauthenticate locally with:
 
-The 120-second smoke was authorized by the mission, but its required real guest `ExecStopPost` path and exact S3 put/get cannot run without that expired profile. Locally generated smoke artifacts and mocked unit tests are not represented as an executed smoke.
+    aws login --profile bitcoin-trader-bootstrap
 
-## Historical failure chain
+Do not send credentials. The already-authorized short smoke can proceed after read-only identity, permission, and freshness checks. A separate exact-identity human GO is still required before any 30H launch.
 
-The only historical target adjudicated here is run `aws-validation-observability-30h-run-20260926T135000Z-v3`, epoch `aws-validation-observability-30h-20260926-20260926T135000Z-v3`, runtime `22e06b9527798567e185fb0dd41dca3a448f444e`. Its official verdict remains **FAIL**. It ran `108017.072 / 108000` seconds, completed 29/29 cohorts and 2204/2204 slots, exited cleanly, and finalized. Those runtime results do not override the terminal-evidence contract.
+## Historical run and reconstructed failure chain
 
-| Chain stage | Expected | Actual in historical run | Corrected behavior | Coverage |
+| Stage | Input | Expected | Actual previous run | Candidate behavior and test coverage |
 |---|---|---|---|---|
-| Sealed runtime config | Exact epoch, run ID, S3 bucket/prefix/region, upload permission | Config had the sealed identity; run-end hook did not receive all of it | Artifact validator binds run ID, epoch, bucket, prefix, region, and required upload flag | Launch artifact and validator regression tests |
-| Transient launch CLI | Forward the exact sealed identity without defaults | Old path left epoch to the generic unit prefix | CLI requires exact epoch/run ID and exact S3 target; absent fields fail before systemd invocation | Transient-launch tests, including missing-field and unsafe-value cases |
-| Generated systemd unit / `ExecStopPost` | Exact sealed epoch/run ID and exact S3 target | Witness epoch became `bitcoin-trader-30h`; only data directory and run ID were forwarded | `ExecStopPost` includes exact epoch, run ID, bucket, prefix, region, and explicit write permission; shell-sensitive values are rejected | Rendered unit argument tests, long-epoch/slash/quoting tests |
-| `terminal_witness.py` | Write exact identity and upload required terminal receipt | Witness had correct run ID but generic epoch, `s3_key=null`, `s3_uploaded=false` | No generic epoch fallback; upload target and permission are mandatory; client region is explicit; upload failure exits non-zero | Witness tests for missing flags, upload failure, region, and identity binding |
-| S3 upload and local receipt | Successful remote stable object with bytes matching local receipt | No upload was attempted successfully; remote receipt parity was unavailable | Stable receipt payload is written locally before upload and uses the same bytes; failed PUT leaves false/null state and returns failure | Mock S3 test compares uploaded payload bytes to local bytes; remote parity remains unverified |
-| Terminal auditor | Exact run/epoch/key/bucket/prefix/region and successful upload | The complete witness violates the pre-existing terminal predicate and deterministically fails | Auditor now checks the exact expected key and S3 target; historical malformed fixture fails and corrected fixture passes | Auditor regression suite; complete live bundle remains unavailable |
+| Sealed identity | Run ID aws-validation-observability-30h-run-20260926T135000Z-v3; epoch aws-validation-observability-30h-20260926-20260926T135000Z-v3 | Exact run and epoch carried through terminal evidence | Identity contained the exact values | Launch artifacts bind terminal witness epoch and run ID to the ValidationRunSpec. Artifact and transient-launch tests pass. |
+| Launch CLI | Sealed epoch, run ID, bucket, prefix, region, upload enabled | All exact values passed to transient launcher | Launcher did not pass the sealed epoch or S3 target/upload flag | Candidate CLI threads epoch, bucket, prefix, region, and upload flag into TransientLaunchConfig. Tests cover binding and missing values. |
+| systemd ExecStopPost | Generated command from transient launcher | Exact witness arguments, no generic fallback | Witness received epoch bitcoin-trader-30h and exact run ID only | Renderer uses the explicit sealed epoch and exact run ID, rejects missing S3 target/region/permission, and constrains path/identifier syntax. Tests cover long IDs, slashes, and rejected shell-sensitive input. |
+| terminal_witness.py | systemd environment plus explicit arguments | Local receipt bound to identity; upload required to succeed | Witness stored the generic epoch, s3_key=null, s3_uploaded=false | Candidate requires epoch, run ID, bucket, prefix, region, and upload enablement; it returns nonzero when upload fails. Focused witness tests pass. |
+| S3 | Witness payload and runtime EC2 role | Stable exact object written under the sealed prefix | Historical witness reported no upload attempt | Terraform source intends s3:GetObject and s3:PutObject on the temporary validation namespace. No live role simulation or smoke PutObject was possible in this turn. |
+| Terminal auditor | Sealed identity and exact S3 witness | Matching run/epoch/key and successful upload | Official verdict FAIL | Offline auditor rejects the historical malformed fixture and accepts the corrected fixture. Acceptance against a real smoke object was not run. |
 
-The recorded witness had `service_result=success`, `exit_status=0`, and `CLEAN_SUCCESS`, but its epoch was `bitcoin-trader-30h`, `s3_key=null`, and `s3_uploaded=false`. That is a deterministic terminal contract failure. A full offline audit bundle was not available: the receipt mirror and complete finalization trace were absent. Historical exact S3 read returned HTTP 403, and S3 listing was not called. The 2026-09-15 V3 failure is separate and unchanged.
+The historical adjudication on PR #21 records 108017.072 / 108000 seconds, 29/29 cohorts, 2204/2204 passing slots, zero missing/failed slots, zero restarts, and completed finalization. The auditor still returned FAIL because the witness epoch was bitcoin-trader-30h and the witness had no S3 key or successful upload. The receipt mirror was unavailable and historical exact-object reads returned HTTP 403. The report is docs/post-30h-terminal-adjudication-20260928.md on PR #21's head.
 
-## PR #22 adversarial review and corrective result
+## PR #22 adversarial review
 
-PR #22 is still an open Draft at `4944235630cff58573d7348d5b949c546dd11ea8`, based on `fix/closed-hour-restart-idempotency-20260927`; it has no reported CI checks. The review confirms its core epoch/run binding correction, but found additional ways the next run could fail: a disabled-upload configuration remained possible, region was implicit, upload failure could still produce CLI success, and the receipt was rewritten after the uploaded bytes were formed. Those gaps were corrected in this branch.
+PR #22 is still an open draft at remote head 4944235630cff58573d7348d5b949c546dd11ea8, based on 48cfa0aa21327daa420638d275a3ca5314f6ad49. Its diff binds the terminal witness to explicit epoch, run ID, bucket, prefix, and upload permission; no generic epoch fallback remains in that path. The current local candidate adds follow-up fixes required by the full contract:
 
-The new renderer and artifact validator require `SEALED_EPOCH == EXECSTOPPOST_EPOCH == WITNESS_EPOCH == AUDITOR_EXPECTED_EPOCH` and the corresponding exact run ID. They do not fall back to a unit-name epoch. The generated terminal witness config binds bucket, prefix, region, and `allow_s3_write=true`; the auditor validates the exact stable key and target. Upload exceptions yield a nonzero result. The final local receipt is byte-equal to the body sent to the stable S3 key under the successful-upload path.
+- 92d5a98 adds explicit S3 region binding, rejects missing upload inputs, and returns failure when upload did not succeed.
+- 7e9b890 allows the 120-second smoke through the sealed artifact CLI and tests deterministic generation.
+- d10bb26 adds the fail-closed prelaunch gate.
+- d5c27ce rejects missing duration before deadline arithmetic.
+- 054d43c adjusts tests for clean changed-scope Pyright.
 
-## IAM and S3 boundary
+The PR #22 head alone does not contain the region argument added by 92d5a98, nor the 120-second artifact CLI support added by 7e9b890. The follow-up candidate contains these corrections and passes local tests. It has not been pushed or merged.
 
-The repository Terraform source declares the runtime role actions `s3:GetObject` and `s3:PutObject` on `${bucket ARN}/market-data/temporary/aws-validation-*/*`. The candidate prefix `market-data/temporary/<epoch>` is in that intended namespace. This is source configuration only; the live role attachment, permissions boundary, bucket policy, and effective runtime decision were not inspected with valid AWS credentials.
+The malformed historical-witness regression is test_fresh_30h_v3_terminal_audit.py::test_historical_malformed_witness_is_rejected_and_corrected_contract_passes. Its BEFORE fixture uses epoch bitcoin-trader-30h, null s3_key, and s3_uploaded=false and is rejected. Its AFTER fixture is accepted by the offline auditor. This is fixture evidence, not an S3 E2E smoke result.
 
-| Capability | Minimum relevant action | Current conclusion |
-|---|---|---|
-| Runtime PUT of terminal witness/receipt | `s3:PutObject` on the exact temporary epoch object namespace | Source policy declares scoped PUT; actual EC2 role permission is NOT VERIFIABLE |
-| Runtime GET of required objects | `s3:GetObject` on the exact temporary epoch object namespace | Source policy declares scoped GET; actual EC2 role permission is NOT VERIFIABLE |
-| Auditor GET of exact witness and receipt | `s3:GetObject` on those exact object ARNs | Historical exact read returned HTTP 403; current bootstrap profile is expired, so current capability is NOT VERIFIABLE |
-| Auditor HEAD of exact object | `s3:GetObject` | AWS documents that `HeadObject` requires `s3:GetObject`; live capability is NOT VERIFIABLE ([AWS `HeadObject`](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html)) |
-| `ListBucket` | Not used by the existing offline auditor | Not required by the audit design. Lack of List permission can make a missing-key `GetObject` return 403 instead of 404, so the historical 403 alone does not establish whether the object was missing or access was denied ([AWS `GetObject`](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)) |
+## IAM and exact-read findings
 
-No IAM policy diff is proposed: the source already declares the narrow temporary-namespace GET/PUT actions, while the actual effective policies are unknown. No administrator grant, broad bucket access, Terraform apply, or blind permission edit was performed.
+Runtime EC2 role and auditor/bootstrap identity are separate principals.
 
-## Idempotency, trading safety, and scientific state
+Terraform source in infra/aws/main.tf grants the collector role GetObject and PutObject on the configured temporary archive namespace. The local Terraform state file is absent, and the expired AWS profile prevented checking the live role, permission boundary, bucket policy, or current auditor identity. Runtime upload permission is therefore NOT VERIFIABLE.
 
-The finalizer fix from `48cfa0aa21327daa420638d275a3ca5314f6ad49` is included. The regression test retries the same logical frozen observation while a patched clock crosses a UTC second boundary and confirms stable `closed_at_utc`, evidence hash, and receipt checksums. Existing incremental-finalizer fault injection covers intent, entry, pending, and summary transaction boundaries. It does not prove actual guest process-crash behavior after every S3 receipt boundary; that remains unverified.
+The latest repository adjudication records an exact-object HTTP 403 for the bootstrap auditor profile. The current profile could not be rechecked because its session expired. A 403 alone does not identify the cause: for a missing object, HeadObject may return 403 when the caller lacks ListBucket. AWS documents that HeadObject requires s3:GetObject; ListObjectsV2 requires s3:ListBucket. The exact-read audit does not need ListBucket when the object key is known. No live exact GetObject/HeadObject was possible here. See [AWS HeadObject permissions](https://docs.aws.amazon.com/AmazonS3/latest/API/API_HeadObject.html) and [AWS S3 API permission mapping](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html).
 
-The default-live guard exits before acquiring the daemon lock unless `BITHUMB_LIVE_TRADING=true`; its regression test asserts the lock is not acquired. The macOS wrapper no longer sets live mode by default and falls back to simulation. No authenticated endpoint was contacted. `REAL_ORDER_POSSIBLE_BY_DEFAULT=NO` is a source/test conclusion, not a production runtime observation.
+No IAM policy was applied or prepared with an invented bucket/run ARN. If a current exact-object read is denied after confirming that the object exists, the narrow candidate action is s3:GetObject on the exact witness/receipt object ARN(s); HeadObject uses the same action. Do not add ListBucket for exact object reads. The authoritative live bucket and fresh identity must be confirmed before writing any exact Resource ARN.
 
-Scientific/trading status remains `ALPHA=UNPROVEN`, `DATASET_QUALIFIED=NO`, `RETROSPECTIVE=NOT_STARTED`, `CANDIDATE_FROZEN=NO`, `PAPER=NOT_STARTED`, `LIVE=DISABLED`, and `PRIVATE_API=DISABLED`. This mission did not begin alpha research.
+## Idempotency and default-live safety
 
-## Runtime differential
+Commit 48cfa0aa21327daa420638d275a3ca5314f6ad49 is an ancestor of the candidate. The restart-idempotency test crosses a UTC-second boundary and verifies stable closed_at_utc, evidence SHA-256, and receipt checksums for the same frozen observation. Scheduler and archive tests cover retry/restart behavior. These local tests pass; no AWS runtime was started.
 
-`OLD_RUNTIME=22e06b9527798567e185fb0dd41dca3a448f444e`  
-`NEXT_RUNTIME=054d43c3a43ef79919ac38bed4fa74d1b0689f53`  
-`NEXT_RUNTIME_TREE=8c872ae7d3353c4d4e8649758266d2ec103dba63`
+Commits d6a6f31 and ddb96e9 are included. autonomous_trader.main checks BITHUMB_LIVE_TRADING before acquiring the daemon lock or loading/saving daemon state. The default-invocation test verifies exit before the lock, and the macOS wrapper test verifies it defaults to false. bash -n passes. REAL_ORDER_POSSIBLE_BY_DEFAULT = NO.
 
-| Category | Changed files | Run impact |
-|---|---|---|
-| Runtime/finalization | `src/bithumb_coin_trader/closed_hour_finalizer.py`, `src/bithumb_coin_trader/bounded_supervisor.py`, `src/bithumb_coin_trader/launch_artifacts.py` | Stable closed-hour evidence on retry; strict finite systemd launch and sealed artifact binding |
-| Launch | `scripts/generate_launch_artifacts.py`, `scripts/launch_short_smoke_transient.py`, `scripts/validate_launch_artifacts.py` | 120-second identity is restricted to a dedicated witness smoke; exact 30H launch artifact validation |
-| Witness | `scripts/terminal_witness.py` | Exact identity and S3 target, explicit region, fail-closed upload, byte-stable stable receipt |
-| Trading safety | `scripts/autonomous_trader.py`, `scripts/run_daemon_macos.sh` | Default live execution disabled before side effects |
-| Evidence gates | `scripts/audit_fresh_30h_v3_terminal.py`, `scripts/final_30h_prelaunch_gate.py` | Exact terminal audit plus one-shot fail-closed local/evidence-bundle gate |
-| Regression tests | `tests/test_autonomous_trader_safety.py`, `tests/test_closed_hour_finalizer.py`, `tests/test_final_30h_prelaunch_gate.py`, `tests/test_fresh_30h_v3_terminal_audit.py`, `tests/test_launch_artifacts.py`, `tests/test_observer_and_witness.py`, `tests/test_transient_launch.py`, `tests/test_witness_watchdog_fixes.py` | Covers changed contracts and safety rules |
-| Unrelated runtime/research files | None | No research, strategy, dashboard, or BitMEX source changes |
+## Candidate source differential
 
-This is reliability-only source scope. The offline auditor is included because it is a required terminal-contract gate; unrelated PR #21 research/bootstrap integration was not imported.
+OLD_RUNTIME = 22e06b9527798567e185fb0dd41dca3a448f444e
+NEXT_RUNTIME = 054d43c3a43ef79919ac38bed4fa74d1b0689f53
+NEXT_RUNTIME_TREE = 8c872ae7d3353c4d4e8649758266d2ec103dba63
 
-## Full tests and sealed artifacts
+Changed files from OLD_RUNTIME: 19 total. Runtime/safety files are scripts/autonomous_trader.py, scripts/run_daemon_macos.sh, scripts/terminal_witness.py, scripts/launch_short_smoke_transient.py, src/bithumb_coin_trader/bounded_supervisor.py, src/bithumb_coin_trader/closed_hour_finalizer.py, and src/bithumb_coin_trader/launch_artifacts.py. Launch/auditor tooling adds scripts/generate_launch_artifacts.py, scripts/validate_launch_artifacts.py, scripts/audit_fresh_30h_v3_terminal.py, and scripts/final_30h_prelaunch_gate.py. The remaining changed paths are regression tests for those behaviors. No strategy, research, dashboard, or external-dataset source file is in this differential.
 
-Verification ran on exact commit `054d43c3a43ef79919ac38bed4fa74d1b0689f53` and tree `8c872ae7d3353c4d4e8649758266d2ec103dba63`:
+The actual 30H sealed artifacts were not generated because no fresh identity could be proven against AWS/local evidence. Unit tests generate two temporary artifact sets and verify deterministic runtime/launch artifacts while excluding documented seal timestamps.
 
-```text
-FULL_SUITE = 1704 passed, 2 skipped (151.78s)
-FOCUSED_RELIABILITY_SUITE = 199 passed (6.23s)
-PYRIGHT_CHANGED_PYTHON_SCOPE = 0 errors, 0 warnings, 0 informations
-COMPILEALL = PASS
-GIT_DIFF_CHECK = PASS
-WORKTREE = CLEAN AT TESTED COMMIT
-PROTECTED test-results/.last-run.json SHA256 = e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea (unchanged)
-```
+## Verification evidence
 
-The candidate 30H and smoke artifacts were each generated twice under `/private/tmp/btc-final-30h-preflight-20260928-052441/{30h-a,30h-b,smoke-a,smoke-b}` and passed the production artifact validator. Runtime JSON, launch command, launch scripts, and authorization evidence matched byte-for-byte between regenerations. `identity.json` and `sealed-manifest.json` differ only in the documented seal timestamp and dependent identity hash; those fields were normalized before comparison.
+- Focused exact-candidate suite: 199 passed.
+- Full exact-candidate suite: 1704 passed, 2 skipped.
+- Pyright across changed Python source and test paths: 0 errors, 0 warnings, 0 informations.
+- compileall: PASS.
+- bash -n scripts/run_daemon_macos.sh: PASS.
+- git diff --check from OLD_RUNTIME to NEXT_RUNTIME: PASS.
+- Artifact generator/validator CLI smoke test with 120 seconds and deterministic 30H artifact unit test: PASS.
+- Historical malformed-witness rejection and corrected-fixture acceptance: PASS.
+- scripts/final_30h_prelaunch_gate.py with a missing-artifact input: PRELAUNCH_GATE=FAIL, exit 1. This only verifies the missing-input fail-closed path; there is no actual next-run identity/readiness bundle to evaluate.
+- Protected test-results/.last-run.json SHA-256 remained e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea.
+- No runtime, IAM, S3, Terraform, exchange, paper/live, or 30H launch mutation occurred.
 
-Candidate 30H identity:
+The gate currently consumes a readiness JSON bundle. It checks for PASS statuses and non-empty evidence_ref strings but does not read/hash those referenced evidence objects. It also checks only smoke identity prefixes and self-reported hash fields, not a sealed smoke artifact binding. Treat its PASS as dependent on trusted, separately verified evidence collection. It requires launch authorization to pass, so it does not produce a technical-ready/pre-GO result.
 
-```text
-RUN_ID = aws-validation-observability-30h-run-20260928T052441Z-v1
-EPOCH = aws-validation-observability-30h-20260928-20260928T052441Z-v1
-DURATION = 108000 seconds
-S3_BUCKET = bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433
-S3_PREFIX = market-data/temporary/aws-validation-observability-30h-20260928-20260928T052441Z-v1
-S3_REGION = ap-northeast-2
-PRIVATE_API = disabled; PAPER = not started; LIVE = disabled
-AUTHORIZATION = PREPARED_NOT_AUTHORIZED
-```
-
-This is a local candidate, not a freshness claim. Remote run/epoch/prefix absence and local guest evidence-directory absence were not verified. Do not launch or reuse it without fresh identity checks; generate a new timestamped identity after the credential and readiness blockers are resolved.
-
-Selected first-generation artifact SHA-256 values:
-
-| Artifact | SHA-256 |
-|---|---|
-| Runtime JSON | `7159189b226fd39781f764868e3f85f7244563b4497dcbc6fc56f7ece3cea6e0` |
-| `launch-command.json` | `73fcbd901af0d07240f97bbb253a155ab625b1ea0cc1ebf2e2d654a0f355b622` |
-| `launch-ec2.sh` | `552ce1750dffda566046266a797fbc4f88cdcdbdc73a22cfd4ce6adb5d801d00` |
-| `launch.sh` | `0fe1dd06779ed72bcbd558faeadaffa331c80e1188a6adea9e3837664645ef01` |
-| `authorization-evidence.json` | `11742d14ce837479a44920bd41d5162f49e9b95bc917e467363b463ea1afb7c8` |
-
-The prelaunch command is:
-
-```bash
-python scripts/final_30h_prelaunch_gate.py \
-  --repo-root <clean-runtime-checkout> \
-  --artifacts-dir <sealed-30h-artifact-directory> \
-  --readiness-evidence <fresh-read-only-readiness-bundle.json>
-```
-
-It checks sealed artifacts/source identity, a separate exact-identity authorization artifact, the smoke result, and every required read-only readiness assertion. It does not call AWS itself; its evidence bundle must contain fresh, reviewable results for IAM/S3, guest capacity/process/unit state, identity absence, safety state, and auditor checks. Missing or `NOT_VERIFIABLE` values fail closed. The run here returned `PRELAUNCH_GATE=FAIL` for the unauthorized candidate and unavailable AWS/guest/smoke evidence.
-
-## Required GO / NO-GO matrix
+## GO / NO-GO matrix
 
 | Gate | Result | Evidence |
 |---|---|---|
-| PR #22 exact epoch binding | PASS | Source review plus exact systemd/witness/auditor regression coverage |
-| Exact run-ID binding | PASS | Source review and launch/auditor tests bind sealed run ID end-to-end |
-| Runtime witness upload | NOT VERIFIABLE | Upload failure/success behavior tested locally; real guest role and smoke PUT unavailable |
-| Auditor exact read | NOT VERIFIABLE | Historical exact read was HTTP 403; current named profile expired |
-| S3 hash parity | NOT VERIFIABLE | Mock PUT body equals local bytes; no remote object exists from this smoke |
-| Malformed-witness regression | PASS | Historical generic epoch, null key, and false-upload fixture is rejected |
-| Corrected witness accepted | PASS | Correct exact-key/bucket/prefix/region fixture is accepted |
-| `closed_at_utc` retry idempotency | PASS | Same observation retried across UTC second boundary preserves time/hash/receipt checksums |
-| Default-live safety | PASS | Main exits before lock on absent opt-in; wrapper default is simulation; tests pass |
-| Full suite | PASS | 1704 passed, 2 skipped on exact proposed commit |
-| Pyright | PASS | All changed Python files: 0 errors, 0 warnings, 0 informations |
-| Launch artifact deterministic | PASS | Exact 30H and smoke artifacts regenerated twice; only documented timestamps/dependent hash differ |
-| Disk/process readiness | NOT VERIFIABLE | No valid SSM/AWS session for read-only guest checks |
-| Run identity fresh | NOT VERIFIABLE | Candidate remote RUN_ID/EPOCH/S3-prefix and guest path absence were not queried |
-| Terminal auditor dry-run | NOT VERIFIABLE | Local predicate regressions pass; complete exact remote evidence bundle was unavailable |
+| PR #22 exact epoch binding | PASS | Explicit sealed epoch flows to ExecStopPost; no generic epoch fallback. |
+| Exact run-ID binding | PASS | Launch artifacts and witness arguments are identity-bound; regression tests pass. |
+| Runtime witness upload | NOT VERIFIABLE | Terraform source grants intended actions; real runtime PutObject smoke not run. |
+| Auditor exact read | NO PASS — last observed 403; current state unknown | AWS session expired; no current GetObject/HeadObject evidence. |
+| S3 hash parity | NOT VERIFIABLE | No real smoke object/local witness pair exists. |
+| Malformed-witness regression | PASS | Historical generic-epoch/null-key/false-upload fixture rejected. |
+| Corrected witness accepted | PASS | Offline corrected-contract fixture accepted. |
+| closed_at_utc retry idempotency | PASS | Boundary-clock retry has stable timestamp/hash/checksum. |
+| Default-live safety | PASS | Main guard and wrapper default-off tests pass. |
+| Full suite | PASS | 1704 passed, 2 skipped at exact candidate SHA. |
+| Pyright | PASS | Changed source and test scope: zero errors/warnings/informations. |
+| Launch artifact determinism | PASS | Generator tests compare repeated artifacts excluding timestamp/nonce fields. |
+| Disk/process readiness | NOT VERIFIABLE | No fresh AWS/SSM session for guest inspection. |
+| Fresh run identity | NOT VERIFIABLE | No 30H identity issued; remote/local uniqueness not checked. |
+| Terminal auditor dry-run | NOT VERIFIABLE | Offline fixture suite passed; no actual smoke bundle/object to audit. |
 
-```text
-MANDATORY_GATES_PASS = 8 / 15
+MANDATORY_GATES_PASS = 9 / 15
 NEXT_30H_LAUNCH_READY = NO
 NEXT_30H_LAUNCHED = NO
-```
+
+## Residual risks
+
+1. Live runtime-role PutObject and auditor GetObject permissions, bucket policy, and permission boundary remain time-specific unknowns.
+2. The complete systemd ExecStopPost → witness → S3 upload → exact retrieval → byte parity → auditor acceptance path has not run under a fresh smoke identity.
+3. Guest disk/inode/memory/process/unit/mount readiness and S3-prefix freshness remain unverified.
+4. The readiness-bundle gate relies on references that it does not verify and cannot pass before the exact authorization artifact is updated.
+
+## Delivery state
+
+COMMITS = 48cfa0a, 4944235, d6a6f31, 92d5a98, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c, 0775ccb (report)
+PRS = #21 OPEN/DRAFT, #22 OPEN/DRAFT at the recorded remote heads above
+LOCAL_PREFLIGHT_BRANCH = codex/final-30h-preflight-20260928; pushed to origin at 0775ccb. The tested runtime source remains 054d43c3a43ef79919ac38bed4fa74d1b0689f53; 0775ccb changes only this report.
+USER_ACTION_REQUIRED = Reauthenticate bitcoin-trader-bootstrap locally. Then verify current exact-object access and collect fresh guest/AWS readiness evidence. Do not share credentials. Keep 30H stopped until the complete witness smoke passes and a separate exact-identity GO is provided.
+============================================================
 
 ## Final console result
 
@@ -238,53 +176,38 @@ FINAL 30H GO / NO-GO
 HISTORICAL_RUN_VERDICT = FAIL
 HISTORICAL_RUNTIME_COMPLETED = YES
 
-FAILURE_CLASS =
-TERMINAL_EVIDENCE_CONTRACT
+FAILURE_CLASS = TERMINAL_EVIDENCE_CONTRACT
+ROOT_CAUSE = ExecStopPost used generic epoch bitcoin-trader-30h and did not successfully upload the exact witness to S3.
 
-ROOT_CAUSE =
-1. The old ExecStopPost used generic unit prefix bitcoin-trader-30h as witness epoch instead of the sealed epoch.
-2. It did not receive the exact S3 upload target/permission, yielding s3_key=null and s3_uploaded=false.
+CORRECTIVE_PR = #22 plus follow-up candidate on codex/final-30h-preflight-20260928
+CORRECTIVE_HEAD = PR #22 4944235630cff58573d7348d5b949c546dd11ea8; follow-up candidate 054d43c3a43ef79919ac38bed4fa74d1b0689f53
 
-CORRECTIVE_PR =
-Draft follow-up PR based on PR #22 (to be attached after push)
-CORRECTIVE_HEAD =
-054d43c3a43ef79919ac38bed4fa74d1b0689f53
+WITNESS_E2E = NOT RUN
+S3_UPLOAD = NOT VERIFIABLE
+S3_EXACT_READ = NOT VERIFIABLE; last recorded exact read returned 403
+HASH_PARITY = NOT VERIFIABLE
+AUDITOR_ACCEPTANCE = offline malformed/corrected fixtures PASS; real smoke NOT RUN
 
-WITNESS_E2E = NOT VERIFIABLE (not executed)
-S3_UPLOAD = NOT VERIFIABLE (real runtime role unavailable)
-S3_EXACT_READ = NOT VERIFIABLE (named profile expired; historical exact read was 403)
-HASH_PARITY = NOT VERIFIABLE remotely; local exact-byte regression passes
-AUDITOR_ACCEPTANCE = local malformed/corrected predicate tests pass; live bundle not run
-
-CLOSED_AT_UTC_IDEMPOTENCY = PASS locally
-DEFAULT_LIVE_SAFE = PASS by code and regression test
+CLOSED_AT_UTC_IDEMPOTENCY = PASS LOCALLY
+DEFAULT_LIVE_SAFE = PASS LOCALLY
 
 FULL_TESTS = 1704 passed, 2 skipped
-NEW_REGRESSIONS = 199 focused tests passed
+NEW_REGRESSIONS = 199 passed
 
 NEXT_RUNTIME_COMMIT = 054d43c3a43ef79919ac38bed4fa74d1b0689f53
 NEXT_RUNTIME_TREE = 8c872ae7d3353c4d4e8649758266d2ec103dba63
 
-NEXT_RUN_ID = aws-validation-observability-30h-run-20260928T052441Z-v1 (unverified candidate)
-NEXT_EPOCH = aws-validation-observability-30h-20260928-20260928T052441Z-v1 (unverified candidate)
+NEXT_RUN_ID = NOT ISSUED
+NEXT_EPOCH = NOT ISSUED
 
-MANDATORY_GATES_PASS = 8 / 15
+MANDATORY_GATES_PASS = 9 / 15
 NEXT_30H_LAUNCH_READY = NO
 NEXT_30H_LAUNCHED = NO
 
-RESIDUAL_RISKS =
-1. No real 120-second guest-to-ExecStopPost-to-S3-to-auditor smoke has passed.
-2. Live EC2 role, bootstrap exact-read access, disk/process/unit state, and candidate identity freshness are unverified.
-3. Exchange feed/network faults and uninstrumented guest crash points remain operational risks; no alpha or profitability claim follows.
+RESIDUAL_RISKS = Live IAM/S3 permissions, real smoke, exact-read/parity, guest readiness, and fresh identity remain unverified.
+COMMITS = 48cfa0a, 4944235, d6a6f31, 92d5a98, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c, 0775ccb
+PRS = #21 OPEN/DRAFT; #22 OPEN/DRAFT; preflight branch pushed, no PR created
 
-COMMITS =
-92d5a98, d6a6f31, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c
-PRS =
-PR #19 open Draft; PR #21 open Draft; PR #22 open Draft; follow-up Draft PR to be attached
-
-USER_ACTION_REQUIRED =
-Reauthenticate the named AWS profile locally; then run a newly timestamped short witness smoke and repeat read-only S3/guest/identity checks. Request a separate explicit GO only after every mandatory gate passes.
+USER_ACTION_REQUIRED = Reauthenticate bitcoin-trader-bootstrap locally; then complete the fresh short witness smoke and request separate exact-identity GO before 30H.
 ============================================================
 ```
-
-The historical `test-results/.last-run.json` remains untouched. No historical PASS/FAIL evidence was rewritten, no alpha research started, and no run was launched.
