@@ -52,6 +52,7 @@ from bithumb_coin_trader.research_infra.dq import (
     build_dq_catalog_from_local,
 )
 from bithumb_coin_trader.research_infra.time_align import (
+    align_cross_exchange,
     check_no_lookahead,
     build_as_of_index,
     filter_events_by_kind,
@@ -398,6 +399,25 @@ class TestAsOfJoin(unittest.TestCase):
         for t, event in index.items():
             self.assertLessEqual(event.ordering_timestamp_ns, t,
                                  "As-of join must not use future events")
+
+    def test_as_of_index_sorts_target_events_before_advancing(self) -> None:
+        events = [
+            _make_event(timestamp_ns=300, exchange="binance"),
+            _make_event(timestamp_ns=100, exchange="binance"),
+            _make_event(timestamp_ns=200, exchange="binance"),
+        ]
+
+        index = build_as_of_index(events, "binance")
+
+        self.assertEqual(
+            {timestamp: index[timestamp].ordering_timestamp_ns for timestamp in (100, 200, 300)},
+            {100: 100, 200: 200, 300: 300},
+        )
+
+    def test_empty_primary_stream_produces_no_aligned_snapshots(self) -> None:
+        snapshots = list(align_cross_exchange([], [], ("bithumb", "binance")))
+
+        self.assertEqual(snapshots, [])
 
 
 class TestFeatureEngine(unittest.TestCase):

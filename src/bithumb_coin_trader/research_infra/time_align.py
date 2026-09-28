@@ -22,6 +22,7 @@ Cross-exchange alignment:
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from typing import Iterator, Sequence
 
@@ -76,7 +77,10 @@ def build_as_of_index(
     the target exchange that wasn't available at the primary's time.
     """
     index: dict[int, CanonicalEvent] = {}
-    target_events = [e for e in events if e.exchange == target_exchange]
+    target_events = sorted(
+        (e for e in events if e.exchange == target_exchange),
+        key=lambda event: event.ordering_timestamp_ns,
+    )
     if not target_events:
         return index
 
@@ -115,6 +119,9 @@ def align_cross_exchange(
     Yields:
         AlignedSnapshot for each primary event
     """
+    if not primary_events:
+        return
+
     # Build per-exchange sorted event lists
     by_exchange: dict[str, list[CanonicalEvent]] = {}
     for ex in exchanges:
@@ -124,10 +131,11 @@ def align_cross_exchange(
         )
 
     # Build as-of indices for non-primary exchanges
-    other_exchanges = [ex for ex in exchanges if ex != primary_events[0].exchange if primary_events]
+    other_exchanges = [ex for ex in exchanges if ex != primary_events[0].exchange]
     as_of_indices: dict[str, dict[int, CanonicalEvent]] = {}
     for ex in other_exchanges:
         as_of_indices[ex] = build_as_of_index(all_events, ex)
+    as_of_times = {ex: sorted(index) for ex, index in as_of_indices.items()}
 
     for event in primary_events:
         t = event.ordering_timestamp_ns
@@ -136,12 +144,9 @@ def align_cross_exchange(
 
         for ex in other_exchanges:
             idx = as_of_indices.get(ex, {})
-            match = None
-            # Find latest event <= t
-            for check_t in sorted(idx.keys(), reverse=True):
-                if check_t <= t:
-                    match = idx[check_t]
-                    break
+            times = as_of_times.get(ex, [])
+            match_index = bisect_right(times, t) - 1
+            match = idx[times[match_index]] if match_index >= 0 else None
             if match is not None:
                 aligned[ex] = match
                 lag[ex] = t - match.ordering_timestamp_ns
