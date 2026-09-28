@@ -83,6 +83,18 @@
   "integration": {
     "branch": "codex/post-30h-evidence-integration-20260928",
     "verified_head_before_adjudication_docs": "3119c4db1d7236ebb553c28373d2035e1f32bbee",
+    "pull_request": {
+      "number": 21,
+      "url": "https://github.com/JongHyun070105/bithumb-coin-trader/pull/21",
+      "draft": true,
+      "ci": "PASS"
+    },
+    "terminal_witness_fix_pull_request": {
+      "number": 22,
+      "url": "https://github.com/JongHyun070105/bithumb-coin-trader/pull/22",
+      "draft": true,
+      "head_commit": "4944235630cff58573d7348d5b949c546dd11ea8"
+    },
     "full_tests": "1629 passed, 2 skipped",
     "pyright": "0 errors, 0 warnings, 0 informations",
     "compileall": "PASS",
@@ -94,9 +106,12 @@
     "dataset_id": null,
     "dataset_qualified": "NO_NOT_RUN_GATE_NOT_MET",
     "retrospective_batch": "NOT_RUN",
+    "strategy_families_assessed_eligible": 0,
     "strategies_tested": 0,
     "experiments_executed": 0,
     "candidate_count": 0,
+    "no_candidate_survived": "NOT_ASSESSED",
+    "paper_readiness": "NOT_READY",
     "prospective_holdout_consumed": false,
     "candidate_frozen": false,
     "paper": "NOT_STARTED",

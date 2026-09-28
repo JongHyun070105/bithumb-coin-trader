@@ -10,8 +10,11 @@ IDEMPOTENCY_DEFECT_TRIGGERED = NOT_VERIFIABLE
 RELIABILITY_SEAL = NO PASS seal; this FAIL adjudication is hash-bound
 DATASET_QUALIFIED = NO (qualification gate not entered)
 RETROSPECTIVE_BATCH = NOT RUN
+STRATEGIES_TESTED = 0
+NO_CANDIDATE_SURVIVED = NOT_ASSESSED (no strategy evaluation ran)
 PROSPECTIVE_HOLDOUT_CONSUMED = NO
 CANDIDATE_FROZEN = NO
+PAPER_READINESS = NOT_READY (terminal gate FAIL; no reviewed candidate evidence)
 PAPER = NOT_STARTED
 LIVE = DISABLED
 PRIVATE_API = DISABLED
@@ -77,13 +80,21 @@ The guest observer was still active with S3 writes enabled at the time of the re
 
 The integration branch carries the PR #18 readiness work, the `48cfa0a` finalizer idempotency fix as a distinct source commit, PR #19's default-live guard, and only the bounded BitMEX descriptive bootstrap slice. The broad PR #17 branch is not merged wholesale. No historical receipt or test-result file was edited.
 
-- `closed_at_utc` fix: integrate as reliability source; it does not rewrite runtime `22e06b9` or this run's verdict.
+- `closed_at_utc` fix: `INTEGRATE_NOW` as reliability source; it does not rewrite runtime `22e06b9` or this run's verdict.
 - Readiness/PAPER gates: integrate; `PAPER` remains not started.
 - Default-live guard: integrate; validated on the integration branch, with `REAL_ORDER_POSSIBLE_BY_DEFAULT=NO` for default invocation on that branch.
-- BitMEX bounded descriptive bootstrap: `RESEARCH_ONLY`, `HYPOTHESIS_GENERATION_ONLY`; no external dataset was imported or batch-tested.
-- PR #17 inherited reliability/artifact history: `SUPERSEDED` or preserve as historical evidence; do not merge wholesale.
-- PR #17 provenance/custody and data-quality work: `DEFER` pending the reliability gate and a source-bound local dataset.
-- PR #17 contract/position reconstruction and market-context slices: `DEFER` or `RESEARCH_ONLY` under the limitations recorded in `docs/external-bitmex-research-gap-closure-20260927.md`.
+- BitMEX bounded descriptive bootstrap: `INTEGRATE_NOW` with `RESEARCH_ONLY` / `HYPOTHESIS_GENERATION_ONLY` role; no external dataset was imported or batch-tested.
+- PR #17 inherited reliability/artifact history: `SUPERSEDED`; preserve historical records and do not merge wholesale.
+- PR #17 provenance/custody, importer, and data-quality work: `DEFER` pending reliability closure and a source-bound local dataset.
+- PR #17 contract/position reconstruction: `DEFER` because contract semantics and fee evidence remain unresolved.
+- PR #17 market-context acquisition/as-of joins: `RESEARCH_ONLY` after reliability and provenance gates; not candidate evidence.
+- PR #17 broad documentation: `DEFER`; no slice classified `DROP` because historical material remains preserved.
+
+## Dataset and research lane
+
+No current-public dataset was registered or qualified: `DATASET_ID=null`, `DATASET_QUALIFIED=NO`, DQ checks `NOT_RUN`. The pre-existing playbook permits this lane only after a terminal PASS. Accordingly, zero strategy families were assessed as eligible, zero strategies or experiments were tested, and no result is classified `REJECTED`, `WEAK`, `REQUIRES_MORE_EVIDENCE`, or `ELIGIBLE_FOR_USER_REVIEW`. `NO_CANDIDATE_SURVIVED` is `NOT_ASSESSED`, not a negative strategy finding. The historical Core + Satellite return claim remains `HISTORICAL_CLAIM_RETEST_REQUIRED`.
+
+`PAPER_READINESS=NOT_READY`: the terminal reliability gate failed and no candidate evidence exists. No source dataset, S3 permission scope, or data-quality claim was changed or inferred. This PR does not start PAPER or public prospective observation.
 
 Integration verification at commit `3119c4db1d7236ebb553c28373d2035e1f32bbee`: full suite `1629 passed, 2 skipped`; changed-scope Pyright had `0 errors, 0 warnings, 0 informations`; compileall and `git diff --check` passed. The test run did not rewrite or target `test-results/.last-run.json`.
 
