@@ -122,7 +122,7 @@ class Fresh30HTerminalAuditor:
         self._audit_duration(runtime, result, start)
         self._audit_exits(result)
         self._audit_systemd(self._load("systemd"))
-        self._audit_witness(identity, result, witness)
+        self._audit_witness(identity, runtime, result, witness)
         self._audit_collector_lifecycle(self._load("collector_lifecycle"))
         self._audit_collector_metrics(self._load("collector_metrics"))
         self._audit_redundancy(
@@ -331,6 +331,7 @@ class Fresh30HTerminalAuditor:
     def _audit_witness(
         self,
         identity: dict[str, Any] | None,
+        runtime: dict[str, Any] | None,
         result: dict[str, Any] | None,
         witness: dict[str, Any] | None,
     ) -> None:
@@ -345,6 +346,30 @@ class Fresh30HTerminalAuditor:
         service_result = _first_text(witness, "service_result")
         exit_status = str(witness.get("exit_status", ""))
         s3_uploaded = witness.get("s3_uploaded")
+        expected_bucket = _first_text(identity, "s3_bucket")
+        expected_prefix = _first_text(identity, "s3_prefix", "archive_prefix")
+        expected_region = _first_text(identity, "s3_region", "region")
+        runtime_region = _first_text(runtime or {}, "region")
+        expected_region = expected_region or runtime_region
+        if not expected_prefix and runtime:
+            archive = _mapping(runtime.get("archive"))
+            prefix_template = _first_text(archive, "temporary_prefix_template")
+            if prefix_template and expected_epoch:
+                expected_prefix = prefix_template.replace("{collector_epoch}", expected_epoch)
+        expected_prefix = expected_prefix.rstrip("/") if expected_prefix else None
+        expected_key = f"{expected_prefix}/terminal/terminal-receipt.json" if expected_prefix else None
+        actual_s3_key = witness.get("s3_key")
+        actual_bucket = _first_text(witness, "s3_bucket")
+        actual_prefix = _first_text(witness, "s3_prefix")
+        actual_region = _first_text(witness, "s3_region")
+        s3_target_matches = (
+            expected_key is not None
+            and actual_s3_key == expected_key
+            and expected_bucket is not None
+            and actual_bucket == expected_bucket
+            and (expected_region is None or actual_region == expected_region)
+            and (actual_prefix is None or actual_prefix.rstrip("/") == expected_prefix)
+        )
         details = {
             "run_id_matches": witness_run_id == expected_run_id if expected_run_id else None,
             "epoch_matches": witness_epoch == expected_epoch if expected_epoch else None,
@@ -352,11 +377,16 @@ class Fresh30HTerminalAuditor:
             "service_result": service_result,
             "exit_status": exit_status,
             "witness_s3_uploaded": s3_uploaded,
+            "expected_s3_key": expected_key,
+            "observed_s3_key": actual_s3_key,
+            "s3_bucket_matches": actual_bucket == expected_bucket if expected_bucket else None,
+            "s3_region_matches": actual_region == expected_region if expected_region else None,
+            "s3_target_matches": s3_target_matches,
         }
         complete = all(value is not None for value in (
             expected_run_id, expected_epoch, witness_run_id, witness_epoch,
             classification, service_result,
-        )) and "exit_status" in witness and isinstance(s3_uploaded, bool)
+        )) and "exit_status" in witness and isinstance(s3_uploaded, bool) and "s3_key" in witness
         clean = (
             complete
             and witness_run_id == expected_run_id
@@ -366,6 +396,7 @@ class Fresh30HTerminalAuditor:
             and service_result.lower() in {"success", "none"}
             and exit_status == "0"
             and s3_uploaded is True
+            and s3_target_matches
         )
         status = PASS if clean else (FAIL if complete else NOT_VERIFIABLE)
         self.add(

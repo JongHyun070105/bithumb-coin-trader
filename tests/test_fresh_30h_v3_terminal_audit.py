@@ -70,6 +70,9 @@ def _make_bundle(root: Path) -> None:
             "software_commit_sha": EXPECTED_RUNTIME_COMMIT,
             "software_tree_sha": EXPECTED_RUNTIME_TREE,
             "duration_seconds": 3600,
+            "s3_bucket": "receipt-bucket",
+            "s3_prefix": f"market-data/temporary/{EPOCH}",
+            "region": "ap-northeast-2",
             "feed_count": len(feed_universe),
             "qualifying_cohorts": [COHORT],
             "feed_universe": feed_universe,
@@ -118,7 +121,11 @@ def _make_bundle(root: Path) -> None:
             "terminal_classification": "CLEAN_SUCCESS",
             "service_result": "success",
             "exit_status": "0",
+            "s3_key": f"market-data/temporary/{EPOCH}/terminal/terminal-receipt.json",
             "s3_uploaded": True,
+            "s3_bucket": "receipt-bucket",
+            "s3_prefix": f"market-data/temporary/{EPOCH}",
+            "s3_region": "ap-northeast-2",
         },
     )
     _json(
@@ -372,6 +379,72 @@ def test_terminal_witness_must_include_successful_s3_upload(tmp_path: Path) -> N
     witness_path = evidence / "terminal/terminal-witness.json"
     witness = json.loads(witness_path.read_text(encoding="utf-8"))
     witness["s3_uploaded"] = False
+    _json(witness_path, witness)
+
+    report = Fresh30HTerminalAuditor(evidence).audit()
+
+    assert _check(report, "terminal_witness")["status"] == FAIL
+
+
+def test_historical_malformed_witness_is_rejected_and_corrected_contract_passes(tmp_path: Path) -> None:
+    evidence = tmp_path / "bundle"
+    _make_bundle(evidence)
+    identity_path = evidence / "sealed/identity.json"
+    identity = json.loads(identity_path.read_text(encoding="utf-8"))
+    identity["epoch"] = "aws-validation-observability-30h-20260926-20260926T135000Z-v3"
+    identity["run_id"] = "aws-validation-observability-30h-run-20260926T135000Z-v3"
+    identity["s3_prefix"] = f"market-data/temporary/{identity['epoch']}"
+    _json(identity_path, identity)
+
+    witness_path = evidence / "terminal/terminal-witness.json"
+    witness = json.loads(witness_path.read_text(encoding="utf-8"))
+    witness.update(
+        {
+            "run_id": identity["run_id"],
+            "epoch": "bitcoin-trader-30h",
+            "s3_key": None,
+            "s3_uploaded": False,
+        }
+    )
+    _json(witness_path, witness)
+    malformed_report = Fresh30HTerminalAuditor(evidence).audit()
+    malformed_check = _check(malformed_report, "terminal_witness")
+    assert malformed_check["status"] == FAIL
+    assert malformed_check["details"]["run_id_matches"] is True
+    assert malformed_check["details"]["epoch_matches"] is False
+    assert malformed_check["details"]["s3_target_matches"] is False
+
+    witness.update(
+        {
+            "epoch": identity["epoch"],
+            "s3_key": f"{identity['s3_prefix']}/terminal/terminal-receipt.json",
+            "s3_uploaded": True,
+            "s3_bucket": identity["s3_bucket"],
+            "s3_prefix": identity["s3_prefix"],
+            "s3_region": identity["region"],
+        }
+    )
+    _json(witness_path, witness)
+    corrected_report = Fresh30HTerminalAuditor(evidence).audit()
+    corrected_check = _check(corrected_report, "terminal_witness")
+    assert corrected_check["status"] == PASS
+    assert corrected_check["details"]["s3_target_matches"] is True
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("s3_key", "market-data/temporary/wrong/terminal/terminal-receipt.json"),
+        ("s3_bucket", "other-bucket"),
+        ("s3_region", "us-east-1"),
+    ],
+)
+def test_terminal_witness_rejects_s3_target_mismatch(tmp_path: Path, field: str, value: str) -> None:
+    evidence = tmp_path / "bundle"
+    _make_bundle(evidence)
+    witness_path = evidence / "terminal/terminal-witness.json"
+    witness = json.loads(witness_path.read_text(encoding="utf-8"))
+    witness[field] = value
     _json(witness_path, witness)
 
     report = Fresh30HTerminalAuditor(evidence).audit()
