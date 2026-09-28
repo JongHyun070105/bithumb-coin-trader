@@ -104,6 +104,17 @@ class TransientLaunchTests(unittest.TestCase):
                     supervisor_hard_ceiling_seconds=2820,
                     systemd_runtime_max_seconds=2880,
                 )
+                )
+
+    def test_renderer_rejects_missing_collection_duration_before_ceiling_check(self) -> None:
+        with self.assertRaisesRegex(ValueError, "collection_duration_seconds is required"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="safe-run",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "runner.py"),
+                    collection_duration_seconds=None,
+                )
             )
 
     def test_renderer_requires_systemd_deadline_beyond_supervisor_ceiling(self) -> None:

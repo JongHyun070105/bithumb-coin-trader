@@ -157,6 +157,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         prefix = "bitcoin-trader-30h"
     else:
         # Legacy duration path:
+        if config.collection_duration_seconds is None:
+            raise ValueError("collection_duration_seconds is required")
         is_witness_smoke = (
             config.collection_duration_seconds == 120
             and config.run_id.startswith(WITNESS_SMOKE_RUN_PREFIX)
