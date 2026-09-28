@@ -269,8 +269,8 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     expect(screen.queryByRole('textbox', { name: /api|secret|key/i })).toBeNull()
   })
 
-  // 12. No network client introduced (Air-gap & Offline invariant)
-  it('enforces complete air-gap isolation with zero fetch, axios, WebSocket, or EventSource clients', () => {
+  // 12. The only browser request is explicit, read-only access to loopback PAPER metrics.
+  it('keeps optional PAPER observability loopback-only and blocks other network clients', () => {
     const srcDir = path.resolve(process.cwd(), 'src')
 
     function scanDir(dir: string): string[] {
@@ -289,6 +289,11 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
     }
 
     const files = scanDir(srcDir)
+    const tradingPath = path.join(srcDir, 'pages', 'Trading.tsx')
+    const tradingSource = fs.readFileSync(tradingPath, 'utf-8')
+    expect(tradingSource.match(/\bfetch\s*\(/g)).toHaveLength(1)
+    expect(tradingSource).toContain("const PAPER_RUNTIME_URL = 'http://127.0.0.1:8787/api/paper/runtime'")
+    expect(tradingSource).toContain("method: 'GET'")
     const forbiddenPatterns = [
       /\bfetch\s*\(/,
       /\baxios\b/,
@@ -307,7 +312,11 @@ describe('Dashboard v0.2 - Offline Evidence & Research Console (P21 Verification
       const lines = content.split('\n')
       lines.forEach((line: string, idx: number) => {
         for (const pattern of forbiddenPatterns) {
-          if (pattern.test(line)) {
+          const explicitLoopbackPaperRead =
+            filePath === tradingPath &&
+            pattern.source.includes('fetch') &&
+            line.includes('fetch(PAPER_RUNTIME_URL, {')
+          if (pattern.test(line) && !explicitLoopbackPaperRead) {
             violations.push({
               file: path.relative(srcDir, filePath),
               line: idx + 1,

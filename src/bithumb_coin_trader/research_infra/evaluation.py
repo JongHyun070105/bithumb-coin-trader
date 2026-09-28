@@ -30,6 +30,7 @@ class ChronologicalFold:
     test_start_ns: int
     test_end_ns: int
     embargo_ns: int  # Purge period between train and test
+    purge_ns: int = 0  # Maximum label horizon removed before the test window
 
     @property
     def train_duration_s(self) -> float:
@@ -120,27 +121,40 @@ def create_chronological_folds(
     n_folds: int = 5,
     embargo_s: float = 5.0,
     expanding: bool = True,
+    purge_s: float = 0.0,
 ) -> list[ChronologicalFold]:
-    """Create chronological train/test folds from sorted timestamps.
+    """Create chronological train/test folds with explicit leakage buffers.
 
     Args:
         timestamps_ns: Sorted sequence of event timestamps
         n_folds: Number of folds
-        embargo_s: Embargo period in seconds between train and test
+        embargo_s: Additional embargo period in seconds between train and test
         expanding: If True, use expanding window (train grows). If False, rolling.
+        purge_s: Maximum forward label horizon to remove before each test window.
 
     Returns:
         List of ChronologicalFold with proper embargo
     """
+    if n_folds < 1:
+        raise ValueError("n_folds must be positive")
+    if not math.isfinite(embargo_s) or embargo_s < 0:
+        raise ValueError("embargo_s must be finite and non-negative")
+    if not math.isfinite(purge_s) or purge_s < 0:
+        raise ValueError("purge_s must be finite and non-negative")
+    if any(current < previous for previous, current in zip(timestamps_ns, timestamps_ns[1:])):
+        raise ValueError("timestamps_ns must be sorted in non-decreasing order")
     if len(timestamps_ns) < n_folds * 2:
         return []
 
     total_start = timestamps_ns[0]
     total_end = timestamps_ns[-1]
     embargo_ns = int(embargo_s * 1_000_000_000)
+    purge_ns = int(purge_s * 1_000_000_000)
 
     # Divide into n_folds + 1 segments
     segment_size = (total_end - total_start) // (n_folds + 1)
+    if segment_size <= 0:
+        return []
 
     folds = []
     for i in range(n_folds):
@@ -150,21 +164,23 @@ def create_chronological_folds(
             train_start = total_start + (i) * segment_size
 
         train_end = total_start + (i + 1) * segment_size
-        test_start = train_end + embargo_ns
+        test_start = train_end + embargo_ns + purge_ns
         test_end = total_start + (i + 2) * segment_size
 
         # Ensure test doesn't exceed data range
         if test_end > total_end:
             test_end = total_end
 
-        folds.append(ChronologicalFold(
-            fold_id=i,
-            train_start_ns=train_start,
-            train_end_ns=train_end,
-            test_start_ns=test_start,
-            test_end_ns=test_end,
-            embargo_ns=embargo_ns,
-        ))
+        if train_start < train_end < test_start < test_end:
+            folds.append(ChronologicalFold(
+                fold_id=i,
+                train_start_ns=train_start,
+                train_end_ns=train_end,
+                test_start_ns=test_start,
+                test_end_ns=test_end,
+                embargo_ns=embargo_ns,
+                purge_ns=purge_ns,
+            ))
 
     return folds
 

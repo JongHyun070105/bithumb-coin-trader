@@ -28,6 +28,7 @@ Claims of 'immutable audit trail' in earlier documentation are OVERCLAIMS.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 import hashlib
 import json
@@ -115,6 +116,7 @@ class RiskAuditRecord:
     verdict: RiskVerdict
     reasons: tuple[str, ...]
     context_hash: str
+    reason_codes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -122,6 +124,7 @@ class RiskAuditRecord:
             "order_id": self.order_id,
             "verdict": self.verdict.value,
             "reasons": list(self.reasons),
+            "reason_codes": list(self.reason_codes),
             "context_hash": self.context_hash,
         }
 
@@ -136,11 +139,23 @@ class RiskEngineConfig:
     max_total_execution_cost_bps: float = 80.0
     max_data_age_ms: float = 5000.0
     max_daily_loss_fraction: float = 0.05
+    max_drawdown_fraction: float = 0.20
+    max_position_notional_krw: float = 20_000_000.0
     consecutive_rejection_limit: int = 3
     kill_switch_file: Path | str | None = None
 
     def __post_init__(self) -> None:
         """BUG-ADD: Reject obviously invalid config at construction time."""
+        numeric_fields = (
+            "max_order_notional_krw", "max_portfolio_exposure_fraction", "max_spread_bps",
+            "max_slippage_bps", "taker_fee_bps", "max_total_execution_cost_bps",
+            "max_data_age_ms", "max_daily_loss_fraction", "max_drawdown_fraction",
+            "max_position_notional_krw",
+        )
+        for field_name in numeric_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                raise ValueError(f"{field_name} must be a finite number")
         if self.max_order_notional_krw <= 0:
             raise ValueError(f"max_order_notional_krw must be > 0, got {self.max_order_notional_krw}")
         if not (0 < self.max_portfolio_exposure_fraction <= 1.0):
@@ -156,6 +171,14 @@ class RiskEngineConfig:
         if not (0 < self.max_daily_loss_fraction <= 1.0):
             raise ValueError(
                 f"max_daily_loss_fraction must be in (0, 1], got {self.max_daily_loss_fraction}"
+            )
+        if not (0 < self.max_drawdown_fraction <= 1.0):
+            raise ValueError(
+                f"max_drawdown_fraction must be in (0, 1], got {self.max_drawdown_fraction}"
+            )
+        if not math.isfinite(self.max_position_notional_krw) or self.max_position_notional_krw <= 0:
+            raise ValueError(
+                f"max_position_notional_krw must be finite and > 0, got {self.max_position_notional_krw}"
             )
         if self.consecutive_rejection_limit <= 0:
             raise ValueError(
@@ -180,6 +203,46 @@ class RiskEngine:
 
     def set_kill_switch(self, active: bool) -> None:
         self.kill_switch_active = active
+
+    def evaluate_runtime_health(
+        self,
+        *,
+        market_data_age_ms: float,
+        daily_loss_fraction: float,
+        drawdown_fraction: float,
+        journal_healthy: bool,
+        strategy_fresh: bool,
+    ) -> tuple[RiskVerdict, tuple[str, ...]]:
+        """Apply fail-closed runtime limits before accepting or filling orders."""
+        reasons: list[str] = []
+        if not journal_healthy:
+            reasons.append("JOURNAL_UNHEALTHY")
+        if not strategy_fresh:
+            reasons.append("STRATEGY_STALE")
+        if not math.isfinite(market_data_age_ms) or market_data_age_ms < 0:
+            reasons.append("INVALID_MARKET_DATA_AGE")
+        elif market_data_age_ms > self.config.max_data_age_ms:
+            reasons.append("MARKET_DATA_STALE")
+        if not math.isfinite(daily_loss_fraction) or not 0 <= daily_loss_fraction <= 1:
+            reasons.append("INVALID_DAILY_LOSS")
+        elif daily_loss_fraction >= self.config.max_daily_loss_fraction:
+            reasons.append("DAILY_LOSS_LIMIT")
+        if not math.isfinite(drawdown_fraction) or not 0 <= drawdown_fraction <= 1:
+            reasons.append("INVALID_DRAWDOWN")
+        elif drawdown_fraction >= self.config.max_drawdown_fraction:
+            reasons.append("MAX_DRAWDOWN")
+        if self.kill_switch_active:
+            reasons.append("KILL_SWITCH_ACTIVE")
+        if self.config.kill_switch_file and Path(self.config.kill_switch_file).exists():
+            reasons.append("KILL_SWITCH_FILE_ACTIVE")
+        if self.halted:
+            reasons.append(self.halt_reason or "SYSTEM_ALREADY_HALTED")
+        if reasons:
+            self.halted = True
+            if not self.halt_reason:
+                self.halt_reason = ";".join(reasons)
+            return RiskVerdict.HALT, tuple(dict.fromkeys(reasons))
+        return RiskVerdict.ALLOW, ()
 
     def reset_circuit_breaker(self) -> None:
         self.halted = False
@@ -237,6 +300,7 @@ class RiskEngine:
         daily_loss_fraction: float,
         orderbook: OrderBookSnapshot | CanonicalOrderBook | None,
         current_time_ms: int,
+        current_drawdown_fraction: float = 0.0,
     ) -> tuple[RiskVerdict, tuple[str, ...], RiskAuditRecord]:
         """Evaluates order preflight with fail-closed semantics."""
         reasons: list[str] = []
@@ -255,6 +319,7 @@ class RiskEngine:
             ("current_equity_krw", current_equity_krw),
             ("current_position_notional_krw", current_position_notional_krw),
             ("daily_loss_fraction", daily_loss_fraction),
+            ("current_drawdown_fraction", current_drawdown_fraction),
             ("current_time_ms", current_time_ms),
         ]:
             if val is None or not math.isfinite(val):
@@ -351,6 +416,24 @@ class RiskEngine:
                 current_position_notional_krw, RiskVerdict.HALT, reasons, current_time_ms
             )
 
+        if current_drawdown_fraction < 0 or current_drawdown_fraction > 1.0:
+            reasons.append(f"Invalid current_drawdown_fraction: {current_drawdown_fraction}")
+            return self._finalize_decision(
+                order_id, side, requested_notional_krw, current_equity_krw,
+                current_position_notional_krw, RiskVerdict.HALT, reasons, current_time_ms
+            )
+        if current_drawdown_fraction >= self.config.max_drawdown_fraction:
+            self.halted = True
+            self.halt_reason = (
+                f"Drawdown fraction {current_drawdown_fraction:.4f} >= "
+                f"limit {self.config.max_drawdown_fraction:.4f}"
+            )
+            reasons.append(self.halt_reason)
+            return self._finalize_decision(
+                order_id, side, requested_notional_krw, current_equity_krw,
+                current_position_notional_krw, RiskVerdict.HALT, reasons, current_time_ms
+            )
+
         # 5. Market data checks
         if orderbook is None:
             reasons.append("Orderbook snapshot is missing (None)")
@@ -366,13 +449,23 @@ class RiskEngine:
             best_ask = orderbook.best_ask
             spread_bps = (orderbook.spread / orderbook.mid_price * 10_000.0) if orderbook.mid_price > 0 else 99999.0
         else:
-            ob_ts_sec = float(orderbook.timestamp.timestamp()) if hasattr(orderbook.timestamp, "timestamp") else float(orderbook.timestamp)
+            if isinstance(orderbook.timestamp, datetime):
+                ob_ts_sec = orderbook.timestamp.timestamp()
+            else:
+                ob_ts_sec = float(orderbook.timestamp)
             ob_ts_ms = int(ob_ts_sec * 1000)
             best_bid = orderbook.best_bid
             best_ask = orderbook.best_ask
             spread_bps = orderbook.spread_bps
 
-                # Stale data check
+        if ob_ts_ms is None:
+            reasons.append("Market data has no receive timestamp")
+            return self._finalize_decision(
+                order_id, side, requested_notional_krw, current_equity_krw,
+                current_position_notional_krw, RiskVerdict.HALT, reasons, current_time_ms
+            )
+
+        # Stale data check
         age_ms = current_time_ms - ob_ts_ms
         if age_ms < -50:
             reasons.append(f"CLOCK_INVERSION: Market data is in the future: age {age_ms}ms")
@@ -438,6 +531,11 @@ class RiskEngine:
                     f"Future gross exposure {future_exposure:.4f} exceeds "
                     f"limit {self.config.max_portfolio_exposure_fraction:.4f}"
                 )
+            if future_position > self.config.max_position_notional_krw:
+                reasons.append(
+                    f"Future position notional {future_position:.2f} KRW exceeds "
+                    f"limit {self.config.max_position_notional_krw:.2f} KRW"
+                )
 
         verdict = RiskVerdict.ALLOW if not reasons else RiskVerdict.REJECT
         return self._finalize_decision(
@@ -478,6 +576,7 @@ class RiskEngine:
             verdict=verdict,
             reasons=tuple(reasons),
             context_hash=ctx_hash,
+            reason_codes=tuple(_reason_code(reason) for reason in reasons),
         )
         self.audit_log.append(audit)
         
@@ -487,3 +586,34 @@ class RiskEngine:
                 f.flush()
                 
         return verdict, tuple(reasons), audit
+
+
+def _reason_code(reason: str) -> str:
+    normalized = reason.casefold()
+    if "kill switch" in normalized:
+        return "KILL_SWITCH_ACTIVE"
+    if "daily loss" in normalized:
+        return "DAILY_LOSS_LIMIT"
+    if "drawdown" in normalized:
+        return "MAX_DRAWDOWN"
+    if "stale" in normalized:
+        return "MARKET_DATA_STALE"
+    if "spread" in normalized:
+        return "SPREAD_TOO_WIDE"
+    if "slippage" in normalized or "execution cost" in normalized:
+        return "EXECUTION_COST_LIMIT"
+    if "position notional" in normalized:
+        return "MAX_POSITION_NOTIONAL"
+    if "exposure" in normalized:
+        return "MAX_TOTAL_EXPOSURE"
+    if "order notional" in normalized:
+        return "MAX_ORDER_NOTIONAL"
+    if "consecutive" in normalized:
+        return "CONSECUTIVE_FAILURE_LIMIT"
+    if "insufficient_position" in normalized:
+        return "INSUFFICIENT_POSITION"
+    if "orderbook" in normalized or "book" in normalized:
+        return "INVALID_ORDERBOOK"
+    if "input" in normalized or "invalid" in normalized or "non-finite" in normalized:
+        return "INVALID_RISK_INPUT"
+    return "RISK_CHECK_FAILED"

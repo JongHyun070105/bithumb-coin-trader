@@ -10,14 +10,22 @@ Usage:
 from __future__ import annotations
 
 import json
+import os
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+import sqlite3
 from typing import Any
 
 from .project_state import resolve_project_state, write_project_status
 
 ROOT = Path(__file__).resolve().parents[2]
+_DASHBOARD_ORIGINS = frozenset({
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+})
 
 
 def _load_json(path: Path) -> Any | None:
@@ -279,6 +287,42 @@ def get_safety() -> dict[str, Any]:
     }
 
 
+def get_paper_runtime() -> dict[str, Any]:
+    """Read the latest PAPER event metrics from an explicitly configured journal."""
+    configured = os.environ.get("BITHUMB_PAPER_JOURNAL_PATH")
+    if not configured:
+        return {"status": "NOT_CONFIGURED", "metrics": None}
+    path = Path(configured).expanduser()
+    if path.is_symlink() or not path.is_file():
+        return {"status": "NOT_AVAILABLE", "metrics": None}
+    try:
+        uri = path.resolve().as_uri() + "?mode=ro"
+        with sqlite3.connect(uri, uri=True) as connection:
+            row = connection.execute(
+                "SELECT event_id, timestamp_ms, result_json "
+                "FROM paper_runtime_events ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+    except (OSError, sqlite3.Error, ValueError):
+        return {"status": "UNAVAILABLE", "metrics": None}
+    if row is None:
+        return {"status": "EMPTY", "metrics": None}
+    try:
+        result = json.loads(row[2])
+    except (ValueError, TypeError):
+        return {"status": "CORRUPT", "metrics": None}
+    metrics = result.get("metrics") if isinstance(result, dict) else None
+    if not isinstance(metrics, dict):
+        return {"status": "CORRUPT", "metrics": None}
+    return {
+        "status": "AVAILABLE",
+        "journal_name": path.name,
+        "event_id": row[0],
+        "timestamp_ms": row[1],
+        "metrics_integrity": "NOT_VERIFIED",
+        "metrics": metrics,
+    }
+
+
 class DashboardHandler(BaseHTTPRequestHandler):
     """Read-only HTTP handler for dashboard API."""
 
@@ -297,6 +341,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
             "/api/evidence": get_evidence,
             "/api/storage": get_storage,
             "/api/safety": get_safety,
+            "/api/paper/runtime": get_paper_runtime,
             # Backwards compatibility
             "/api/v2/research": get_v2_research,
             "/api/v2/summary": get_v2_summary,
@@ -307,7 +352,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
             data = handler()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
+            origin = self.headers.get("Origin")
+            if origin in _DASHBOARD_ORIGINS:
+                self.send_header("Access-Control-Allow-Origin", origin)
+                self.send_header("Vary", "Origin")
             self.end_headers()
             self.wfile.write(json.dumps(data, indent=2, default=str).encode())
         else:
@@ -331,6 +379,7 @@ def main():
     print("  /api/research/v2, /api/research/v4, /api/research/state")
     print("  /api/research/maker, /api/research/cross-exchange, /api/research/trials/summary")
     print("  /api/evidence, /api/storage, /api/safety")
+    print("  /api/paper/runtime (set BITHUMB_PAPER_JOURNAL_PATH to a local PAPER journal)")
     print("Press Ctrl+C to stop")
     try:
         server.serve_forever()
