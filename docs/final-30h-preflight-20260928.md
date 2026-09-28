@@ -547,8 +547,9 @@ separate exact-identity GO is supplied.
 ## Delivery state and actions required
 
 ```text
-COMMITS = 6220b75, 4660e77 (on top of b4d4823)
-PRS = #23 OPEN/DRAFT, pending final report push/status refresh
+RUNTIME_AND_PREFLIGHT_COMMITS = 6220b75, 4660e77 (on top of b4d4823)
+REPORT_INTRODUCTION_COMMIT = acc62a1
+PRS = #23 OPEN/DRAFT; report pushed, no merge performed
 LOCAL_BRANCH = codex/final-30h-preflight-20260928
 IAM_ACTION_REQUIRED = NO
 OPERATIONAL_ACTION_REQUIRED = obtain at least 4.86 GiB additional measured
@@ -607,7 +608,8 @@ RESIDUAL_RISKS =
 
 IAM_ACTION_REQUIRED = NO for the existing architecture
 OPERATIONAL_ACTION_REQUIRED = secure >=4.86 GiB additional free-space margin and remeasure
-COMMITS = 6220b75, 4660e77
-PRS = #23 OPEN/DRAFT; refresh after push
+RUNTIME_AND_PREFLIGHT_COMMITS = 6220b75, 4660e77
+REPORT_INTRODUCTION_COMMIT = acc62a1
+PRS = #23 OPEN/DRAFT; report pushed, no merge performed
 USER_ACTION_REQUIRED = capacity-action authorization, then separate exact-identity GO before 30H
 ============================================================
