@@ -19,7 +19,11 @@ from datetime import datetime, timezone
 from enum import Enum
 import json
 from pathlib import Path
+import re
 from typing import Any, Mapping, Sequence
+
+
+_SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class DatasetRole(str, Enum):
@@ -60,6 +64,7 @@ class DatasetRegistration:
     collector_epoch: str | None = None
     provenance_confidence: str = "PROVEN"  # PROVEN, PARTIALLY_PROVEN, AMBIGUOUS, UNATTRIBUTED
     registered_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    build_manifest_sha256: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -91,6 +96,7 @@ class DatasetRegistration:
             collector_epoch=d.get("collector_epoch"),
             provenance_confidence=d.get("provenance_confidence", "PROVEN"),
             registered_at=d.get("registered_at", ""),
+            build_manifest_sha256=d.get("build_manifest_sha256"),
         )
 
 
@@ -104,6 +110,19 @@ class DatasetRegistry:
         if dataset.dataset_id in self._datasets:
             raise DatasetValidationError(
                 f"Dataset '{dataset.dataset_id}' already registered"
+            )
+        if dataset.build_manifest_sha256 is not None and not _SHA256_RE.fullmatch(
+            dataset.build_manifest_sha256
+        ):
+            raise DatasetValidationError("build_manifest_sha256 must be a lowercase SHA-256 digest")
+        requires_build_manifest = (
+            dataset.dataset_role in {DatasetRole.PROSPECTIVE_RESEARCH, DatasetRole.FROZEN_HOLDOUT}
+            or dataset.allowed_for_candidate_selection
+            or dataset.allowed_for_final_holdout
+        )
+        if requires_build_manifest and dataset.build_manifest_sha256 is None:
+            raise DatasetValidationError(
+                "Candidate, holdout, and qualified datasets require a build manifest SHA-256 binding"
             )
         self._datasets[dataset.dataset_id] = dataset
 
@@ -144,8 +163,25 @@ class DatasetRegistry:
             )
         return ds
 
-    def update_role(self, dataset_id: str, new_role: DatasetRole) -> None:
+    def update_role(
+        self,
+        dataset_id: str,
+        new_role: DatasetRole,
+        *,
+        build_manifest_sha256: str | None = None,
+    ) -> None:
         ds = self.get(dataset_id)
+        manifest_sha256 = (
+            build_manifest_sha256
+            if build_manifest_sha256 is not None
+            else ds.build_manifest_sha256
+        )
+        if manifest_sha256 is not None and not _SHA256_RE.fullmatch(manifest_sha256):
+            raise DatasetValidationError("build_manifest_sha256 must be a lowercase SHA-256 digest")
+        if new_role in {DatasetRole.PROSPECTIVE_RESEARCH, DatasetRole.FROZEN_HOLDOUT} and manifest_sha256 is None:
+            raise DatasetValidationError(
+                "Promoting a dataset to prospective or holdout use requires a build manifest SHA-256 binding"
+            )
         updated = DatasetRegistration(
             dataset_id=ds.dataset_id,
             dataset_role=new_role,
@@ -167,7 +203,9 @@ class DatasetRegistry:
             notes=ds.notes,
             source_run_id=ds.source_run_id,
             collector_epoch=ds.collector_epoch,
+            provenance_confidence=ds.provenance_confidence,
             registered_at=ds.registered_at,
+            build_manifest_sha256=manifest_sha256,
         )
         self._datasets[dataset_id] = updated
 

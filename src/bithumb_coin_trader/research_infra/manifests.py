@@ -17,8 +17,10 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
+import tempfile
 from typing import Any, Mapping
 import uuid
 
@@ -105,11 +107,50 @@ class ResearchManifest:
         canonical = json.dumps(d, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
-    def save(self, path: Path) -> None:
+    def compute_experiment_id(self) -> str:
+        """Return an input-derived ID, independent of run time and results."""
+        inputs = self.to_dict()
+        for output_field in (
+            "research_run_id",
+            "timestamp",
+            "result_artifact_paths",
+            "metrics",
+            "scientific_classification",
+        ):
+            inputs.pop(output_field, None)
+        canonical = json.dumps(inputs, sort_keys=True, separators=(",", ":"))
+        return "exp-" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def save(self, path: Path, *, overwrite: bool = False) -> None:
+        """Atomically save without replacing existing evidence by default."""
         path.parent.mkdir(parents=True, exist_ok=True)
         d = self.to_dict()
+        d["experiment_id"] = self.compute_experiment_id()
         d["fingerprint"] = self.compute_fingerprint()
-        path.write_text(json.dumps(d, indent=2, sort_keys=True))
+        fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        tmp_path = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump(d, handle, indent=2, sort_keys=True)
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            if overwrite:
+                os.replace(tmp_path, path)
+            else:
+                os.link(tmp_path, path)
+                tmp_path.unlink()
+            dir_fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            raise
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> ResearchManifest:
@@ -144,7 +185,21 @@ class ResearchManifest:
 
     @classmethod
     def load(cls, path: Path) -> ResearchManifest:
-        return cls.from_dict(json.loads(path.read_text()))
+        d = json.loads(path.read_text(encoding="utf-8"))
+        recorded_fingerprint = d.pop("fingerprint", None)
+        recorded_experiment_id = d.pop("experiment_id", None)
+        manifest = cls.from_dict(d)
+        if (
+            recorded_fingerprint is not None
+            and recorded_fingerprint != manifest.compute_fingerprint()
+        ):
+            raise ValueError(f"Research manifest fingerprint mismatch: {path}")
+        if (
+            recorded_experiment_id is not None
+            and recorded_experiment_id != manifest.compute_experiment_id()
+        ):
+            raise ValueError(f"Research manifest experiment ID mismatch: {path}")
+        return manifest
 
 
 def create_manifest(

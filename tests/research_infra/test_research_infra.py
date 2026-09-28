@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import math
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
@@ -188,6 +189,50 @@ class TestDatasetRegistry(unittest.TestCase):
         reg.register(ds)
         with self.assertRaises(DatasetValidationError):
             reg.register(ds)
+
+    def test_candidate_selection_requires_dataset_build_manifest_binding(self) -> None:
+        def candidate(manifest_sha256: str | None = None) -> DatasetRegistration:
+            return DatasetRegistration(
+                dataset_id="qualified_candidate",
+                dataset_role=DatasetRole.PROSPECTIVE_RESEARCH,
+                description="Future qualified dataset",
+                source_type="jsonl_raw",
+                source_roots=("s3://example/raw",),
+                time_range_start="2026-09-01T00:00:00Z",
+                time_range_end="2026-09-02T00:00:00Z",
+                exchange_universe=("bithumb",),
+                feed_universe=("trade", "orderbook"),
+                raw_schema_version="v1",
+                manifest_schema_version="1",
+                known_integrity_status="PASS",
+                known_data_quality_issues=(),
+                allowed_for_exploration=True,
+                allowed_for_candidate_selection=True,
+                allowed_for_final_holdout=False,
+                immutable_source=True,
+                build_manifest_sha256=manifest_sha256,
+            )
+
+        with self.assertRaisesRegex(DatasetValidationError, "build manifest"):
+            DatasetRegistry().register(candidate())
+
+        registry = DatasetRegistry()
+        registry.register(candidate("a" * 64))
+        self.assertTrue(registry.require_candidate_selection_allowed("qualified_candidate"))
+
+    def test_role_update_preserves_provenance_confidence(self) -> None:
+        registry = DatasetRegistry()
+        register_default_datasets(registry)
+        uncertain = replace(
+            registry.get("old72h"),
+            dataset_id="uncertain_source",
+            provenance_confidence="AMBIGUOUS",
+        )
+        registry.register(uncertain)
+
+        registry.update_role("uncertain_source", DatasetRole.INFRA_VALIDATION_ONLY)
+
+        self.assertEqual(registry.get("uncertain_source").provenance_confidence, "AMBIGUOUS")
 
     def test_v4_quarantined_blocks_exploration(self) -> None:
         reg = DatasetRegistry()
@@ -669,16 +714,75 @@ class TestManifestReproducibility(unittest.TestCase):
             metrics={"ic": 0.05},
             scientific_classification="EXPLORATORY_POSITIVE",
         )
-        with tempfile.NamedTemporaryFile(suffix=".json", mode="w", delete=False) as f:
-            path = Path(f.name)
-        try:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "manifest.json"
             m.save(path)
             loaded = ResearchManifest.load(path)
             self.assertEqual(loaded.hypothesis_id, "H1")
             self.assertEqual(loaded.scientific_classification, "EXPLORATORY_POSITIVE")
             self.assertEqual(loaded.compute_fingerprint(), m.compute_fingerprint())
-        finally:
-            path.unlink()
+            self.assertEqual(loaded.compute_experiment_id(), m.compute_experiment_id())
+
+    def test_experiment_id_binds_inputs_but_ignores_run_metadata_and_results(self) -> None:
+        manifest = create_manifest(
+            hypothesis_id="H1",
+            hypothesis_description="Test",
+            dataset_ids=["test"],
+            dataset_roles=["DEVELOPMENT_EXPLORATORY"],
+            feature_config={"feature_names": ["mid_price"]},
+            label_config={"target_horizon_s": 5},
+            execution_assumptions={"fee_rate": 0.0},
+            metrics={"ic": 0.05},
+            scientific_classification="EXPLORATORY_POSITIVE",
+            model_parameters={"window": 20},
+            source_fingerprints={"test": "a" * 64},
+            random_seed=42,
+        )
+        same_experiment = replace(
+            manifest,
+            research_run_id="another-run",
+            timestamp="2026-09-28T00:00:00+00:00",
+            result_artifact_paths={"metrics": "other.json"},
+            metrics={"ic": -0.2},
+            scientific_classification="FRAGILE",
+        )
+        changed_input = replace(manifest, model_parameters={"window": 21})
+
+        self.assertEqual(manifest.compute_experiment_id(), same_experiment.compute_experiment_id())
+        self.assertNotEqual(manifest.compute_experiment_id(), changed_input.compute_experiment_id())
+
+    def test_manifest_save_is_no_clobber_and_load_rejects_tampering(self) -> None:
+        manifest = create_manifest(
+            hypothesis_id="H1",
+            hypothesis_description="Test",
+            dataset_ids=["test"],
+            dataset_roles=["DEVELOPMENT_EXPLORATORY"],
+            feature_config={"feature_names": ["mid_price"]},
+            label_config={"target_horizon_s": 5},
+            execution_assumptions={"fee_rate": 0.0},
+            metrics={"ic": 0.05},
+            scientific_classification="EXPLORATORY_POSITIVE",
+        )
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "manifest.json"
+            manifest.save(path)
+            original = path.read_bytes()
+            with self.assertRaises(FileExistsError):
+                manifest.save(path)
+            self.assertEqual(path.read_bytes(), original)
+
+            serialized = json.loads(original)
+            serialized["metrics"]["ic"] = -0.5
+            path.write_text(json.dumps(serialized))
+            with self.assertRaisesRegex(ValueError, "fingerprint mismatch"):
+                ResearchManifest.load(path)
+
+            manifest.save(path, overwrite=True)
+            serialized = json.loads(path.read_text())
+            serialized["experiment_id"] = "exp-" + "0" * 64
+            path.write_text(json.dumps(serialized))
+            with self.assertRaisesRegex(ValueError, "experiment ID mismatch"):
+                ResearchManifest.load(path)
 
 
 class TestCandidateFreeze(unittest.TestCase):
@@ -933,10 +1037,31 @@ class TestV4QuarantineGate(unittest.TestCase):
         """After infrastructure PASS, V4 can be promoted."""
         reg = DatasetRegistry()
         register_default_datasets(reg)
-        # Simulate promotion
-        reg.update_role("v4", DatasetRole.PROSPECTIVE_RESEARCH)
+        # Promotion requires a future immutable build-manifest binding.
+        reg.update_role(
+            "v4",
+            DatasetRole.PROSPECTIVE_RESEARCH,
+            build_manifest_sha256="a" * 64,
+        )
         v4 = reg.get("v4")
         self.assertEqual(v4.dataset_role, DatasetRole.PROSPECTIVE_RESEARCH)
+        self.assertEqual(v4.build_manifest_sha256, "a" * 64)
+
+    def test_v4_promotion_without_build_manifest_is_blocked(self) -> None:
+        reg = DatasetRegistry()
+        register_default_datasets(reg)
+        with self.assertRaisesRegex(DatasetValidationError, "build manifest"):
+            reg.update_role("v4", DatasetRole.PROSPECTIVE_RESEARCH)
+
+    def test_role_update_rejects_explicit_empty_build_manifest_binding(self) -> None:
+        reg = DatasetRegistry()
+        register_default_datasets(reg)
+        with self.assertRaisesRegex(DatasetValidationError, "SHA-256"):
+            reg.update_role(
+                "v4",
+                DatasetRole.PROSPECTIVE_RESEARCH,
+                build_manifest_sha256="",
+            )
 
 
 class TestCorrectionRegression(unittest.TestCase):
