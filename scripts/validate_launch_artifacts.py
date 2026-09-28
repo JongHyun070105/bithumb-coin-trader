@@ -67,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
         runtime_worktree=Path(identity.get("runtime_worktree", "/var/lib/bitcoin-trader/runtime-worktrees/aws-observability-90m-20260917")),
         python_bin=Path(identity.get("python", "/var/lib/bitcoin-trader/venv-pre-soak/bin/python")),
         s3_bucket=identity.get("s3_bucket", "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433"),
+        region=identity.get("region", identity.get("s3_region", "ap-northeast-2")),
     )
 
     try:

@@ -434,6 +434,7 @@ def test_historical_malformed_witness_is_rejected_and_corrected_contract_passes(
 @pytest.mark.parametrize(
     ("field", "value"),
     [
+        ("run_id", "other-run"),
         ("s3_key", "market-data/temporary/wrong/terminal/terminal-receipt.json"),
         ("s3_bucket", "other-bucket"),
         ("s3_region", "us-east-1"),

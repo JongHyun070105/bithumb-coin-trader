@@ -32,6 +32,8 @@ from bithumb_coin_trader.launch_artifacts import (
     validate_launch_artifacts,
     validate_template_placeholders,
 )
+from scripts.generate_launch_artifacts import main as generate_launch_artifacts_main
+from scripts.validate_launch_artifacts import main as validate_launch_artifacts_main
 
 
 class TestLaunchArtifactRegressions(unittest.TestCase):
@@ -400,6 +402,58 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                 duration_seconds=120,
                 runtime_commit=self.commit,
             )
+
+    def test_launch_artifact_cli_generates_and_validates_sealed_120_second_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sealed"
+            args = [
+                "--epoch", "aws-validation-witness-e2e-smoke-20260928T000000Z-cli",
+                "--run-id", "aws-validation-witness-e2e-smoke-run-20260928T000000Z-cli",
+                "--duration", "120",
+                "--runtime-commit", self.commit,
+                "--target-dir", str(target),
+            ]
+            self.assertEqual(generate_launch_artifacts_main(args), 0)
+            self.assertEqual(validate_launch_artifacts_main(["--artifacts-dir", str(target)]), 0)
+
+    def test_sealed_artifact_generation_is_deterministic_except_seal_timestamps(self) -> None:
+        spec = ValidationRunSpec(
+            epoch="aws-validation-observability-30h-20260928T000000Z-fixture",
+            run_id="aws-validation-observability-30h-run-20260928T000000Z-fixture",
+            duration_seconds=108000,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            first_dir = Path(first)
+            second_dir = Path(second)
+            generate_launch_artifacts(spec, target_dir=first_dir)
+            generate_launch_artifacts(spec, target_dir=second_dir)
+
+            artifact_names = (
+                f"{spec.epoch}.runtime.json",
+                "launch-command.json",
+                "launch-ec2.sh",
+                "launch.sh",
+            )
+            for name in artifact_names:
+                with self.subTest(artifact=name):
+                    self.assertEqual((first_dir / name).read_bytes(), (second_dir / name).read_bytes())
+
+            identity_a = json.loads((first_dir / "identity.json").read_text(encoding="utf-8"))
+            identity_b = json.loads((second_dir / "identity.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(identity_a["sealed_at_utc"], identity_b["sealed_at_utc"])
+            identity_a.pop("sealed_at_utc")
+            identity_b.pop("sealed_at_utc")
+            self.assertEqual(identity_a, identity_b)
+
+            manifest_a = json.loads((first_dir / "sealed-manifest.json").read_text(encoding="utf-8"))
+            manifest_b = json.loads((second_dir / "sealed-manifest.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(manifest_a["sealed_at_utc"], manifest_b["sealed_at_utc"])
+            manifest_a.pop("sealed_at_utc")
+            manifest_b.pop("sealed_at_utc")
+            manifest_a.pop("identity_sha256")
+            manifest_b.pop("identity_sha256")
+            self.assertEqual(manifest_a, manifest_b)
 
     def test_validator_rejects_mismatched_observer_data_dir(self) -> None:
         """Validator rejects launch_command if observer --data-dir does not match epoch root."""
