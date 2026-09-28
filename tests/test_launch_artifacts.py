@@ -343,6 +343,36 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             )
             self.assertEqual(res["status"], "PASS")
 
+    def test_terminal_witness_launch_binding_uses_exact_run_identity_and_s3_prefix(self) -> None:
+        spec = ValidationRunSpec(
+            epoch="aws-validation-observability-30h-20260926-20260926T135000Z-v3",
+            run_id="aws-validation-observability-30h-run-20260926T135000Z-v3",
+            duration_seconds=108000,
+            runtime_commit=self.commit,
+            s3_bucket="receipt-bucket",
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            artifacts = generate_launch_artifacts(spec, target_dir=Path(tmp))
+            expected_prefix = artifacts.resolved_paths["temporary_prefix"]
+            self.assertEqual(
+                artifacts.launch_command["terminal_witness"],
+                {
+                    "script": f"{spec.runtime_worktree}/scripts/terminal_witness.py",
+                    "epoch": spec.epoch,
+                    "run_id": spec.run_id,
+                    "s3_bucket": spec.s3_bucket,
+                    "s3_prefix": expected_prefix,
+                    "allow_s3_write": True,
+                },
+            )
+
+            for launch_script in (artifacts.launch_sh, artifacts.launch_ec2_sh):
+                with self.subTest(script="launch-ec2.sh" if launch_script == artifacts.launch_ec2_sh else "launch.sh"):
+                    self.assertIn(f'--exec-stop-post-epoch "{spec.epoch}"', launch_script)
+                    self.assertIn(f'--exec-stop-post-s3-bucket "{spec.s3_bucket}"', launch_script)
+                    self.assertIn(f'--exec-stop-post-s3-prefix "{expected_prefix}"', launch_script)
+                    self.assertIn("--exec-stop-post-allow-s3-write", launch_script)
+
     def test_validator_rejects_mismatched_observer_data_dir(self) -> None:
         """Validator rejects launch_command if observer --data-dir does not match epoch root."""
         spec = ValidationRunSpec(

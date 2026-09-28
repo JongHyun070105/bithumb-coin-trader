@@ -129,6 +129,10 @@ class TransientLaunchConfig:
     maximum_collection_window_seconds: int | None = None
     exec_stop_post_script: str | None = None
     data_dir: Path | None = None
+    exec_stop_post_epoch: str | None = None
+    exec_stop_post_s3_bucket: str | None = None
+    exec_stop_post_s3_prefix: str | None = None
+    exec_stop_post_allow_s3_write: bool = False
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
@@ -168,6 +172,13 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             prefix = "bitcoin-trader-short-smoke"
     if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
         raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
+    if config.exec_stop_post_script is not None:
+        if not config.exec_stop_post_epoch:
+            raise ValueError("ExecStopPost requires an exact epoch")
+        if config.exec_stop_post_allow_s3_write and not (
+            config.exec_stop_post_s3_bucket and config.exec_stop_post_s3_prefix
+        ):
+            raise ValueError("ExecStopPost S3 upload requires a bucket and prefix")
     unit_name = f"{prefix}-{config.run_id}.service"
     cmd = [
         "systemd-run",
@@ -190,9 +201,15 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         cmd.append(
             f"--property=ExecStopPost={config.exec_stop_post_script}"
             f" --data-dir={effective_data_dir}"
-            f" --epoch={prefix}"
+            f" --epoch={config.exec_stop_post_epoch}"
             f" --run-id={config.run_id}"
         )
+        if config.exec_stop_post_s3_bucket is not None:
+            cmd[-1] += f" --s3-bucket={config.exec_stop_post_s3_bucket}"
+        if config.exec_stop_post_s3_prefix is not None:
+            cmd[-1] += f" --s3-prefix={config.exec_stop_post_s3_prefix}"
+        if config.exec_stop_post_allow_s3_write:
+            cmd[-1] += " --allow-s3-write"
     cmd.extend(["--", *config.supervisor_command])
     return cmd
 
