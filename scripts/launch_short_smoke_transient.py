@@ -85,6 +85,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--exec-stop-post-epoch", type=str, default=None)
     parser.add_argument("--exec-stop-post-s3-bucket", type=str, default=None)
     parser.add_argument("--exec-stop-post-s3-prefix", type=str, default=None)
+    parser.add_argument("--exec-stop-post-s3-region", type=str, default=None)
     parser.add_argument("--exec-stop-post-allow-s3-write", action="store_true")
     parser.add_argument("--launch", action="store_true")
 
@@ -131,6 +132,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exec_stop_post_epoch=args.exec_stop_post_epoch,
             exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
     else:
@@ -152,6 +154,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exec_stop_post_epoch=args.exec_stop_post_epoch,
             exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
 

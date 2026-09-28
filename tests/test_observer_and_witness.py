@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 # Ensure imports succeed
 ROOT = Path(__file__).resolve().parents[1]
@@ -48,6 +48,7 @@ from bithumb_coin_trader.runtime_observer import (
 )
 from terminal_witness import (  # pyright: ignore[reportMissingImports]
     classify_terminal_outcome,
+    main as terminal_witness_main,
     record_terminal_receipt,
 )
 
@@ -409,11 +410,14 @@ class TerminalWitnessTests(unittest.TestCase):
         mock_s3 = MockS3Client()
         receipt = record_terminal_receipt(
             data_dir=self.data_dir,
+            epoch="ep_term",
+            run_id="run_term",
             service_result="exit-code",
             exit_code="exited",
             exit_status="2",
             s3_bucket="receipt-bucket",
             s3_prefix="witness/run_term",
+            s3_region="ap-northeast-2",
             allow_s3_write=True,
             s3_client=mock_s3,
         )
@@ -424,6 +428,8 @@ class TerminalWitnessTests(unittest.TestCase):
         self.assertEqual(receipt["exit_status"], "2")
         self.assertEqual(receipt["terminal_classification"], "PROCESS_EXIT_ERROR_2")
         self.assertTrue(receipt["s3_uploaded"])
+        self.assertEqual(receipt["s3_bucket"], "receipt-bucket")
+        self.assertEqual(receipt["s3_region"], "ap-northeast-2")
         self.assertIsNotNone(receipt["last_known_health"])
         self.assertIsNotNone(receipt["last_observer_health"])
 
@@ -436,9 +442,59 @@ class TerminalWitnessTests(unittest.TestCase):
         # Check S3 upload
         s3_key = "witness/run_term/terminal/terminal-receipt.json"
         self.assertIn(("receipt-bucket", s3_key), mock_s3.objects)
+        self.assertEqual(
+            mock_s3.objects[("receipt-bucket", s3_key)],
+            local_receipt.read_bytes(),
+            "successful remote and local stable witness bytes must match exactly",
+        )
 
-    def test_terminal_witness_cli_invocation(self) -> None:
-        """Verify terminal_witness.py runs as a subprocess script via CLI."""
+    def test_terminal_witness_s3_failure_is_recorded_and_not_reported_as_uploaded(self) -> None:
+        mock_s3 = MockS3Client(fail_on_put=True)
+        receipt = record_terminal_receipt(
+            data_dir=self.data_dir,
+            epoch="ep_failure",
+            run_id="run_failure",
+            service_result="success",
+            exit_code="exited",
+            exit_status="0",
+            s3_bucket="receipt-bucket",
+            s3_prefix="witness/run_failure",
+            s3_region="ap-northeast-2",
+            allow_s3_write=True,
+            s3_client=mock_s3,
+        )
+        self.assertFalse(receipt["s3_uploaded"])
+        self.assertIsNone(receipt["s3_key"])
+        local_receipt = self.data_dir / "terminal" / "terminal-receipt.json"
+        self.assertEqual(json.loads(local_receipt.read_text())["s3_uploaded"], False)
+        self.assertEqual(mock_s3.objects, {})
+
+    def test_terminal_witness_cli_uses_exact_region_and_returns_failure_on_upload_error(self) -> None:
+        failing_s3 = MockS3Client(fail_on_put=True)
+        boto3_mock = MagicMock()
+        boto3_mock.client.return_value = failing_s3
+        args = [
+            f"--data-dir={self.data_dir}",
+            "--epoch=aws-validation-witness-e2e-smoke-20260928T043700Z-v1",
+            "--run-id=aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1",
+            "--service-result=success",
+            "--exit-code=exited",
+            "--exit-status=0",
+            "--s3-bucket=receipt-bucket",
+            "--s3-prefix=market-data/temporary/aws-validation-witness-e2e-smoke-20260928T043700Z-v1",
+            "--s3-region=ap-northeast-2",
+            "--allow-s3-write",
+        ]
+        with patch.dict("sys.modules", {"boto3": boto3_mock}):
+            result = terminal_witness_main(args)
+        self.assertEqual(result, 1)
+        boto3_mock.client.assert_called_once_with("s3", region_name="ap-northeast-2")
+        failed_receipt = json.loads((self.data_dir / "terminal" / "terminal-receipt.json").read_text())
+        self.assertFalse(failed_receipt["s3_uploaded"])
+        self.assertIsNone(failed_receipt["s3_key"])
+
+    def test_terminal_witness_cli_rejects_missing_s3_upload_contract(self) -> None:
+        """The production ExecStopPost CLI must fail before writing an unbound receipt."""
         env = dict(os.environ)
         env["SERVICE_RESULT"] = "signal"
         env["EXIT_CODE"] = "killed"
@@ -457,15 +513,11 @@ class TerminalWitnessTests(unittest.TestCase):
             text=True,
             env=env,
         )
-        self.assertEqual(res.returncode, 0, f"Script failed with output:\n{res.stdout}\n{res.stderr}")
+        self.assertEqual(res.returncode, 2)
+        self.assertIn("exact S3 bucket, prefix, region", res.stderr)
 
         receipt_file = self.data_dir / "terminal" / "terminal-receipt.json"
-        self.assertTrue(receipt_file.exists())
-        data = json.loads(receipt_file.read_text(encoding="utf-8"))
-        self.assertEqual(data["epoch"], "cli_epoch")
-        self.assertEqual(data["service_result"], "signal")
-        self.assertEqual(data["exit_status"], "15")
-        self.assertEqual(data["terminal_classification"], "SIGNAL_TERMINATED_15")
+        self.assertFalse(receipt_file.exists())
 
 
 class ObserverIntegrationAndEdgeCaseTests(unittest.TestCase):

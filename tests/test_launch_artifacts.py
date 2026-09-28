@@ -362,6 +362,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     "run_id": spec.run_id,
                     "s3_bucket": spec.s3_bucket,
                     "s3_prefix": expected_prefix,
+                    "s3_region": spec.region,
                     "allow_s3_write": True,
                 },
             )
@@ -371,7 +372,34 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     self.assertIn(f'--exec-stop-post-epoch "{spec.epoch}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-bucket "{spec.s3_bucket}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-prefix "{expected_prefix}"', launch_script)
+                    self.assertIn(f'--exec-stop-post-s3-region "{spec.region}"', launch_script)
                     self.assertIn("--exec-stop-post-allow-s3-write", launch_script)
+                    self.assertLess(launch_script.index('"$@"'), launch_script.index(f'--run-id "{spec.run_id}"'))
+
+    def test_witness_smoke_artifacts_bind_exact_identity_and_allow_only_120_seconds(self) -> None:
+        spec = ValidationRunSpec(
+            epoch="aws-validation-witness-e2e-smoke-20260928T043700Z-v1",
+            run_id="aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1",
+            duration_seconds=120,
+            runtime_commit=self.commit,
+        )
+        artifacts = generate_launch_artifacts(spec)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["epoch"], spec.epoch)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["run_id"], spec.run_id)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["s3_region"], spec.region)
+        self.assertEqual(artifacts.launch_command["collection_duration_seconds"], 120)
+        invalid = dict(artifacts.launch_command)
+        invalid["terminal_witness"] = dict(artifacts.launch_command["terminal_witness"])
+        invalid["terminal_witness"]["run_id"] = "other-run"
+        with self.assertRaisesRegex(ValueError, "terminal witness binding"):
+            validate_launch_artifacts(spec, artifacts.runtime_config, invalid)
+        with self.assertRaisesRegex(ValueError, "120-second duration is reserved"):
+            ValidationRunSpec(
+                epoch="ordinary-epoch",
+                run_id="ordinary-run",
+                duration_seconds=120,
+                runtime_commit=self.commit,
+            )
 
     def test_validator_rejects_mismatched_observer_data_dir(self) -> None:
         """Validator rejects launch_command if observer --data-dir does not match epoch root."""
