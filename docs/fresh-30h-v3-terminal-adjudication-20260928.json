@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "record_type": "fresh_30h_v3_terminal_adjudication",
+  "adjudicated_at_utc": "2026-09-28",
+  "overall_status": "FAIL",
+  "reliability_phase": "OPEN_FAIL_CLOSED",
+  "run": {
+    "run_id": "aws-validation-observability-30h-run-20260926T135000Z-v3",
+    "epoch": "aws-validation-observability-30h-20260926-20260926T135000Z-v3",
+    "runtime_commit": "22e06b9527798567e185fb0dd41dca3a448f444e",
+    "runtime_tree": "a44c9591045f3634cda1066d582927f277b79e2d",
+    "actual_start_utc": "2026-09-26T13:50:02.235147Z",
+    "actual_end_utc": "2026-09-27T19:50:19.307611Z",
+    "duration_seconds": 108017.072,
+    "required_duration_seconds": 108000,
+    "qualifying_cohorts_expected": 29,
+    "qualifying_cohorts_passed": 29,
+    "coverage_slots_expected": 2204,
+    "coverage_slots_passed": 2204,
+    "coverage_slots_failed": 0,
+    "coverage_slots_missing": 0,
+    "verified_zero_event_slots": ["MANA slot 1", "MANA slot 2"],
+    "process_exits": {
+      "collector": 0,
+      "archive_scheduler": 0,
+      "publisher": 0,
+      "finalization": "COMPLETE"
+    },
+    "n_restarts": 0,
+    "queue_final": 0,
+    "unpersisted_final": 0,
+    "writer_errors": 0
+  },
+  "auditor": {
+    "revision": "bfe16630e11ab5c425c34ad44e3cb93bd3b31099",
+    "tree": "20b4e501025db50d3c73c6433e2fceff3feecc32",
+    "script": "scripts/audit_fresh_30h_v3_terminal.py",
+    "script_sha256": "21440547adff372c3782f69566a5e3d40c991696291b9aa2b48d2f7db4ce649b",
+    "playbook_revision": "7bef84c216289975f2c97dbd2bbe561af7d90cf8",
+    "full_offline_bundle_cli_run": "NOT_RUN_INCOMPLETE_BUNDLE",
+    "witness_predicate_result": "FAIL",
+    "aggregate_rule": "FAIL takes precedence over NOT_VERIFIABLE"
+  },
+  "terminal_witness": {
+    "observed_at_utc": "2026-09-27T19:50:19.307611Z",
+    "first_failure_recorded_at_utc": "2026-09-27T19:50:19.534811Z",
+    "expected_epoch": "aws-validation-observability-30h-20260926-20260926T135000Z-v3",
+    "observed_epoch": "bitcoin-trader-30h",
+    "expected_run_id": "aws-validation-observability-30h-run-20260926T135000Z-v3",
+    "observed_run_id": "aws-validation-observability-30h-run-20260926T135000Z-v3",
+    "terminal_classification": "CLEAN_SUCCESS",
+    "service_result": "success",
+    "exit_status": "0",
+    "s3_key": null,
+    "s3_uploaded": false,
+    "failure_component": "systemd ExecStopPost terminal witness",
+    "root_cause": "Transient launch supplied a generic unit prefix as witness epoch and omitted S3 bucket, prefix, and allow-write arguments"
+  },
+  "s3": {
+    "remote_verification_requirement": "MANDATORY",
+    "witness_upload_gate": "FAIL",
+    "local_s3_receipt_mirror_equality": "NOT_VERIFIABLE",
+    "exact_object_read": "DENIED_HTTP_403",
+    "list_operation": "NOT_CALLED",
+    "live_head_object_required_by_offline_auditor": false
+  },
+  "idempotency": {
+    "pass_impact": "NOT_VERIFIABLE_UNDER_EXISTING_RULES",
+    "defect_triggered": "NOT_VERIFIABLE",
+    "complete_finalization_trace": false,
+    "runtime_includes_closed_at_fix": false,
+    "fix_commit": "48cfa0aa21327daa420638d275a3ca5314f6ad49",
+    "terminal_witness_failure_related_to_idempotency": false
+  },
+  "artifact_sha256": {
+    "identity": "96e24b4fcb95481ce44b9cbf39bc437e4ba570f508db747136915056271c6565",
+    "sealed_manifest": "4e1c21c1a37cb5550452467ba7fd74fdf0edfff924b46316da8c967e956ec9f6",
+    "runtime": "1a8d3e1800b8659cd541721cd0abdbef4968982cb379c7437c59f1eeae40a9b9",
+    "terminal_witness": "e855270dbb283cbc2f83ba3890dae4ba79ab41698ebbd3af24f83a73282908a9",
+    "result": "c5c7ffec541a06bcfce9730ff82511bf160f9a004347d172d26c8b5e4a26fe98",
+    "finalization_summary": "9e21348646398ba53c9d43d899254e3e7349910849ad6cf8d070f2459fb950be"
+  },
+  "integration": {
+    "branch": "codex/post-30h-evidence-integration-20260928",
+    "verified_head_before_adjudication_docs": "3119c4db1d7236ebb553c28373d2035e1f32bbee",
+    "full_tests": "1629 passed, 2 skipped",
+    "pyright": "0 errors, 0 warnings, 0 informations",
+    "compileall": "PASS",
+    "diff_check": "PASS",
+    "default_live_safe": true
+  },
+  "science": {
+    "alpha": "UNPROVEN",
+    "dataset_id": null,
+    "dataset_qualified": "NO_NOT_RUN_GATE_NOT_MET",
+    "retrospective_batch": "NOT_RUN",
+    "strategies_tested": 0,
+    "experiments_executed": 0,
+    "candidate_count": 0,
+    "prospective_holdout_consumed": false,
+    "candidate_frozen": false,
+    "paper": "NOT_STARTED",
+    "live": "DISABLED",
+    "private_api": "DISABLED"
+  },
+  "historical_claims": {
+    "manual_pass_report_commit": "a35f00828c763746660e5d96d096223f9505daa4",
+    "manual_pass_conclusion": "SUPERSEDED_BY_PREEXISTING_TERMINAL_AUDIT",
+    "historical_2026_09_15_v3": "PRESERVED_FAIL_NOT_REINTERPRETED"
+  },
+  "limitations": [
+    "The full offline audit bundle was incomplete because the S3 receipt mirror and complete finalization trace were unavailable.",
+    "The complete witness independently fails the existing predicate, which is sufficient for overall FAIL under existing aggregation semantics.",
+    "Exact AWS S3 object reads returned HTTP 403; no listing or write was attempted during this adjudication.",
+    "The guest observer was still active with allow-s3-write at the read-only audit time."
+  ]
+}
