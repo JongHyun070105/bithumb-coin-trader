@@ -108,6 +108,7 @@ class TestRenderSystemdRunWatchdog:
         from bithumb_coin_trader.bounded_supervisor import render_systemd_run
 
         cfg = self._base_config(
+            exec_stop_post_python="/opt/venv/bin/python",
             exec_stop_post_script="/opt/scripts/terminal_witness.py",
             data_dir=Path("/opt/data/health"),
             exec_stop_post_epoch="exact-epoch",
@@ -120,6 +121,7 @@ class TestRenderSystemdRunWatchdog:
         exec_stop_args = [c for c in cmd if "ExecStopPost" in c]
         assert len(exec_stop_args) == 1, f"Expected exactly one ExecStopPost, got: {exec_stop_args}"
         esp = exec_stop_args[0]
+        assert esp.startswith("--property=ExecStopPost=/opt/venv/bin/python /opt/scripts/terminal_witness.py")
         assert "/opt/scripts/terminal_witness.py" in esp
         assert "--data-dir=/opt/data/health" in esp
         assert "--epoch=exact-epoch" in esp
@@ -129,6 +131,7 @@ class TestRenderSystemdRunWatchdog:
         from bithumb_coin_trader.bounded_supervisor import render_systemd_run
 
         cfg = self._base_config(
+            exec_stop_post_python="/opt/venv/bin/python",
             exec_stop_post_script="/opt/scripts/terminal_witness.py",
             exec_stop_post_epoch="exact-epoch",
             exec_stop_post_s3_bucket="receipt-bucket",
@@ -149,6 +152,7 @@ class TestRenderSystemdRunWatchdog:
             workdir=Path("/tmp/work"),
             supervisor_command=("echo", "hi"),
             collection_duration_seconds=2700,
+            exec_stop_post_python="/usr/local/bin/python3",
             exec_stop_post_script="/usr/local/bin/witness.py",
             data_dir=Path("/tmp/health"),
             exec_stop_post_epoch="exact-epoch",
@@ -157,6 +161,7 @@ class TestRenderSystemdRunWatchdog:
             exec_stop_post_s3_region="ap-northeast-2",
             exec_stop_post_allow_s3_write=True,
         )
+        assert cfg.exec_stop_post_python == "/usr/local/bin/python3"
         assert cfg.exec_stop_post_script == "/usr/local/bin/witness.py"
         assert cfg.data_dir == Path("/tmp/health")
         assert cfg.exec_stop_post_epoch == "exact-epoch"
@@ -171,6 +176,7 @@ class TestRenderSystemdRunWatchdog:
             supervisor_command=("echo", "hi"),
             collection_duration_seconds=2700,
         )
+        assert cfg.exec_stop_post_python is None
         assert cfg.exec_stop_post_script is None
         assert cfg.data_dir is None
         assert cfg.exec_stop_post_epoch is None

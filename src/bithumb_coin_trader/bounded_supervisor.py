@@ -133,6 +133,7 @@ class TransientLaunchConfig:
     systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
     maximum_collection_window_seconds: int | None = None
+    exec_stop_post_python: str | None = None
     exec_stop_post_script: str | None = None
     data_dir: Path | None = None
     exec_stop_post_epoch: str | None = None
@@ -204,7 +205,10 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             raise ValueError("ExecStopPost S3 prefix must not contain empty or dot path segments")
         if not config.exec_stop_post_s3_region or not SAFE_AWS_REGION.fullmatch(config.exec_stop_post_s3_region):
             raise ValueError("ExecStopPost S3 upload requires an explicit AWS region")
+        if not config.exec_stop_post_python:
+            raise ValueError("ExecStopPost requires an explicit Python interpreter")
         for label, value in (
+            ("Python interpreter", config.exec_stop_post_python),
             ("script", config.exec_stop_post_script),
             ("data directory", str(effective_data_dir)),
         ):
@@ -230,7 +234,7 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if config.exec_stop_post_script is not None:
         effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
         cmd.append(
-            f"--property=ExecStopPost={config.exec_stop_post_script}"
+            f"--property=ExecStopPost={config.exec_stop_post_python} {config.exec_stop_post_script}"
             f" --data-dir={effective_data_dir}"
             f" --epoch={config.exec_stop_post_epoch}"
             f" --run-id={config.run_id}"

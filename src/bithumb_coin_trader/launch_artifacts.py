@@ -406,6 +406,7 @@ def generate_launch_artifacts(
         "systemd_runtime_max_seconds": spec.effective_runtime_max,
         "launch": False,
         "terminal_witness": {
+            "python": python_str,
             "script": f"{worktree_str}/scripts/terminal_witness.py",
             "epoch": spec.epoch,
             "run_id": spec.run_id,
@@ -571,6 +572,7 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-python "$python" \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
   --exec-stop-post-epoch "{spec.epoch}" \\
@@ -603,6 +605,7 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-python "$python" \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
   --exec-stop-post-epoch "{spec.epoch}" \\
@@ -787,6 +790,7 @@ def validate_launch_artifacts(
 
         witness = launch_command.get("terminal_witness")
         expected_witness = {
+            "python": str(spec.python_bin),
             "script": f"{spec.runtime_worktree}/scripts/terminal_witness.py",
             "epoch": spec.epoch,
             "run_id": spec.run_id,

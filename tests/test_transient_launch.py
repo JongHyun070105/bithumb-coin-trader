@@ -428,6 +428,7 @@ class TransientLaunchTests(unittest.TestCase):
             finalization_timeout_seconds=120,
             supervisor_hard_ceiling_seconds=111720,
             systemd_runtime_max_seconds=111800,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
             exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
             data_dir=Path("/var/lib/bitcoin-trader/30h-validation/exact-epoch"),
             exec_stop_post_epoch="aws-validation-observability-30h-20260926-20260926T135000Z-v3",
@@ -440,6 +441,12 @@ class TransientLaunchTests(unittest.TestCase):
         command = render_systemd_run(cfg)
         exec_stop_post = next(part for part in command if "ExecStopPost" in part)
 
+        self.assertTrue(
+            exec_stop_post.startswith(
+                "--property=ExecStopPost=/opt/bitcoin-trader/.venv/bin/python "
+                "/opt/bitcoin-trader/scripts/terminal_witness.py"
+            )
+        )
         self.assertIn("--epoch=aws-validation-observability-30h-20260926-20260926T135000Z-v3", exec_stop_post)
         self.assertNotIn("--epoch=bitcoin-trader-30h", exec_stop_post)
         self.assertIn("--run-id=aws-validation-observability-30h-run-20260926T135000Z-v3", exec_stop_post)
@@ -473,6 +480,7 @@ class TransientLaunchTests(unittest.TestCase):
             "--qualification-schedule-path", "/var/lib/bitcoin-trader/schedule.json",
             "--supervisor-hard-ceiling-seconds", "111720",
             "--systemd-runtime-max-seconds", "111800",
+            "--exec-stop-post-python", "/opt/bitcoin-trader/.venv/bin/python",
             "--exec-stop-post-script", "/opt/bitcoin-trader/scripts/terminal_witness.py",
             "--data-dir", "/var/lib/bitcoin-trader/30h-validation/exact-epoch",
             "--exec-stop-post-epoch", "aws-validation-observability-30h-20260926-20260926T135000Z-v3",
@@ -492,6 +500,11 @@ class TransientLaunchTests(unittest.TestCase):
         self.assertIn("--s3-prefix=market-data/temporary/aws-validation-observability-30h/exact-epoch", rendered)
         self.assertIn("--s3-region=ap-northeast-2", rendered)
         self.assertIn("--allow-s3-write", rendered)
+        self.assertIn(
+            "ExecStopPost=/opt/bitcoin-trader/.venv/bin/python "
+            "/opt/bitcoin-trader/scripts/terminal_witness.py",
+            rendered,
+        )
 
     def test_exec_stop_post_rejects_missing_upload_contract_fields(self) -> None:
         base = dict(
@@ -502,6 +515,7 @@ class TransientLaunchTests(unittest.TestCase):
             finalization_timeout_seconds=120,
             supervisor_hard_ceiling_seconds=2820,
             systemd_runtime_max_seconds=2880,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
             exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
             exec_stop_post_epoch="aws-validation-smoke-epoch",
             exec_stop_post_s3_bucket="receipt-bucket",
@@ -510,6 +524,7 @@ class TransientLaunchTests(unittest.TestCase):
             exec_stop_post_allow_s3_write=True,
         )
         cases = [
+            ({"exec_stop_post_python": None}, "explicit Python interpreter"),
             ({"exec_stop_post_allow_s3_write": False}, "explicitly enabled"),
             ({"exec_stop_post_s3_bucket": None}, "valid bucket"),
             ({"exec_stop_post_s3_prefix": None}, "valid prefix"),
@@ -532,6 +547,7 @@ class TransientLaunchTests(unittest.TestCase):
             finalization_timeout_seconds=120,
             supervisor_hard_ceiling_seconds=240,
             systemd_runtime_max_seconds=300,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
             exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
             data_dir=Path("/var/lib/bitcoin-trader/witness-e2e-smoke"),
             exec_stop_post_epoch=long_epoch,
@@ -551,6 +567,7 @@ class TransientLaunchTests(unittest.TestCase):
             ("exec_stop_post_epoch", "unsafe;$(touch /tmp/no)"),
             ("exec_stop_post_s3_prefix", 'market-data/temporary/";touch /tmp/no'),
             ("exec_stop_post_script", "/opt/bad path/witness.py"),
+            ("exec_stop_post_python", "/opt/bad path/python"),
         ):
             with self.subTest(field=field):
                 with self.assertRaises(ValueError):

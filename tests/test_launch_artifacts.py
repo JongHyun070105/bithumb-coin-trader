@@ -359,6 +359,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             self.assertEqual(
                 artifacts.launch_command["terminal_witness"],
                 {
+                    "python": str(spec.python_bin),
                     "script": f"{spec.runtime_worktree}/scripts/terminal_witness.py",
                     "epoch": spec.epoch,
                     "run_id": spec.run_id,
@@ -371,6 +372,7 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
 
             for launch_script in (artifacts.launch_sh, artifacts.launch_ec2_sh):
                 with self.subTest(script="launch-ec2.sh" if launch_script == artifacts.launch_ec2_sh else "launch.sh"):
+                    self.assertIn('--exec-stop-post-python "$python"', launch_script)
                     self.assertIn(f'--exec-stop-post-epoch "{spec.epoch}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-bucket "{spec.s3_bucket}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-prefix "{expected_prefix}"', launch_script)
