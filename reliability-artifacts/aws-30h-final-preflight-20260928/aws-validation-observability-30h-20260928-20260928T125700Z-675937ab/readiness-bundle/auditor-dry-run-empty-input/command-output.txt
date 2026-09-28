@@ -1,0 +1,10 @@
+Captured at UTC: 2026-09-28T13:47:25Z
+Input: deliberately empty local temporary evidence directory; no AWS, S3, runtime, or exchange access.
+Output directory: /private/tmp/btc-terminal-auditor-dry-run-20260928
+Expected runtime commit: b4d482363e2f988dad9c6d29053f97e1e4160883
+Expected runtime tree: 5c96ed79fee107c1604ee7018621835910221fdf
+
+OVERALL_STATUS=NOT_VERIFIABLE
+exit_status=2
+Reason: no audit-bundle.json in the supplied empty input directory.
+This verifies only fail-closed handling of absent input. It does not satisfy terminal_auditor_dry_run=PASS and is not evidence about the 30H run.

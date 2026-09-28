@@ -1,0 +1,18 @@
+{
+  "checks": [
+    {
+      "details": {
+        "error": "[Errno 2] No such file or directory: '/private/tmp/btc-empty-final-30h-evidence-20260928/audit-bundle.json'"
+      },
+      "name": "evidence_bundle",
+      "status": "NOT_VERIFIABLE",
+      "summary": "A valid offline audit-bundle.json is required."
+    }
+  ],
+  "epoch": null,
+  "overall_status": "NOT_VERIFIABLE",
+  "run_id": null,
+  "runtime_commit_expected": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_expected": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "schema_version": 1
+}

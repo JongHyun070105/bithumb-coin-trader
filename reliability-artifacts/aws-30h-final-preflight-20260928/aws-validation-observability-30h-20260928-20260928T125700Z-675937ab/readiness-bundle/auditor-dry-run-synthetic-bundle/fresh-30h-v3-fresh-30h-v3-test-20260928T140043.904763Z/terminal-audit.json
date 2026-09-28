@@ -1,0 +1,226 @@
+{
+  "checks": [
+    {
+      "details": {
+        "epoch": "fresh-30h-v3-test",
+        "expected_commit": "22e06b9527798567e185fb0dd41dca3a448f444e",
+        "expected_tree": "a44c9591045f3634cda1066d582927f277b79e2d",
+        "identity_commit": "22e06b9527798567e185fb0dd41dca3a448f444e",
+        "identity_tree": "a44c9591045f3634cda1066d582927f277b79e2d",
+        "run_id": "fresh-30h-v3-run-test",
+        "runtime_config_commit": "22e06b9527798567e185fb0dd41dca3a448f444e",
+        "runtime_config_tree": "a44c9591045f3634cda1066d582927f277b79e2d"
+      },
+      "name": "runtime_identity",
+      "status": "PASS",
+      "summary": "Runtime identity matches the Fresh 30H-v3 seal."
+    },
+    {
+      "details": {
+        "actual_end_utc": "2026-09-27T01:00:00Z",
+        "actual_start_utc": "2026-09-27T00:00:00Z",
+        "full_duration_satisfied": true,
+        "observed_wall_duration_seconds": 3600.0,
+        "required_duration_seconds": 3600.0,
+        "supervisor_elapsed_seconds": 3600.0
+      },
+      "name": "actual_start_end_and_duration",
+      "status": "PASS",
+      "summary": "Actual timestamps and supervisor duration satisfy the sealed runtime duration."
+    },
+    {
+      "details": {
+        "collector_exit_code": 0,
+        "publisher_exit_code": 0,
+        "required_components_started": true,
+        "scheduler_exit_code": 0
+      },
+      "name": "component_exit_codes",
+      "status": "PASS",
+      "summary": "Collector, archive scheduler, and publisher all started and exited cleanly."
+    },
+    {
+      "details": {
+        "exec_main_status": 0,
+        "n_restarts": 0,
+        "result": "success"
+      },
+      "name": "systemd_result_and_restarts",
+      "status": "PASS",
+      "summary": "Systemd reports success, zero restarts, and zero main-process exit status."
+    },
+    {
+      "details": {
+        "classification": "CLEAN_SUCCESS",
+        "epoch_matches": true,
+        "exit_status": "0",
+        "expected_s3_key": "market-data/temporary/fresh-30h-v3-test/terminal/terminal-receipt.json",
+        "observed_s3_key": "market-data/temporary/fresh-30h-v3-test/terminal/terminal-receipt.json",
+        "run_id_matches": true,
+        "s3_bucket_matches": true,
+        "s3_region_matches": true,
+        "s3_target_matches": true,
+        "service_result": "success",
+        "witness_s3_uploaded": true
+      },
+      "name": "terminal_witness",
+      "status": "PASS",
+      "summary": "Terminal witness is clean and bound to the sealed run."
+    },
+    {
+      "details": {
+        "final_manifest_flush_observed": true,
+        "phase": "COMPLETE"
+      },
+      "name": "collector_lifecycle",
+      "status": "PASS",
+      "summary": "Collector reached COMPLETE and flushed final manifests."
+    },
+    {
+      "details": {
+        "backpressure_events": 3,
+        "dropped_records": 0,
+        "final_queue_depth": 0,
+        "unpersisted_records": 0,
+        "writer_errors": 0
+      },
+      "name": "queue_persistence_and_writer",
+      "status": "PASS",
+      "summary": "Final queue, unpersisted records, writer errors, and drops are zero; backpressure is reported."
+    },
+    {
+      "details": {
+        "active_active_enabled": true,
+        "bithumb_connection_count": 2,
+        "configured_active_active_enabled": true,
+        "configured_bithumb_connection_count": 2,
+        "conflicting_duplicates": 0,
+        "deduplicated_frames": 5
+      },
+      "name": "active_active_dedup_and_conflicts",
+      "status": "PASS",
+      "summary": "Two Bithumb sockets were active, deduplication was enabled, and no conflicting duplicate was observed."
+    },
+    {
+      "details": {
+        "duplicate": [],
+        "expected_cohorts": 1,
+        "expected_slots_per_cohort": 2,
+        "failed_or_mismatched": [],
+        "missing": []
+      },
+      "name": "qualifying_cohorts_and_feed_counts",
+      "status": "PASS",
+      "summary": "Every sealed qualifying cohort has exactly one passing receipt with the expected slot count."
+    },
+    {
+      "details": {
+        "duplicate": [],
+        "expected_slots": 2,
+        "foreign": [],
+        "invalid": [],
+        "missing": [],
+        "observed_slots": 2
+      },
+      "name": "all_feed_slots_and_receipts",
+      "status": "PASS",
+      "summary": "Every sealed feed slot has exactly one valid local coverage receipt."
+    },
+    {
+      "details": {
+        "compared": 3,
+        "extra_in_s3": [],
+        "hash_mismatch": [],
+        "missing_from_s3": []
+      },
+      "name": "local_s3_receipt_hash_equality",
+      "status": "PASS",
+      "summary": "Local and S3 receipt mirrors match byte-for-byte."
+    },
+    {
+      "details": {
+        "changed": [],
+        "expected_receipts": 3,
+        "missing_observation": []
+      },
+      "name": "receipt_immutability",
+      "status": "PASS",
+      "summary": "Every local receipt retained the same hash across observations."
+    },
+    {
+      "details": {
+        "checked": 1,
+        "indexed": 1,
+        "invalid": []
+      },
+      "name": "evidence_hash_index",
+      "status": "PASS",
+      "summary": "Every indexed evidence file matches its SHA-256."
+    },
+    {
+      "details": {
+        "count": 0
+      },
+      "name": "scheduler_retries",
+      "status": "PASS",
+      "summary": "No scheduler retries were observed."
+    },
+    {
+      "details": {
+        "count": 0
+      },
+      "name": "finalizer_retries",
+      "status": "PASS",
+      "summary": "No finalizer retry events were observed."
+    },
+    {
+      "details": {
+        "count": 0
+      },
+      "name": "recovery_invocations",
+      "status": "PASS",
+      "summary": "No recovery invocation was observed."
+    },
+    {
+      "details": {
+        "repeated_slots": []
+      },
+      "name": "duplicate_finalization",
+      "status": "PASS",
+      "summary": "No feed slot was finalized more than once."
+    },
+    {
+      "details": {
+        "differences": []
+      },
+      "name": "closed_at_utc_stability",
+      "status": "PASS",
+      "summary": "Repeated finalizations preserve closed_at_utc."
+    },
+    {
+      "details": {
+        "differences": []
+      },
+      "name": "finalization_evidence_hash_stability",
+      "status": "PASS",
+      "summary": "Repeated finalizations preserve evidence hashes."
+    },
+    {
+      "details": {
+        "applied_fix_commit": "48cfa0aa21327daa420638d275a3ca5314f6ad49",
+        "exposed": false,
+        "fix_in_runtime": false,
+        "runtime_commit": "22e06b9527798567e185fb0dd41dca3a448f444e"
+      },
+      "name": "restart_idempotency_path",
+      "status": "PASS",
+      "summary": "The known restart-sensitive finalizer path was not exercised."
+    }
+  ],
+  "epoch": "fresh-30h-v3-test",
+  "overall_status": "PASS",
+  "run_id": "fresh-30h-v3-run-test",
+  "runtime_commit_expected": "22e06b9527798567e185fb0dd41dca3a448f444e",
+  "runtime_tree_expected": "a44c9591045f3634cda1066d582927f277b79e2d",
+  "schema_version": 1
+}
