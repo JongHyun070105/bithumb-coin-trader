@@ -82,6 +82,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--systemd-runtime-max-seconds", type=int, default=2880)
     parser.add_argument("--exec-stop-post-script", type=str, default=None)
     parser.add_argument("--data-dir", type=Path, default=None)
+    parser.add_argument("--exec-stop-post-epoch", type=str, default=None)
+    parser.add_argument("--exec-stop-post-s3-bucket", type=str, default=None)
+    parser.add_argument("--exec-stop-post-s3-prefix", type=str, default=None)
+    parser.add_argument("--exec-stop-post-allow-s3-write", action="store_true")
     parser.add_argument("--launch", action="store_true")
 
     parser.add_argument("--required-qualifying-full-hours", type=int)
@@ -124,6 +128,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
             exec_stop_post_script=args.exec_stop_post_script,
             data_dir=args.data_dir,
+            exec_stop_post_epoch=args.exec_stop_post_epoch,
+            exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
+            exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
     else:
         if args.collection_duration_seconds is None:
@@ -141,6 +149,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
             exec_stop_post_script=args.exec_stop_post_script,
             data_dir=args.data_dir,
+            exec_stop_post_epoch=args.exec_stop_post_epoch,
+            exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
+            exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
 
     command = render_systemd_run(config)

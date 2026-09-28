@@ -374,6 +374,14 @@ def generate_launch_artifacts(
         "supervisor_hard_ceiling_seconds": spec.effective_hard_ceiling,
         "systemd_runtime_max_seconds": spec.effective_runtime_max,
         "launch": False,
+        "terminal_witness": {
+            "script": f"{worktree_str}/scripts/terminal_witness.py",
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "s3_bucket": spec.s3_bucket,
+            "s3_prefix": resolved["temporary_prefix"],
+            "allow_s3_write": True,
+        },
     }
 
     identity = {
@@ -530,6 +538,10 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
+  --exec-stop-post-epoch "{spec.epoch}" \\
+  --exec-stop-post-s3-bucket "{spec.s3_bucket}" \\
+  --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
+  --exec-stop-post-allow-s3-write \\
   "$@"
 """
 
@@ -557,6 +569,10 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
+  --exec-stop-post-epoch "{spec.epoch}" \\
+  --exec-stop-post-s3-bucket "{spec.s3_bucket}" \\
+  --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
+  --exec-stop-post-allow-s3-write \\
   "$@"
 """
 

@@ -407,6 +407,76 @@ class TransientLaunchTests(unittest.TestCase):
                 )
             )
 
+    def test_exec_stop_post_binds_terminal_witness_identity_and_s3_upload(self) -> None:
+        cfg = TransientLaunchConfig(
+            run_id="aws-validation-observability-30h-run-20260926T135000Z-v3",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            maximum_collection_window_seconds=111600,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=111720,
+            systemd_runtime_max_seconds=111800,
+            exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
+            data_dir=Path("/var/lib/bitcoin-trader/30h-validation/exact-epoch"),
+            exec_stop_post_epoch="aws-validation-observability-30h-20260926-20260926T135000Z-v3",
+            exec_stop_post_s3_bucket="receipt-bucket",
+            exec_stop_post_s3_prefix="market-data/temporary/aws-validation-observability-30h/exact-epoch",
+            exec_stop_post_allow_s3_write=True,
+        )
+
+        command = render_systemd_run(cfg)
+        exec_stop_post = next(part for part in command if "ExecStopPost" in part)
+
+        self.assertIn("--epoch=aws-validation-observability-30h-20260926-20260926T135000Z-v3", exec_stop_post)
+        self.assertNotIn("--epoch=bitcoin-trader-30h", exec_stop_post)
+        self.assertIn("--run-id=aws-validation-observability-30h-run-20260926T135000Z-v3", exec_stop_post)
+        self.assertIn("--s3-bucket=receipt-bucket", exec_stop_post)
+        self.assertIn("--s3-prefix=market-data/temporary/aws-validation-observability-30h/exact-epoch", exec_stop_post)
+        self.assertIn("--allow-s3-write", exec_stop_post)
+
+    def test_exec_stop_post_requires_an_exact_epoch(self) -> None:
+        cfg = TransientLaunchConfig(
+            run_id="test-run",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            collection_duration_seconds=2700,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=2820,
+            systemd_runtime_max_seconds=2880,
+            exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
+        )
+
+        with self.assertRaisesRegex(ValueError, "exact epoch"):
+            render_systemd_run(cfg)
+
+    def test_launch_cli_threads_terminal_witness_binding_into_systemd_unit(self) -> None:
+        args = [
+            "--run-id", "aws-validation-observability-30h-run-20260926T135000Z-v3",
+            "--workdir", "/opt/bitcoin-trader",
+            "--supervisor-command-json", json.dumps(["python", "run.py", "--required-qualifying-full-hours", "30"]),
+            "--required-qualifying-full-hours", "30",
+            "--maximum-collection-window-seconds", "111600",
+            "--qualification-schedule-path", "/var/lib/bitcoin-trader/schedule.json",
+            "--supervisor-hard-ceiling-seconds", "111720",
+            "--systemd-runtime-max-seconds", "111800",
+            "--exec-stop-post-script", "/opt/bitcoin-trader/scripts/terminal_witness.py",
+            "--data-dir", "/var/lib/bitcoin-trader/30h-validation/exact-epoch",
+            "--exec-stop-post-epoch", "aws-validation-observability-30h-20260926-20260926T135000Z-v3",
+            "--exec-stop-post-s3-bucket", "receipt-bucket",
+            "--exec-stop-post-s3-prefix", "market-data/temporary/aws-validation-observability-30h/exact-epoch",
+            "--exec-stop-post-allow-s3-write",
+        ]
+
+        with patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            result = launch_transient_main(args)
+
+        self.assertEqual(result, 0)
+        rendered = " ".join(json.loads(stdout.getvalue()))
+        self.assertIn("--epoch=aws-validation-observability-30h-20260926-20260926T135000Z-v3", rendered)
+        self.assertIn("--s3-bucket=receipt-bucket", rendered)
+        self.assertIn("--s3-prefix=market-data/temporary/aws-validation-observability-30h/exact-epoch", rendered)
+        self.assertIn("--allow-s3-write", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()
