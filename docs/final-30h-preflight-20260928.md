@@ -109,7 +109,9 @@ NEXT_RUNTIME_TREE = 8c872ae7d3353c4d4e8649758266d2ec103dba63
 
 Changed files from OLD_RUNTIME: 19 total. Runtime/safety files are scripts/autonomous_trader.py, scripts/run_daemon_macos.sh, scripts/terminal_witness.py, scripts/launch_short_smoke_transient.py, src/bithumb_coin_trader/bounded_supervisor.py, src/bithumb_coin_trader/closed_hour_finalizer.py, and src/bithumb_coin_trader/launch_artifacts.py. Launch/auditor tooling adds scripts/generate_launch_artifacts.py, scripts/validate_launch_artifacts.py, scripts/audit_fresh_30h_v3_terminal.py, and scripts/final_30h_prelaunch_gate.py. The remaining changed paths are regression tests for those behaviors. No strategy, research, dashboard, or external-dataset source file is in this differential.
 
-The actual 30H sealed artifacts were not generated because no fresh identity could be proven against AWS/local evidence. Unit tests generate two temporary artifact sets and verify deterministic runtime/launch artifacts while excluding documented seal timestamps.
+No launchable 30H identity was issued because freshness could not be proven against AWS/guest evidence. For local reproducibility only, the artifact generator created self-validated 30H and isolated 120-second smoke candidates twice. They were not launched, remotely freshness-checked, or approved identities; do not reuse them for a future run. The local files are retained at `/private/tmp/btc-final-30h-preflight-20260928-052441/{30h-a,30h-b,smoke-a,smoke-b}`. Runtime JSON, launch command/scripts, and authorization evidence matched byte-for-byte between regenerations; identity/manifest differences are limited to seal timestamps and the identity hash derived from them.
+
+The local-only 30H candidate was `aws-validation-observability-30h-run-20260928T052441Z-v1` / `aws-validation-observability-30h-20260928-20260928T052441Z-v1`. The local-only smoke candidate was `aws-validation-witness-e2e-smoke-run-20260928T052441Z-v1` / `aws-validation-witness-e2e-smoke-20260928T052441Z-v1`. Their authorization evidence remains `PREPARED_NOT_AUTHORIZED`; neither was issued or used as a run identity.
 
 ## Verification evidence
 
@@ -121,7 +123,7 @@ The actual 30H sealed artifacts were not generated because no fresh identity cou
 - git diff --check from OLD_RUNTIME to NEXT_RUNTIME: PASS.
 - Artifact generator/validator CLI smoke test with 120 seconds and deterministic 30H artifact unit test: PASS.
 - Historical malformed-witness rejection and corrected-fixture acceptance: PASS.
-- scripts/final_30h_prelaunch_gate.py with a missing-artifact input: PRELAUNCH_GATE=FAIL, exit 1. This only verifies the missing-input fail-closed path; there is no actual next-run identity/readiness bundle to evaluate.
+- `scripts/final_30h_prelaunch_gate.py` evaluated the local-only 30H candidate and a fresh readiness bundle whose cloud/guest/smoke checks were `NOT_VERIFIABLE`: `PRELAUNCH_GATE=FAIL`, exit 1. It rejected missing authorization, absent smoke success, identity freshness, S3/IAM access, and guest state.
 - Protected test-results/.last-run.json SHA-256 remained e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea.
 - No runtime, IAM, S3, Terraform, exchange, paper/live, or 30H launch mutation occurred.
 
@@ -160,9 +162,10 @@ NEXT_30H_LAUNCHED = NO
 
 ## Delivery state
 
-COMMITS = 48cfa0a, 4944235, d6a6f31, 92d5a98, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c, 0775ccb (report)
-PRS = #21 OPEN/DRAFT, #22 OPEN/DRAFT at the recorded remote heads above
-LOCAL_PREFLIGHT_BRANCH = codex/final-30h-preflight-20260928; pushed to origin at 0775ccb. The tested runtime source remains 054d43c3a43ef79919ac38bed4fa74d1b0689f53; 0775ccb changes only this report.
+RUNTIME_COMMITS = 48cfa0a, 4944235, d6a6f31, 92d5a98, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c
+PRS = #19 OPEN/DRAFT, #21 OPEN/DRAFT, #22 OPEN/DRAFT, #23 OPEN/DRAFT
+PR23 = https://github.com/JongHyun070105/bithumb-coin-trader/pull/23 (stacked on PR #22)
+LOCAL_PREFLIGHT_BRANCH = codex/final-30h-preflight-20260928; pushed and attached to PR #23. The tested runtime source remains 054d43c3a43ef79919ac38bed4fa74d1b0689f53; later commits are documentation-only.
 USER_ACTION_REQUIRED = Reauthenticate bitcoin-trader-bootstrap locally. Then verify current exact-object access and collect fresh guest/AWS readiness evidence. Do not share credentials. Keep 30H stopped until the complete witness smoke passes and a separate exact-identity GO is provided.
 ============================================================
 
@@ -179,7 +182,7 @@ HISTORICAL_RUNTIME_COMPLETED = YES
 FAILURE_CLASS = TERMINAL_EVIDENCE_CONTRACT
 ROOT_CAUSE = ExecStopPost used generic epoch bitcoin-trader-30h and did not successfully upload the exact witness to S3.
 
-CORRECTIVE_PR = #22 plus follow-up candidate on codex/final-30h-preflight-20260928
+CORRECTIVE_PR = #22 plus follow-up Draft PR #23, stacked on #22
 CORRECTIVE_HEAD = PR #22 4944235630cff58573d7348d5b949c546dd11ea8; follow-up candidate 054d43c3a43ef79919ac38bed4fa74d1b0689f53
 
 WITNESS_E2E = NOT RUN
@@ -206,7 +209,7 @@ NEXT_30H_LAUNCHED = NO
 
 RESIDUAL_RISKS = Live IAM/S3 permissions, real smoke, exact-read/parity, guest readiness, and fresh identity remain unverified.
 COMMITS = 48cfa0a, 4944235, d6a6f31, 92d5a98, ddb96e9, cd57ca5, 4f73b80, 7e9b890, d10bb26, d5c27ce, 054d43c, 0775ccb
-PRS = #21 OPEN/DRAFT; #22 OPEN/DRAFT; preflight branch pushed, no PR created
+PRS = #19 OPEN/DRAFT; #21 OPEN/DRAFT; #22 OPEN/DRAFT; #23 OPEN/DRAFT
 
 USER_ACTION_REQUIRED = Reauthenticate bitcoin-trader-bootstrap locally; then complete the fresh short witness smoke and request separate exact-identity GO before 30H.
 ============================================================
