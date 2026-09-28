@@ -113,6 +113,18 @@ No launchable 30H identity was issued because freshness could not be proven agai
 
 The local-only 30H candidate was `aws-validation-observability-30h-run-20260928T052441Z-v1` / `aws-validation-observability-30h-20260928-20260928T052441Z-v1`. The local-only smoke candidate was `aws-validation-witness-e2e-smoke-run-20260928T052441Z-v1` / `aws-validation-witness-e2e-smoke-20260928T052441Z-v1`. Their authorization evidence remains `PREPARED_NOT_AUTHORIZED`; neither was issued or used as a run identity.
 
+The local 30H candidate artifacts bind runtime commit/tree `054d43c3a43ef79919ac38bed4fa74d1b0689f53` / `8c872ae7d3353c4d4e8649758266d2ec103dba63`, duration `108000`, public 76-feed config, data parent `/var/lib/bitcoin-trader/30h-validation`, candidate runtime path `/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928`, bucket `bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433`, region `ap-northeast-2`, and prefix `market-data/temporary/aws-validation-observability-30h-20260928-20260928T052441Z-v1`. Private API, PAPER, and LIVE are disabled. The runtime path, identity freshness, and S3 permissions were not verified on the guest.
+
+| Local candidate artifact (`30h-a`) | SHA-256 |
+|---|---|
+| `identity.json` | `4d409581cf697e67ae14ff77fa272fe5c5769796ed1d6a7cbc64f1d5cf8d9e2e` |
+| Sealed runtime JSON | `7159189b226fd39781f764868e3f85f7244563b4497dcbc6fc56f7ece3cea6e0` |
+| `launch-command.json` | `73fcbd901af0d07240f97bbb253a155ab625b1ea0cc1ebf2e2d654a0f355b622` |
+| `launch-ec2.sh` | `552ce1750dffda566046266a797fbc4f88cdcdbdc73a22cfd4ce6adb5d801d00` |
+| `launch.sh` | `0fe1dd06779ed72bcbd558faeadaffa331c80e1188a6adea9e3837664645ef01` |
+| `sealed-manifest.json` | `36015be770a728853fa7221ba77da5b555413be54eefe16bcfbf27e64efc915c` |
+| `authorization-evidence.json` | `11742d14ce837479a44920bd41d5162f49e9b95bc917e467363b463ea1afb7c8` |
+
 ## Verification evidence
 
 - Focused exact-candidate suite: 199 passed.
