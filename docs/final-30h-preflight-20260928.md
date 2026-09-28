@@ -544,6 +544,23 @@ evidence directory, and exact S3 prefix. Re-run the prelaunch gate with new
 hash-bound evidence. Keep its authorization evidence false/unstarted until the
 separate exact-identity GO is supplied.
 
+## Self-consistency challenge
+
+An independent read-only Phase 3 review was requested for candidate commit
+`4660e77`; the worker timed out after 1,200 seconds and returned no findings.
+Treat that review as `NOT VERIFIABLE`, not as an independent PASS. The batch
+collector has no Phase 3 batch for this one-worker delegation.
+
+Direct repository cross-check at the pushed report head confirmed that the
+only post-runtime code files are `scripts/final_30h_prelaunch_gate.py`,
+`tests/test_closed_hour_finalizer.py`, and
+`tests/test_final_30h_prelaunch_gate.py`; all later commits are documentation
+only. `b4d4823^{tree}` still equals the sealed runtime tree. The report keeps
+bootstrap GetObject denial separate from the guest role's live exact read,
+marks the final identity stale/deferred, names the observers and historical
+units, and leaves the conservative capacity and fresh-readiness gates failed.
+No direct cross-check finding changes the NO-GO result.
+
 ## Delivery state and actions required
 
 ```text
