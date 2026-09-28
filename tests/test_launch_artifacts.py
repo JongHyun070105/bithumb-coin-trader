@@ -439,6 +439,11 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                 with self.subTest(artifact=name):
                     self.assertEqual((first_dir / name).read_bytes(), (second_dir / name).read_bytes())
 
+            self.assertEqual(
+                (first_dir / "authorization-evidence.json").read_bytes(),
+                (second_dir / "authorization-evidence.json").read_bytes(),
+            )
+
             identity_a = json.loads((first_dir / "identity.json").read_text(encoding="utf-8"))
             identity_b = json.loads((second_dir / "identity.json").read_text(encoding="utf-8"))
             self.assertNotEqual(identity_a["sealed_at_utc"], identity_b["sealed_at_utc"])
@@ -505,6 +510,54 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             self.assertEqual(res["status"], "PASS")
             self.assertTrue(res.get("sealed_artifact_hashes_verified"))
             self.assertIsNotNone(res.get("sealed_at_utc"))
+
+    def test_authorization_evidence_must_exist_and_bind_identity(self) -> None:
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=target)
+            auth_path = target / "authorization-evidence.json"
+
+            original = auth_path.read_text(encoding="utf-8")
+            auth_path.unlink()
+            with self.assertRaisesRegex(ValueError, "authorization-evidence.json is required"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+
+            auth_path.write_text(original, encoding="utf-8")
+            authorization = json.loads(original)
+            authorization["run_id"] = "another-run"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must bind this identity"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+
+    def test_authorized_not_started_evidence_is_valid_but_started_is_rejected(self) -> None:
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=target)
+            auth_path = target / "authorization-evidence.json"
+            authorization = json.loads(auth_path.read_text(encoding="utf-8"))
+            authorization["launch_authorized"] = True
+            authorization["status"] = "AUTHORIZED_NOT_STARTED"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+
+            result = validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+            self.assertEqual(result["status"], "PASS")
+
+            authorization["actual_start_time_utc"] = "2026-09-28T00:00:00Z"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "remain not started"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
 
     def test_sealed_artifact_integrity_rejects_missing_sealed_at_utc(self) -> None:
         """Validator rejects identity.json if sealed_at_utc is missing or empty."""

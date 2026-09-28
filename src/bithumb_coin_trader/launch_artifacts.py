@@ -446,7 +446,6 @@ def generate_launch_artifacts(
         "s3_bucket": spec.s3_bucket,
         "s3_prefix": resolved["temporary_prefix"],
         "s3_region": spec.region,
-        "s3_region": spec.region,
         "runtime_worktree": worktree_str,
         "data_root": data_root_str,
         "python": python_str,
@@ -668,6 +667,18 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
             "artifact_hashes": identity["sealed_artifact_hashes"],
         }
         (target_dir / "sealed-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        authorization = {
+            "schema_version": 1,
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "runtime_commit": spec.runtime_commit,
+            "launch_authorized": False,
+            "actual_start_time_utc": None,
+            "status": "PREPARED_NOT_AUTHORIZED",
+        }
+        (target_dir / "authorization-evidence.json").write_text(
+            json.dumps(authorization, indent=2) + "\n", encoding="utf-8"
+        )
 
     return artifacts
 
@@ -875,6 +886,33 @@ def validate_launch_artifacts(
                     raise ValueError(
                         "sealed-manifest.json artifact_hashes does not match identity.json sealed_artifact_hashes"
                     )
+
+        authorization_path = target_dir / "authorization-evidence.json"
+        if not authorization_path.is_file():
+            raise ValueError("authorization-evidence.json is required for prelaunch validation")
+        try:
+            authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"authorization-evidence.json unreadable in {target_dir}: {exc}") from exc
+        if not isinstance(authorization, dict) or authorization.get("schema_version") != 1:
+            raise ValueError("authorization-evidence.json has an unsupported schema")
+        expected_authorization = {
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "runtime_commit": spec.runtime_commit,
+            "actual_start_time_utc": None,
+        }
+        if any(authorization.get(key) != value for key, value in expected_authorization.items()):
+            raise ValueError("authorization evidence must bind this identity and remain not started")
+        authorization_state = (
+            authorization.get("launch_authorized"),
+            authorization.get("status"),
+        )
+        if authorization_state not in {
+            (False, "PREPARED_NOT_AUTHORIZED"),
+            (True, "AUTHORIZED_NOT_STARTED"),
+        }:
+            raise ValueError("authorization evidence has an unsupported or inconsistent authorization state")
 
     ret = {
         "status": "PASS",
