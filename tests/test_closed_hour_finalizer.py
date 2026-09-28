@@ -14,7 +14,7 @@ Enforces:
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 import json
 import os
 from pathlib import Path
@@ -365,7 +365,7 @@ def test_restart_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         calls = 0
 
         @classmethod
-        def now(cls, tz: timezone | None = None) -> datetime:
+        def now(cls, tz: tzinfo | None = None) -> datetime:
             cls.calls += 1
             value = datetime(2026, 9, 27, 12, 0, 10 + cls.calls - 1, tzinfo=timezone.utc)
             return value if tz is None else value.astimezone(tz)

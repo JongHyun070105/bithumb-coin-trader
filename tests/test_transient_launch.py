@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -523,7 +524,7 @@ class TransientLaunchTests(unittest.TestCase):
 
     def test_exec_stop_post_accepts_slashes_and_long_identity_but_rejects_shell_syntax(self) -> None:
         long_epoch = "aws-validation-witness-e2e-smoke-20260928T043700Z-v1-" + "x" * 60
-        base = dict(
+        base: dict[str, Any] = dict(
             run_id="aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1",
             workdir=Path("/opt/bitcoin-trader"),
             supervisor_command=("python", "run.py"),
