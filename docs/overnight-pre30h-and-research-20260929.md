@@ -140,3 +140,100 @@ produced a genuine, offline, non-mutating execution record (20 checks, `overall_
 This does **not** flip `PRELAUNCH_GATE` to PASS. `scripts/final_30h_prelaunch_gate.py` requires every one of the 36 `REQUIRED_CHECKS` to share a single `captured_at_utc` inside a 15-minute freshness window (`_check_readiness`), and most of the remaining checks (`collector_identity_conflict_clear`, guest process/unit checks, `disk_capacity`, `runtime_commit_on_guest`, `runtime_full_suite`, etc.) require live queries against the EC2 guest. This session's AWS credentials (profile `bitcoin-trader-provisioner`, role `bitcoin-trader-terraform-provisioner/codex-preapply-validation`) returned `AccessDeniedException` on `ssm:SendCommand` and `ssm:GetCommandInvocation` against `i-008bc503c1136349f`. No other profile was tried and no IAM change was made — broadening this role's permissions is an infrastructure/security-adjacent change outside this session's authorization.
 
 NEW_BLOCKER: a full, fresh `readiness-evidence.json` (and therefore an actual `PRELAUNCH_GATE=PASS` attempt) requires either (a) a human operator with working guest command execution access to personally run the 15-minute fresh collection including this synthetic-bundle dry-run pattern, or (b) an explicit, human-authorized grant of scoped read-only `ssm:SendCommand`/`ssm:GetCommandInvocation` to a role usable by future sessions. Neither happened this session. `PRELAUNCH_GATE` remains `FAIL`, `READINESS_BUNDLE` remains `NOT_VERIFIABLE`, and `NEXT_30H_LAUNCH_READY` remains `NO`.
+
+
+POST-UPDATE RECHECK — 2026-09-29
+================================
+This addendum records the current post-update checks. Earlier statements above remain historical snapshots; this section supersedes them only where it explicitly reports a later observation. No 30H run was launched.
+
+ORCHESTRATOR
+------------
+ORCHESTRATOR_VERSION = 7.0.2 (installed 2026-09-28T23:10:12+09:00; phase1_supervisor=6.2.0; phase3_orchestrator=6.2.0)
+ORCHESTRATOR_HEALTH = HEALTHY; all 9 provider states reported healthy, no unhealthy/cooldown provider state
+QUEUE_HEALTH = EMPTY / HEALTHY
+DELEGATE_HEALTH = HEALTHY; 19 historical records, 0 RUNNING/QUEUED/STARTING
+AVAILABLE_MODELS = 9 reported healthy: Claude Opus, Claude Sonnet, Command Code, Codex, Gemini high/medium/low, Opus, Sonnet
+RUNNING_WORKERS = 0; no matching orchestrator-owned worker process found; no process was stopped
+
+GIT AND PR STATE
+----------------
+ROOT_MAIN = `main` at `0b819eaa7af39b9a30e74ddadef67e8a677fc6be`; `origin/main` is `39e76ce0befab26e9b1f8cb5b83805ef1ee152ad`; root checkout is 6 commits behind and has five preserved untracked entries (`.agents/`, `.codex/`, `.commandcode/`, `AGENTS.md`, `test-results/`).
+RELIABILITY_BRANCH = `codex/final-30h-preflight-20260928`
+RELIABILITY_HEAD = `9bff7b09309d90b3842348151584b943181d642f`
+RELIABILITY_PUSHED = YES; live origin head matched at inspection
+PR23 = OPEN, DRAFT; head matched `9bff7b09309d90b3842348151584b943181d642f`; base remains PR #22 at `4944235630cff58573d7348d5b949c546dd11ea8`; 22 unique commits relative to that base. PR body unchanged; no merge.
+RESEARCH_BRANCH = `research/fix-asof-alignment-20260928`
+RESEARCH_HEAD = `a5c78c2d9c3c4e72760342e55430fbecfb49fbf9`, clean and matching origin; no PR found.
+RESEARCH_TESTS = 119 passed in 0.29s across `tests/research_infra/test_dataset_manifest.py`, `tests/research_infra/test_research_infra.py`, and `tests/test_unqualified_research_runner.py`; no holdout or AWS/external data used. `git diff --check HEAD^ HEAD` passed.
+WORKTREE_MAP = refreshed copy at `docs/repository-branch-map-20260929.md`; original 2026-09-28 snapshot retained. No branch/worktree deletion or merge performed.
+
+AWS AUTHENTICATION AND ACCESS
+-----------------------------
+The two harmless, explicitly profiled STS calls at approximately 2026-09-29 06:36 KST each returned `Your session has expired. Please reauthenticate using 'aws login'.` No new AWS inspection command was issued after that result; an attempt to close the old SSM stream returned a broken pipe.
+AWS_BOOTSTRAP_PROFILE = `bitcoin-trader-bootstrap`; auth method is AWS CLI login-session cache; AUTH_STATUS = EXPIRED
+AWS_PROVISIONER_PROFILE = `bitcoin-trader-provisioner`; role chaining from bootstrap via `bitcoin-trader-terraform-provisioner`; AUTH_STATUS = EXPIRED
+AWS_LOGIN_CACHE = PRESENT at persistent `~/.aws/login/cache`; cache contents were not read or exposed
+AWS_STATIC_PROFILE_CREDENTIAL_FIELDS = absent; no credential or profile mutation
+AWS_LOGIN_REAUTH_REQUIRED = YES, bootstrap profile only: `aws login --profile bitcoin-trader-bootstrap`
+AUTHORIZATION_DENIALS = GetCommandInvocation was explicitly AccessDenied when authentication was valid earlier; SendCommand simulation was inconclusive (`implicitDeny` with required context missing). These are not authentication-expiry signals.
+GUEST_ACCESS_PATH = Interactive SSM StartSession succeeded earlier for `i-008bc503c1136349f`; the session later closed with a broken pipe. Current availability is NOT VERIFIABLE until login is restored.
+STARTSESSION_PERMISSION = PASS at last valid-session check; current permission not rechecked
+SENDCOMMAND_PERMISSION = NOT VERIFIABLE; no need established because interactive StartSession worked and the repository's `scripts/ssm_exec.py` uses that route
+GETCOMMANDINVOCATION_PERMISSION = DENIED at last valid-session check
+IAM_CHANGE_REQUIRED = NO; do not broaden IAM and do not use another profile to route around the intended role
+
+AWS CLI login sessions use cached temporary credentials and refresh while the full login session is valid; AWS documents the default persistent cache as `~/.aws/login/cache` and requires `aws login` after full-session expiry ([AWS CLI sign-in](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html)). No static IAM credentials were created or recommended. The EC2 validation design attaches an instance profile/runtime role; the guest's earlier explicit STS identity was `assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f`. Therefore expiry of the local control-plane login by itself does not expire the already-running guest role ([AWS CLI credential provider chain](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-authentication.html)). No 30H runtime was launched.
+
+PROTECTED EVIDENCE
+------------------
+`test-results/.last-run.json` SHA-256 = `e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea` (verified unchanged). File and attached immutable snapshot were not modified.
+
+RUNTIME, IDENTITY, AND CAPACITY
+-------------------------------
+FINAL_RUNTIME = `b4d482363e2f988dad9c6d29053f97e1e4160883`
+FINAL_TREE = `5c96ed79fee107c1604ee7018621835910221fdf`
+The guest's shared base runtime path matched these values at the earlier valid-session inspection. Durable committed evidence supports the exact-runtime full-suite PASS (1,704 passed, 2 skipped, 181 subtests), witness E2E PASS, runtime S3 upload and exact-object read PASS, hash parity PASS, terminal auditor synthetic dry-run PASS, closed_at_utc idempotency PASS, and default-live safety PASS. This is reliability evidence only, not 30H completion, trading alpha, or production qualification.
+
+FINAL_RUN_ID = `aws-validation-observability-30h-run-20260928T125700Z-675937ab` — PROPOSED_ONLY
+FINAL_EPOCH = `aws-validation-observability-30h-20260928-20260928T125700Z-675937ab` — PROPOSED_ONLY
+The launch artifact code has no maximum age rule for this identity; its readiness capture must be within 900 seconds. The earlier guest check showed launch authorization false, actual start time null, candidate-specific paths absent, and no collision under the candidate prefix. Those identity/collision facts are now stale and must be rechecked after login. Do not mint a replacement or reuse any identity if it has been consumed.
+
+Last fresh capacity sample (now stale; collected before current login expiry): filesystem total 322,042,834,944 B, used 157,444,415,488 B, free 164,598,419,456 B; inode total 157,280,240, used 200,839, free 157,079,401; MemTotal 3,926,536 kB, MemAvailable 3,407,256 kB, swap 0. The same conservative model remains 1,217,418,119 B/hour raw peak × 30 plus 5,454,994,823 B non-raw = 41,977,538,393 B expected growth. That sample projected 122,620,881,063 B free (about 114.2 GiB), approximately 59.2 GiB over the 55 GiB target. It was a PASS at its capture time, but is not current evidence.
+RESOURCE_HEADROOM = NOT VERIFIABLE now; current filesystem, inode, and memory readings are required in the fresh window.
+
+READINESS GATE AND DECISION
+---------------------------
+READINESS_WINDOW = NOT STARTED; both profiles are expired, so no coherent 15-minute evidence capture was attempted.
+The last stored official gate run at 2026-09-28T13:44:12Z was FAIL: 35/36 checks passed and `terminal_auditor_dry_run` was NOT_VERIFIABLE. The valid offline synthetic audit was separately run at 2026-09-28T14:00:43Z and returned PASS with 20 checks; committed `terminal-audit.json` SHA-256 is `8310530ef53dc607eb00babace6b57c36ab611279cbe29ff1589297c0ed74f17`.
+AUDITOR_DRY_RUN = PASS (synthetic offline bundle only)
+REAL_30H_TERMINAL_AUDIT = NOT RUN
+CURRENT_GATE_EVIDENCE = stale; 0 current checks accepted as fresh
+CHECKS_PASS = 0 current/fresh; last stored snapshot had 35 PASS
+CHECKS_TOTAL = 36
+CHECKS_FAIL = 0 current/fresh; last stored gate result was FAIL
+CHECKS_NOT_VERIFIABLE = 36 current/fresh due to no current 15-minute bundle
+PRELAUNCH_GATE = NOT VERIFIABLE currently; last recorded gate result remains FAIL
+NEXT_30H_LAUNCH_READY = NO
+NEXT_30H_LAUNCHED = NO
+
+After the user restores the named bootstrap login, recheck both named identities and obtain current guest access. If StartSession remains available, collect the repository-controlled guest and AWS evidence through the approved interactive path and run all freshness-sensitive observations plus the authoritative 36-check gate in one 15-minute window. Do not treat a partial bundle as PASS. A separate exact-identity human GO remains required even if a later gate passes.
+
+SCIENTIFIC STATE
+----------------
+DATASET_QUALIFIED = NO
+RESEARCH_ROLE = EXPLORATORY_ONLY
+PROMOTION_ELIGIBLE = NO
+PROSPECTIVE_HOLDOUT_CONSUMED = NO
+ALPHA = UNPROVEN
+CANDIDATE_FROZEN = NO
+PAPER = NOT_STARTED
+LIVE = DISABLED
+PRIVATE_API = DISABLED
+
+TRUE_BLOCKERS
+-------------
+1. Both AWS named profiles report EXPIRED; bootstrap login must be restored before any current AWS/guest verification.
+2. Capacity, candidate-prefix collision state, guest process/unit state, and all 36 freshness-sensitive checks are stale or unavailable until one coherent 15-minute collection is run.
+3. The last official 36-check result remains FAIL; current PRELAUNCH_GATE is NOT VERIFIABLE, and readiness is NO. No launch is authorized by this session.
+
+USER_ACTION_REQUIRED = Run `aws login --profile bitcoin-trader-bootstrap` in the local authenticated AWS CLI environment, then resume the read-only recheck. Do not provide or configure static keys.
