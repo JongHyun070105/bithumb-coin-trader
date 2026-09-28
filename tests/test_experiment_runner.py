@@ -29,6 +29,7 @@ from bithumb_coin_trader.experiment_runner import (
     HoldoutContaminationError,
     LedgerTamperError,
     ExperimentGatingError,
+    TrialAlreadyTerminalError,
 )
 
 
@@ -312,9 +313,8 @@ def _try_reserve(ledger_path: str, trial_id: str, result_queue):
 def test_concurrent_reservation_same_trial_id(tmp_path):
     """Concurrent reservation of the same trial_id must produce exactly one success.
 
-    NOTE: This test uses threading (not multiprocessing) to simulate concurrency.
-    File-level locking is NOT implemented in this version (LIMITATION documented).
-    This test verifies at minimum that sequential re-reservation is rejected.
+    The runner uses a filesystem lock and persists reservations before returning.
+    This test verifies that a fresh runner sees the reservation and rejects a retry.
     """
     runner = GovernedExperimentRunner(tmp_path / "ledger.json")
     m = _make_manifest("concurrent_trial", max_trials=2)
@@ -391,13 +391,59 @@ def test_terminal_states_are_final(tmp_path):
             runner.update_trial_status(tid, TrialStatus.RUNNING)
 
 # --- P1.4: Ledger/Reservation Crash Window ---
-def test_crash_after_intent_recovery(tmp_path):
-    # This will be tested later or we can inject a monkeypatch
-    pass
+def test_crash_after_intent_recovery(tmp_path, monkeypatch):
+    ledger_file = tmp_path / "ledger.json"
+    runner = GovernedExperimentRunner(ledger_file)
+    manifest = _make_manifest("crash_after_intent")
+    runner.reserve_trial(manifest)
+    runner.update_trial_status(manifest.trial_id, TrialStatus.RUNNING)
 
-def test_crash_after_ledger_before_status_recovery(tmp_path):
-    # Hard to test without monkeypatch, we'll verify via code inspection.
-    pass
+    def fail_ledger_commit() -> None:
+        raise OSError("simulated crash after intent, before ledger commit")
+
+    monkeypatch.setattr(runner, "_save_ledger", fail_ledger_commit)
+    with pytest.raises(OSError, match="simulated crash"):
+        runner.record_trial(manifest, {"sharpe": 0.5})
+
+    intent = tmp_path / f"{manifest.trial_id}.intent"
+    assert intent.exists()
+    assert json.loads(ledger_file.read_text()) == []
+
+    recovered = GovernedExperimentRunner(ledger_file)
+    assert recovered._reservations[manifest.trial_id].status == TrialStatus.ABORTED
+    assert recovered.count_family_trials(manifest.family_id) == 1
+    assert not intent.exists()
+    with pytest.raises(ExperimentGatingError, match="already registered"):
+        recovered.reserve_trial(manifest)
+
+
+def test_crash_after_ledger_before_status_recovery(tmp_path, monkeypatch):
+    ledger_file = tmp_path / "ledger.json"
+    runner = GovernedExperimentRunner(ledger_file)
+    manifest = _make_manifest("crash_after_ledger")
+    runner.reserve_trial(manifest)
+    runner.update_trial_status(manifest.trial_id, TrialStatus.RUNNING)
+
+    def fail_reservation_commit() -> None:
+        raise OSError("simulated crash after ledger commit, before reservation status")
+
+    monkeypatch.setattr(runner, "_save_reservations", fail_reservation_commit)
+    with pytest.raises(OSError, match="simulated crash"):
+        runner.record_trial(manifest, {"sharpe": 0.75})
+
+    intent = tmp_path / f"{manifest.trial_id}.intent"
+    assert intent.exists()
+    assert json.loads(ledger_file.read_text())[0]["trial_id"] == manifest.trial_id
+    reservation = json.loads((tmp_path / "ledger.reservations.json").read_text())
+    assert reservation[0]["status"] == TrialStatus.RUNNING.value
+
+    recovered = GovernedExperimentRunner(ledger_file)
+    assert recovered.verify_ledger_chain()
+    assert len(recovered._entries) == 1
+    assert recovered._reservations[manifest.trial_id].status == TrialStatus.COMPLETED
+    assert not intent.exists()
+    with pytest.raises(TrialAlreadyTerminalError, match="terminal state"):
+        recovered.record_trial(manifest, {"sharpe": 999.0})
 
 # --- P1.5: File Locking / Concurrent Reservation ---
 def worker(q, ledger):
