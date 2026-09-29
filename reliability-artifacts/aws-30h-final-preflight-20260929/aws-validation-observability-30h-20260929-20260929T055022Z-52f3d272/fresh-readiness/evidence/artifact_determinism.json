@@ -1,0 +1,13 @@
+{
+  "compared_to_sealed_artifacts": true,
+  "differences": [],
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/artifact_determinism.json",
+    "command_log_sha256": "0375b5d6e0106e4fe97109c35730dc5d7647abe02d3a31f3a1869c9f98996d84",
+    "stdout_excerpt": "{\n  \"status\": \"PASS\",\n  \"runtime_commit\": \"b4d482363e2f988dad9c6d29053f97e1e4160883\",\n  \"runtime_tree_sha\": \"5c96ed79fee107c1604ee7018621835910221fdf\",\n  \"generated_dir\": \"/tmp/fresh30h-20260929-window-final-52f3d272b/determinism-independent\",\n  \"compared_to_sealed_artifacts\": true,\n  \"differences\": [],\n  \"generator_stdout\": \"Successfully generated and self-validated launch artifacts in: /tmp/fresh30h-20260929-window-final-52f3d272b/determinism-independent\\nEpoch: aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272\\nRun ID: aws-validation-observability-30h-run-20260929T055022Z-52f3d272\\nDuration: 108000s\\nConfig Fingerprint: 2b9ab0dfff8f6577bd794452c4d2e71ce461d64172c90d5f55e6a2ff16fd2567\\nSelf-validation: PASS\\n\"\n}\n"
+  },
+  "observed_at_utc": "2026-09-29T06:14:56.978180Z",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "status": "PASS"
+}

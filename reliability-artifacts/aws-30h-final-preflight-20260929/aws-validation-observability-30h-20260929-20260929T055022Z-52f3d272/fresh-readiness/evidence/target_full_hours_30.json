@@ -1,0 +1,12 @@
+{
+  "duration_seconds": 108000,
+  "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/target_full_hours_30.json",
+    "command_log_sha256": "e67b35ebfb4603ba51ba317719d5de32950fb0b72208bd945e4ed1d247efcf08"
+  },
+  "observed_at_utc": "2026-09-29T06:15:01.694336Z",
+  "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+  "status": "PASS",
+  "target_full_hours": 30
+}

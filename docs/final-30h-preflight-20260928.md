@@ -876,3 +876,84 @@ LIVE = DISABLED
 PRIVATE_API = DISABLED
 PROSPECTIVE_HOLDOUT_CONSUMED = NO
 ```
+
+## Five-blocker closure — 2026-09-29
+
+The 31/36 bundle above remains unchanged historical FAIL evidence and was
+committed and pushed before remediation. The old identity is retired; its
+`.iam-probe` object remains in place. A new exact identity was generated after
+all three remediation lanes were prepared:
+
+```text
+OLD_RUN_ID = aws-validation-observability-30h-run-20260928T125700Z-675937ab
+OLD_EPOCH = aws-validation-observability-30h-20260928-20260928T125700Z-675937ab
+OLD_IDENTITY_STATUS = RETIRED_PRELAUNCH
+REUSE_ALLOWED = NO
+
+NEW_FINAL_RUN_ID = aws-validation-observability-30h-run-20260929T055022Z-52f3d272
+NEW_FINAL_EPOCH = aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272
+NEW_FINAL_S3_PREFIX = market-data/temporary/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272
+NEW_FINAL_PREFIX_OBJECT_COUNT = 0
+
+FINAL_RUNTIME = b4d482363e2f988dad9c6d29053f97e1e4160883
+FINAL_TREE = 5c96ed79fee107c1604ee7018621835910221fdf
+CANONICAL_GUEST_RUNTIME_PATH = /var/lib/bitcoin-trader/runtime-worktrees/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272
+CANONICAL_RUNTIME_HEAD = b4d482363e2f988dad9c6d29053f97e1e4160883
+CANONICAL_RUNTIME_TREE = 5c96ed79fee107c1604ee7018621835910221fdf
+CANONICAL_RUNTIME_DIRTY = NO
+```
+
+The exact guest runtime worktree was prepared from the previously verified
+clean alternate checkout. No runtime source or commit changed. The proposed
+S3 prefix was checked with an exact, read-only listing and remains untouched.
+The preserved prior terminal smoke proves the runtime role's actual uploads;
+fresh guest-role `HeadObject` and `GetObject` reads of both exact receipt keys
+matched their local SHA-256 values.
+
+The pre-existing Option C audit path uses the approved guest runtime role for
+exact terminal-object reads. The existing design does not require the local
+provisioner identity to read those objects. The exact-read results identify
+`arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f`;
+no provisioner IAM change was required or applied.
+
+The fresh collection measured 190 seconds from earliest to latest observation
+and 302.748 seconds from its oldest observation to the final gate. Observation
+timestamps were not rewritten. All 36 checks passed, including the full suite
+run from a clean local Git worktree at the exact runtime commit/tree.
+
+```text
+CHECKS_TOTAL = 36
+CHECKS_PASS = 36
+CHECKS_FAIL = 0
+CHECKS_NOT_VERIFIABLE = 0
+REAL_COLLECTION_SPAN_SECONDS = 190
+OLDEST_EVIDENCE_AGE_AT_GATE = 302.748 seconds
+TIMESTAMPS_REWRITTEN = NO
+RUNTIME_FULL_SUITE = 1704 passed, 2 skipped, 181 subtests passed
+ARTIFACT_DETERMINISM = PASS
+PRELAUNCH_GATE = PASS
+NEXT_30H_LAUNCH_READY = YES
+NEXT_30H_LAUNCHED = NO
+```
+
+The first diagnostic gate invocation used the dirty report/evidence checkout
+as its runtime root and returned `runtime checkout is dirty`. That result is
+preserved in `gate-execution-initial-wrong-control-root.json` and
+`prelaunch-gate-output-initial-wrong-control-root.txt`. The final gate used the
+clean exact pinned runtime Git worktree and passed. Both invocations and the
+final evidence manifest are retained in the readiness bundle.
+
+Durable evidence is at
+`reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/fresh-readiness/`.
+The bundle has 44 manifest entries and all hashes verify. A separate exact-
+identity human GO remains mandatory before any 30-hour launch.
+
+```text
+ALPHA = UNPROVEN
+DATASET_QUALIFIED = NO
+CANDIDATE_FROZEN = NO
+PAPER = NOT_STARTED
+LIVE = DISABLED
+PRIVATE_API = DISABLED
+PROSPECTIVE_HOLDOUT_CONSUMED = NO
+```

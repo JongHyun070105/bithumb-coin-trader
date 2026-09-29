@@ -1,0 +1,2 @@
+PRELAUNCH_GATE=FAIL
+- runtime checkout is dirty

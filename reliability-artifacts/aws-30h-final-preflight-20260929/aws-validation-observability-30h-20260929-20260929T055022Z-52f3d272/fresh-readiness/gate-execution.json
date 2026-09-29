@@ -1,0 +1,16 @@
+{
+  "earliest_real_observation": "2026-09-29T06:14:56.748489Z",
+  "exit_code": 0,
+  "gate_executed_at_utc": "2026-09-29T06:19:59.496190Z",
+  "gate_started_at_utc": "2026-09-29T06:19:59.250465Z",
+  "initial_diagnostic": "gate-execution-initial-wrong-control-root.json and prelaunch-gate-output-initial-wrong-control-root.txt preserve the first invocation against the dirty report/evidence checkout",
+  "latest_real_observation": "2026-09-29T06:18:07.071301Z",
+  "oldest_evidence_age_at_gate_seconds": 302.748,
+  "output": "PRELAUNCH_GATE=PASS\nTechnical readiness evidence passed; separate exact-identity human GO is still required.\n",
+  "readiness_capture_age_at_gate_seconds": 76.451,
+  "real_collection_span_seconds": 190,
+  "runtime_repo_head": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_repo_root": "/tmp/fresh30h-20260929-window-final-52f3d272/runtime-b4-worktree",
+  "runtime_repo_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "timestamps_rewritten": "NO"
+}

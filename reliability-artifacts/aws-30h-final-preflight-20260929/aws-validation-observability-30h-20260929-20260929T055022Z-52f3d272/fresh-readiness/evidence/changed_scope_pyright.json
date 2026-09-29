@@ -1,0 +1,16 @@
+{
+  "errors": 0,
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/changed_scope_pyright.json",
+    "command_log_sha256": "93b4c7bb449315d25e352ae664717894eee86d60a50999156af848464cd90acd",
+    "stdout_excerpt": "0 errors, 0 warnings, 0 informations\n"
+  },
+  "exit_code": 0,
+  "informations": 0,
+  "observed_at_utc": "2026-09-29T06:14:59.148517Z",
+  "python_version": "3.11",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "status": "PASS",
+  "warnings": 0
+}

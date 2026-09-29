@@ -68,6 +68,12 @@ Before authorizing launch, verify ALL of the following:
 - [ ] `launch-command.json` exists and SHA256 = `8b6e7939dd01d028339d4f93be988e6e79fd9f815ac9a70d7c36c98ac9e042fc`
 
 ### 3.4 S3 Namespace
+- [ ] Any IAM write/read smoke probe uses a dedicated
+  `market-data/temporary/preflight-probe/<unique-probe-id>/` prefix or the
+  established witness smoke namespace. Never create `.iam-probe` or another
+  probe object under a candidate final run prefix; that prefix remains
+  untouched until launch/evidence production. The prelaunch collision check is
+  read-only and lists only the exact candidate prefix.
 - [ ] V4 prefix is empty: `aws s3api list-objects-v2 --bucket <bucket> --prefix market-data/temporary/aws-validation-30h-20260915-v4/ --query KeyCount` returns `0` or `null`
 
 ### 3.5 Authorization State

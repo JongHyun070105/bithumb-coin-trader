@@ -1,0 +1,29 @@
+{
+  "evidence": {
+    "command_log": {
+      "command": [
+        "cd",
+        "/tmp/fresh30h-20260929-window-final-52f3d272/runtime-b4-worktree",
+        "PYTHONPATH=src python3.14 -m pytest -q"
+      ],
+      "commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "exit_code": 0,
+      "name": "runtime_full_suite",
+      "observed_at_utc": "2026-09-29T06:18:07.071301Z",
+      "stdout_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/runtime-full-suite.log",
+      "stdout_log_sha256": "0c432392d2c18fcdc4a32334059cd3732c281f64c199bcc91c7d93814ca5c84a",
+      "stdout_summary": "1704 passed, 2 skipped, 181 subtests passed in 160.85s (0:02:40)",
+      "tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "worktree_status": "clean"
+    }
+  },
+  "execution_environment": "Python 3.14.6; local Git worktree at exact pinned runtime commit/tree",
+  "failures": 0,
+  "observed_at_utc": "2026-09-29T06:18:07.071301Z",
+  "passed_tests": 1704,
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "skipped_tests": 2,
+  "status": "PASS",
+  "subtests_passed": 181
+}
