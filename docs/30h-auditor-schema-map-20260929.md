@@ -12,6 +12,16 @@ The machine-readable, per-check field map is `30h-auditor-schema-map-20260929.js
 - `terminal_witness.py` sets `s3_uploaded=true` and writes those bytes before the stable `put_object` completes. A live terminal PASS must be independently verified by exact S3 GET, byte/hash parity and a captured `VersionId`.
 - The original evidence hash index proves only that listed files match listed hashes. It does not prove completeness or authenticity if an editor changes a file and regenerates the index.
 - The publisher supervisor accepts `-SIGTERM` only when it stops the publisher after collector completion; the original auditor requires all component exits to equal zero.
+- The opening cohort is always `TOUCHED_PARTIAL` in `FeedHourCoverageTracker`, even for exact `:00` starts. The current duration-only run therefore derives 29 full hours at `:00`, `:01`, `:34`, and `:59`; the sealed V3 schedule's different 30-hour contract is not used.
+- The final collector end is not directly written into `result.json`: `result.ended_at` is the supervisor's later end after child shutdown/finalization. The amended bundle therefore derives start/end from frozen coverage journals, labels that interval `RECONSTRUCTED_OBSERVATION`, and cross-checks supervisor/systemd envelopes and the native collector metrics start.
+- Bithumb physical connection metrics are emitted as named source states (for example `primary` / `secondary` = `CONNECTED`), not as an `active_count`; the v2 adapter counts the current schema directly.
+- The 00:30 KST AWS checkpoint returned `InvalidClientTokenId`; no SSM call or retry followed. Live health values at that checkpoint are `NOT_VERIFIABLE`.
+
+## Amended v2 producer map
+
+The machine-readable `amended_v2_checks` list covers every check in `scripts/audit_fresh_30h_terminal_v2.py`, with one mismatch class per entry. V2 requires exact journal-linked cohort bounds, checks the full and partial journal set, types receipt durability, validates a complete read-only S3 prefix listing, and requires exact terminal GetObject metadata and VersionId. Missing required evidence is `NOT_VERIFIABLE`; contradictory bytes, hashes, identities, run units, receipt scopes, unexpected S3 keys or confirmed absence is `FAIL`.
+
+V2 now requires an externally anchored `Fresh30HTerminalCapture` manifest covering every terminal payload, including raw source journals and S3 readback bytes. Rebuilding the local bundle index cannot re-anchor an edited terminal source. The target adversarial suite passes 44 tests after adding capture-provenance, exact 76-feed/2204-slot, missing-unit, inflated-journal, wrong-target, multiple-unknown, and repeated-observation cases. These are offline contract tests; they do not certify the live collector or make a terminal run verdict.
 
 ## Source evidence
 
