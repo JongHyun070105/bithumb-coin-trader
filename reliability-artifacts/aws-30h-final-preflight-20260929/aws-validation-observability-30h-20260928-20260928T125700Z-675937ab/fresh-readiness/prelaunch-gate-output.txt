@@ -1,0 +1,7 @@
+PRELAUNCH_GATE=FAIL
+- readiness check is not PASS: auditor_get_exact_witness
+- readiness check is not PASS: auditor_get_exact_receipt
+- readiness check is not PASS: auditor_head_exact_objects
+- readiness check is not PASS: runtime_commit_on_guest
+- readiness check is not PASS: s3_prefix_not_reused
+- s3_prefix_not_reused must explicitly attest prefix_exists=false

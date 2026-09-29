@@ -1,0 +1,26 @@
+{
+  "boto3": "1.43.86",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "python3",
+        "scripts/ssm_exec.py",
+        "sudo -n systemctl show --property=LoadState,ActiveState,SubState bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf.service; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse HEAD; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse 'HEAD^{tree}'; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 status --porcelain --untracked-files=all; sudo -n -u bitcoin-trader env PYTHONPATH=/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823/src /var/lib/bitcoin-trader/venv-pre-soak/bin/python -c 'import sys,websockets,zstandard,boto3;print(\"PYTHON=\"+sys.version.split()[0]);print(\"WEBSOCKETS=\"+websockets.__version__);print(\"ZSTANDARD=\"+zstandard.__version__);print(\"BOTO3=\"+boto3.__version__)'"
+      ],
+      "exit_code": 0,
+      "name": "guest_runtime_and_smoke_unit_probe",
+      "observed_at_utc": "2026-09-29T05:17:45.366757Z",
+      "started_at_utc": "2026-09-29T05:17:37.675814Z",
+      "stdout": "=== sudo -n systemctl show --property=LoadState,ActiveState,SubState bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf.service; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse HEAD; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse 'HEAD^{tree}'; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 status --porcelain --untracked-files=all; sudo -n -u bitcoin-trader env PYTHONPATH=/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823/src /var/lib/bitcoin-trader/venv-pre-soak/bin/python -c 'import sys,websockets,zstandard,boto3;print(\"PYTHON=\"+sys.version.split()[0]);print(\"WEBSOCKETS=\"+websockets.__version__);print(\"ZSTANDARD=\"+zstandard.__version__);print(\"BOTO3=\"+boto3.__version__)' ===\nsh-5.2$ sudo -n systemctl show --property=LoadState,ActiveState,SubState bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf.service; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse HEAD; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 rev-parse 'HEAD^{tree}'; sudo -n -u bitcoin-trader /usr/bin/git -C /var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823 status --porcelain --untracked-files=all; sudo -n -u bitcoin-trader env PYTHONPATH=/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823/src /var/lib/bitcoin-trader/venv-pre-soak/bin/python -c 'import sys,websockets,zstandard,boto3;print(\"PYTHON=\"+sys.version.split()[0]);print(\"WEBSOCKETS=\"+websockets.__version__);print(\"ZSTANDARD=\"+zstandard.__version__);print(\"BOTO3=\"+boto3.__version__)'\n\n\u001b=\nLoadState=not-found\nActiveState=inactive\nSubState=dead\n\n\u001b>b4d482363e2f988dad9c6d29053f97e1e4160883\n5c96ed79fee107c1604ee7018621835910221fdf\nPYTHON=3.11.16\nWEBSOCKETS=15.0.1\nZSTANDARD=0.25.0\nBOTO3=1.43.86\nsh-5.2$ echo\n"
+    }
+  },
+  "matching_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823",
+  "observed_at_utc": "2026-09-29T05:17:45.366757Z",
+  "python": "3.11.16",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "status": "PASS",
+  "websockets": "15.0.1",
+  "zstandard": "0.25.0"
+}

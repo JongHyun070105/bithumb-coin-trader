@@ -1,0 +1,12 @@
+{
+  "earliest_real_observation": "2026-09-29T05:16:58.864609Z",
+  "exit_code": 1,
+  "gate_executed_at_utc": "2026-09-29T05:27:51.401202Z",
+  "gate_started_at_utc": "2026-09-29T05:27:51.181011Z",
+  "latest_real_observation": "2026-09-29T05:23:46.526943Z",
+  "oldest_evidence_age_at_gate_seconds": 652.537,
+  "output": "PRELAUNCH_GATE=FAIL\n- readiness check is not PASS: auditor_get_exact_witness\n- readiness check is not PASS: auditor_get_exact_receipt\n- readiness check is not PASS: auditor_head_exact_objects\n- readiness check is not PASS: runtime_commit_on_guest\n- readiness check is not PASS: s3_prefix_not_reused\n- s3_prefix_not_reused must explicitly attest prefix_exists=false\n",
+  "readiness_capture_age_at_gate_seconds": 0.232,
+  "real_collection_span_seconds": 407,
+  "timestamps_rewritten": "NO"
+}

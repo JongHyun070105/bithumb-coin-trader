@@ -1,0 +1,21 @@
+{
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "git diff --check"
+      ],
+      "exit_code": 0,
+      "name": "git_diff_check",
+      "observed_at_utc": "2026-09-29T05:18:15.088056Z",
+      "started_at_utc": "2026-09-29T05:18:14.665371Z",
+      "stdout": ""
+    }
+  },
+  "exit_code": 0,
+  "observed_at_utc": "2026-09-29T05:18:15.088056Z",
+  "repository": "target worktree",
+  "status": "PASS"
+}

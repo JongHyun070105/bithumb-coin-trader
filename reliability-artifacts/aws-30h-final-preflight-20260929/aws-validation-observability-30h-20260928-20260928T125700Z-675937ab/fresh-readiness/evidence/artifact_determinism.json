@@ -1,0 +1,23 @@
+{
+  "compared_to_sealed_artifacts": true,
+  "differences": [],
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "python3.14 /tmp/fresh30h-20260929-prep-a90f8cfebe/check_artifact_determinism.py /Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab /tmp/fresh30h-20260929-prep-a90f8cfebe/determinism-window2"
+      ],
+      "exit_code": 0,
+      "name": "artifact_determinism",
+      "observed_at_utc": "2026-09-29T05:18:15.767761Z",
+      "started_at_utc": "2026-09-29T05:18:14.666635Z",
+      "stdout": "{\n  \"status\": \"PASS\",\n  \"runtime_commit\": \"b4d482363e2f988dad9c6d29053f97e1e4160883\",\n  \"runtime_tree_sha\": \"5c96ed79fee107c1604ee7018621835910221fdf\",\n  \"generated_dir\": \"/tmp/fresh30h-20260929-prep-a90f8cfebe/determinism-window2\",\n  \"compared_to_sealed_artifacts\": true,\n  \"differences\": [],\n  \"generator_stdout\": \"Successfully generated and self-validated launch artifacts in: /tmp/fresh30h-20260929-prep-a90f8cfebe/determinism-window2\\nEpoch: aws-validation-observability-30h-20260928-20260928T125700Z-675937ab\\nRun ID: aws-validation-observability-30h-run-20260928T125700Z-675937ab\\nDuration: 108000s\\nConfig Fingerprint: 2b9ab0dfff8f6577bd794452c4d2e71ce461d64172c90d5f55e6a2ff16fd2567\\nSelf-validation: PASS\\n\"\n}\n"
+    }
+  },
+  "observed_at_utc": "2026-09-29T05:18:15.767761Z",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "status": "PASS"
+}

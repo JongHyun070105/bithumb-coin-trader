@@ -1,0 +1,38 @@
+{
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "s3api",
+        "list-objects-v2",
+        "--bucket",
+        "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "--prefix",
+        "market-data/temporary/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+        "--max-keys",
+        "1",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2",
+        "--query",
+        "{KeyCount:KeyCount,FirstKey:Contents[0].Key,FirstSize:Contents[0].Size,FirstLastModified:Contents[0].LastModified}",
+        "--output",
+        "json"
+      ],
+      "exit_code": 0,
+      "name": "sealed_s3_prefix_collision",
+      "observed_at_utc": "2026-09-29T05:16:58.864609Z",
+      "started_at_utc": "2026-09-29T05:16:57.649736Z",
+      "stdout": "{\n    \"KeyCount\": 1,\n    \"FirstKey\": \"market-data/temporary/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/.iam-probe\",\n    \"FirstSize\": 14,\n    \"FirstLastModified\": \"2026-09-29T02:36:14+00:00\"\n}\n"
+    }
+  },
+  "first_key": "market-data/temporary/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/.iam-probe",
+  "observed_at_utc": "2026-09-29T05:16:58.864609Z",
+  "prefix": "market-data/temporary/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+  "prefix_exists": true,
+  "status": "FAIL"
+}

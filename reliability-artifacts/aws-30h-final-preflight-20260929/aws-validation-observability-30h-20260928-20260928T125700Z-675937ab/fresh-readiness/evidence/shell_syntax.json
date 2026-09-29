@@ -1,0 +1,24 @@
+{
+  "checked": [
+    "launch.sh",
+    "launch-ec2.sh"
+  ],
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "bash -n reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/launch-ec2.sh reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/launch.sh"
+      ],
+      "exit_code": 0,
+      "name": "shell_syntax",
+      "observed_at_utc": "2026-09-29T05:18:15.085283Z",
+      "started_at_utc": "2026-09-29T05:18:14.738857Z",
+      "stdout": ""
+    }
+  },
+  "observed_at_utc": "2026-09-29T05:18:15.085283Z",
+  "parser": "bash -n",
+  "status": "PASS"
+}

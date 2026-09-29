@@ -806,3 +806,73 @@ remediation and fresh measurement, continue with a newly generated identity,
 all exact collision checks, deterministic final artifacts, final gate, and a
 new 15-minute readiness window. The long 30H launch still needs a separate
 explicit GO for that final exact identity.
+
+## Genuine fresh 36-check result — 2026-09-29
+
+This addendum records the first genuine fresh readiness bundle. It supersedes
+earlier statements that a complete bundle was absent, and does not change any
+historical runtime or terminal verdict.
+
+```text
+RUN_ID = aws-validation-observability-30h-run-20260928T125700Z-675937ab
+EPOCH = aws-validation-observability-30h-20260928-20260928T125700Z-675937ab
+IDENTITY_STATUS = RETIRED_PRELAUNCH
+REUSE_ALLOWED = NO
+
+CHECKS_TOTAL = 36
+CHECKS_PASS = 31
+CHECKS_FAIL = 5
+CHECKS_NOT_VERIFIABLE = 0
+
+REAL_COLLECTION_SPAN_SECONDS = 407
+OLDEST_EVIDENCE_AGE_AT_GATE = 652.537 seconds
+TIMESTAMPS_REWRITTEN = NO
+
+PRELAUNCH_GATE = FAIL
+NEXT_30H_LAUNCH_READY = NO
+NEXT_30H_LAUNCHED = NO
+```
+
+The original 43-file bundle is preserved at
+`reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/fresh-readiness/`.
+All 42 entries in `SHA256SUMS.txt` verified against their files. The manifest,
+gate output, evidence JSON, and captured observation timestamps are retained as
+collected; the evidence bundle was not edited or retimestamped.
+
+The five failures are the three remediation lanes for the next identity:
+
+```text
+LANE A — auditor exact-object read path
+  auditor_get_exact_witness = FAIL
+  auditor_get_exact_receipt = FAIL
+  auditor_head_exact_objects = FAIL
+  Observed identity: bitcoin-trader-terraform-provisioner session role.
+  The prior smoke evidence and this report's established Option C design use
+  the guest runtime role for exact retrieval; do not broaden provisioner IAM.
+
+LANE B — configured canonical guest runtime worktree
+  runtime_commit_on_guest = FAIL
+  The identity-configured path was absent. The collected evidence records an
+  alternate worktree at the exact sealed runtime commit/tree, clean.
+
+LANE C — contaminated proposed S3 prefix
+  s3_prefix_not_reused = FAIL
+  The exact prefix already contains `.iam-probe`. Retire this identity; keep
+  that object and do not reuse or clean the prefix.
+```
+
+The runtime remains commit `b4d482363e2f988dad9c6d29053f97e1e4160883`, tree
+`5c96ed79fee107c1604ee7018621835910221fdf`. No runtime source, IAM policy,
+AWS resource, or S3 object was changed to record this result. A different exact
+identity is required after the three remediation paths are prepared. No 30-hour
+run was launched; a separate exact-identity human GO remains mandatory.
+
+```text
+ALPHA = UNPROVEN
+DATASET_QUALIFIED = NO
+CANDIDATE_FROZEN = NO
+PAPER = NOT_STARTED
+LIVE = DISABLED
+PRIVATE_API = DISABLED
+PROSPECTIVE_HOLDOUT_CONSUMED = NO
+```

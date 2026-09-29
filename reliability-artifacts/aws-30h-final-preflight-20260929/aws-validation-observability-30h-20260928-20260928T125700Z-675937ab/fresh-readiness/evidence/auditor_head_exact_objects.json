@@ -1,0 +1,58 @@
+{
+  "access_denied": true,
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "s3api",
+        "head-object",
+        "--bucket",
+        "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "--key",
+        "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2"
+      ],
+      "exit_code": 254,
+      "name": "auditor_head_exact_objects",
+      "observed_at_utc": "2026-09-29T05:23:28.519496Z",
+      "started_at_utc": "2026-09-29T05:23:26.955414Z",
+      "stdout": "\naws: [ERROR]: An error occurred (403) when calling the HeadObject operation: Forbidden\n"
+    },
+    "timestamped_head_command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "s3api",
+        "head-object",
+        "--bucket",
+        "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "--key",
+        "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2"
+      ],
+      "exit_code": 254,
+      "name": "auditor_head_exact_timestamped",
+      "observed_at_utc": "2026-09-29T05:23:30.011447Z",
+      "started_at_utc": "2026-09-29T05:23:28.578739Z",
+      "stdout": "\naws: [ERROR]: An error occurred (403) when calling the HeadObject operation: Forbidden\n"
+    }
+  },
+  "keys": [
+    "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+    "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json"
+  ],
+  "observed_at_utc": "2026-09-29T05:23:28.519496Z",
+  "operation": "HeadObject",
+  "stable_exit_code": 254,
+  "status": "FAIL",
+  "timestamped_exit_code": 254
+}

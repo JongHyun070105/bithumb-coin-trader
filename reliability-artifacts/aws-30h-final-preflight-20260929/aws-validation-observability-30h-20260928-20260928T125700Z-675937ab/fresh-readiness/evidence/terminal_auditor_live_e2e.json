@@ -1,0 +1,27 @@
+{
+  "audit_overall_status": "NOT_VERIFIABLE",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "python3.14",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/build_live_smoke_audit.py",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/smoke2-20260929T051243Z-150e7caf/smoke-artifacts",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/remote-smoke-inputs",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/remote-smoke-inputs/local-witness.json",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/live-smoke-audit-output"
+      ],
+      "exit_code": 0,
+      "name": "terminal_auditor_live_e2e",
+      "observed_at_utc": "2026-09-29T05:23:46.526943Z",
+      "started_at_utc": "2026-09-29T05:23:46.402565Z",
+      "stdout": "OVERALL_STATUS=NOT_VERIFIABLE\nJSON=/private/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/live-smoke-audit-output/fresh-30h-v3-aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf-20260929T052346.514497Z/terminal-audit.json\nREPORT=/private/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/live-smoke-audit-output/fresh-30h-v3-aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf-20260929T052346.514497Z/terminal-audit.md\nAUDITOR_EXIT=2\nLIVE_IDENTITY_AND_WITNESS_CHECKS={\"runtime_identity\": \"PASS\", \"terminal_witness\": \"PASS\"}\nLIVE_AUDITOR_OVERALL_STATUS=NOT_VERIFIABLE\n"
+    }
+  },
+  "observed_at_utc": "2026-09-29T05:23:46.526943Z",
+  "runtime_identity_status": "PASS",
+  "scope": "identity and terminal witness only; this 120-second smoke is not a 30-hour completion verdict",
+  "status": "PASS",
+  "terminal_witness_status": "PASS"
+}
