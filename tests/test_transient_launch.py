@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -77,7 +78,7 @@ class TransientLaunchTests(unittest.TestCase):
                 self.assertIn(f"--property=RuntimeMaxSec={runtime_max}s", command)
 
     def test_renderer_rejects_unapproved_production_duration_and_unsafe_run_id(self) -> None:
-        expected_duration_error = "production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds"
+        expected_duration_error = "production supervisor duration must be 2700, 5400, 7200, 10800, 21600, 108000, 259200, or the sealed 120-second witness smoke"
         for duration in (2699, 5000, 108001, 3600):
             with self.subTest(duration=duration):
                 with self.assertRaisesRegex(ValueError, expected_duration_error):
@@ -103,6 +104,17 @@ class TransientLaunchTests(unittest.TestCase):
                     finalization_timeout_seconds=120,
                     supervisor_hard_ceiling_seconds=2820,
                     systemd_runtime_max_seconds=2880,
+                )
+                )
+
+    def test_renderer_rejects_missing_collection_duration_before_ceiling_check(self) -> None:
+        with self.assertRaisesRegex(ValueError, "collection_duration_seconds is required"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="safe-run",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "runner.py"),
+                    collection_duration_seconds=None,
                 )
             )
 
@@ -273,7 +285,7 @@ class TransientLaunchTests(unittest.TestCase):
 
         # Arbitrary unapproved launcher duration fails closed
         unapproved_cmd = json.dumps(["python", "run.py", "--collection-duration-seconds", "5000"])
-        with self.assertRaisesRegex(ValueError, "production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds"):
+        with self.assertRaisesRegex(ValueError, "production supervisor duration must be 2700, 5400, 7200, 10800, 21600, 108000, 259200, or the sealed 120-second witness smoke"):
             launch_transient_main([
                 "--run-id", "aws-30h-run-20260912",
                 "--workdir", "/opt/bitcoin-trader",
@@ -416,22 +428,31 @@ class TransientLaunchTests(unittest.TestCase):
             finalization_timeout_seconds=120,
             supervisor_hard_ceiling_seconds=111720,
             systemd_runtime_max_seconds=111800,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
             exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
             data_dir=Path("/var/lib/bitcoin-trader/30h-validation/exact-epoch"),
             exec_stop_post_epoch="aws-validation-observability-30h-20260926-20260926T135000Z-v3",
             exec_stop_post_s3_bucket="receipt-bucket",
             exec_stop_post_s3_prefix="market-data/temporary/aws-validation-observability-30h/exact-epoch",
+            exec_stop_post_s3_region="ap-northeast-2",
             exec_stop_post_allow_s3_write=True,
         )
 
         command = render_systemd_run(cfg)
         exec_stop_post = next(part for part in command if "ExecStopPost" in part)
 
+        self.assertTrue(
+            exec_stop_post.startswith(
+                "--property=ExecStopPost=/opt/bitcoin-trader/.venv/bin/python "
+                "/opt/bitcoin-trader/scripts/terminal_witness.py"
+            )
+        )
         self.assertIn("--epoch=aws-validation-observability-30h-20260926-20260926T135000Z-v3", exec_stop_post)
         self.assertNotIn("--epoch=bitcoin-trader-30h", exec_stop_post)
         self.assertIn("--run-id=aws-validation-observability-30h-run-20260926T135000Z-v3", exec_stop_post)
         self.assertIn("--s3-bucket=receipt-bucket", exec_stop_post)
         self.assertIn("--s3-prefix=market-data/temporary/aws-validation-observability-30h/exact-epoch", exec_stop_post)
+        self.assertIn("--s3-region=ap-northeast-2", exec_stop_post)
         self.assertIn("--allow-s3-write", exec_stop_post)
 
     def test_exec_stop_post_requires_an_exact_epoch(self) -> None:
@@ -459,11 +480,13 @@ class TransientLaunchTests(unittest.TestCase):
             "--qualification-schedule-path", "/var/lib/bitcoin-trader/schedule.json",
             "--supervisor-hard-ceiling-seconds", "111720",
             "--systemd-runtime-max-seconds", "111800",
+            "--exec-stop-post-python", "/opt/bitcoin-trader/.venv/bin/python",
             "--exec-stop-post-script", "/opt/bitcoin-trader/scripts/terminal_witness.py",
             "--data-dir", "/var/lib/bitcoin-trader/30h-validation/exact-epoch",
             "--exec-stop-post-epoch", "aws-validation-observability-30h-20260926-20260926T135000Z-v3",
             "--exec-stop-post-s3-bucket", "receipt-bucket",
             "--exec-stop-post-s3-prefix", "market-data/temporary/aws-validation-observability-30h/exact-epoch",
+            "--exec-stop-post-s3-region", "ap-northeast-2",
             "--exec-stop-post-allow-s3-write",
         ]
 
@@ -475,7 +498,94 @@ class TransientLaunchTests(unittest.TestCase):
         self.assertIn("--epoch=aws-validation-observability-30h-20260926-20260926T135000Z-v3", rendered)
         self.assertIn("--s3-bucket=receipt-bucket", rendered)
         self.assertIn("--s3-prefix=market-data/temporary/aws-validation-observability-30h/exact-epoch", rendered)
+        self.assertIn("--s3-region=ap-northeast-2", rendered)
         self.assertIn("--allow-s3-write", rendered)
+        self.assertIn(
+            "ExecStopPost=/opt/bitcoin-trader/.venv/bin/python "
+            "/opt/bitcoin-trader/scripts/terminal_witness.py",
+            rendered,
+        )
+
+    def test_exec_stop_post_rejects_missing_upload_contract_fields(self) -> None:
+        base = dict(
+            run_id="smoke-run",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            collection_duration_seconds=2700,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=2820,
+            systemd_runtime_max_seconds=2880,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
+            exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
+            exec_stop_post_epoch="aws-validation-smoke-epoch",
+            exec_stop_post_s3_bucket="receipt-bucket",
+            exec_stop_post_s3_prefix="market-data/temporary/aws-validation-smoke-epoch",
+            exec_stop_post_s3_region="ap-northeast-2",
+            exec_stop_post_allow_s3_write=True,
+        )
+        cases = [
+            ({"exec_stop_post_python": None}, "explicit Python interpreter"),
+            ({"exec_stop_post_allow_s3_write": False}, "explicitly enabled"),
+            ({"exec_stop_post_s3_bucket": None}, "valid bucket"),
+            ({"exec_stop_post_s3_prefix": None}, "valid prefix"),
+            ({"exec_stop_post_s3_region": None}, "explicit AWS region"),
+            ({"exec_stop_post_epoch": None}, "exact epoch"),
+            ({"exec_stop_post_s3_prefix": "market-data/temporary/../wrong"}, "dot path segments"),
+        ]
+        for changes, expected in cases:
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(ValueError, expected):
+                    render_systemd_run(TransientLaunchConfig(**{**base, **changes}))
+
+    def test_exec_stop_post_accepts_slashes_and_long_identity_but_rejects_shell_syntax(self) -> None:
+        long_epoch = "aws-validation-witness-e2e-smoke-20260928T043700Z-v1-" + "x" * 60
+        base: dict[str, Any] = dict(
+            run_id="aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1",
+            workdir=Path("/opt/bitcoin-trader"),
+            supervisor_command=("python", "run.py"),
+            collection_duration_seconds=120,
+            finalization_timeout_seconds=120,
+            supervisor_hard_ceiling_seconds=240,
+            systemd_runtime_max_seconds=300,
+            exec_stop_post_python="/opt/bitcoin-trader/.venv/bin/python",
+            exec_stop_post_script="/opt/bitcoin-trader/scripts/terminal_witness.py",
+            data_dir=Path("/var/lib/bitcoin-trader/witness-e2e-smoke"),
+            exec_stop_post_epoch=long_epoch,
+            exec_stop_post_s3_bucket="receipt-bucket",
+            exec_stop_post_s3_prefix=f"market-data/temporary/{long_epoch}",
+            exec_stop_post_s3_region="ap-northeast-2",
+            exec_stop_post_allow_s3_write=True,
+        )
+        command = render_systemd_run(TransientLaunchConfig(**base))
+        property_value = next(token for token in command if token.startswith("--property=ExecStopPost="))
+        self.assertIn(f"--epoch={long_epoch}", property_value)
+        self.assertIn(f"--s3-prefix=market-data/temporary/{long_epoch}", property_value)
+        self.assertIn("--s3-region=ap-northeast-2", property_value)
+        self.assertIn("--unit=bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1.service", command)
+
+        for field, value in (
+            ("exec_stop_post_epoch", "unsafe;$(touch /tmp/no)"),
+            ("exec_stop_post_s3_prefix", 'market-data/temporary/";touch /tmp/no'),
+            ("exec_stop_post_script", "/opt/bad path/witness.py"),
+            ("exec_stop_post_python", "/opt/bad path/python"),
+        ):
+            with self.subTest(field=field):
+                with self.assertRaises(ValueError):
+                    render_systemd_run(TransientLaunchConfig(**{**base, field: value}))
+
+    def test_120_second_duration_is_reserved_for_bound_witness_smoke_identity(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sealed 120-second witness smoke"):
+            render_systemd_run(
+                TransientLaunchConfig(
+                    run_id="ordinary-run",
+                    workdir=Path("/opt/bitcoin-trader"),
+                    supervisor_command=("python", "run.py"),
+                    collection_duration_seconds=120,
+                    finalization_timeout_seconds=120,
+                    supervisor_hard_ceiling_seconds=240,
+                    systemd_runtime_max_seconds=300,
+                )
+            )
 
 
 if __name__ == "__main__":

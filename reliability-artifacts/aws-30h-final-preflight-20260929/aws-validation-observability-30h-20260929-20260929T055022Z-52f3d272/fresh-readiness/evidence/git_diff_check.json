@@ -1,0 +1,11 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/git_diff_check.json",
+    "command_log_sha256": "d405855ec09c9649e45c45ec1b366ef8533afa3d75e23ace56a74d1955863690",
+    "stdout_excerpt": ""
+  },
+  "exit_code": 0,
+  "observed_at_utc": "2026-09-29T06:14:56.748489Z",
+  "repository": "target worktree",
+  "status": "PASS"
+}

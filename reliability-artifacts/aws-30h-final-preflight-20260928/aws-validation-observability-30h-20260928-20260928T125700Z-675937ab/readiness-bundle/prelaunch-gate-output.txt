@@ -1,0 +1,7 @@
+Captured at UTC: 2026-09-28T13:44:12Z
+Command:
+python3 scripts/final_30h_prelaunch_gate.py --repo-root /Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader --artifacts-dir reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab --readiness-evidence reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/readiness-bundle/readiness-evidence.json
+
+PRELAUNCH_GATE=FAIL
+- readiness check is not PASS: terminal_auditor_dry_run
+exit_status=1

@@ -1,0 +1,101 @@
+{
+  "artifact_validation": {
+    "authorization": {
+      "actual_start_time_utc": null,
+      "epoch": "aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+      "launch_authorized": false,
+      "run_id": "aws-validation-observability-30h-run-20260928T125700Z-675937ab",
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "schema_version": 1,
+      "status": "PREPARED_NOT_AUTHORIZED"
+    },
+    "determinism": "PASS; independent generation had identical identity/runtime/launch semantics and identical runtime/launch artifact hashes; only sealed_at_utc and its derived manifest hash varied",
+    "sealed_manifest": "/Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader/reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/sealed-manifest.json"
+  },
+  "captured_at_utc": "2026-09-28T13:29:22Z",
+  "generated_at_utc": "2026-09-28T13:42:09.399859+00:00",
+  "guest_identity_conflict_checks": {
+    "artifact_root_exists": false,
+    "data_root_exists": false,
+    "epoch_exists": false,
+    "guest_evidence_dir_exists": false,
+    "historical_helpers": "two units active/exited; Result=success; Restart=no; MainPID=0; preserved",
+    "historical_observer": "PID 1652530; separate 2026-09-26 FAIL epoch; active/running; preserved",
+    "matching_final_id_process_count": 0,
+    "observer_unit": "LoadState=not-found; ActiveState=inactive; SubState=dead",
+    "run_id_exists": false,
+    "runtime_worktree_exists": false,
+    "transient_unit": "LoadState=not-found; ActiveState=inactive; SubState=dead"
+  },
+  "identity": {
+    "duration_seconds": 108000,
+    "epoch": "aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+    "run_id": "aws-validation-observability-30h-run-20260928T125700Z-675937ab",
+    "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+    "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+    "target_full_hours": 30
+  },
+  "monitor_window": {
+    "collector_started": false,
+    "disk_free_last_bytes": 164599357440,
+    "disk_free_start_bytes": 164598652928,
+    "ec2": "running; instance/system checks ok",
+    "last_sample_utc": "2026-09-28T13:29:22Z",
+    "observer_changes": "none observed",
+    "ssm": "Online; agent 3.3.4624.0",
+    "start_utc": "2026-09-28T13:10:27Z"
+  },
+  "protected_test_results_sha256": "e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea",
+  "resource": {
+    "filesystem_total_bytes": 322042834944,
+    "free_bytes": 164599357440,
+    "growth_30h_bytes": 41977538393,
+    "growth_hourly_raw_peak_bytes": 1217418119,
+    "growth_nonraw_run_bytes": 5454994823,
+    "inodes_total": 157280240,
+    "inodes_used": 200831,
+    "memory_available_kib": 3422876,
+    "minimum_user_reserve_bytes": 59055800320,
+    "projected_postrun_free_bytes": 122621819047,
+    "source": "read-only guest df/meminfo snapshot 2026-09-28T13:29:22Z; conservative model from final-preflight report",
+    "swap_total_kib": 0
+  },
+  "runtime_validation": {
+    "changed_scope_pyright": "0 errors; 0 warnings; 0 informations",
+    "compileall": "PASS",
+    "full_suite": "1704 passed; 2 skipped; 181 subtests; zero failures, as recorded in final preflight report",
+    "git_diff_check": "PASS",
+    "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+    "runtime_python": "/var/lib/bitcoin-trader/venv-pre-soak/bin/python",
+    "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+    "shell_syntax": "PASS",
+    "source_report": "/Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader/docs/final-30h-preflight-20260928.md",
+    "source_report_sha256": "de3c5775a7e212b6334eb0bfaf7a19bd56623f5795ccbaaf3974d92e2946be75"
+  },
+  "s3_collision": {
+    "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+    "checked_by": "read-only bitcoin-trader-provisioner profile using exact-prefix ListObjectsV2; guest runtime role lacks ListBucket",
+    "key_count": 0,
+    "prefix": "market-data/temporary/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+    "prefix_exists": false
+  },
+  "schema_version": 1,
+  "smoke_summary": {
+    "auditor_identity": "PASS",
+    "auditor_terminal_witness": "PASS",
+    "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+    "epoch": "aws-validation-witness-e2e-smoke-20260928T060612Z-3aa9f841",
+    "exit_status": 0,
+    "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260928T060612Z-3aa9f841/terminal/terminal-receipt.json",
+    "local_remote_hash_parity": true,
+    "prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260928T060612Z-3aa9f841",
+    "receipt_sha256": "d761a975880f0d6fd3d7d33a275b40e2b880e31db485da0c757c6a3ac35288d9",
+    "run_id": "aws-validation-witness-e2e-smoke-run-20260928T060612Z-3aa9f841",
+    "s3_uploaded": true,
+    "scope": "dedicated 120-second witness smoke; not 30-hour validation",
+    "terminal_classification": "CLEAN_SUCCESS"
+  },
+  "unresolved": {
+    "terminal_auditor_dry_run": "NOT_VERIFIABLE: no separately captured dry-run execution evidence was found; offline malformed-witness tests are not substituted for this required check."
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "python3.14 /tmp/fresh30h-20260929-prep-a90f8cfebe/run_auditor_dry_run.py /tmp/fresh30h-20260929-prep-a90f8cfebe /Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader fresh-window2-offline-dryrun"
+      ],
+      "exit_code": 0,
+      "name": "terminal_auditor_dry_run",
+      "observed_at_utc": "2026-09-29T05:18:15.723642Z",
+      "started_at_utc": "2026-09-29T05:18:14.707411Z",
+      "stdout": "FIXTURE_AUDIT_EXIT=0\nOVERALL_STATUS=PASS\nJSON=/private/tmp/fresh30h-20260929-prep-a90f8cfebe/fresh-window2-offline-dryrun-output/fresh-30h-v3-fresh-30h-v3-test-20260929T051815.563689Z/terminal-audit.json\nREPORT=/private/tmp/fresh30h-20260929-prep-a90f8cfebe/fresh-window2-offline-dryrun-output/fresh-30h-v3-fresh-30h-v3-test-20260929T051815.563689Z/terminal-audit.md\n"
+    }
+  },
+  "exit_code": 0,
+  "fixture_only": true,
+  "observed_at_utc": "2026-09-29T05:18:15.723642Z",
+  "overall_status": "PASS",
+  "status": "PASS"
+}

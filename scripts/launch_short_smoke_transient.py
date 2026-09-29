@@ -80,11 +80,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--finalization-timeout-seconds", type=int, default=120)
     parser.add_argument("--supervisor-hard-ceiling-seconds", type=int, default=2820)
     parser.add_argument("--systemd-runtime-max-seconds", type=int, default=2880)
+    parser.add_argument("--exec-stop-post-python", type=str, default=None)
     parser.add_argument("--exec-stop-post-script", type=str, default=None)
     parser.add_argument("--data-dir", type=Path, default=None)
     parser.add_argument("--exec-stop-post-epoch", type=str, default=None)
     parser.add_argument("--exec-stop-post-s3-bucket", type=str, default=None)
     parser.add_argument("--exec-stop-post-s3-prefix", type=str, default=None)
+    parser.add_argument("--exec-stop-post-s3-region", type=str, default=None)
     parser.add_argument("--exec-stop-post-allow-s3-write", action="store_true")
     parser.add_argument("--launch", action="store_true")
 
@@ -126,11 +128,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             finalization_timeout_seconds=args.finalization_timeout_seconds,
             supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
+            exec_stop_post_python=args.exec_stop_post_python,
             exec_stop_post_script=args.exec_stop_post_script,
             data_dir=args.data_dir,
             exec_stop_post_epoch=args.exec_stop_post_epoch,
             exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
     else:
@@ -147,11 +151,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             finalization_timeout_seconds=args.finalization_timeout_seconds,
             supervisor_hard_ceiling_seconds=args.supervisor_hard_ceiling_seconds,
             systemd_runtime_max_seconds=args.systemd_runtime_max_seconds,
+            exec_stop_post_python=args.exec_stop_post_python,
             exec_stop_post_script=args.exec_stop_post_script,
             data_dir=args.data_dir,
             exec_stop_post_epoch=args.exec_stop_post_epoch,
             exec_stop_post_s3_bucket=args.exec_stop_post_s3_bucket,
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
+            exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
         )
 

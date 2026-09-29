@@ -32,6 +32,8 @@ from bithumb_coin_trader.launch_artifacts import (
     validate_launch_artifacts,
     validate_template_placeholders,
 )
+from scripts.generate_launch_artifacts import main as generate_launch_artifacts_main
+from scripts.validate_launch_artifacts import main as validate_launch_artifacts_main
 
 
 class TestLaunchArtifactRegressions(unittest.TestCase):
@@ -357,21 +359,108 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             self.assertEqual(
                 artifacts.launch_command["terminal_witness"],
                 {
+                    "python": str(spec.python_bin),
                     "script": f"{spec.runtime_worktree}/scripts/terminal_witness.py",
                     "epoch": spec.epoch,
                     "run_id": spec.run_id,
                     "s3_bucket": spec.s3_bucket,
                     "s3_prefix": expected_prefix,
+                    "s3_region": spec.region,
                     "allow_s3_write": True,
                 },
             )
 
             for launch_script in (artifacts.launch_sh, artifacts.launch_ec2_sh):
                 with self.subTest(script="launch-ec2.sh" if launch_script == artifacts.launch_ec2_sh else "launch.sh"):
+                    self.assertIn('--exec-stop-post-python "$python"', launch_script)
                     self.assertIn(f'--exec-stop-post-epoch "{spec.epoch}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-bucket "{spec.s3_bucket}"', launch_script)
                     self.assertIn(f'--exec-stop-post-s3-prefix "{expected_prefix}"', launch_script)
+                    self.assertIn(f'--exec-stop-post-s3-region "{spec.region}"', launch_script)
                     self.assertIn("--exec-stop-post-allow-s3-write", launch_script)
+                    self.assertLess(launch_script.index('"$@"'), launch_script.index(f'--run-id "{spec.run_id}"'))
+
+    def test_witness_smoke_artifacts_bind_exact_identity_and_allow_only_120_seconds(self) -> None:
+        spec = ValidationRunSpec(
+            epoch="aws-validation-witness-e2e-smoke-20260928T043700Z-v1",
+            run_id="aws-validation-witness-e2e-smoke-run-20260928T043700Z-v1",
+            duration_seconds=120,
+            runtime_commit=self.commit,
+        )
+        artifacts = generate_launch_artifacts(spec)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["epoch"], spec.epoch)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["run_id"], spec.run_id)
+        self.assertEqual(artifacts.launch_command["terminal_witness"]["s3_region"], spec.region)
+        self.assertEqual(artifacts.launch_command["collection_duration_seconds"], 120)
+        invalid = dict(artifacts.launch_command)
+        invalid["terminal_witness"] = dict(artifacts.launch_command["terminal_witness"])
+        invalid["terminal_witness"]["run_id"] = "other-run"
+        with self.assertRaisesRegex(ValueError, "terminal witness binding"):
+            validate_launch_artifacts(spec, artifacts.runtime_config, invalid)
+        with self.assertRaisesRegex(ValueError, "120-second duration is reserved"):
+            ValidationRunSpec(
+                epoch="ordinary-epoch",
+                run_id="ordinary-run",
+                duration_seconds=120,
+                runtime_commit=self.commit,
+            )
+
+    def test_launch_artifact_cli_generates_and_validates_sealed_120_second_smoke(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "sealed"
+            args = [
+                "--epoch", "aws-validation-witness-e2e-smoke-20260928T000000Z-cli",
+                "--run-id", "aws-validation-witness-e2e-smoke-run-20260928T000000Z-cli",
+                "--duration", "120",
+                "--runtime-commit", self.commit,
+                "--target-dir", str(target),
+            ]
+            self.assertEqual(generate_launch_artifacts_main(args), 0)
+            self.assertEqual(validate_launch_artifacts_main(["--artifacts-dir", str(target)]), 0)
+
+    def test_sealed_artifact_generation_is_deterministic_except_seal_timestamps(self) -> None:
+        spec = ValidationRunSpec(
+            epoch="aws-validation-observability-30h-20260928T000000Z-fixture",
+            run_id="aws-validation-observability-30h-run-20260928T000000Z-fixture",
+            duration_seconds=108000,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            first_dir = Path(first)
+            second_dir = Path(second)
+            generate_launch_artifacts(spec, target_dir=first_dir)
+            generate_launch_artifacts(spec, target_dir=second_dir)
+
+            artifact_names = (
+                f"{spec.epoch}.runtime.json",
+                "launch-command.json",
+                "launch-ec2.sh",
+                "launch.sh",
+            )
+            for name in artifact_names:
+                with self.subTest(artifact=name):
+                    self.assertEqual((first_dir / name).read_bytes(), (second_dir / name).read_bytes())
+
+            self.assertEqual(
+                (first_dir / "authorization-evidence.json").read_bytes(),
+                (second_dir / "authorization-evidence.json").read_bytes(),
+            )
+
+            identity_a = json.loads((first_dir / "identity.json").read_text(encoding="utf-8"))
+            identity_b = json.loads((second_dir / "identity.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(identity_a["sealed_at_utc"], identity_b["sealed_at_utc"])
+            identity_a.pop("sealed_at_utc")
+            identity_b.pop("sealed_at_utc")
+            self.assertEqual(identity_a, identity_b)
+
+            manifest_a = json.loads((first_dir / "sealed-manifest.json").read_text(encoding="utf-8"))
+            manifest_b = json.loads((second_dir / "sealed-manifest.json").read_text(encoding="utf-8"))
+            self.assertNotEqual(manifest_a["sealed_at_utc"], manifest_b["sealed_at_utc"])
+            manifest_a.pop("sealed_at_utc")
+            manifest_b.pop("sealed_at_utc")
+            manifest_a.pop("identity_sha256")
+            manifest_b.pop("identity_sha256")
+            self.assertEqual(manifest_a, manifest_b)
 
     def test_validator_rejects_mismatched_observer_data_dir(self) -> None:
         """Validator rejects launch_command if observer --data-dir does not match epoch root."""
@@ -423,6 +512,54 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             self.assertEqual(res["status"], "PASS")
             self.assertTrue(res.get("sealed_artifact_hashes_verified"))
             self.assertIsNotNone(res.get("sealed_at_utc"))
+
+    def test_authorization_evidence_must_exist_and_bind_identity(self) -> None:
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=target)
+            auth_path = target / "authorization-evidence.json"
+
+            original = auth_path.read_text(encoding="utf-8")
+            auth_path.unlink()
+            with self.assertRaisesRegex(ValueError, "authorization-evidence.json is required"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+
+            auth_path.write_text(original, encoding="utf-8")
+            authorization = json.loads(original)
+            authorization["run_id"] = "another-run"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "must bind this identity"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+
+    def test_authorized_not_started_evidence_is_valid_but_started_is_rejected(self) -> None:
+        spec = ValidationRunSpec(
+            epoch=self.epoch_90m,
+            run_id=self.run_id_90m,
+            duration_seconds=5400,
+            runtime_commit=self.commit,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp)
+            artifacts = generate_launch_artifacts(spec, target_dir=target)
+            auth_path = target / "authorization-evidence.json"
+            authorization = json.loads(auth_path.read_text(encoding="utf-8"))
+            authorization["launch_authorized"] = True
+            authorization["status"] = "AUTHORIZED_NOT_STARTED"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+
+            result = validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
+            self.assertEqual(result["status"], "PASS")
+
+            authorization["actual_start_time_utc"] = "2026-09-28T00:00:00Z"
+            auth_path.write_text(json.dumps(authorization), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "remain not started"):
+                validate_launch_artifacts(spec, artifacts.runtime_config, artifacts.launch_command, target)
 
     def test_sealed_artifact_integrity_rejects_missing_sealed_at_utc(self) -> None:
         """Validator rejects identity.json if sealed_at_utc is missing or empty."""

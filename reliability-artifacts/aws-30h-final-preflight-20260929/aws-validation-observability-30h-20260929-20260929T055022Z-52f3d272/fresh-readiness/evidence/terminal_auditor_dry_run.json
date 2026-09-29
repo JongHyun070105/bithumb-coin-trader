@@ -1,0 +1,12 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/terminal_auditor_dry_run.json",
+    "command_log_sha256": "79e88649ce8009a7d889f8796cf3aed9c41385bd375badd8ecd1e1d1d6f93006",
+    "stdout_excerpt": "FIXTURE_AUDIT_EXIT=0\nOVERALL_STATUS=PASS\nJSON=/private/tmp/fresh30h-20260929-window-final-52f3d272b/terminal-auditor-dry-run-fresh-output/fresh-30h-v3-fresh-30h-v3-test-20260929T061456.986611Z/terminal-audit.json\nREPORT=/private/tmp/fresh30h-20260929-window-final-52f3d272b/terminal-auditor-dry-run-fresh-output/fresh-30h-v3-fresh-30h-v3-test-20260929T061456.986611Z/terminal-audit.md\n"
+  },
+  "exit_code": 0,
+  "fixture_only": true,
+  "observed_at_utc": "2026-09-29T06:14:57.027501Z",
+  "overall_status": "PASS",
+  "status": "PASS"
+}

@@ -1,0 +1,12 @@
+{
+  "command": [
+    "python3",
+    "scripts/validate_launch_artifacts.py",
+    "--artifacts-dir",
+    "/Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader/reliability-artifacts/aws-30h-final-preflight-20260928/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab"
+  ],
+  "started_at_utc": "2026-09-29T04:36:23.317991Z",
+  "observed_at_utc": "2026-09-29T04:36:23.446946Z",
+  "exit_code": 0,
+  "stdout": "=== PRELAUNCH ARTIFACT VALIDATION: PASS ===\n{\n  \"status\": \"PASS\",\n  \"duration_seconds\": 108000,\n  \"config_fingerprint\": \"2b9ab0dfff8f6577bd794452c4d2e71ce461d64172c90d5f55e6a2ff16fd2567\",\n  \"epoch\": \"aws-validation-observability-30h-20260928-20260928T125700Z-675937ab\",\n  \"run_id\": \"aws-validation-observability-30h-run-20260928T125700Z-675937ab\",\n  \"sealed_at_utc\": \"2026-09-28T13:01:57.255646+00:00\",\n  \"sealed_artifact_hashes_verified\": true\n}\n"
+}

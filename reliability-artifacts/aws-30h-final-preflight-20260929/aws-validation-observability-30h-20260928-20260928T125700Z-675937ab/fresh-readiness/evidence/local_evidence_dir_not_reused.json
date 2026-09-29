@@ -1,0 +1,21 @@
+{
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "test ! -e /Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader/reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/fresh-readiness"
+      ],
+      "exit_code": 0,
+      "name": "local_evidence_dir_not_reused",
+      "observed_at_utc": "2026-09-29T05:18:15.079767Z",
+      "started_at_utc": "2026-09-29T05:18:14.693718Z",
+      "stdout": ""
+    }
+  },
+  "observed_at_utc": "2026-09-29T05:18:15.079767Z",
+  "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/fresh-readiness",
+  "path_exists": false,
+  "status": "PASS"
+}

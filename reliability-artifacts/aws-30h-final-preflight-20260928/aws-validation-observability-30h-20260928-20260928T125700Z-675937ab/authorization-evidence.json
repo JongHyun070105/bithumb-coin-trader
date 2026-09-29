@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "epoch": "aws-validation-observability-30h-20260928-20260928T125700Z-675937ab",
+  "run_id": "aws-validation-observability-30h-run-20260928T125700Z-675937ab",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "launch_authorized": false,
+  "actual_start_time_utc": null,
+  "status": "PREPARED_NOT_AUTHORIZED"
+}

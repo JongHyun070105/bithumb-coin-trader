@@ -1,0 +1,421 @@
+{
+  "captured_at_utc": "2026-09-29T06:18:43.044899Z",
+  "checks": {
+    "artifact_determinism": {
+      "compared_to_sealed_artifacts": true,
+      "differences": [],
+      "evidence_ref": "evidence/artifact_determinism.json",
+      "evidence_sha256": "dc3baa9219aec07a3af1946301bcbefa193512398007e2d40e3e52a07e94842b",
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "status": "PASS"
+    },
+    "auditor_get_exact_receipt": {
+      "access_denied": false,
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "evidence_ref": "evidence/auditor_get_exact_receipt.json",
+      "evidence_sha256": "3cb628d05dbf2d6d113c2e11a468aefbed8ef6cd3e42e112506fcc64feb4e7b6",
+      "exit_code": 0,
+      "hash_matches_local": true,
+      "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+      "local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "operation": "GetObject",
+      "remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "status": "PASS"
+    },
+    "auditor_get_exact_witness": {
+      "access_denied": false,
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "evidence_ref": "evidence/auditor_get_exact_witness.json",
+      "evidence_sha256": "faf12c952a8561fd147561440972491cca505a5317f9c9367c9c98d298676611",
+      "exit_code": 0,
+      "hash_matches_local": true,
+      "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+      "local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "operation": "GetObject",
+      "remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "status": "PASS"
+    },
+    "auditor_head_exact_objects": {
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "evidence_ref": "evidence/auditor_head_exact_objects.json",
+      "evidence_sha256": "bcfdb9e1fe3818a788ff6c1be0b160a755fa90a6ebf3bc212ab38f066e8e35f3",
+      "keys": [
+        "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json"
+      ],
+      "operation": "HeadObject",
+      "stable_exit_code": 0,
+      "stable_head_status": "PASS",
+      "status": "PASS",
+      "timestamped_exit_code": 0,
+      "timestamped_head_status": "PASS"
+    },
+    "changed_scope_pyright": {
+      "errors": 0,
+      "evidence_ref": "evidence/changed_scope_pyright.json",
+      "evidence_sha256": "0966202e5c5614e8a8a7ddc218cc487501e463c6d5c87b19c125b12e9d2a16db",
+      "exit_code": 0,
+      "informations": 0,
+      "python_version": "3.11",
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "status": "PASS",
+      "warnings": 0
+    },
+    "closed_at_utc_idempotency": {
+      "evidence_ref": "evidence/closed_at_utc_idempotency.json",
+      "evidence_sha256": "f53a20d73683a1f43cb1f73eaf4dd5962b191e8412674de0b900542e88f3a03e",
+      "exit_code": 0,
+      "failures": 0,
+      "passed_tests": 2,
+      "skipped_tests": 0,
+      "status": "PASS"
+    },
+    "collector_identity_conflict_clear": {
+      "conflicting_count": 0,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/collector_identity_conflict_clear.json",
+      "evidence_sha256": "f42a638b6f4a51df16da035b1ac23f78741f27d2d8e061c0416a96a5322101c0",
+      "process_class": "collector",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS"
+    },
+    "compileall": {
+      "evidence_ref": "evidence/compileall.json",
+      "evidence_sha256": "ef86e1777952f0cf501c26ab43ca1b1867a71df20721d5f916d232a3ff7de805",
+      "exit_code": 0,
+      "status": "PASS"
+    },
+    "default_live_safe": {
+      "evidence_ref": "evidence/default_live_safe.json",
+      "evidence_sha256": "9c7d8195674f9a33823f347f97c2eb12cf539394cc43cb4237efa75753c61fb6",
+      "exit_code": 0,
+      "failures": 0,
+      "passed_tests": 44,
+      "skipped_tests": 0,
+      "status": "PASS",
+      "subtests_passed": 3
+    },
+    "disk_capacity": {
+      "evidence_ref": "evidence/disk_capacity.json",
+      "evidence_sha256": "48af566231bcb26479062dc9d9dda9b316d9d2bb34129f25ef229603016fc77c",
+      "free_bytes": 164466122752,
+      "hourly_raw_peak_bytes": 1217418119,
+      "minimum_reserve_bytes": 53687091200,
+      "nonraw_run_bytes": 5454994823,
+      "projected_postrun_free_bytes": 122488584359,
+      "run_hours": 30,
+      "status": "PASS",
+      "total_bytes": 322042834944,
+      "used_bytes": 157576712192
+    },
+    "epoch_not_reused": {
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "epoch_exists": false,
+      "evidence_ref": "evidence/epoch_not_reused.json",
+      "evidence_sha256": "a39fab369f6ca80ef5e23e1b0d2ca75d40bdd380591d1c0ce9dda8ba2f9ca618",
+      "exact_identity_process_count": 0,
+      "guest_artifact_root_exists": false,
+      "guest_data_root_exists": false,
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "run_id_exists": false,
+      "status": "PASS",
+      "target_unit_count": 0
+    },
+    "finalizer_identity_conflict_clear": {
+      "conflicting_count": 0,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/finalizer_identity_conflict_clear.json",
+      "evidence_sha256": "1ef7f0e5853b4eafd96465cf7a89be6ccffec69e635e1cb5e473b5d4a765c4c0",
+      "process_class": "finalizer",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS"
+    },
+    "git_diff_check": {
+      "evidence_ref": "evidence/git_diff_check.json",
+      "evidence_sha256": "e3b571eab537c1a8ed4ba49aae3ec993bdc23090ccfd6ade1401febd72eae780",
+      "exit_code": 0,
+      "repository": "target worktree",
+      "status": "PASS"
+    },
+    "identity_data_root_conflict_clear": {
+      "artifact_root_exists": false,
+      "data_root": "/var/lib/bitcoin-trader/30h-validation/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/identity_data_root_conflict_clear.json",
+      "evidence_sha256": "ce45fbac88e02797ecf78c00a61c1c89315fdb90bd4520f03b4d2aa27a69a7aa",
+      "path_exists": false,
+      "status": "PASS"
+    },
+    "identity_mount_conflict_clear": {
+      "data_root": "/var/lib/bitcoin-trader/30h-validation/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/identity_mount_conflict_clear.json",
+      "evidence_sha256": "7c48fcb5ed62d0033d2cee90a33ff3ba75adb822c98967caafcfaf43ec209d4d",
+      "mount_conflict": false,
+      "status": "PASS"
+    },
+    "inode_capacity": {
+      "evidence_ref": "evidence/inode_capacity.json",
+      "evidence_sha256": "072b095994cb8a777753bbe61af9359260d9a6f8206f013582c43d7291661aa0",
+      "inode_free": 157077260,
+      "inode_total": 157280240,
+      "inode_used": 202980,
+      "status": "PASS"
+    },
+    "live_disabled": {
+      "evidence_ref": "evidence/live_disabled.json",
+      "evidence_sha256": "5d3688652c6aa2cda76039993c8edd6bf9d0f33367a069752be03f43fb4b6392",
+      "live": "DISABLED",
+      "status": "PASS"
+    },
+    "local_evidence_dir_not_reused": {
+      "evidence_ref": "evidence/local_evidence_dir_not_reused.json",
+      "evidence_sha256": "d670d99d5ee29411e2f30d225511b415b9e9fd3ed3cef0579c958fae1ddc10a0",
+      "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/fresh-readiness",
+      "path_exists": false,
+      "status": "PASS"
+    },
+    "memory_and_swap": {
+      "evidence_ref": "evidence/memory_and_swap.json",
+      "evidence_sha256": "2263a70350359f7d323d58a9d85768a7d2bd9722ecb2f0ff0ec7708b0e20ac02",
+      "mem_available_bytes": 3306500096,
+      "mem_total_bytes": 4020772864,
+      "status": "PASS",
+      "swap_free_bytes": 0,
+      "swap_total_bytes": 0
+    },
+    "observer_identity_conflict_clear": {
+      "conflicting_count": 0,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/observer_identity_conflict_clear.json",
+      "evidence_sha256": "09d1b4f625f3b46f7b6c1f5dbc4e3307ed43044f907c3ff2b646495aae2ec1a9",
+      "process_class": "observer",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS"
+    },
+    "paper_disabled": {
+      "evidence_ref": "evidence/paper_disabled.json",
+      "evidence_sha256": "38f3d5592b53043db6acd41e8659a6acc4bac20cb7bfdd1dedad30daddf68bd3",
+      "paper": "NOT_STARTED",
+      "status": "PASS"
+    },
+    "private_api_disabled": {
+      "evidence_ref": "evidence/private_api_disabled.json",
+      "evidence_sha256": "f95f021a56bbb882bbf321fc791cb2c1909d781ceb6eb46f3fb767787c18b3c5",
+      "identity_safety": "DISABLED",
+      "runtime_private_api_enabled": false,
+      "status": "PASS"
+    },
+    "run_id_not_reused": {
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "epoch_exists": false,
+      "evidence_ref": "evidence/run_id_not_reused.json",
+      "evidence_sha256": "a39fab369f6ca80ef5e23e1b0d2ca75d40bdd380591d1c0ce9dda8ba2f9ca618",
+      "exact_identity_process_count": 0,
+      "guest_artifact_root_exists": false,
+      "guest_data_root_exists": false,
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "run_id_exists": false,
+      "status": "PASS",
+      "target_unit_count": 0
+    },
+    "runtime_commit_on_guest": {
+      "alternate_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "alternate_dirty": false,
+      "alternate_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "configured_runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "configured_worktree_exists": true,
+      "evidence_ref": "evidence/runtime_commit_on_guest.json",
+      "evidence_sha256": "41b93b290a4cb5dcd1c74e08c9754b025957be850848e77c0aa8bcee9ed0015c",
+      "matching_alternate_worktree": true,
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "runtime_dirty": false,
+      "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "status": "PASS"
+    },
+    "runtime_full_suite": {
+      "evidence_ref": "evidence/runtime_full_suite.json",
+      "evidence_sha256": "616a9db98ae1557f6a02d1725ec576b2954f4d4c73157793a8022b73ef2bf457",
+      "execution_environment": "Python 3.14.6; local Git worktree at exact pinned runtime commit/tree",
+      "failures": 0,
+      "passed_tests": 1704,
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "skipped_tests": 2,
+      "status": "PASS",
+      "subtests_passed": 181
+    },
+    "runtime_python_environment": {
+      "boto3": "1.43.86",
+      "evidence_ref": "evidence/runtime_python_environment.json",
+      "evidence_sha256": "7fb0205a1689aa681f6bf775920b5c6a2129761a23f082dd4a737d53733f66ea",
+      "matching_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "python": "3.11.16",
+      "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "status": "PASS",
+      "websockets": "15.0.1",
+      "zstandard": "0.25.0"
+    },
+    "runtime_role_put_receipts": {
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "evidence_ref": "evidence/runtime_role_put_receipts.json",
+      "evidence_sha256": "ff7e070e713c192a8d0cbd209e55beb6753fc10a00a519b535f48db24bf47cb5",
+      "local_receipt_s3_uploaded": true,
+      "local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "local_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+      "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "runtime_role_identity_ok": true,
+      "stable_exists": true,
+      "stable_hash_matches_local": true,
+      "stable_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+      "stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "status": "PASS",
+      "timestamped_exists": true,
+      "timestamped_hash_matches_local": true,
+      "timestamped_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+      "timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb"
+    },
+    "runtime_role_put_witness": {
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "evidence_ref": "evidence/runtime_role_put_witness.json",
+      "evidence_sha256": "ff7e070e713c192a8d0cbd209e55beb6753fc10a00a519b535f48db24bf47cb5",
+      "local_receipt_s3_uploaded": true,
+      "local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "local_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+      "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "runtime_role_identity_ok": true,
+      "stable_exists": true,
+      "stable_hash_matches_local": true,
+      "stable_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+      "stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "status": "PASS",
+      "timestamped_exists": true,
+      "timestamped_hash_matches_local": true,
+      "timestamped_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+      "timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb"
+    },
+    "runtime_role_read_required_objects": {
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "evidence_ref": "evidence/runtime_role_read_required_objects.json",
+      "evidence_sha256": "4e7d16fa967be197c6ca1b7eafaf8da100d6c93459f0ed7ba879a038ec0a3a43",
+      "local_receipt_s3_uploaded": true,
+      "local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "local_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+      "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "runtime_role_identity_ok": true,
+      "stable_exists": true,
+      "stable_hash_matches_local": true,
+      "stable_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+      "stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "status": "PASS",
+      "timestamped_exists": true,
+      "timestamped_hash_matches_local": true,
+      "timestamped_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+      "timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb"
+    },
+    "s3_prefix_not_reused": {
+      "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+      "evidence_ref": "evidence/s3_prefix_not_reused.json",
+      "evidence_sha256": "91e85c56330bbcaf6dbaa00a3d471edd85bbaf6f3f10ff7c9592dcb30d635fce",
+      "first_key": null,
+      "key_count": 0,
+      "prefix": "market-data/temporary/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "prefix_exists": false,
+      "status": "PASS"
+    },
+    "scheduler_identity_conflict_clear": {
+      "conflicting_count": 0,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/scheduler_identity_conflict_clear.json",
+      "evidence_sha256": "b9beadb356c51753b05992ecdc9cbe45a1793d35f4e5f4015bf5e843d2b73ab2",
+      "process_class": "scheduler",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS"
+    },
+    "shell_syntax": {
+      "checked": [
+        "launch.sh",
+        "launch-ec2.sh"
+      ],
+      "evidence_ref": "evidence/shell_syntax.json",
+      "evidence_sha256": "0a8e891ca8edbab6dc1a87a7d0c08a5439e385a8774099d40427cecd3170b63b",
+      "exit_code": 0,
+      "parser": "bash -n",
+      "status": "PASS"
+    },
+    "target_full_hours_30": {
+      "duration_seconds": 108000,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/target_full_hours_30.json",
+      "evidence_sha256": "c0c35790fd4aa02935fb01ccf598264d011693c31ffda0309a03ab1571549c10",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS",
+      "target_full_hours": 30
+    },
+    "terminal_auditor_dry_run": {
+      "evidence_ref": "evidence/terminal_auditor_dry_run.json",
+      "evidence_sha256": "b9a4a08751e40647ed2cbec34ccc34db943015092e68d80d412b1d9406255f67",
+      "exit_code": 0,
+      "fixture_only": true,
+      "overall_status": "PASS",
+      "status": "PASS"
+    },
+    "terminal_auditor_live_e2e": {
+      "audit_overall_status": "NOT_VERIFIABLE",
+      "evidence_ref": "evidence/terminal_auditor_live_e2e.json",
+      "evidence_sha256": "e7aa94086f4a190f607f7f2c8e5f1028b953d348ce884d9dc7327cf395b8fc33",
+      "runtime_identity_status": "PASS",
+      "scope": "identity and terminal witness only; this 120-second smoke is not a 30-hour completion verdict",
+      "status": "PASS",
+      "terminal_witness_status": "PASS"
+    },
+    "transient_unit_identity_conflict_clear": {
+      "conflicting_count": 0,
+      "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "evidence_ref": "evidence/transient_unit_identity_conflict_clear.json",
+      "evidence_sha256": "5d98e3b6dd4236dbc0d85ca66177f371194306e35fa91efbcf76c3c37b7941f3",
+      "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+      "status": "PASS",
+      "unit_names": []
+    }
+  },
+  "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+  "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree_sha": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "schema_version": 1,
+  "terminal_smoke": {
+    "auditor_full_30h_verdict": "NOT_VERIFIABLE",
+    "auditor_identity_check": "PASS",
+    "auditor_terminal_contract": "PASS",
+    "auditor_witness_check": "PASS",
+    "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+    "evidence_ref": "evidence/terminal-smoke.json",
+    "evidence_sha256": "020677bd961c2ef6fea160700ec0fdfce24f291c71e1de74344fd0484dc68d7d",
+    "local_witness_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+    "process_exit": 0,
+    "remote_witness_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+    "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+    "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+    "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+    "s3_exact_object_exists": true,
+    "s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+    "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+    "s3_region": "ap-northeast-2",
+    "s3_uploaded": true,
+    "status": "PASS",
+    "timestamped_hash_matches_local": true,
+    "timestamped_local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+    "timestamped_receipt_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+    "timestamped_remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+    "witness_exists_local": true
+  }
+}

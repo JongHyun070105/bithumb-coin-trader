@@ -1,0 +1,535 @@
+{
+  "auditor_full_30h_verdict": "NOT_VERIFIABLE",
+  "auditor_identity_check": "PASS",
+  "auditor_terminal_contract": "PASS",
+  "auditor_witness_check": "PASS",
+  "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+  "evidence": {
+    "fresh_runtime_role_snapshot": {
+      "alternate_dirty": false,
+      "alternate_head": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "alternate_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "alternate_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/final-30h-preflight-20260928-b4d4823",
+      "auditor_read_identity": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+      "boto3": "1.43.86",
+      "boto3_ok": true,
+      "configured_runtime_dirty": false,
+      "configured_runtime_head": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+      "configured_runtime_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+      "configured_runtime_worktree": "/var/lib/bitcoin-trader/runtime-worktrees/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+      "configured_worktree_exists": true,
+      "disk": {
+        "free_bytes": 164466122752,
+        "total_bytes": 322042834944,
+        "used_bytes": 157576712192
+      },
+      "exact_get_all_pass": true,
+      "exact_hashes_match": true,
+      "exact_head_all_pass": true,
+      "exact_objects": [
+        {
+          "content_length": 3338,
+          "get_status": "PASS",
+          "hash_matches_local": true,
+          "head_status": "PASS",
+          "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+          "local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+          "remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+          "remote_size": 3338
+        },
+        {
+          "content_length": 3338,
+          "get_status": "PASS",
+          "hash_matches_local": true,
+          "head_status": "PASS",
+          "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+          "local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+          "remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+          "remote_size": 3338
+        }
+      ],
+      "inodes": {
+        "inode_free": 157077260,
+        "inode_total": 157280240,
+        "inode_used": 202980
+      },
+      "memory": {
+        "MemAvailable": 3306500096,
+        "MemTotal": 4020772864,
+        "SwapFree": 0,
+        "SwapTotal": 0
+      },
+      "observed_at_utc": "2026-09-29T06:15:09.965491Z",
+      "process_conflict_total": 0,
+      "process_conflicts_by_class": {
+        "collector": 0,
+        "finalizer": 0,
+        "observer": 0,
+        "other": 0,
+        "scheduler": 0
+      },
+      "python": "Python 3.11.16",
+      "python_ok": true,
+      "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+      "smoke_data_root_exists": true,
+      "smoke_local_stable_exists": true,
+      "smoke_local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "smoke_run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+      "smoke_timestamped_count": 1,
+      "smoke_timestamped_name": "terminal-receipt-20260929T052139Z.json",
+      "smoke_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+      "stable_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+      "target_artifact_root_exists": false,
+      "target_data_root_exists": false,
+      "target_mount_conflict": false,
+      "target_unit_query_ok": true,
+      "target_units": [],
+      "websockets": "15.0.1",
+      "websockets_ok": true,
+      "zstandard": "0.25.0",
+      "zstandard_ok": true
+    },
+    "immutable_source_path": "/Users/macintosh/.codex/worktrees/final-30h-preflight/bitcoin-trader/reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260928-20260928T125700Z-675937ab/fresh-readiness/evidence/terminal-smoke.json",
+    "immutable_source_sha256": "186e1c35e1b66f7a6750ef0cd4ab05b3b5890a1fa551c74935c5535dec86535e",
+    "original_smoke_evidence": {
+      "live_auditor_report": {
+        "checks": [
+          {
+            "details": {
+              "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+              "expected_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+              "expected_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+              "identity_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+              "identity_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+              "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+              "runtime_config_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+              "runtime_config_tree": null
+            },
+            "name": "runtime_identity",
+            "status": "PASS",
+            "summary": "Runtime identity matches the Fresh 30H-v3 seal."
+          },
+          {
+            "details": {},
+            "name": "actual_start_end_and_duration",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Runtime, supervisor result, and actual-start evidence are required."
+          },
+          {
+            "details": {
+              "collector_exit_code": 0,
+              "publisher_exit_code": null,
+              "required_components_started": false,
+              "scheduler_exit_code": null
+            },
+            "name": "component_exit_codes",
+            "status": "NOT_VERIFIABLE",
+            "summary": "One or more component exits or startup records are failed or missing."
+          },
+          {
+            "details": {},
+            "name": "systemd_result_and_restarts",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Systemd terminal properties are missing."
+          },
+          {
+            "details": {
+              "classification": "CLEAN_SUCCESS",
+              "epoch_matches": true,
+              "exit_status": "0",
+              "expected_s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+              "observed_s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+              "run_id_matches": true,
+              "s3_bucket_matches": true,
+              "s3_region_matches": true,
+              "s3_target_matches": true,
+              "service_result": "success",
+              "witness_s3_uploaded": true
+            },
+            "name": "terminal_witness",
+            "status": "PASS",
+            "summary": "Terminal witness is clean and bound to the sealed run."
+          },
+          {
+            "details": {},
+            "name": "collector_lifecycle",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Collector lifecycle receipt is missing."
+          },
+          {
+            "details": {},
+            "name": "queue_persistence_and_writer",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Final collector metrics are missing."
+          },
+          {
+            "details": {},
+            "name": "active_active_dedup_and_conflicts",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Redundancy evidence is missing."
+          },
+          {
+            "details": {},
+            "name": "qualifying_cohorts_and_feed_counts",
+            "status": "NOT_VERIFIABLE",
+            "summary": "The sealed qualifying-cohort list and feed count are required."
+          },
+          {
+            "details": {},
+            "name": "all_feed_slots_and_receipts",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Exact sealed feed universe, qualifying cohorts, and local receipts are required."
+          },
+          {
+            "details": {},
+            "name": "local_s3_receipt_hash_equality",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Offline local and S3 receipt mirrors are both required."
+          },
+          {
+            "details": {},
+            "name": "receipt_immutability",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Local receipts and observations at two independent times are required."
+          },
+          {
+            "details": {},
+            "name": "evidence_hash_index",
+            "status": "NOT_VERIFIABLE",
+            "summary": "Evidence SHA-256 index is missing or empty."
+          },
+          {
+            "details": {},
+            "name": "scheduler_retries",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "finalizer_retries",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "recovery_invocations",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "duplicate_finalization",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "closed_at_utc_stability",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "finalization_evidence_hash_stability",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          },
+          {
+            "details": {},
+            "name": "restart_idempotency_path",
+            "status": "NOT_VERIFIABLE",
+            "summary": "A complete scheduler/finalizer/recovery event trace is required."
+          }
+        ],
+        "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+        "overall_status": "NOT_VERIFIABLE",
+        "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+        "runtime_commit_expected": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+        "runtime_tree_expected": "5c96ed79fee107c1604ee7018621835910221fdf",
+        "schema_version": 1
+      },
+      "local_timestamped_witness": {
+        "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+        "exit_code": "exited",
+        "exit_status": "0",
+        "hostname": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+        "last_known_health": {
+          "archiver": {
+            "archive_errors": 0,
+            "archive_queue_depth": 0,
+            "last_closed_cohort": null,
+            "last_compression": null,
+            "last_receipt": null,
+            "last_s3_put": null,
+            "status": "UNKNOWN",
+            "upload_failures": 0
+          },
+          "collector": {
+            "fatal_error": null,
+            "last_canonical_event": "2026-09-29T05:21:37.258043+00:00",
+            "last_loop_heartbeat": "2026-09-29T05:21:39.616025+00:00",
+            "last_websocket_activity": "2026-09-29T05:21:37.258043+00:00",
+            "reconnect_count": 0,
+            "status": "UNKNOWN",
+            "websocket_sessions": {
+              "binance": "DISCONNECTED",
+              "bithumb": "DISCONNECTED",
+              "upbit": "DISCONNECTED"
+            }
+          },
+          "config_fingerprint": "eb1d390d41c19f60ad2dd2cc290e33f0606e97827f3b9a7b6f02a9ea2674be58",
+          "current_cohort": {
+            "expected_feed_count": 76,
+            "observed_feed_count": 76,
+            "utc_hour": "2026-09-29_05"
+          },
+          "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+          "evidence": {
+            "current_hour_expected_slots": 76,
+            "current_hour_terminal_slots": 76,
+            "last_coverage_evidence": null,
+            "last_heartbeat_evidence": null,
+            "last_manifest_update": null,
+            "status": "UNKNOWN"
+          },
+          "last_exception": {
+            "component": null,
+            "message_hash": null,
+            "timestamp": null,
+            "type": null
+          },
+          "observed_at": "2026-09-29T05:21:39.616025+00:00",
+          "observer": {
+            "observer_errors": 0,
+            "observer_last_cycle": null,
+            "observer_pid": null,
+            "observer_started_at": null,
+            "status": "UNKNOWN"
+          },
+          "resources": {
+            "disk_free_bytes": 164484816896,
+            "disk_used_bytes": 157558018048,
+            "fd_count": 10,
+            "rss_bytes": 50102272
+          },
+          "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+          "schema_version": 1,
+          "software_sha": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+          "supervisor": {
+            "active_state": "inactive",
+            "invocation_id": "",
+            "pid": 1879736,
+            "process_start": "2026-09-29T05:19:37.242708+00:00",
+            "sub_state": "UNKNOWN",
+            "unit": ""
+          },
+          "writer": {
+            "current_open_raw_count": 0,
+            "last_dequeue": "2026-09-29T05:21:37.258404+00:00",
+            "last_local_raw_write": "2026-09-29T05:21:37.258404+00:00",
+            "max_queue_depth": 50000,
+            "queue_depth": 0,
+            "status": "UNKNOWN",
+            "unpersisted_count": 0,
+            "writer_errors": 0
+          }
+        },
+        "last_observer_health": null,
+        "recorded_at": "2026-09-29T05:21:39.838584+00:00",
+        "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+        "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+        "s3_region": "ap-northeast-2",
+        "s3_uploaded": true,
+        "schema_version": 1,
+        "service_result": "success",
+        "terminal_classification": "CLEAN_SUCCESS",
+        "witness_pid": 1879857
+      },
+      "local_witness": {
+        "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+        "exit_code": "exited",
+        "exit_status": "0",
+        "hostname": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+        "last_known_health": {
+          "archiver": {
+            "archive_errors": 0,
+            "archive_queue_depth": 0,
+            "last_closed_cohort": null,
+            "last_compression": null,
+            "last_receipt": null,
+            "last_s3_put": null,
+            "status": "UNKNOWN",
+            "upload_failures": 0
+          },
+          "collector": {
+            "fatal_error": null,
+            "last_canonical_event": "2026-09-29T05:21:37.258043+00:00",
+            "last_loop_heartbeat": "2026-09-29T05:21:39.616025+00:00",
+            "last_websocket_activity": "2026-09-29T05:21:37.258043+00:00",
+            "reconnect_count": 0,
+            "status": "UNKNOWN",
+            "websocket_sessions": {
+              "binance": "DISCONNECTED",
+              "bithumb": "DISCONNECTED",
+              "upbit": "DISCONNECTED"
+            }
+          },
+          "config_fingerprint": "eb1d390d41c19f60ad2dd2cc290e33f0606e97827f3b9a7b6f02a9ea2674be58",
+          "current_cohort": {
+            "expected_feed_count": 76,
+            "observed_feed_count": 76,
+            "utc_hour": "2026-09-29_05"
+          },
+          "epoch": "aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+          "evidence": {
+            "current_hour_expected_slots": 76,
+            "current_hour_terminal_slots": 76,
+            "last_coverage_evidence": null,
+            "last_heartbeat_evidence": null,
+            "last_manifest_update": null,
+            "status": "UNKNOWN"
+          },
+          "last_exception": {
+            "component": null,
+            "message_hash": null,
+            "timestamp": null,
+            "type": null
+          },
+          "observed_at": "2026-09-29T05:21:39.616025+00:00",
+          "observer": {
+            "observer_errors": 0,
+            "observer_last_cycle": null,
+            "observer_pid": null,
+            "observer_started_at": null,
+            "status": "UNKNOWN"
+          },
+          "resources": {
+            "disk_free_bytes": 164484816896,
+            "disk_used_bytes": 157558018048,
+            "fd_count": 10,
+            "rss_bytes": 50102272
+          },
+          "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+          "schema_version": 1,
+          "software_sha": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+          "supervisor": {
+            "active_state": "inactive",
+            "invocation_id": "",
+            "pid": 1879736,
+            "process_start": "2026-09-29T05:19:37.242708+00:00",
+            "sub_state": "UNKNOWN",
+            "unit": ""
+          },
+          "writer": {
+            "current_open_raw_count": 0,
+            "last_dequeue": "2026-09-29T05:21:37.258404+00:00",
+            "last_local_raw_write": "2026-09-29T05:21:37.258404+00:00",
+            "max_queue_depth": 50000,
+            "queue_depth": 0,
+            "status": "UNKNOWN",
+            "unpersisted_count": 0,
+            "writer_errors": 0
+          }
+        },
+        "last_observer_health": null,
+        "recorded_at": "2026-09-29T05:21:39.838584+00:00",
+        "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+        "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+        "s3_region": "ap-northeast-2",
+        "s3_uploaded": true,
+        "schema_version": 1,
+        "service_result": "success",
+        "terminal_classification": "CLEAN_SUCCESS",
+        "witness_pid": 1879857
+      },
+      "note": "Auditor terminal contract here covers exact runtime identity and terminal witness checks only. Full 30-hour contract remains NOT_VERIFIABLE for a 120-second smoke.",
+      "result": {
+        "archive_scheduler_exit_code": null,
+        "archive_scheduler_pid": null,
+        "archive_scheduler_started": false,
+        "archive_scheduler_stopped_after_collector": false,
+        "collection_duration_seconds": 120.0,
+        "collector_exit_code": 0,
+        "collector_pid": 1879736,
+        "deadline_recomputed": false,
+        "elapsed_seconds": 122.616847,
+        "ended_at": "2026-09-29T05:21:39.709112+00:00",
+        "final_manifest_flush_observed": true,
+        "final_metrics_valid": true,
+        "finalization_timeout_seconds": 180.0,
+        "forced_timeout": false,
+        "full_duration_satisfied": true,
+        "hard_ceiling_seconds": 300.0,
+        "overall_status": "PASS",
+        "publisher_exit_code": null,
+        "publisher_pid": null,
+        "publisher_started": false,
+        "publisher_stopped_after_collector": false,
+        "received_signal": null,
+        "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+        "schema_version": 2,
+        "started_at": "2026-09-29T05:19:37.091945+00:00",
+        "supervisor_pid": 1879715
+      },
+      "runtime_role_probe": {
+        "local_s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "local_s3_uploaded": true,
+        "local_stable_exists": true,
+        "local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+        "local_timestamped_count": 1,
+        "local_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+        "observed_at_utc": "2026-09-29T05:23:05.034114Z",
+        "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+        "runtime_role_identity_ok": true,
+        "s3_objects": [
+          {
+            "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+            "sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+            "size": 3338,
+            "status": "PASS"
+          },
+          {
+            "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+            "sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+            "size": 3338,
+            "status": "PASS"
+          }
+        ],
+        "stable_hash_matches_local": true,
+        "timestamped_hash_matches_local": true
+      },
+      "smoke_inputs_captured_at_utc": "2026-09-29T05:22:34.984593Z",
+      "systemd_status": [
+        "Result=success",
+        "NRestarts=0",
+        "ExecMainStatus=0",
+        "LoadState=not-found",
+        "ActiveState=inactive",
+        "SubState=dead"
+      ]
+    }
+  },
+  "local_witness_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "observed_at_utc": "2026-09-29T06:15:09.965491Z",
+  "process_exit": 0,
+  "remote_witness_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "run_id": "aws-validation-witness-e2e-smoke-run-20260929T051243Z-150e7caf",
+  "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_exact_object_exists": true,
+  "s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+  "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+  "s3_region": "ap-northeast-2",
+  "s3_uploaded": true,
+  "status": "PASS",
+  "timestamped_hash_matches_local": true,
+  "timestamped_local_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "timestamped_receipt_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+  "timestamped_remote_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "witness_exists_local": true
+}

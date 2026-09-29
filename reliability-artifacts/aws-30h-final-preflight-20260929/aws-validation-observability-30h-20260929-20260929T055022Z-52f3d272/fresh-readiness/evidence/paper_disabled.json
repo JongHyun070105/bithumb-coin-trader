@@ -1,0 +1,9 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/paper_disabled.json",
+    "command_log_sha256": "ff29111e26327c3588cd40872128ee4efe010b327fb66fb895d29aa090fc35b6"
+  },
+  "observed_at_utc": "2026-09-29T06:15:01.695047Z",
+  "paper": "NOT_STARTED",
+  "status": "PASS"
+}

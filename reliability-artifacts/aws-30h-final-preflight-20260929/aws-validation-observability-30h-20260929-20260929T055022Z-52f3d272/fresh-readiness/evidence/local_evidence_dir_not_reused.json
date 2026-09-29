@@ -1,0 +1,10 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/local_evidence_dir_not_reused.json",
+    "command_log_sha256": "a016fcbe39f24c9b527e6a339dfc69fd55de43c3efd7e8c08511315d9755f3cb"
+  },
+  "observed_at_utc": "2026-09-29T06:15:02.115125Z",
+  "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/fresh-readiness",
+  "path_exists": false,
+  "status": "PASS"
+}

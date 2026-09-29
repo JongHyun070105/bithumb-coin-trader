@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import stat
 import subprocess
 from typing import Any, Sequence
@@ -37,6 +38,13 @@ BINANCE_SYMBOLS: tuple[str, ...] = ("btcusdt", "ethusdt", "solusdt", "xrpusdt")
 UPBIT_MARKETS: tuple[str, ...] = ("KRW-BTC", "KRW-ETH", "KRW-SOL", "KRW-XRP")
 
 SUPPORTED_DURATIONS: tuple[int, ...] = (2700, 5400, 7200, 10800, 21600, 108000, 259200)
+WITNESS_SMOKE_DURATION_SECONDS = 120
+WITNESS_SMOKE_RUN_PREFIX = "aws-validation-witness-e2e-smoke-run-"
+WITNESS_SMOKE_EPOCH_PREFIX = "aws-validation-witness-e2e-smoke-"
+SAFE_LAUNCH_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SAFE_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+SAFE_AWS_REGION = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+SAFE_SEALED_PATH = re.compile(r"^/[A-Za-z0-9._/-]+$")
 
 REQUIRED_PATH_TEMPLATES: tuple[str, ...] = (
     "raw_root_template",
@@ -80,12 +88,33 @@ class ValidationRunSpec:
     region: str = "ap-northeast-2"
 
     def __post_init__(self) -> None:
-        if self.duration_seconds not in SUPPORTED_DURATIONS:
+        is_witness_smoke = (
+            self.duration_seconds == WITNESS_SMOKE_DURATION_SECONDS
+            and self.epoch.startswith(WITNESS_SMOKE_EPOCH_PREFIX)
+            and self.run_id.startswith(WITNESS_SMOKE_RUN_PREFIX)
+        )
+        if self.duration_seconds == WITNESS_SMOKE_DURATION_SECONDS and not is_witness_smoke:
+            raise ValueError("120-second duration is reserved for a newly identified witness E2E smoke")
+        if self.duration_seconds not in SUPPORTED_DURATIONS and not is_witness_smoke:
             raise ValueError(
-                f"duration_seconds {self.duration_seconds} not in supported list: {SUPPORTED_DURATIONS}"
+                f"duration_seconds {self.duration_seconds} not in supported list or exact witness smoke scope: {SUPPORTED_DURATIONS}"
             )
         if not self.epoch or not self.run_id or not self.runtime_commit:
             raise ValueError("epoch, run_id, and runtime_commit must be non-empty")
+        if not SAFE_LAUNCH_ID.fullmatch(self.epoch) or not SAFE_LAUNCH_ID.fullmatch(self.run_id):
+            raise ValueError("epoch and run_id must be safe launch identifiers")
+        if not SAFE_S3_BUCKET.fullmatch(self.s3_bucket):
+            raise ValueError("s3_bucket must be a valid bucket identifier")
+        if not SAFE_AWS_REGION.fullmatch(self.region):
+            raise ValueError("region must be a safe AWS region identifier")
+        for label, value in (
+            ("base_data_parent", str(self.base_data_parent)),
+            ("runtime_worktree", str(self.runtime_worktree)),
+            ("launch_artifacts_parent", str(self.launch_artifacts_parent)),
+            ("python_bin", str(self.python_bin)),
+        ):
+            if not SAFE_SEALED_PATH.fullmatch(value):
+                raise ValueError(f"{label} must be an absolute path without shell-sensitive characters")
         if self.s3_bucket == "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433" and not self.epoch.startswith("aws-validation-"):
             raise ValueError(
                 f"S3 IAM policy for research bucket only permits 'market-data/temporary/aws-validation-*/*'; "
@@ -334,7 +363,9 @@ def generate_launch_artifacts(
         "--require-full-duration",
     ]
 
-    if spec.duration_seconds == 5400:
+    if spec.duration_seconds == WITNESS_SMOKE_DURATION_SECONDS:
+        unit_prefix = "bitcoin-trader-witness-e2e-smoke"
+    elif spec.duration_seconds == 5400:
         unit_prefix = "bitcoin-trader-90m"
     elif spec.duration_seconds == 10800:
         unit_prefix = "bitcoin-trader-3h"
@@ -375,11 +406,13 @@ def generate_launch_artifacts(
         "systemd_runtime_max_seconds": spec.effective_runtime_max,
         "launch": False,
         "terminal_witness": {
+            "python": python_str,
             "script": f"{worktree_str}/scripts/terminal_witness.py",
             "epoch": spec.epoch,
             "run_id": spec.run_id,
             "s3_bucket": spec.s3_bucket,
             "s3_prefix": resolved["temporary_prefix"],
+            "s3_region": spec.region,
             "allow_s3_write": True,
         },
     }
@@ -410,8 +443,10 @@ def generate_launch_artifacts(
         } if spec.schedule_plan is not None else {}),
         "health_schema_version": 1,
         "observer_version": 1,
+        "region": spec.region,
         "s3_bucket": spec.s3_bucket,
         "s3_prefix": resolved["temporary_prefix"],
+        "s3_region": spec.region,
         "runtime_worktree": worktree_str,
         "data_root": data_root_str,
         "python": python_str,
@@ -529,6 +564,7 @@ if [ "$is_launch" = true ]; then
 fi
 
 exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
+  "$@" \\
   --run-id "{spec.run_id}" \\
   --workdir "$worktree" \\
   --supervisor-command-json "$sup_cmd_json" \\
@@ -536,13 +572,14 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-python "$python" \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
   --exec-stop-post-epoch "{spec.epoch}" \\
   --exec-stop-post-s3-bucket "{spec.s3_bucket}" \\
   --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
+  --exec-stop-post-s3-region "{spec.region}" \\
   --exec-stop-post-allow-s3-write \\
-  "$@"
 """
 
     launch_sh = f"""#!/usr/bin/env bash
@@ -560,6 +597,7 @@ print(json.dumps(d["supervisor_command"]))
 
 export PYTHONPATH="$worktree/src"
 exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
+  "$@" \\
   --run-id "{spec.run_id}" \\
   --workdir "$worktree" \\
   --supervisor-command-json "$sup_cmd_json" \\
@@ -567,13 +605,14 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --finalization-timeout-seconds {spec.finalization_timeout_seconds} \\
   --supervisor-hard-ceiling-seconds {spec.effective_hard_ceiling} \\
   --systemd-runtime-max-seconds {spec.effective_runtime_max} \\
+  --exec-stop-post-python "$python" \\
   --exec-stop-post-script "$worktree/scripts/terminal_witness.py" \\
   --data-dir "{data_root_str}" \\
   --exec-stop-post-epoch "{spec.epoch}" \\
   --exec-stop-post-s3-bucket "{spec.s3_bucket}" \\
   --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
+  --exec-stop-post-s3-region "{spec.region}" \\
   --exec-stop-post-allow-s3-write \\
-  "$@"
 """
 
     sealed_at = datetime.now(timezone.utc).isoformat()
@@ -631,6 +670,18 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
             "artifact_hashes": identity["sealed_artifact_hashes"],
         }
         (target_dir / "sealed-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        authorization = {
+            "schema_version": 1,
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "runtime_commit": spec.runtime_commit,
+            "launch_authorized": False,
+            "actual_start_time_utc": None,
+            "status": "PREPARED_NOT_AUTHORIZED",
+        }
+        (target_dir / "authorization-evidence.json").write_text(
+            json.dumps(authorization, indent=2) + "\n", encoding="utf-8"
+        )
 
     return artifacts
 
@@ -737,6 +788,20 @@ def validate_launch_artifacts(
             if obs_cmd[o_data_idx + 1] != str(spec.epoch_data_root):
                 raise ValueError("observer_command data-dir binding failure")
 
+        witness = launch_command.get("terminal_witness")
+        expected_witness = {
+            "python": str(spec.python_bin),
+            "script": f"{spec.runtime_worktree}/scripts/terminal_witness.py",
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "s3_bucket": spec.s3_bucket,
+            "s3_prefix": resolved["temporary_prefix"],
+            "s3_region": spec.region,
+            "allow_s3_write": True,
+        }
+        if witness != expected_witness:
+            raise ValueError("terminal witness binding does not match the sealed launch identity and S3 target")
+
     # Rule 4: DRY RUN PRODUCTION COLLECTOR CONFIG VALIDATION
     try:
         from scripts.run_cross_market_collector import _validate_runtime_config
@@ -825,6 +890,33 @@ def validate_launch_artifacts(
                     raise ValueError(
                         "sealed-manifest.json artifact_hashes does not match identity.json sealed_artifact_hashes"
                     )
+
+        authorization_path = target_dir / "authorization-evidence.json"
+        if not authorization_path.is_file():
+            raise ValueError("authorization-evidence.json is required for prelaunch validation")
+        try:
+            authorization = json.loads(authorization_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise ValueError(f"authorization-evidence.json unreadable in {target_dir}: {exc}") from exc
+        if not isinstance(authorization, dict) or authorization.get("schema_version") != 1:
+            raise ValueError("authorization-evidence.json has an unsupported schema")
+        expected_authorization = {
+            "epoch": spec.epoch,
+            "run_id": spec.run_id,
+            "runtime_commit": spec.runtime_commit,
+            "actual_start_time_utc": None,
+        }
+        if any(authorization.get(key) != value for key, value in expected_authorization.items()):
+            raise ValueError("authorization evidence must bind this identity and remain not started")
+        authorization_state = (
+            authorization.get("launch_authorized"),
+            authorization.get("status"),
+        )
+        if authorization_state not in {
+            (False, "PREPARED_NOT_AUTHORIZED"),
+            (True, "AUTHORIZED_NOT_STARTED"),
+        }:
+            raise ValueError("authorization evidence has an unsupported or inconsistent authorization state")
 
     ret = {
         "status": "PASS",

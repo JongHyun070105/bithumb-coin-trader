@@ -1,0 +1,33 @@
+{
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "SSM StartSession via bitcoin-trader-provisioner",
+        "EC2 instance role STS GetCallerIdentity and exact GetObject for the two smoke receipts"
+      ],
+      "exit_code": 0,
+      "name": "runtime_role_exact_reads",
+      "observed_at_utc": "2026-09-29T05:23:05.034114Z",
+      "started_at_utc": "2026-09-29T05:23:00.095983Z",
+      "stdout": "{\"local_s3_key\": \"market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json\", \"local_s3_uploaded\": true, \"local_stable_exists\": true, \"local_stable_sha256\": \"482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb\", \"local_timestamped_count\": 1, \"local_timestamped_sha256\": \"482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb\", \"observed_at_utc\": \"2026-09-29T05:23:05.034114Z\", \"runtime_role_arn\": \"arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f\", \"runtime_role_identity_ok\": true, \"s3_objects\": [{\"key\": \"market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json\", \"sha256\": \"482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb\", \"size\": 3338, \"status\": \"PASS\"}, {\"key\": \"market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json\", \"sha256\": \"482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb\", \"size\": 3338, \"status\": \"PASS\"}], \"stable_hash_matches_local\": true, \"timestamped_hash_matches_local\": true}"
+    }
+  },
+  "local_receipt_s3_uploaded": true,
+  "local_stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "local_timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "observed_at_utc": "2026-09-29T05:23:05.034114Z",
+  "prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf",
+  "runtime_role_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+  "runtime_role_identity_ok": true,
+  "stable_exists": true,
+  "stable_hash_matches_local": true,
+  "stable_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+  "stable_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb",
+  "status": "PASS",
+  "timestamped_exists": true,
+  "timestamped_hash_matches_local": true,
+  "timestamped_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt-20260929T052139Z.json",
+  "timestamped_sha256": "482fcae5cff083b5843d04f35a8202d31f912e754f5b7968349e39f0cbfd81eb"
+}

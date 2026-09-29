@@ -1,0 +1,15 @@
+{
+  "checked": [
+    "launch.sh",
+    "launch-ec2.sh"
+  ],
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/shell_syntax.json",
+    "command_log_sha256": "edb3ed2a0c3ea50b8c8c9d8765b980d168d3d718530133fd488289daa753ee79",
+    "stdout_excerpt": ""
+  },
+  "exit_code": 0,
+  "observed_at_utc": "2026-09-29T06:14:56.878051Z",
+  "parser": "bash -n",
+  "status": "PASS"
+}

@@ -1,0 +1,10 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/private_api_disabled.json",
+    "command_log_sha256": "77b7410a46209dc91e370593c1f6ca636a684b88aeea7152e4ba04551829a8ad"
+  },
+  "identity_safety": "DISABLED",
+  "observed_at_utc": "2026-09-29T06:15:01.694782Z",
+  "runtime_private_api_enabled": false,
+  "status": "PASS"
+}

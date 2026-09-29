@@ -14,6 +14,7 @@ import json
 import logging
 import os
 from pathlib import Path
+import re
 import sys
 import tempfile
 from typing import Any, Mapping, Optional, Sequence
@@ -31,6 +32,10 @@ from bithumb_coin_trader.collector_state_model import (
 from bithumb_coin_trader.runtime_observer import parse_s3_location
 
 logger = logging.getLogger("terminal_witness")
+SAFE_WITNESS_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SAFE_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+SAFE_S3_PREFIX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+SAFE_AWS_REGION = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
 def classify_terminal_outcome(
@@ -104,10 +109,25 @@ def record_terminal_receipt(
     exit_status: Optional[str] = None,
     s3_bucket: Optional[str] = None,
     s3_prefix: Optional[str] = None,
+    s3_region: Optional[str] = None,
     allow_s3_write: bool = False,
     s3_client: Optional[Any] = None,
 ) -> dict[str, Any]:
     """Capture terminal status, inspect health snapshots, write local and S3 receipts."""
+    if allow_s3_write:
+        if not epoch or not SAFE_WITNESS_ID.fullmatch(epoch):
+            raise ValueError("S3 terminal witness upload requires an exact safe epoch")
+        if not run_id or not SAFE_WITNESS_ID.fullmatch(run_id):
+            raise ValueError("S3 terminal witness upload requires an exact safe run ID")
+        if not s3_bucket or not SAFE_S3_BUCKET.fullmatch(s3_bucket):
+            raise ValueError("S3 terminal witness upload requires a valid bucket")
+        if not s3_prefix or not SAFE_S3_PREFIX.fullmatch(s3_prefix):
+            raise ValueError("S3 terminal witness upload requires a valid prefix")
+        if any(part in {"", ".", ".."} for part in s3_prefix.split("/")):
+            raise ValueError("S3 terminal witness prefix must not contain empty or dot path segments")
+        if not s3_region or not SAFE_AWS_REGION.fullmatch(s3_region):
+            raise ValueError("S3 terminal witness upload requires an explicit AWS region")
+
     recorded_at = utc_iso_now()
 
     # Capture systemd environment variables if not provided
@@ -176,13 +196,21 @@ def record_terminal_receipt(
 
     # 2. Upload to S3 if configured
     bucket, prefix = parse_s3_location(s3_bucket, s3_prefix)
+    receipt["s3_bucket"] = bucket
+    receipt["s3_prefix"] = prefix
+    receipt["s3_region"] = s3_region
+    write_receipt_atomic(terminal_receipt_path, receipt)
+    try:
+        write_receipt_atomic(timestamped_receipt_path, receipt)
+    except Exception as exc:
+        logger.warning("Could not refresh timestamped terminal receipt: %s", exc)
     if bucket and allow_s3_write:
         client = s3_client
         if client is None:
             try:
                 import boto3  # pyright: ignore[reportMissingImports]
 
-                client = boto3.client("s3")
+                client = boto3.client("s3", region_name=s3_region)
             except Exception as exc:
                 logger.error("Failed to load boto3 S3 client for terminal receipt: %s", exc)
                 client = None
@@ -194,7 +222,13 @@ def record_terminal_receipt(
                 if prefix
                 else f"terminal/terminal-receipt-{ts_tag}.json"
             )
+            # Persist the exact successful payload before upload so a successful
+            # S3 write and the local receipt have byte-for-byte identical content.
+            receipt["s3_uploaded"] = True
+            receipt["s3_key"] = receipt_key
             payload_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            write_receipt_atomic(terminal_receipt_path, receipt)
+            write_receipt_atomic(timestamped_receipt_path, receipt)
             try:
                 client.put_object(
                     Bucket=bucket,
@@ -202,20 +236,31 @@ def record_terminal_receipt(
                     Body=payload_bytes,
                     ContentType="application/json",
                 )
-                client.put_object(
-                    Bucket=bucket,
-                    Key=receipt_ts_key,
-                    Body=payload_bytes,
-                    ContentType="application/json",
-                )
-                receipt["s3_uploaded"] = True
-                receipt["s3_key"] = receipt_key
-                # Re-write local receipt with s3_uploaded=True
-                write_receipt_atomic(terminal_receipt_path, receipt)
-                write_receipt_atomic(timestamped_receipt_path, receipt)
+                try:
+                    client.put_object(
+                        Bucket=bucket,
+                        Key=receipt_ts_key,
+                        Body=payload_bytes,
+                        ContentType="application/json",
+                    )
+                except Exception as exc:
+                    # The stable receipt is the required audit object. Preserve
+                    # its success and byte parity if the optional timestamped
+                    # mirror cannot be written.
+                    logger.warning("Could not upload timestamped terminal receipt: %s", exc)
                 logger.info("Terminal receipt uploaded to s3://%s/%s", bucket, receipt_key)
             except Exception as exc:
                 logger.error("Failed to upload terminal receipt to S3: %s", exc)
+                receipt["s3_uploaded"] = False
+                receipt["s3_key"] = None
+
+    # Persist the final success/failure state. After a successful upload this
+    # serializes the same fields and bytes already sent to the stable S3 key.
+    write_receipt_atomic(terminal_receipt_path, receipt)
+    try:
+        write_receipt_atomic(timestamped_receipt_path, receipt)
+    except Exception as exc:
+        logger.warning("Could not persist timestamped terminal receipt: %s", exc)
 
     return receipt
 
@@ -237,6 +282,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exit-status", default=None, help="Systemd $EXIT_STATUS override")
     parser.add_argument("--s3-bucket", default=None, help="S3 bucket")
     parser.add_argument("--s3-prefix", default=None, help="S3 key prefix")
+    parser.add_argument("--s3-region", default=None, help="AWS region for the exact witness bucket")
     parser.add_argument("--allow-s3-write", action="store_true", help="Allow upload to S3")
     return parser
 
@@ -244,6 +290,19 @@ def _build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    if not args.epoch or not args.run_id:
+        parser.error("exact --epoch and --run-id are required")
+    if not args.s3_bucket or not args.s3_prefix or not args.s3_region or not args.allow_s3_write:
+        parser.error("exact S3 bucket, prefix, region, and --allow-s3-write are required")
+    if not SAFE_WITNESS_ID.fullmatch(args.epoch) or not SAFE_WITNESS_ID.fullmatch(args.run_id):
+        parser.error("epoch and run ID must be safe launch identifiers")
+    if not SAFE_S3_BUCKET.fullmatch(args.s3_bucket) or not SAFE_S3_PREFIX.fullmatch(args.s3_prefix):
+        parser.error("S3 bucket and prefix must use the supported safe identifier syntax")
+    if any(part in {"", ".", ".."} for part in args.s3_prefix.split("/")):
+        parser.error("S3 prefix must not contain empty or dot path segments")
+    if not SAFE_AWS_REGION.fullmatch(args.s3_region):
+        parser.error("S3 region must be a safe AWS region identifier")
 
     logging.basicConfig(
         level=logging.INFO,
@@ -270,10 +329,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             exit_status=args.exit_status,
             s3_bucket=args.s3_bucket,
             s3_prefix=args.s3_prefix,
+            s3_region=args.s3_region,
             allow_s3_write=args.allow_s3_write,
         )
         print(json.dumps(receipt, indent=2))
-        return 0
+        return 0 if receipt["s3_uploaded"] else 1
     except Exception as exc:
         print(f"FATAL: terminal witness failed: {exc}", file=sys.stderr)
         return 1

@@ -1,0 +1,9 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/live_disabled.json",
+    "command_log_sha256": "58b817311e984be55a90b1b7e16580f6c00b0e079976f4a204a46f483dc71457"
+  },
+  "live": "DISABLED",
+  "observed_at_utc": "2026-09-29T06:15:01.695286Z",
+  "status": "PASS"
+}

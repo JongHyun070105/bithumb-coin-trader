@@ -25,6 +25,7 @@ for d in (ROOT, SRC_DIR):
 
 from bithumb_coin_trader.launch_artifacts import (
     SUPPORTED_DURATIONS,
+    WITNESS_SMOKE_DURATION_SECONDS,
     ValidationRunSpec,
     generate_launch_artifacts,
     validate_launch_artifacts,
@@ -35,7 +36,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Authoritative Launch Artifact Generator")
     parser.add_argument("--epoch", required=True, help="Collector epoch name")
     parser.add_argument("--run-id", required=True, help="Collector run ID")
-    parser.add_argument("--duration", type=int, required=True, choices=SUPPORTED_DURATIONS, help="Duration in seconds")
+    parser.add_argument(
+        "--duration",
+        type=int,
+        required=True,
+        choices=(*SUPPORTED_DURATIONS, WITNESS_SMOKE_DURATION_SECONDS),
+        help="Duration in seconds (120 is reserved for the explicitly named witness E2E smoke)",
+    )
     parser.add_argument("--runtime-commit", required=True, help="Git commit SHA for runtime code")
     parser.add_argument("--software-tree-sha", help="Git tree SHA for runtime code")
     parser.add_argument("--target-dir", type=Path, required=True, help="Target directory for launch artifacts")

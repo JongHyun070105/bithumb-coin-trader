@@ -1,0 +1,21 @@
+{
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "env PYTHONPATH=src /opt/homebrew/bin/pytest -q tests/test_closed_hour_finalizer.py::test_restart_idempotency"
+      ],
+      "exit_code": 0,
+      "name": "closed_at_utc_idempotency",
+      "observed_at_utc": "2026-09-29T05:18:16.247561Z",
+      "started_at_utc": "2026-09-29T05:18:14.662050Z",
+      "stdout": "..                                                                       [100%]\n2 passed in 0.49s\n"
+    }
+  },
+  "failures": 0,
+  "observed_at_utc": "2026-09-29T05:18:16.247561Z",
+  "passed_tests": 2,
+  "status": "PASS"
+}

@@ -1,0 +1,34 @@
+{
+  "access_denied": true,
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "s3api",
+        "get-object",
+        "--bucket",
+        "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "--key",
+        "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+        "/tmp/fresh30h-20260929-prep-a90f8cfebe/window-20260929T0516Z-150e7caf/auditor-objects/stable-witness.json",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2"
+      ],
+      "exit_code": 254,
+      "name": "auditor_get_exact_witness",
+      "observed_at_utc": "2026-09-29T05:23:31.194510Z",
+      "started_at_utc": "2026-09-29T05:23:30.074090Z",
+      "stdout": "\naws: [ERROR]: An error occurred (AccessDenied) when calling the GetObject operation: User: arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation is not authorized to perform: s3:GetObject on resource: \"arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json\" with an explicit deny in an identity-based policy\n"
+    }
+  },
+  "exit_code": 254,
+  "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20260929T051243Z-150e7caf/terminal/terminal-receipt.json",
+  "observed_at_utc": "2026-09-29T05:23:31.194510Z",
+  "operation": "GetObject",
+  "status": "FAIL"
+}

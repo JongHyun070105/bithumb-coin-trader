@@ -1,0 +1,20 @@
+{
+  "evidence": {
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "/bin/zsh",
+        "-lc",
+        "python3.14 /tmp/fresh30h-20260929-prep-a90f8cfebe/sealed_candidate_safety.py"
+      ],
+      "exit_code": 0,
+      "name": "sealed_candidate_safety",
+      "observed_at_utc": "2026-09-29T05:18:15.203744Z",
+      "started_at_utc": "2026-09-29T05:18:14.834551Z",
+      "stdout": "{\"duration_seconds\": 108000, \"epoch\": \"aws-validation-observability-30h-20260928-20260928T125700Z-675937ab\", \"live\": \"DISABLED\", \"paper\": \"NOT_STARTED\", \"private_api\": \"DISABLED\", \"private_api_enabled\": null, \"run_id\": \"aws-validation-observability-30h-run-20260928T125700Z-675937ab\", \"runtime_commit\": \"b4d482363e2f988dad9c6d29053f97e1e4160883\", \"runtime_private_api_enabled\": false, \"runtime_tree\": \"5c96ed79fee107c1604ee7018621835910221fdf\", \"target_full_hours\": 30}\n"
+    }
+  },
+  "live": "DISABLED",
+  "observed_at_utc": "2026-09-29T05:18:15.203744Z",
+  "status": "PASS"
+}

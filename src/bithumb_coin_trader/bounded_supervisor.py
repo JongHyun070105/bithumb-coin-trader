@@ -19,6 +19,12 @@ if TYPE_CHECKING:
 
 
 SAFE_RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+SAFE_EXEC_STOP_TOKEN = re.compile(r"^/[A-Za-z0-9._/:-]*$")
+SAFE_S3_BUCKET = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")
+SAFE_S3_PREFIX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+SAFE_AWS_REGION = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+WITNESS_SMOKE_RUN_PREFIX = "aws-validation-witness-e2e-smoke-run-"
+WITNESS_SMOKE_EPOCH_PREFIX = "aws-validation-witness-e2e-smoke-"
 
 
 def sd_notify(state: str) -> bool:
@@ -127,11 +133,13 @@ class TransientLaunchConfig:
     systemd_runtime_max_seconds: int = 2880
     pythonpath: str = "src"
     maximum_collection_window_seconds: int | None = None
+    exec_stop_post_python: str | None = None
     exec_stop_post_script: str | None = None
     data_dir: Path | None = None
     exec_stop_post_epoch: str | None = None
     exec_stop_post_s3_bucket: str | None = None
     exec_stop_post_s3_prefix: str | None = None
+    exec_stop_post_s3_region: str | None = None
     exec_stop_post_allow_s3_write: bool = False
 
 
@@ -150,13 +158,24 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         prefix = "bitcoin-trader-30h"
     else:
         # Legacy duration path:
-        if config.collection_duration_seconds not in (2700, 5400, 7200, 10800, 21600, 108000, 259200):
-            raise ValueError("production supervisor duration must be exactly 2700, 5400, 7200, 10800, 21600, 108000, or 259200 seconds")
+        if config.collection_duration_seconds is None:
+            raise ValueError("collection_duration_seconds is required")
+        is_witness_smoke = (
+            config.collection_duration_seconds == 120
+            and config.run_id.startswith(WITNESS_SMOKE_RUN_PREFIX)
+            and config.exec_stop_post_epoch is not None
+            and config.exec_stop_post_epoch.startswith(WITNESS_SMOKE_EPOCH_PREFIX)
+            and config.exec_stop_post_script is not None
+        )
+        if config.collection_duration_seconds not in (2700, 5400, 7200, 10800, 21600, 108000, 259200) and not is_witness_smoke:
+            raise ValueError("production supervisor duration must be 2700, 5400, 7200, 10800, 21600, 108000, 259200, or the sealed 120-second witness smoke")
         if config.supervisor_hard_ceiling_seconds < (
             config.collection_duration_seconds + config.finalization_timeout_seconds
         ):
             raise ValueError("supervisor hard ceiling must cover collection plus finalization")
-        if config.collection_duration_seconds == 259200:
+        if is_witness_smoke:
+            prefix = "bitcoin-trader-witness-e2e-smoke"
+        elif config.collection_duration_seconds == 259200:
             prefix = "bitcoin-trader-72h-soak"
         elif config.collection_duration_seconds == 108000:
             prefix = "bitcoin-trader-30h"
@@ -173,12 +192,28 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if config.systemd_runtime_max_seconds <= config.supervisor_hard_ceiling_seconds:
         raise ValueError("systemd runtime max must exceed supervisor hard ceiling")
     if config.exec_stop_post_script is not None:
-        if not config.exec_stop_post_epoch:
+        effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
+        if not config.exec_stop_post_epoch or not SAFE_RUN_ID.fullmatch(config.exec_stop_post_epoch):
             raise ValueError("ExecStopPost requires an exact epoch")
-        if config.exec_stop_post_allow_s3_write and not (
-            config.exec_stop_post_s3_bucket and config.exec_stop_post_s3_prefix
+        if not config.exec_stop_post_allow_s3_write:
+            raise ValueError("ExecStopPost requires S3 upload to be explicitly enabled")
+        if not config.exec_stop_post_s3_bucket or not SAFE_S3_BUCKET.fullmatch(config.exec_stop_post_s3_bucket):
+            raise ValueError("ExecStopPost S3 upload requires a valid bucket")
+        if not config.exec_stop_post_s3_prefix or not SAFE_S3_PREFIX.fullmatch(config.exec_stop_post_s3_prefix):
+            raise ValueError("ExecStopPost S3 upload requires a valid prefix")
+        if any(part in {"", ".", ".."} for part in config.exec_stop_post_s3_prefix.split("/")):
+            raise ValueError("ExecStopPost S3 prefix must not contain empty or dot path segments")
+        if not config.exec_stop_post_s3_region or not SAFE_AWS_REGION.fullmatch(config.exec_stop_post_s3_region):
+            raise ValueError("ExecStopPost S3 upload requires an explicit AWS region")
+        if not config.exec_stop_post_python:
+            raise ValueError("ExecStopPost requires an explicit Python interpreter")
+        for label, value in (
+            ("Python interpreter", config.exec_stop_post_python),
+            ("script", config.exec_stop_post_script),
+            ("data directory", str(effective_data_dir)),
         ):
-            raise ValueError("ExecStopPost S3 upload requires a bucket and prefix")
+            if not Path(value).is_absolute() or not SAFE_EXEC_STOP_TOKEN.fullmatch(value):
+                raise ValueError(f"ExecStopPost {label} must be an absolute systemd-safe path")
     unit_name = f"{prefix}-{config.run_id}.service"
     cmd = [
         "systemd-run",
@@ -199,7 +234,7 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
     if config.exec_stop_post_script is not None:
         effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
         cmd.append(
-            f"--property=ExecStopPost={config.exec_stop_post_script}"
+            f"--property=ExecStopPost={config.exec_stop_post_python} {config.exec_stop_post_script}"
             f" --data-dir={effective_data_dir}"
             f" --epoch={config.exec_stop_post_epoch}"
             f" --run-id={config.run_id}"
@@ -208,6 +243,8 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
             cmd[-1] += f" --s3-bucket={config.exec_stop_post_s3_bucket}"
         if config.exec_stop_post_s3_prefix is not None:
             cmd[-1] += f" --s3-prefix={config.exec_stop_post_s3_prefix}"
+        if config.exec_stop_post_s3_region is not None:
+            cmd[-1] += f" --s3-region={config.exec_stop_post_s3_region}"
         if config.exec_stop_post_allow_s3_write:
             cmd[-1] += " --allow-s3-write"
     cmd.extend(["--", *config.supervisor_command])

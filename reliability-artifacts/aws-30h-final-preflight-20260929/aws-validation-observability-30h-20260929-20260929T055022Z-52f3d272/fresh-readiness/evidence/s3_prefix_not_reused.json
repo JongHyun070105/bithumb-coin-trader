@@ -1,0 +1,56 @@
+{
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "checked_by": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation",
+  "evidence": {
+    "caller_identity_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "sts",
+        "get-caller-identity",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2"
+      ],
+      "exit_code": 0,
+      "name": "provisioner_identity",
+      "observed_at_utc": "2026-09-29T06:15:36.951811Z",
+      "started_at_utc": "2026-09-29T06:15:35.980549Z",
+      "stdout": "{\n    \"UserId\": \"AROARFJXC25ESQFWEIXOJ:codex-preapply-validation\",\n    \"Account\": \"080109295433\",\n    \"Arn\": \"arn:aws:sts::080109295433:assumed-role/bitcoin-trader-terraform-provisioner/codex-preapply-validation\"\n}\n"
+    },
+    "command_log": {
+      "aws_login_cache_error": false,
+      "command": [
+        "aws",
+        "s3api",
+        "list-objects-v2",
+        "--bucket",
+        "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+        "--prefix",
+        "market-data/temporary/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+        "--max-keys",
+        "1",
+        "--query",
+        "{KeyCount:KeyCount,FirstKey:Contents[0].Key}",
+        "--output",
+        "json",
+        "--profile",
+        "bitcoin-trader-provisioner",
+        "--region",
+        "ap-northeast-2"
+      ],
+      "exit_code": 0,
+      "name": "new_prefix_list",
+      "observed_at_utc": "2026-09-29T06:15:37.055700Z",
+      "started_at_utc": "2026-09-29T06:15:35.982035Z",
+      "stdout": "{\n    \"KeyCount\": 0,\n    \"FirstKey\": null\n}\n"
+    }
+  },
+  "first_key": null,
+  "key_count": 0,
+  "observed_at_utc": "2026-09-29T06:15:37.055700Z",
+  "prefix": "market-data/temporary/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+  "prefix_exists": false,
+  "status": "PASS"
+}

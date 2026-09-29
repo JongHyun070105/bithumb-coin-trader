@@ -1,0 +1,13 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/closed_at_utc_idempotency.json",
+    "command_log_sha256": "f69e2f25e546e535d532bc8f7cdccb2dbb3a762e3330125fbf7cde779391bb97",
+    "stdout_excerpt": "..                                                                       [100%]\n2 passed in 4.70s\n"
+  },
+  "exit_code": 0,
+  "failures": 0,
+  "observed_at_utc": "2026-09-29T06:15:01.693599Z",
+  "passed_tests": 2,
+  "skipped_tests": 0,
+  "status": "PASS"
+}

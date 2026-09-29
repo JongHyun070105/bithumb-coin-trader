@@ -14,7 +14,8 @@ Enforces:
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -29,7 +30,9 @@ from bithumb_coin_trader.closed_hour_finalizer import (
 from bithumb_coin_trader import feed_hour_coverage
 from bithumb_coin_trader.feed_hour_coverage import (
     FrozenFeedHourObservation,
+    load_frozen_journal,
     save_frozen_journal,
+    save_feed_hour_coverage,
 )
 from bithumb_coin_trader.incremental_finalizer import (
     FinalizationIdentity,
@@ -356,24 +359,51 @@ def test_progress_store_transitions_to_reused(tmp_path: Path) -> None:
     assert entry_after.receipt_relative_path is not None
 
 
-def test_restart_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("first_attempt", "retry_attempt"),
+    [
+        ((12, 0, 10), (12, 0, 11)),
+        ((12, 59, 59), (13, 0, 0)),
+    ],
+)
+def test_restart_idempotency(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    first_attempt: tuple[int, int, int],
+    retry_attempt: tuple[int, int, int],
+) -> None:
     bundle = FixtureBundle(tmp_path)
     feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
     obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+    journal_path = save_frozen_journal([obs], bundle.journals_dir)
 
     class BoundaryClock(datetime):
-        calls = 0
+        current = datetime(2026, 9, 27, *first_attempt, tzinfo=timezone.utc)
 
         @classmethod
-        def now(cls, tz: timezone | None = None) -> datetime:
-            cls.calls += 1
-            value = datetime(2026, 9, 27, 12, 0, 10 + cls.calls - 1, tzinfo=timezone.utc)
-            return value if tz is None else value.astimezone(tz)
+        def now(cls, tz: tzinfo | None = None) -> datetime:
+            return cls.current if tz is None else cls.current.astimezone(tz)
 
     monkeypatch.setattr(feed_hour_coverage, "datetime", BoundaryClock)
 
     result1 = bundle.finalizer.finalize_slot(obs)
-    result2 = bundle.finalizer.finalize_slot(obs)
+    first_attempt_time = BoundaryClock.current
+    BoundaryClock.current = datetime(2026, 9, 27, *retry_attempt, tzinfo=timezone.utc)
+    retry_time = BoundaryClock.current
+    assert retry_time > first_attempt_time
+    assert (first_attempt_time.hour, first_attempt_time.minute, first_attempt_time.second) == first_attempt
+    assert (retry_time.hour, retry_time.minute, retry_time.second) == retry_attempt
+    coverage_path = bundle.coverage_dir / obs.cohort_utc / feed.exchange / feed.stream / f"{feed.market}.coverage.json"
+    receipt_hashes_before = {
+        path.relative_to(bundle.receipt_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in bundle.receipt_root.rglob("*.archive-receipt.json")
+    }
+    coverage_hash_before = hashlib.sha256(coverage_path.read_bytes()).hexdigest()
+
+    # A new bundle reconstructs the progress/archive stores as a restarted process would.
+    restarted = FixtureBundle(tmp_path)
+    restarted_obs = load_frozen_journal(journal_path)[0]
+    result2 = restarted.finalizer.finalize_slot(restarted_obs)
 
     assert result1.coverage.closed_at_utc == obs.observation_end_utc
     assert result2.coverage.closed_at_utc == obs.observation_end_utc
@@ -382,6 +412,72 @@ def test_restart_idempotency(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert result1.coverage_receipt.remote_checksum == result2.coverage_receipt.remote_checksum
     assert result1.raw_receipt is not None and result2.raw_receipt is not None
     assert result1.raw_receipt.remote_checksum == result2.raw_receipt.remote_checksum
+    assert coverage_hash_before == hashlib.sha256(coverage_path.read_bytes()).hexdigest()
+    receipt_hashes_after = {
+        path.relative_to(restarted.receipt_root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in restarted.receipt_root.rglob("*.archive-receipt.json")
+    }
+    assert receipt_hashes_before == receipt_hashes_after
+
+
+@pytest.mark.parametrize("missing_artifact", ["coverage_receipt", "coverage_evidence"])
+def test_restart_retry_with_one_missing_terminal_artifact_is_deterministic(
+    tmp_path: Path,
+    missing_artifact: str,
+) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+    result1 = bundle.finalizer.finalize_slot(obs)
+    assert result1.coverage_receipt is not None
+
+    coverage_path = bundle.coverage_dir / obs.cohort_utc / feed.exchange / feed.stream / f"{feed.market}.coverage.json"
+    coverage_receipt = next(path for path in bundle.receipt_root.rglob("*.archive-receipt.json") if "/coverage/" in str(path))
+    original_evidence = coverage_path.read_bytes()
+    original_receipt = coverage_receipt.read_bytes()
+    if missing_artifact == "coverage_receipt":
+        coverage_receipt.unlink()
+    else:
+        coverage_path.unlink()
+
+    restarted = FixtureBundle(tmp_path)
+    result2 = restarted.finalizer.finalize_slot(obs)
+    assert result2.coverage.evidence_sha256 == result1.coverage.evidence_sha256
+    assert coverage_path.read_bytes() == original_evidence
+    if missing_artifact == "coverage_receipt":
+        original_receipt_data = json.loads(original_receipt)
+        restored_receipt_data = json.loads(coverage_receipt.read_text(encoding="utf-8"))
+        volatile = {"source_verified_at", "compressed_verified_at", "remote_verified_at", "restore_verified_at"}
+        assert {key: value for key, value in original_receipt_data.items() if key not in volatile} == {
+            key: value for key, value in restored_receipt_data.items() if key not in volatile
+        }
+    else:
+        assert coverage_receipt.read_bytes() == original_receipt
+
+
+def test_coverage_atomic_write_failure_preserves_existing_evidence(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+    coverage = bundle.finalizer.finalize_slot(obs).coverage
+    target_dir = tmp_path / "retry" / "coverage"
+    target = save_feed_hour_coverage(coverage, target_dir)
+    before = target.read_bytes()
+
+    def fail_replace(_source: object, _destination: object) -> None:
+        raise OSError("injected replace failure")
+
+    with monkeypatch.context() as patch_context:
+        patch_context.setattr(feed_hour_coverage.os, "replace", fail_replace)
+        with pytest.raises(OSError, match="injected replace failure"):
+            save_feed_hour_coverage(coverage, target_dir)
+
+    assert target.read_bytes() == before
+    assert list(target.parent.glob(f".{target.name}.*.tmp")) == []
+    assert save_feed_hour_coverage(coverage, target_dir).read_bytes() == before
 
 
 def test_finalize_cohort_all_76_mixed_slots(tmp_path: Path) -> None:

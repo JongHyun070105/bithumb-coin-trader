@@ -1,0 +1,14 @@
+{
+  "evidence": {
+    "command_log_path": "/tmp/fresh30h-20260929-window-final-52f3d272b/logs/default_live_safe.json",
+    "command_log_sha256": "782f42ebdf24bee0a4225498335e862eed939f813a562f7480ad30619f1f1b9b",
+    "stdout_excerpt": "............................................                          [100%]\n44 passed, 3 subtests passed in 0.17s\n"
+  },
+  "exit_code": 0,
+  "failures": 0,
+  "observed_at_utc": "2026-09-29T06:14:57.186762Z",
+  "passed_tests": 44,
+  "skipped_tests": 0,
+  "status": "PASS",
+  "subtests_passed": 3
+}
