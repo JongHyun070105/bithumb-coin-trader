@@ -60,3 +60,15 @@
 - No live runtime, sealed artifact, observer service, IAM configuration, or S3 objects were modified.
 - Ready to commit milestone increments and push `audit/30h-auditor-contract-20260929` to origin.
 
+
+## 2026-09-30 01:18 KST / 2026-09-29 16:18 UTC — independent re-verification (control-plane continuation)
+
+- This entry closes out the specific outstanding item from the prior turn: independent confirmation of the full-suite test claim, requested because that response had been rejected for omitting a required terminal status marker. No new auditor/schema/exporter work was in scope for this continuation.
+- Re-verified from a fresh shell in this worktree (`audit/30h-auditor-contract-20260929`, HEAD `b054f04`): working tree clean, HEAD equals `origin/audit/30h-auditor-contract-20260929` (fully pushed), `git diff --check` exits 0.
+- Independently reran `tests/test_fresh_30h_terminal_v2.py`: 49 passed in 1.39s (matches prior record).
+- Independently reran the full repository suite: `1761 passed, 2 skipped, 181 subtests passed in 153.45s` — exact match to the previously logged figures, now confirmed by a second independent run rather than carried forward as an unverified claim.
+- Re-checked `aws sts get-caller-identity`: still `InvalidClientTokenId`. Per standing policy this was not retried further; 02:30 and 04:30 KST live checkpoints remain skipped pending independent credential renewal by the user. No AWS, SSM, IAM, or live-runtime call beyond this single read-only identity check was made.
+- Verified protected file `/Users/macintosh/Documents/ChatGPT/bitcoin-trader/test-results/.last-run.json` again: SHA256 `e22df5d0991eb28c09093b1e678b3fa8cd1fab48185d38e67cf79fb6e63ad5ea` unchanged; file remains untracked and unmodified.
+- No live runtime, sealed artifact, observer service, IAM configuration, or S3 object was modified or inspected beyond the single STS identity call.
+- Status: all offline auditor-hardening deliverables (preregistration, reproduction, schema map, bundle spec v2, exporter, amended auditor v2, adversarial tests, future-runtime-only patch spec, launch evidence custody report, prelaunch gate trust classification, post-30H adjudication playbook) are committed and pushed as of this HEAD. The live 30H run itself remains in progress and unadjudicated by design — terminal auditor runs must wait for actual completion (~2026-09-30T15:34:57Z / 2026-10-01 00:34:57 KST).
+- Next (when the user wakes or AWS credentials are renewed): capture a fresh AWS/SSM health snapshot if auth is restored; otherwise wait for natural 30H completion, then run the post-30H adjudication playbook to produce ORIGINAL and AMENDED verdicts side by side without modifying either historical result.
