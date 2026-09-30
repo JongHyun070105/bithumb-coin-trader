@@ -1,0 +1,243 @@
+{
+  "created_at_utc": "2026-09-30T11:21:06.226608Z",
+  "derivation": {
+    "collector_start_utc": "2026-09-29T09:34:57.959160Z",
+    "duration_seconds": 108000,
+    "end_utc": "2026-09-30T15:34:57.959160Z",
+    "ending_partial_cohort_id": "2026-09-30_15",
+    "expected_qualifying_hours": 29,
+    "expected_total_feed_slots": 2204,
+    "feed_count": 76,
+    "feed_count_derivation": {
+      "binance_streams": 2,
+      "binance_symbols": 4,
+      "bithumb_markets": 20,
+      "bithumb_streams": 3,
+      "upbit_markets": 4,
+      "upbit_streams": 2
+    },
+    "opening_cohort_semantics": "FeedHourCoverageTracker marks the opening hour TOUCHED_PARTIAL, including an exact-hour start.",
+    "opening_partial_cohort_id": "2026-09-29_09",
+    "qualifying_rule": "A cohort qualifies only when the pinned producer records a complete UTC hour; opening and ending partial cohorts are excluded.",
+    "terminal_outcome_used": false
+  },
+  "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+  "expected_cohorts": [
+    {
+      "cohort_id": "2026-09-29_10",
+      "end_utc": "2026-09-29T11:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T10:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_11",
+      "end_utc": "2026-09-29T12:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T11:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_12",
+      "end_utc": "2026-09-29T13:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T12:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_13",
+      "end_utc": "2026-09-29T14:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T13:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_14",
+      "end_utc": "2026-09-29T15:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T14:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_15",
+      "end_utc": "2026-09-29T16:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T15:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_16",
+      "end_utc": "2026-09-29T17:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T16:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_17",
+      "end_utc": "2026-09-29T18:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T17:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_18",
+      "end_utc": "2026-09-29T19:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T18:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_19",
+      "end_utc": "2026-09-29T20:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T19:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_20",
+      "end_utc": "2026-09-29T21:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T20:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_21",
+      "end_utc": "2026-09-29T22:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T21:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_22",
+      "end_utc": "2026-09-29T23:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T22:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-29_23",
+      "end_utc": "2026-09-30T00:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-29T23:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_00",
+      "end_utc": "2026-09-30T01:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T00:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_01",
+      "end_utc": "2026-09-30T02:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T01:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_02",
+      "end_utc": "2026-09-30T03:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T02:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_03",
+      "end_utc": "2026-09-30T04:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T03:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_04",
+      "end_utc": "2026-09-30T05:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T04:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_05",
+      "end_utc": "2026-09-30T06:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T05:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_06",
+      "end_utc": "2026-09-30T07:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T06:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_07",
+      "end_utc": "2026-09-30T08:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T07:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_08",
+      "end_utc": "2026-09-30T09:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T08:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_09",
+      "end_utc": "2026-09-30T10:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T09:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_10",
+      "end_utc": "2026-09-30T11:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T10:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_11",
+      "end_utc": "2026-09-30T12:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T11:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_12",
+      "end_utc": "2026-09-30T13:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T12:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_13",
+      "end_utc": "2026-09-30T14:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T13:00:00Z"
+    },
+    {
+      "cohort_id": "2026-09-30_14",
+      "end_utc": "2026-09-30T15:00:00Z",
+      "expected_slot_count": 76,
+      "start_utc": "2026-09-30T14:00:00Z"
+    }
+  ],
+  "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree": "5c96ed79fee107c1604ee7018621835910221fdf",
+  "schema": "Fresh30HExpectedCohorts",
+  "source_artifacts": [
+    {
+      "fields_used": [
+        "snapshot.collector_metrics.value.collector_started_at"
+      ],
+      "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/fresh-readiness-refresh-20260929T092926Z/health-t5.json",
+      "sha256": "01aa280629bbfa7a8d47dea81faffa00dc1a68d0471a877b12946e953730792b"
+    },
+    {
+      "fields_used": [
+        "collection_duration_seconds"
+      ],
+      "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/launch-command.json",
+      "sha256": "f3f2edcad61ed0428a0a59aab8c12cf780239ee821c60287283f99c5f42f490b"
+    },
+    {
+      "fields_used": [
+        "feeds.bithumb_markets",
+        "feeds.binance_symbols",
+        "feeds.upbit_markets"
+      ],
+      "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272.runtime.json",
+      "sha256": "20f5a4983c18c4e057ec5b0c4175eb3d4f06f5222bdd2fc4eb4c2600ff299951"
+    },
+    {
+      "fields_used": [
+        "findings.actual_collector_started_at_utc",
+        "run_id",
+        "epoch",
+        "runtime_commit",
+        "runtime_tree"
+      ],
+      "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/postlaunch-health-observer-notify-audit-20260929T114048+0000/observer-notify-audit.json",
+      "role": "independent same-minute start corroboration",
+      "sha256": "134b1aac3bb885b55e6a65436e37a333402d99f1f44e13731f009b1e177f5b82"
+    }
+  ],
+  "version": 1
+}

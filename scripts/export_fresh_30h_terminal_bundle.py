@@ -9,15 +9,17 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path, PurePosixPath
-import shutil
+import stat
 import sys
+import tempfile
 from typing import Sequence
 
 try:
-    from .audit_fresh_30h_terminal_v2 import REQUIRED_PAYLOADS, SHA256_RE, sha256_file
+    from .audit_fresh_30h_terminal_v2 import MAX_JSON_BYTES, REQUIRED_PAYLOADS, SHA256_RE, sha256_file, strict_json_loads
 except ImportError:  # Executed directly as `python scripts/export_...py`.
-    from audit_fresh_30h_terminal_v2 import REQUIRED_PAYLOADS, SHA256_RE, sha256_file
+    from audit_fresh_30h_terminal_v2 import MAX_JSON_BYTES, REQUIRED_PAYLOADS, SHA256_RE, sha256_file, strict_json_loads
 
 
 def _safe_destination(value: str) -> bool:
@@ -66,9 +68,9 @@ def export_bundle(*, output_dir: Path, sources: Sequence[tuple[str, Path]], run_
         raise ValueError("sealed-manifest source differs from the external hash anchor")
     if sha256_file(capture_source) != capture_manifest_sha256:
         raise ValueError("capture-manifest source differs from the external hash anchor")
-    sealed = json.loads(seal_source.read_text(encoding="utf-8"))
-    identity = json.loads(identity_source.read_text(encoding="utf-8"))
-    runtime = json.loads(runtime_source.read_text(encoding="utf-8"))
+    sealed = _read_source_json(seal_source)
+    identity = _read_source_json(identity_source)
+    runtime = _read_source_json(runtime_source)
     if not isinstance(sealed, dict) or not isinstance(identity, dict) or not isinstance(runtime, dict):
         raise ValueError("sealed JSON sources must be objects")
     if sha256_file(identity_source) != sealed.get("identity_sha256"):
@@ -91,7 +93,7 @@ def export_bundle(*, output_dir: Path, sources: Sequence[tuple[str, Path]], run_
     allowed_sealed.update(f"sealed/artifacts/{name}" for name in artifact_hashes)
     if sha256_file(runtime_source) != next((value for name, value in artifact_hashes.items() if name.endswith(".runtime.json")), None):
         raise ValueError("runtime config copy is not the sealed runtime artifact")
-    capture = json.loads(capture_source.read_text(encoding="utf-8"))
+    capture = _read_source_json(capture_source)
     if not isinstance(capture, dict) or capture.get("schema") != "Fresh30HTerminalCapture" or capture.get("version") != 1:
         raise ValueError("post-run capture manifest schema/version is invalid")
     for key, expected in (("run_id", run_id), ("epoch", epoch),
@@ -122,15 +124,26 @@ def export_bundle(*, output_dir: Path, sources: Sequence[tuple[str, Path]], run_
     outside_scope = sorted(dest for dest in destinations if not dest.startswith(("sealed/", "terminal/")))
     if unexpected_sources or outside_scope:
         raise ValueError(f"unallowlisted bundle sources: {unexpected_sources + outside_scope}")
-    output_dir.mkdir(parents=True, exist_ok=True)
+    if output_dir.exists():
+        raise FileExistsError("output directory must not exist")
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=f".{output_dir.name}.incomplete-", dir=output_dir.parent))
+    expected_hashes: dict[str, str] = {
+        "sealed/sealed-manifest.json": sealed_manifest_sha256,
+        "sealed/identity.json": sealed["identity_sha256"],
+        "sealed/runtime.json": next(value for name, value in artifact_hashes.items() if name.endswith(".runtime.json")),
+        "terminal/capture-manifest.json": capture_manifest_sha256,
+    }
+    expected_hashes.update({f"sealed/artifacts/{name}": digest for name, digest in artifact_hashes.items()})
+    expected_hashes.update({path: digest for path, (_size, digest) in captured.items()})
     try:
         for destination, source in sources:
-            dest = output_dir / destination
+            dest = stage / destination
             dest.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(source, dest)
+            _copy_verified(source, dest, expected_hashes[destination])
         files = []
         for destination, _source in sorted(sources):
-            path = output_dir / destination
+            path = stage / destination
             files.append({"path": destination, "size": path.stat().st_size, "sha256": sha256_file(path)})
         manifest = {
             "schema": "Fresh30HTerminalBundle", "version": 2,
@@ -140,23 +153,88 @@ def export_bundle(*, output_dir: Path, sources: Sequence[tuple[str, Path]], run_
             "external_capture_manifest_sha256": capture_manifest_sha256,
             "payloads": files,
         }
-        _write_json(output_dir / "bundle-manifest.json", manifest)
+        _write_json(stage / "bundle-manifest.json", manifest)
         index_files = []
-        for path in sorted(p for p in output_dir.rglob("*") if p.is_file()):
-            rel = path.relative_to(output_dir).as_posix()
+        for path in sorted(p for p in stage.rglob("*") if p.is_file()):
+            rel = path.relative_to(stage).as_posix()
             if rel == "terminal/evidence-hash-index.json":
                 continue
             index_files.append({"path": rel, "size": path.stat().st_size, "sha256": sha256_file(path)})
-        _write_json(output_dir / "terminal/evidence-hash-index.json", {"schema": 1, "files": index_files})
+        _write_json(stage / "terminal/evidence-hash-index.json", {"schema": 1, "files": index_files})
+        _fsync_directories(stage)
+        if output_dir.exists():
+            raise FileExistsError("output directory appeared during export")
+        os.rename(stage, output_dir)
+        _fsync_directory(output_dir.parent)
         return output_dir
-    except Exception:
-        # Preserve the partial output for inspection; never delete user evidence.
+    except BaseException as exc:
+        # A crash leaves a clearly named incomplete stage, never the final bundle path.
+        try:
+            (stage / "INCOMPLETE.txt").write_text(
+                f"Bundle export did not commit. {type(exc).__name__}: {exc}\n", encoding="utf-8")
+            _fsync_directory(stage)
+        except OSError:
+            pass
         raise
+
+
+def _copy_verified(source: Path, destination: Path, expected_sha256: str) -> None:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(source, flags)
+    digest = hashlib.sha256()
+    total = 0
+    with os.fdopen(descriptor, "rb") as src:
+        before = os.fstat(src.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ValueError(f"source is not a regular singly-linked file: {source}")
+        path_before = source.lstat()
+        if path_before.st_dev != before.st_dev or path_before.st_ino != before.st_ino or stat.S_ISLNK(path_before.st_mode):
+            raise ValueError(f"source path changed before copy: {source}")
+        with destination.open("xb") as dst:
+            for chunk in iter(lambda: src.read(1024 * 1024), b""):
+                dst.write(chunk)
+                digest.update(chunk)
+                total += len(chunk)
+            dst.flush()
+            os.fsync(dst.fileno())
+        after = os.fstat(src.fileno())
+    path_after = source.lstat()
+    stable_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+    stable_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)
+    if stable_before != stable_after or path_after.st_dev != before.st_dev or path_after.st_ino != before.st_ino:
+        raise ValueError(f"source changed during copy: {source}")
+    if total != after.st_size or digest.hexdigest() != expected_sha256:
+        raise ValueError(f"copied source differs from its frozen hash: {source}")
+
+
+def _read_source_json(path: Path) -> object:
+    with path.open("rb") as stream:
+        data = stream.read(MAX_JSON_BYTES + 1)
+    if len(data) > MAX_JSON_BYTES:
+        raise ValueError(f"source JSON exceeds {MAX_JSON_BYTES}-byte limit: {path}")
+    return strict_json_loads(data.decode("utf-8"))
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _fsync_directories(root: Path) -> None:
+    for path in sorted((item for item in root.rglob("*") if item.is_dir()), key=lambda item: len(item.parts), reverse=True):
+        _fsync_directory(path)
+    _fsync_directory(root)
 
 
 def _write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    with path.open("x", encoding="utf-8") as stream:
+        stream.write(json.dumps(value, indent=2, sort_keys=True, allow_nan=False) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
 
 
 def _parser() -> argparse.ArgumentParser:

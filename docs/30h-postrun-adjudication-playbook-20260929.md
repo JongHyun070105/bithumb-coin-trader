@@ -27,7 +27,7 @@ If the unit is absent, do not use `systemctl show` as the sole terminal record. 
 
 From the instance, copy/read the exact run's `result.json`, `collector-lifecycle.json`, collector metrics, frozen coverage journals, local receipts, and all terminal/finalization files under the exact data/audit roots. Record source path, size, SHA256, capture time, and read errors for every file. A missing file is explicit absence; do not synthesize it.
 
-Export the journal as raw JSON lines filtered by the exact `_SYSTEMD_INVOCATION_ID` and exact collector unit, retaining the original export bytes and hashing them. Parse and preserve `Result`, `ExecMainStatus`, `ExecMainCode`, `MainPID`, start/stop timestamps, elapsed duration, watchdog result, received signal, and restart count. If a field cannot be recovered from durable journal data, mark it missing. Do not broaden to all host logs and then infer unit events.
+Export raw JSON journal rows for only the exact run-specific collector unit across its complete run window, retaining the original bytes and hashing them. Do not prefilter by InvocationID: preserve every ID found so a same-name unit recreation is detectable. Acceptance requires exactly one unique InvocationID, one start record aligned to parsed start time, and one terminal event aligned to parsed stop time. Parse and preserve `InvocationID`, `Result`, `ExecMainStatus`, `ExecMainCode`, `MainPID`, start/stop timestamps, elapsed duration, watchdog result, received signal, and restart count. If a field cannot be recovered from durable journal data, mark it missing. Do not broaden to all host logs and then infer unit events.
 
 Keep capture errors distinct: confirmed object absence after an authorized exact lookup is a failure; `AccessDenied`/403, expired AWS credentials, timeout, incomplete listing, and network errors are `NOT_VERIFIABLE`.
 
@@ -37,7 +37,7 @@ Derive the qualifying hour list from frozen-journal observation bounds under the
 
 Inventory receipt types and enforce the frozen durability table in the v2 spec. Qualifying cohort, slot and file receipts marked `BOTH_REQUIRED` must match their exact S3 objects byte-for-byte and SHA256-for-SHA256. Capture a complete paginated read-only S3 prefix listing, bucket/prefix, time, caller identity, list outcome and every object key/version/ETag. An incomplete or denied listing cannot prove parity. Preserve local-only skipped partial-hour receipts and exclude them from required S3 equality. Any unexpected in-scope S3 receipt is a failure unless it matches a predeclared optional type.
 
-For terminal witness, treat `s3_uploaded=true` as an untrusted claim until the exact stable terminal key is fetched. Save the GET response bytes locally; compare them exactly with local `terminal-receipt.json`, compare SHA256 values, require successful HTTP status, exact bucket/key and capture `VersionId` plus `ETag`. Read-only repeat observations are required before asserting immutability; one observation is only a baseline.
+For terminal witness, treat `s3_uploaded=true` as an untrusted claim until an unversioned GET of the exact stable terminal key succeeds. Record `requested_version_id: null`, the returned `VersionId`, ETag, ContentLength, byte length, SHA256, exact bucket/key, HTTP status and request provenance. Save response bytes and compare them exactly with local `terminal-receipt.json`. Distinct historical versions are diagnostic; duplicate version-ID entries fail. A latest delete marker contradicting the successful unversioned GET fails. Read-only repeat observations are required before asserting immutability; one observation is only a baseline.
 
 ## 4. Preserve pre-terminal trust anchors
 
@@ -45,7 +45,7 @@ Use `sealed-manifest.json` from the prelaunch evidence commit `cce61af5b2e2fa6c2
 
 ## 5. Export and run both auditors
 
-Use the explicit-source exporter only after the terminal snapshot is complete. It refuses missing sources and a nonempty output directory. Create `terminal/capture-manifest.json` over every captured terminal file (path, size, SHA256, source and capture timestamp), verify its inputs, then preserve its SHA256 outside the bundle before export (commit/push the capture record or retain it in the independent audit log). Pin run ID, epoch, runtime commit/tree, the externally anchored sealed-manifest SHA256, and this separate capture-manifest SHA256 on the command line. Do not invoke the exporter against a partial live run.
+Use the explicit-source exporter only after the terminal snapshot is complete. It refuses missing sources and any existing output directory, stages under a clearly marked incomplete name, verifies copied hashes and source stability, then publishes by atomic rename. Create `terminal/capture-manifest.json` over every captured terminal file (path, size, SHA256, source and capture timestamp), verify its inputs, then preserve its SHA256 outside the bundle before export (commit/push the capture record or retain it in the independent audit log). Pin run ID, epoch, runtime commit/tree, the externally anchored sealed-manifest SHA256, and this separate capture-manifest SHA256 on the command line. Do not invoke the exporter against a partial live run.
 
 Run the original V3 auditor using its original evidence layout and pinned commit/tree arguments. Preserve the original JSON/Markdown/stdout and hashes without editing or replacing them. Run `scripts/audit_fresh_30h_terminal_v2.py` on the v2 bundle and keep its JSON/stdout separately. If the original cannot be assembled due missing required inputs, report its result as `NOT_VERIFIABLE`; do not use the v2 schema as a substitute for original output.
 
@@ -63,7 +63,7 @@ Example amended invocation after completion (source paths are intentionally expl
 
 ```sh
 python3 scripts/export_fresh_30h_terminal_bundle.py \
-  --output-dir /tmp/fresh30h-terminal-v2 \
+  --output-dir ./postrun-bundle \
   --run-id aws-validation-observability-30h-run-20260929T055022Z-52f3d272 \
   --epoch aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272 \
   --runtime-commit b4d482363e2f988dad9c6d29053f97e1e4160883 \

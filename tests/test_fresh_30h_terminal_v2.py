@@ -3,13 +3,17 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import os
 from pathlib import Path
-import shutil
 
 import pytest
 
-from scripts.audit_fresh_30h_terminal_v2 import AuditorV2, NOT_VERIFIABLE, PASS, FAIL, qualifying_hours
+from scripts.audit_fresh_30h_terminal_v2 import (
+    AuditorV2, NOT_VERIFIABLE, PASS, FAIL, evidence_state, qualifying_hours, strict_json_loads,
+)
+import scripts.audit_fresh_30h_terminal_v2 as auditor_module
 from scripts.export_fresh_30h_terminal_bundle import export_bundle
+import scripts.export_fresh_30h_terminal_bundle as exporter_module
 
 
 RUN_ID = "run-test"
@@ -118,10 +122,17 @@ def bundle(tmp_path: Path) -> dict[str, object]:
     _dump(root / "terminal/collector-metrics.json", metrics)
     _dump(root / "terminal/systemd-terminal.json", systemd)
     (root / "terminal/systemd-invocation.jsonl").parent.mkdir(parents=True, exist_ok=True)
-    (root / "terminal/systemd-invocation.jsonl").write_text(json.dumps({
-        "_SYSTEMD_INVOCATION_ID": INVOCATION,
-        "_SYSTEMD_UNIT": f"bitcoin-trader-30h-{RUN_ID}.service", "MESSAGE": "stop",
-    }) + "\n")
+    start_dt = datetime.fromisoformat("2026-09-28T23:59:57+00:00")
+    end_dt = datetime.fromisoformat(end.replace("Z", "+00:00"))
+    unit = f"bitcoin-trader-30h-{RUN_ID}.service"
+    journal_rows = [
+        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": unit,
+         "MESSAGE": "Starting collector", "__REALTIME_TIMESTAMP": str(int(start_dt.timestamp() * 1_000_000))},
+        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": unit,
+         "MESSAGE": "Main process exited, code=exited, status=0/SUCCESS",
+         "__REALTIME_TIMESTAMP": str(int(end_dt.timestamp() * 1_000_000))},
+    ]
+    (root / "terminal/systemd-invocation.jsonl").write_text("".join(json.dumps(row) + "\n" for row in journal_rows))
     receipt = _dump(root / "terminal/terminal-receipt.json", {"run_id": RUN_ID, "epoch": EPOCH, "s3_uploaded": True})
     _dump(root / "terminal/s3-readback/terminal-receipt.json", json.loads(receipt))
     receipt_hash = _sha(receipt)
@@ -132,9 +143,11 @@ def bundle(tmp_path: Path) -> dict[str, object]:
     _dump(root / "terminal/s3-readback.json", {
         "outcome": "success", "bucket": "example-bucket",
         "key": "market-data/test/terminal/terminal-receipt.json", "VersionId": "v1",
+        "requested_version_id": None, "latest_delete_marker": False,
         "version_ids": ["v1"], "sha256": receipt_hash, "byte_length": len(receipt),
+        "ContentLength": len(receipt), "ETag": "a1b2c3",
         "http_status": 200, "request_id": "request-1", "caller_arn": "arn:aws:iam::123456789012:role/auditor",
-        "captured_at_utc": "2026-09-30T20:00:00Z", "etag": "a1b2c3",
+        "captured_at_utc": "2026-09-30T20:00:00Z",
     })
 
     feeds = [f"{exchange}:{stream}:{market}" for exchange, streams, markets in (
@@ -399,14 +412,16 @@ def test_terminal_witness_true_without_object_and_corrupt_bytes_fail(bundle: dic
     assert _check(_audit(bundle), "terminal_witness_s3")["status"] == FAIL
 
 
-def test_duplicate_terminal_versions_and_wrong_target_fail(bundle: dict[str, object]) -> None:
+def test_distinct_historical_terminal_versions_are_diagnostic_not_count_failure(bundle: dict[str, object]) -> None:
     root = Path(bundle["root"])
     path = root / "terminal/s3-readback.json"
     data = json.loads(path.read_text())
     data["version_ids"] = ["v1", "v2"]
     _dump(path, data)
     _reindex(root)
-    assert _check(_audit(bundle), "terminal_witness_s3")["status"] == FAIL
+    check = _check(_audit(bundle), "terminal_witness_s3")
+    assert check["status"] == PASS
+    assert check["details"]["version_count_diagnostic"] == "multiple historical versions observed"
 
 
 @pytest.mark.parametrize("mutation", ["wrong_commit", "wrong_tree", "wrong_identity_sha", "tampered_artifact"])
@@ -464,6 +479,36 @@ def test_systemd_requires_exact_invocation_and_restarts_zero(bundle: dict[str, o
     terminal = json.loads(terminal_path.read_text())
     terminal["NRestarts"] = 1
     _dump(terminal_path, terminal)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
+
+
+def test_observer_unit_journal_cannot_stand_in_for_collector_unit(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    for row in rows:
+        row["_SYSTEMD_UNIT"] = f"bitcoin-trader-transient-{RUN_ID}.service"
+    journal_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
+
+
+def test_same_named_systemd_unit_recreation_is_detected_if_journal_contains_both_invocations(
+    bundle: dict[str, object],
+) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    rows.append({
+        "_SYSTEMD_INVOCATION_ID": "replacement-invocation",
+        "_SYSTEMD_UNIT": f"bitcoin-trader-30h-{RUN_ID}.service",
+        "MESSAGE": "Starting replacement collector",
+        "__REALTIME_TIMESTAMP": str(int(datetime(2026, 9, 29, 2, tzinfo=timezone.utc).timestamp() * 1_000_000)),
+    })
+    journal_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _capture_and_anchor_bundle(bundle)
     _reindex(root)
     assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
 
@@ -528,6 +573,41 @@ def test_capture_manifest_rejects_noncanonical_duplicate_path(bundle: dict[str, 
     _dump(manifest_path, manifest)
     _reindex(root)
     assert _check(_audit(bundle), "capture_provenance")["status"] == FAIL
+
+
+def test_capture_manifest_rejects_duplicate_exact_source_entry(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    capture_path = root / "terminal/capture-manifest.json"
+    capture = json.loads(capture_path.read_text())
+    capture["sources"].append(dict(capture["sources"][0]))
+    capture_bytes = _dump(capture_path, capture)
+    bundle["capture_anchor"] = _sha(capture_bytes)
+    manifest_path = root / "bundle-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["external_capture_manifest_sha256"] = bundle["capture_anchor"]
+    _dump(manifest_path, manifest)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "capture_provenance")["status"] == FAIL
+    assert report["overall_status"] == FAIL
+
+
+def test_new_terminal_payload_omitted_from_capture_manifest_fails(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    _dump(root / "terminal/extra-evidence.json", {"status": "PASS"})
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "capture_provenance")["status"] == FAIL
+    assert report["overall_status"] == FAIL
+
+
+def test_same_basename_in_distinct_paths_is_not_an_identity_alias(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    _dump(root / "sealed/elsewhere/identity.json", {"run_id": RUN_ID})
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "bundle_scope")["status"] == FAIL
+    assert report["overall_status"] == FAIL
 
 
 @pytest.mark.parametrize("field", ["bucket", "key"])
@@ -604,6 +684,58 @@ def test_exporter_is_deterministic_and_preserves_exact_explicit_sources(bundle: 
     assert outputs[0] == outputs[1]
 
 
+def test_exporter_output_is_accepted_by_auditor_and_detects_corruption(
+    bundle: dict[str, object], tmp_path: Path,
+) -> None:
+    root = Path(bundle["root"])
+    sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file()
+               and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
+    output = tmp_path / "exported"
+    export_args = [
+        "--output-dir", str(output), "--run-id", RUN_ID, "--epoch", EPOCH,
+        "--runtime-commit", COMMIT, "--runtime-tree", TREE,
+        "--sealed-manifest-sha256", str(bundle["anchor"]),
+        "--capture-manifest-sha256", str(bundle["capture_anchor"]),
+    ]
+    for destination, source in sources:
+        export_args.extend(("--source", f"{destination}={source}"))
+    assert exporter_module.main(export_args) == 0
+    auditor = AuditorV2(output, run_id=RUN_ID, epoch=EPOCH, runtime_commit=COMMIT,
+                        runtime_tree=TREE, sealed_manifest_sha256=str(bundle["anchor"]),
+                        capture_manifest_sha256=str(bundle["capture_anchor"]))
+    first = auditor.audit()
+    assert first["overall_status"] == PASS
+    assert auditor.audit() == first
+    audit_args = [
+        "--bundle", str(output), "--run-id", RUN_ID, "--epoch", EPOCH,
+        "--runtime-commit", COMMIT, "--runtime-tree", TREE,
+        "--sealed-manifest-sha256", str(bundle["anchor"]),
+        "--capture-manifest-sha256", str(bundle["capture_anchor"]),
+    ]
+    assert auditor_module.main(audit_args) == 0
+    (output / "terminal/result.json").write_text('{"overall_status":"FAIL"}\n')
+    assert auditor.audit()["overall_status"] == FAIL
+    assert auditor_module.main(audit_args) == 1
+
+
+def test_auditor_cli_returns_not_verifiable_for_an_incomplete_synthetic_bundle(
+    bundle: dict[str, object], capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = Path(bundle["root"])
+    (root / "terminal/finalization-trace.json").unlink()
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    status = auditor_module.main([
+        "--bundle", str(root), "--run-id", RUN_ID, "--epoch", EPOCH,
+        "--runtime-commit", COMMIT, "--runtime-tree", TREE,
+        "--sealed-manifest-sha256", str(bundle["anchor"]),
+        "--capture-manifest-sha256", str(bundle["capture_anchor"]),
+    ])
+    captured = capsys.readouterr()
+    assert status == 1
+    assert json.loads(captured.out)["overall_status"] == NOT_VERIFIABLE
+
+
 def test_exporter_rejects_unanchored_or_overwrite_sources(bundle: dict[str, object], tmp_path: Path) -> None:
     root = Path(bundle["root"])
     sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file() and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
@@ -670,3 +802,609 @@ def test_run_hour_math_uses_pinned_76_feed_universe_and_2204_slots() -> None:
     hours, _, _ = qualifying_hours(start, start + timedelta(seconds=108000))
     assert len(hours) == 29
     assert len(hours) * len(feeds) == 2204
+
+
+@pytest.mark.parametrize("raw", [
+    '{"status":"FAIL","status":"PASS"}',
+    '{"status":"PASS","status":"FAIL"}',
+    '{"run_id":"a","run_id":"b"}',
+    '{"epoch":"a","epoch":"b"}',
+    '{"runtime_commit":"a","runtime_commit":"b"}',
+    '{"runtime_tree":"a","runtime_tree":"b"}',
+    '{"sha256":"a","sha256":"b"}',
+    '{"s3_uploaded":false,"s3_uploaded":true}',
+    '{"VersionId":"v1","VersionId":"v2"}',
+    '{"Result":"failed","Result":"success"}',
+    '{"ExecMainStatus":1,"ExecMainStatus":0}',
+    '{"qualifying_cohort_count":0,"qualifying_cohort_count":29}',
+])
+def test_strict_json_rejects_duplicate_security_keys(raw: str) -> None:
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        strict_json_loads(raw)
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_strict_json_rejects_nonstandard_float_constants(constant: str) -> None:
+    with pytest.raises(ValueError, match="non-standard JSON numeric constant"):
+        strict_json_loads('{"value":' + constant + '}')
+
+
+@pytest.mark.parametrize("number", ["1e999", "-1e999"])
+def test_strict_json_rejects_float_overflow(number: str) -> None:
+    with pytest.raises(ValueError, match="outside the finite float range"):
+        strict_json_loads('{"value":' + number + '}')
+
+
+def test_duplicate_key_in_terminal_result_cannot_be_reindexed_into_pass(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    result_path = root / "terminal/result.json"
+    result_path.write_text('{"overall_status":"FAIL","overall_status":"PASS"}\n')
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "component_exit_codes")["status"] == NOT_VERIFIABLE
+    assert report["overall_status"] != PASS
+
+
+@pytest.mark.parametrize("field,value", [
+    ("ExecMainStatus", False), ("NRestarts", False), ("runtime_duration_seconds", True),
+    ("MainPID", 10**1000),
+])
+def test_systemd_integer_type_confusion_never_passes(bundle: dict[str, object], field: str, value: object) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/systemd-terminal.json"
+    terminal = json.loads(path.read_text())
+    terminal[field] = value
+    _dump(path, terminal)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] != PASS
+
+
+def test_finalization_boolean_false_is_not_integer_zero(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/finalization-trace.json"
+    trace = json.loads(path.read_text())
+    trace["scheduler_retries"] = False
+    _dump(path, trace)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "finalization_trace")["status"] == FAIL
+
+
+def test_nested_metric_boolean_false_is_not_zero(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/collector-metrics.json"
+    metrics = json.loads(path.read_text())
+    metrics["queue_size"] = False
+    metrics["unpersisted_event_count"] = False
+    metrics["exchanges"]["bithumb"]["writer_errors"] = False
+    _dump(path, metrics)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "collector_lifecycle_writer")["status"] == FAIL
+
+
+def test_strict_parser_prevents_duplicate_key_in_exporter_inputs(bundle: dict[str, object], tmp_path: Path) -> None:
+    root = Path(bundle["root"])
+    capture_path = root / "terminal/capture-manifest.json"
+    capture_path.write_text('{"schema":"Fresh30HTerminalCapture","schema":"wrong","version":1}')
+    sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file()
+               and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
+    with pytest.raises(ValueError, match="duplicate JSON object key"):
+        export_bundle(output_dir=tmp_path / "duplicate-source", sources=sources, run_id=RUN_ID,
+                      epoch=EPOCH, runtime_commit=COMMIT, runtime_tree=TREE,
+                      sealed_manifest_sha256=str(bundle["anchor"]),
+                      capture_manifest_sha256=_sha(capture_path.read_bytes()))
+
+
+def test_exporter_bounds_preflight_json_reads(bundle: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    root = Path(bundle["root"])
+    capture_path = root / "terminal/capture-manifest.json"
+    capture = json.loads(capture_path.read_text())
+    capture["resource_test_padding"] = "x" * 2048
+    capture_bytes = _dump(capture_path, capture)
+    capture_anchor = _sha(capture_bytes)
+    sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file()
+               and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
+    monkeypatch.setattr(exporter_module, "MAX_JSON_BYTES", 1024)
+    with pytest.raises(ValueError, match="exceeds 1024-byte limit"):
+        export_bundle(output_dir=tmp_path / "oversized-input", sources=sources, run_id=RUN_ID,
+                      epoch=EPOCH, runtime_commit=COMMIT, runtime_tree=TREE,
+                      sealed_manifest_sha256=str(bundle["anchor"]),
+                      capture_manifest_sha256=capture_anchor)
+    assert not (tmp_path / "oversized-input").exists()
+
+
+@pytest.mark.parametrize("path", ["../escape", "/absolute/path", "nested/../../escape"])
+def test_capture_manifest_rejects_all_traversal_forms(bundle: dict[str, object], path: str) -> None:
+    root = Path(bundle["root"])
+    capture_path = root / "terminal/capture-manifest.json"
+    capture = json.loads(capture_path.read_text())
+    capture["sources"].append({"path": path, "size": 0, "sha256": "0" * 64})
+    capture_bytes = _dump(capture_path, capture)
+    bundle["capture_anchor"] = _sha(capture_bytes)
+    manifest_path = root / "bundle-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["external_capture_manifest_sha256"] = bundle["capture_anchor"]
+    _dump(manifest_path, manifest)
+    _reindex(root)
+    assert _check(_audit(bundle), "capture_provenance")["status"] == FAIL
+
+
+def test_missing_capture_source_with_file_present_is_not_accepted(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    capture_path = root / "terminal/capture-manifest.json"
+    capture = json.loads(capture_path.read_text())
+    capture["sources"] = [row for row in capture["sources"] if row["path"] != "terminal/result.json"]
+    capture_bytes = _dump(capture_path, capture)
+    bundle["capture_anchor"] = _sha(capture_bytes)
+    manifest_path = root / "bundle-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["external_capture_manifest_sha256"] = bundle["capture_anchor"]
+    _dump(manifest_path, manifest)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "capture_provenance")["status"] == FAIL
+    assert report["overall_status"] != PASS
+
+
+@pytest.mark.parametrize("target_kind", ["outside", "inside"])
+def test_required_symlinked_evidence_never_passes(bundle: dict[str, object], tmp_path: Path, target_kind: str) -> None:
+    root = Path(bundle["root"])
+    required = root / "terminal/result.json"
+    required.unlink()
+    target = tmp_path / "outside.json" if target_kind == "outside" else root / "terminal/collector-metrics.json"
+    if target_kind == "outside":
+        target.write_text('{"overall_status":"PASS"}')
+    required.symlink_to(target)
+    _reindex(root)
+    assert _audit(bundle)["overall_status"] != PASS
+
+
+def test_hardlink_substitution_is_rejected(bundle: dict[str, object], tmp_path: Path) -> None:
+    root = Path(bundle["root"])
+    os.link(root / "terminal/result.json", tmp_path / "outside-hardlink.json")
+    _reindex(root)
+    assert _check(_audit(bundle), "bundle_integrity")["status"] == FAIL
+
+
+@pytest.mark.parametrize("duplicate", ["sealed/elsewhere/identity.json", "sealed/elsewhere/runtime.json"])
+def test_second_identity_or_runtime_copy_is_out_of_bundle_scope(bundle: dict[str, object], duplicate: str) -> None:
+    root = Path(bundle["root"])
+    _dump(root / duplicate, {"run_id": RUN_ID})
+    _reindex(root)
+    assert _check(_audit(bundle), "bundle_scope")["status"] == FAIL
+
+
+def test_missing_readback_cannot_be_replaced_by_uploaded_boolean(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    (root / "terminal/s3-readback/terminal-receipt.json").unlink()
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "terminal_witness_s3")["status"] == NOT_VERIFIABLE
+    assert report["overall_status"] != PASS
+
+
+def test_missing_s3_readback_record_cannot_be_replaced_by_uploaded_boolean(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    (root / "terminal/s3-readback.json").unlink()
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "terminal_witness_s3")["status"] == NOT_VERIFIABLE
+    assert report["overall_status"] != PASS
+
+
+@pytest.mark.parametrize("outcome,confirmed,expected_state,expected", [
+    ("success", False, "PRESENT", PASS),
+    ("AccessDenied", False, "ACCESS_DENIED", NOT_VERIFIABLE),
+    ("NoSuchKey", False, "ERROR", NOT_VERIFIABLE),
+    ("NoSuchKey", True, "ABSENT", FAIL),
+    ("not_required", False, "NOT_CHECKED", NOT_VERIFIABLE),
+])
+def test_terminal_readback_states_are_typed_and_distinct(
+    bundle: dict[str, object], outcome: str, confirmed: bool, expected_state: str, expected: str,
+) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/s3-readback.json"
+    readback = json.loads(path.read_text())
+    readback["outcome"] = outcome
+    readback["confirmed_authorized"] = confirmed
+    _dump(path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    check = _check(_audit(bundle), "terminal_witness_s3")
+    assert check["status"] == expected
+    if outcome != "success":
+        assert check["details"]["evidence_state"] == expected_state
+
+
+@pytest.mark.parametrize("outcome,confirmed,expected", [
+    ("AccessDenied", False, NOT_VERIFIABLE),
+    ("NoSuchKey", False, NOT_VERIFIABLE),
+    ("NoSuchKey", True, FAIL),
+])
+def test_receipt_get_states_do_not_conflate_denied_and_absent(
+    bundle: dict[str, object], outcome: str, confirmed: bool, expected: str,
+) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/receipt-inventory.json"
+    inventory = json.loads(path.read_text())
+    row = next(item for item in inventory["receipts"] if item["type"] == "COHORT_RECEIPT")
+    row["s3_get_outcome"] = outcome
+    row["confirmed_authorized"] = confirmed
+    _dump(path, inventory)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "receipt_scope")["status"] == expected
+
+
+def test_403_with_local_remote_copy_missing_is_unknown_not_absent(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    (root / "terminal/s3-readback/terminal-receipt.json").unlink()
+    path = root / "terminal/s3-readback.json"
+    readback = json.loads(path.read_text())
+    readback["outcome"] = "AccessDenied"
+    _dump(path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "terminal_witness_s3")["status"] == NOT_VERIFIABLE
+
+
+def test_late_observer_churn_under_known_prefix_is_diagnostic_only(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/receipt-inventory.json"
+    inventory = json.loads(path.read_text())
+    objects = inventory["s3_prefix_listing"]["objects"]
+    objects.extend([
+        {"key": "market-data/test/observability/latest.json", "VersionId": "obs-v2"},
+        {"key": "market-data/test/observability/latest.json", "VersionId": "obs-v3"},
+        {"key": "market-data/test/observability/minute/20260930T194500Z.json", "VersionId": "obs-minute"},
+    ])
+    _dump(path, inventory)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "receipt_scope")["status"] == PASS
+    assert report["overall_status"] == PASS
+
+
+def test_observer_latest_file_change_is_ignored_when_required_receipts_are_unchanged(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    _dump(root / "terminal/observability/latest.json", {"observed_at": "later", "status": "healthy"})
+    inventory_path = root / "terminal/receipt-inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["s3_prefix_listing"]["objects"].extend([
+        {"key": "market-data/test/observability/latest.json", "VersionId": "observer-v4"},
+        {"key": "market-data/test/observability/latest.json", "VersionId": "observer-v5"},
+    ])
+    _dump(inventory_path, inventory)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "receipt_scope")["status"] == PASS
+    assert report["overall_status"] == PASS
+
+
+def test_observer_churn_does_not_hide_corrupt_terminal_bytes(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    inventory_path = root / "terminal/receipt-inventory.json"
+    inventory = json.loads(inventory_path.read_text())
+    inventory["s3_prefix_listing"]["objects"].append({"key": "market-data/test/observability/latest.json"})
+    _dump(inventory_path, inventory)
+    _dump(root / "terminal/s3-readback/terminal-receipt.json", {"wrong": True})
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "terminal_witness_s3")["status"] == FAIL
+    assert report["overall_status"] == FAIL
+
+
+@pytest.mark.parametrize("field,value", [
+    ("ContentLength", True), ("ContentLength", "29"), ("byte_length", False),
+    ("byte_length", 1), ("ETag", None), ("VersionId", ""),
+])
+def test_terminal_readback_metadata_type_confusion_never_passes(
+    bundle: dict[str, object], field: str, value: object,
+) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/s3-readback.json"
+    readback = json.loads(path.read_text())
+    readback[field] = value
+    _dump(path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "terminal_witness_s3")["status"] != PASS
+
+
+@pytest.mark.parametrize("version_ids,latest_delete_marker,expected", [
+    (["v1"], False, PASS),
+    (["v1", "v0"], False, PASS),
+    (["v1", "v1"], False, FAIL),
+    (["v0"], False, FAIL),
+    (["v1"], True, FAIL),
+])
+def test_terminal_version_contract_separates_acceptance_from_history_diagnostics(
+    bundle: dict[str, object], version_ids: list[str], latest_delete_marker: bool, expected: str,
+) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/s3-readback.json"
+    readback = json.loads(path.read_text())
+    readback["version_ids"] = version_ids
+    readback["latest_delete_marker"] = latest_delete_marker
+    _dump(path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    check = _check(_audit(bundle), "terminal_witness_s3")
+    assert check["status"] == expected
+    assert "ACCEPTANCE:" in check["details"]["version_count_policy"]
+    assert "DIAGNOSTIC:" in check["details"]["version_count_policy"]
+    if len(set(version_ids)) > 1 and expected == PASS:
+        assert check["details"]["version_count_diagnostic"] == "multiple historical versions observed"
+
+
+def test_terminal_get_cannot_pin_an_older_version(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/s3-readback.json"
+    readback = json.loads(path.read_text())
+    readback["requested_version_id"] = "v0"
+    readback["version_ids"] = ["v1", "v0"]
+    _dump(path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "terminal_witness_s3")["status"] == FAIL
+
+
+def test_duration_uses_frozen_journal_interval_not_conflicting_optional_fields(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    result_path = root / "terminal/result.json"
+    result = json.loads(result_path.read_text())
+    result["duration_seconds"] = 7199
+    _dump(result_path, result)
+    metrics_path = root / "terminal/collector-metrics.json"
+    metrics = json.loads(metrics_path.read_text())
+    metrics["duration_seconds"] = 7201
+    _dump(metrics_path, metrics)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    check = _check(_audit(bundle), "duration")
+    assert check["status"] == PASS
+    assert check["details"]["elapsed_seconds"] == 7200
+    assert "frozen coverage journals" in check["details"]["source"]
+
+
+def test_negative_duration_in_resealed_synthetic_runtime_never_passes(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    runtime_path = root / "sealed/runtime.json"
+    runtime = json.loads(runtime_path.read_text())
+    runtime["duration_seconds"] = -1
+    runtime_bytes = _dump(runtime_path, runtime)
+    _dump(root / "sealed/artifacts/current.runtime.json", runtime)
+    artifacts = {"current.runtime.json": _sha(runtime_bytes)}
+    identity_path = root / "sealed/identity.json"
+    identity = json.loads(identity_path.read_text())
+    identity["sealed_artifact_hashes"] = artifacts
+    identity_bytes = _dump(identity_path, identity)
+    sealed_path = root / "sealed/sealed-manifest.json"
+    sealed = json.loads(sealed_path.read_text())
+    sealed["identity_sha256"] = _sha(identity_bytes)
+    sealed["artifact_hashes"] = artifacts
+    seal_bytes = _dump(sealed_path, sealed)
+    bundle["anchor"] = _sha(seal_bytes)
+    manifest_path = root / "bundle-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["external_sealed_manifest_sha256"] = bundle["anchor"]
+    _dump(manifest_path, manifest)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "runtime_identity")["status"] == PASS
+    assert _check(report, "duration")["status"] == NOT_VERIFIABLE
+    assert report["overall_status"] != PASS
+
+
+def test_short_journal_interval_fails_even_when_other_durations_are_long(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    result_path = root / "terminal/result.json"
+    result = json.loads(result_path.read_text())
+    result["duration_seconds"] = 7201
+    _dump(result_path, result)
+    metrics_path = root / "terminal/collector-metrics.json"
+    metrics = json.loads(metrics_path.read_text())
+    metrics["duration_seconds"] = 7202
+    _dump(metrics_path, metrics)
+    journal_path = root / "terminal/journals/journal_2026-09-29_02.json"
+    journal = json.loads(journal_path.read_text())
+    for observation in journal["observations"]:
+        observation["observation_start_utc"] = "2026-09-29T01:59:59Z"
+        observation["observation_end_utc"] = "2026-09-29T01:59:59Z"
+    journal_bytes = _dump(journal_path, journal)
+    cohorts_path = root / "terminal/cohorts.json"
+    cohorts = json.loads(cohorts_path.read_text())
+    cohorts["actual_end_utc"] = "2026-09-29T01:59:59Z"
+    for source in cohorts["source_journals"]:
+        if source["cohort_id"] == "2026-09-29_02": source["sha256"] = _sha(journal_bytes)
+    for row in cohorts["partial_cohorts"]:
+        if row["cohort_id"] == "2026-09-29_02":
+            row["observation_start_utc"] = "2026-09-29T01:59:59Z"
+            row["observation_end_utc"] = "2026-09-29T01:59:59Z"
+            row["journal_sha256"] = _sha(journal_bytes)
+    _dump(cohorts_path, cohorts)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    check = _check(_audit(bundle), "duration")
+    assert check["status"] == FAIL
+    assert check["details"]["elapsed_seconds"] == 7199
+
+
+def test_systemd_defaults_without_terminal_journal_record_are_not_verifiable(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    rows[-1]["MESSAGE"] = "Stopped collector"
+    journal_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == NOT_VERIFIABLE
+
+
+def test_partial_systemd_journal_without_start_record_is_not_verifiable(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    journal_path.write_text(json.dumps(rows[-1]) + "\n")
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == NOT_VERIFIABLE
+
+
+def test_systemd_journal_exit_record_must_match_parsed_status(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    rows[-1]["MESSAGE"] = "Main process exited, code=exited, status=1/FAILURE"
+    journal_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
+
+
+def test_systemd_reordered_timestamps_fail(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    journal_path = root / "terminal/systemd-invocation.jsonl"
+    rows = [json.loads(line) for line in journal_path.read_text().splitlines()]
+    rows[0]["__REALTIME_TIMESTAMP"], rows[1]["__REALTIME_TIMESTAMP"] = (
+        rows[1]["__REALTIME_TIMESTAMP"], rows[0]["__REALTIME_TIMESTAMP"])
+    journal_path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
+
+
+def test_systemd_terminal_journal_time_must_match_parsed_stop_time(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/systemd-terminal.json"
+    terminal = json.loads(path.read_text())
+    terminal["stop_time"] = "2026-09-29T03:00:00Z"
+    terminal["runtime_duration_seconds"] = 10803
+    _dump(path, terminal)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "systemd_terminal")["status"] == FAIL
+
+
+def test_reconstructed_finalization_after_terminal_stays_not_verifiable(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/finalization-trace.json"
+    trace = json.loads(path.read_text())
+    trace["evidence_classification"] = "RECONSTRUCTED_OBSERVATION"
+    trace["observed_at_utc"] = "2026-09-30T00:00:00Z"
+    _dump(path, trace)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "finalization_trace")["status"] == NOT_VERIFIABLE
+
+
+def test_reconstructed_finalization_cannot_pass_by_self_labeling_as_native(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/finalization-trace.json"
+    trace = json.loads(path.read_text())
+    trace["evidence_classification"] = "NATIVE_INSTRUMENTATION_PRESENT"
+    trace["source_classification"] = "RECONSTRUCTED_OBSERVATION"
+    trace["source_paths"] = ["terminal/result.json", "terminal/journals/journal_2026-09-29_01.json"]
+    trace["run_id"] = RUN_ID
+    trace["epoch"] = EPOCH
+    trace["runtime_commit"] = COMMIT
+    _dump(path, trace)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    assert _check(_audit(bundle), "finalization_trace")["status"] == NOT_VERIFIABLE
+    current_run_auditor = AuditorV2(
+        root, run_id=RUN_ID, epoch=EPOCH,
+        runtime_commit="b4d482363e2f988dad9c6d29053f97e1e4160883", runtime_tree=TREE,
+        sealed_manifest_sha256=str(bundle["anchor"]),
+        capture_manifest_sha256=str(bundle["capture_anchor"]),
+    )
+    current_report = current_run_auditor.audit()
+    assert _check(current_report, "finalization_trace")["status"] == NOT_VERIFIABLE
+
+
+def test_thousands_of_receipt_rows_remain_auditable(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    path = root / "terminal/receipt-inventory.json"
+    inventory = json.loads(path.read_text())
+    inventory["receipts"].extend({"type": "OTHER", "durability": "OPTIONAL", "receipt_id": f"ops-{i}"}
+                                for i in range(3000))
+    _dump(path, inventory)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    report = _audit(bundle)
+    assert _check(report, "receipt_scope")["status"] == PASS
+    assert _check(report, "receipt_scope")["details"]["receipt_count"] >= 3000
+    assert report["overall_status"] == PASS
+
+
+def test_exporter_source_change_between_validation_and_copy_is_marked_incomplete(
+    bundle: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = Path(bundle["root"])
+    sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file()
+               and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
+    output = tmp_path / "race-output"
+    real_copy = exporter_module._copy_verified
+    changed = False
+
+    def change_source(source: Path, destination: Path, expected_sha256: str) -> None:
+        nonlocal changed
+        if not changed:
+            source.write_bytes(source.read_bytes() + b"raced")
+            changed = True
+        real_copy(source, destination, expected_sha256)
+
+    monkeypatch.setattr(exporter_module, "_copy_verified", change_source)
+    with pytest.raises(ValueError, match="frozen hash"):
+        export_bundle(output_dir=output, sources=sources, run_id=RUN_ID, epoch=EPOCH,
+                      runtime_commit=COMMIT, runtime_tree=TREE,
+                      sealed_manifest_sha256=str(bundle["anchor"]),
+                      capture_manifest_sha256=str(bundle["capture_anchor"]))
+    assert not output.exists()
+    stages = list(tmp_path.glob(".race-output.incomplete-*"))
+    assert len(stages) == 1 and (stages[0] / "INCOMPLETE.txt").exists()
+
+
+@pytest.mark.parametrize("failure_point", ["copy", "manifest", "index"])
+def test_exporter_crashes_never_publish_a_valid_looking_final_directory(
+    bundle: dict[str, object], tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_point: str,
+) -> None:
+    root = Path(bundle["root"])
+    sources = [(p.relative_to(root).as_posix(), p) for p in root.rglob("*") if p.is_file()
+               and p.relative_to(root).as_posix() not in {"bundle-manifest.json", "terminal/evidence-hash-index.json"}]
+    output = tmp_path / f"crash-{failure_point}"
+    if failure_point == "copy":
+        real_copy = exporter_module._copy_verified
+        calls = 0
+        def fail_copy(source: Path, destination: Path, expected_sha256: str) -> None:
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(b"partial")
+                raise OSError("simulated interruption halfway through copy")
+            real_copy(source, destination, expected_sha256)
+        monkeypatch.setattr(exporter_module, "_copy_verified", fail_copy)
+    else:
+        real_write = exporter_module._write_json
+        def fail_write(path: Path, value: object) -> None:
+            if (failure_point == "manifest" and path.name == "bundle-manifest.json") or (
+                failure_point == "index" and path.name == "evidence-hash-index.json"):
+                raise OSError("simulated interruption during metadata write")
+            real_write(path, value)
+        monkeypatch.setattr(exporter_module, "_write_json", fail_write)
+    with pytest.raises(OSError, match="simulated interruption"):
+        export_bundle(output_dir=output, sources=sources, run_id=RUN_ID, epoch=EPOCH,
+                      runtime_commit=COMMIT, runtime_tree=TREE,
+                      sealed_manifest_sha256=str(bundle["anchor"]),
+                      capture_manifest_sha256=str(bundle["capture_anchor"]))
+    assert not output.exists()
+    stages = list(tmp_path.glob(f".{output.name}.incomplete-*"))
+    assert len(stages) == 1 and (stages[0] / "INCOMPLETE.txt").exists()

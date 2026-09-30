@@ -8,17 +8,25 @@ trust by rewriting its manifest and hash index.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import math
+import os
 from pathlib import Path, PurePosixPath
 import re
+import stat
 import sys
 from typing import Any, Mapping, Sequence
 
 PASS, FAIL, NOT_VERIFIABLE = "PASS", "FAIL", "NOT_VERIFIABLE"
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
+MAX_JSON_BYTES = 64 * 1024 * 1024
+# b4 is the frozen current-run runtime and contains no native finalization-trace emitter.
+CURRENT_RUN_RUNTIME_COMMIT = "b4d482363e2f988dad9c6d29053f97e1e4160883"
+S3_EVIDENCE_STATES = {"PRESENT", "ABSENT", "ACCESS_DENIED", "NOT_CHECKED", "ERROR"}
 FEED_STREAMS = {
     "bithumb": ("orderbook", "trade", "ticker"),
     "binance": ("trade", "orderbook"),
@@ -48,12 +56,93 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON object key: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON numeric constant: {value}")
+
+
+def _parse_finite_json_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise ValueError(f"JSON number is outside the finite float range: {value}")
+    return parsed
+
+
+def strict_json_loads(value: str | bytes) -> Any:
+    """Load RFC JSON while rejecting duplicates and non-finite numbers."""
+    return json.loads(value, object_pairs_hook=_unique_object, parse_constant=_reject_json_constant,
+                      parse_float=_parse_finite_json_float)
+
+
+def evidence_state(outcome: Any, *, confirmed_authorized: Any = False) -> str:
+    """Normalize a remote read result without conflating denied and absent."""
+    if outcome in ("success", "PRESENT"):
+        return "PRESENT"
+    if outcome in ("AccessDenied", "403", "ACCESS_DENIED"):
+        return "ACCESS_DENIED"
+    if outcome in ("NoSuchKey", "NotFound", "404", "ABSENT"):
+        return "ABSENT" if confirmed_authorized is True else "ERROR"
+    if outcome in (None, "", "not_required", "NOT_CHECKED"):
+        return "NOT_CHECKED"
+    if outcome in ("timeout", "network_error", "expired_credentials", "ERROR"):
+        return "ERROR"
+    return "ERROR"
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _read_regular_file(path: Path, *, max_bytes: int | None = None) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise OSError("evidence path is not a regular, singly-linked file")
+        if max_bytes is not None and before.st_size > max_bytes:
+            raise OSError("evidence JSON exceeds the bounded parser size")
+        data = stream.read() if max_bytes is None else stream.read(max_bytes + 1)
+        if max_bytes is not None and len(data) > max_bytes:
+            raise OSError("evidence JSON exceeds the bounded parser size")
+        after = os.fstat(stream.fileno())
+    stable_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+    stable_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)
+    if stable_before != stable_after or len(data) != after.st_size:
+        raise OSError("evidence file changed while being read")
+    return data
+
+
+def _hash_regular_file(path: Path) -> tuple[int, str]:
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags)
+    digest = hashlib.sha256()
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise OSError("evidence path is not a regular, singly-linked file")
+        size = 0
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+            size += len(chunk)
+        after = os.fstat(stream.fileno())
+    stable_before = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+    stable_after = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)
+    if stable_before != stable_after or size != after.st_size:
+        raise OSError("evidence file changed while being hashed")
+    return size, digest.hexdigest()
 
 
 def parse_utc(value: Any) -> datetime | None:
@@ -109,6 +198,7 @@ class AuditorV2:
                  runtime_commit: str | None, runtime_tree: str | None,
                  sealed_manifest_sha256: str | None,
                  capture_manifest_sha256: str | None) -> None:
+        self.root_is_symlink = root.is_symlink()
         self.root = root.resolve()
         self.run_id, self.epoch = run_id, epoch
         self.runtime_commit, self.runtime_tree = runtime_commit, runtime_tree
@@ -117,43 +207,79 @@ class AuditorV2:
         self.checks: list[Check] = []
         self.manifest: dict[str, Any] | None = None
         self.payloads: dict[str, Path] = {}
+        self.payload_hashes: dict[str, tuple[int, str]] = {}
+
+    def _read_payload(self, rel: str, *, limit: int | None = MAX_JSON_BYTES) -> bytes:
+        if not _safe_relpath(rel) or rel not in self.payload_hashes:
+            raise OSError("evidence payload is not indexed")
+        data = _read_regular_file(self.root / rel, max_bytes=limit)
+        size, digest = self.payload_hashes[rel]
+        if len(data) != size or sha256_bytes(data) != digest:
+            raise OSError("evidence payload changed after bundle verification")
+        return data
+
+    def _hash_payload(self, rel: str) -> tuple[int, str]:
+        if not _safe_relpath(rel) or rel not in self.payload_hashes:
+            raise OSError("evidence payload is not indexed")
+        actual = _hash_regular_file(self.root / rel)
+        if actual != self.payload_hashes[rel]:
+            raise OSError("evidence payload changed after bundle verification")
+        return actual
 
     def add(self, name: str, status: str, summary: str, **details: Any) -> None:
         self.checks.append(Check(name, status, summary, details))
 
     def read_json(self, rel: str) -> dict[str, Any] | None:
-        path = self.payloads.get(rel, self.root / rel)
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
+            value = strict_json_loads(self._read_payload(rel).decode("utf-8"))
+        except (OSError, ValueError):
             return None
         return value if isinstance(value, dict) else None
 
     def audit(self) -> dict[str, Any]:
-        self._audit_index_and_manifest()
-        self._audit_capture_manifest()
-        identity = self.read_json("sealed/identity.json")
-        sealed = self.read_json("sealed/sealed-manifest.json")
-        runtime = self.read_json("sealed/runtime.json")
-        self._audit_bundle_scope(identity, sealed)
-        self._audit_identity(identity, sealed, runtime)
-        result = self.read_json("terminal/result.json")
-        lifecycle = self.read_json("terminal/collector-lifecycle.json")
-        metrics = self.read_json("terminal/collector-metrics.json")
-        systemd = self.read_json("terminal/systemd-terminal.json")
-        witness = self.read_json("terminal/terminal-witness.json")
-        readback = self.read_json("terminal/s3-readback.json")
-        self._audit_duration(result, lifecycle, metrics, runtime, systemd)
-        self._audit_exits(result)
-        self._audit_systemd(systemd)
-        self._audit_witness(identity, witness, readback)
-        self._audit_collector_state(lifecycle, metrics)
-        self._audit_observer(lifecycle, self.run_id)
-        self._audit_redundancy(runtime, metrics)
-        self._audit_cohorts(runtime, result, metrics)
-        self._audit_receipt_scope()
-        self._audit_receipt_immutability()
-        self._audit_finalization()
+        # Make repeated calls on one instance equivalent to a fresh audit.
+        self.checks = []
+        self.manifest = None
+        self.payloads = {}
+        self.payload_hashes = {}
+        try:
+            self._audit_index_and_manifest()
+            self._audit_capture_manifest()
+            identity = self.read_json("sealed/identity.json")
+            sealed = self.read_json("sealed/sealed-manifest.json")
+            runtime = self.read_json("sealed/runtime.json")
+            self._audit_bundle_scope(identity, sealed)
+            self._audit_identity(identity, sealed, runtime)
+            result = self.read_json("terminal/result.json")
+            lifecycle = self.read_json("terminal/collector-lifecycle.json")
+            metrics = self.read_json("terminal/collector-metrics.json")
+            systemd = self.read_json("terminal/systemd-terminal.json")
+            witness = self.read_json("terminal/terminal-witness.json")
+            readback = self.read_json("terminal/s3-readback.json")
+            self._audit_duration(result, lifecycle, metrics, runtime, systemd)
+            self._audit_exits(result)
+            self._audit_systemd(systemd)
+            self._audit_witness(identity, witness, readback)
+            self._audit_collector_state(lifecycle, metrics)
+            self._audit_observer(lifecycle, self.run_id)
+            self._audit_redundancy(runtime, metrics)
+            self._audit_cohorts(runtime, result, metrics)
+            self._audit_receipt_scope()
+            self._audit_receipt_immutability()
+            self._audit_finalization()
+            changed = []
+            for rel, expected in self.payload_hashes.items():
+                try:
+                    if _hash_regular_file(self.root / rel) != expected:
+                        changed.append(rel)
+                except OSError:
+                    changed.append(rel)
+            if changed:
+                self.add("bundle_stability", FAIL, "One or more indexed payloads changed during audit.", changed=sorted(changed))
+        except Exception as exc:
+            # Corrupt or type-confused evidence must never crash into an absent verdict.
+            self.add("malformed_evidence", NOT_VERIFIABLE,
+                     "Evidence could not be evaluated safely.", error=f"{type(exc).__name__}: {exc}")
         statuses = {c.status for c in self.checks if c.details.get("informational") is not True}
         overall = FAIL if FAIL in statuses else NOT_VERIFIABLE if NOT_VERIFIABLE in statuses else PASS
         return {
@@ -165,13 +291,13 @@ class AuditorV2:
     def _audit_index_and_manifest(self) -> None:
         manifest_path = self.root / "bundle-manifest.json"
         index_path = self.root / "terminal/evidence-hash-index.json"
-        if manifest_path.is_symlink() or index_path.is_symlink():
-            self.add("bundle_integrity", FAIL, "Manifest and index must be regular local files, not symlinks.")
+        if self.root_is_symlink or manifest_path.is_symlink() or index_path.is_symlink():
+            self.add("bundle_integrity", FAIL, "Bundle root, manifest, and index must be regular local paths, not symlinks.")
             return
         try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            index = json.loads(index_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = strict_json_loads(_read_regular_file(manifest_path, max_bytes=MAX_JSON_BYTES).decode("utf-8"))
+            index = strict_json_loads(_read_regular_file(index_path, max_bytes=MAX_JSON_BYTES).decode("utf-8"))
+        except (OSError, ValueError) as exc:
             self.add("bundle_integrity", NOT_VERIFIABLE, "Manifest or hash index is unavailable or malformed.", error=str(exc))
             return
         if not isinstance(manifest, dict) or manifest.get("schema") != "Fresh30HTerminalBundle" or manifest.get("version") != 2:
@@ -203,12 +329,16 @@ class AuditorV2:
             try:
                 if path.is_symlink() or not path.is_file():
                     failures.append(f"not_regular_file:{rel}"); continue
-                actual_size = path.stat().st_size
-                actual_sha = sha256_file(path)
+                actual_size, actual_sha = _hash_regular_file(path)
             except OSError:
                 failures.append(f"missing:{rel}"); continue
-            if actual_size != item.get("size") or actual_sha != item.get("sha256") or not SHA256_RE.fullmatch(str(item.get("sha256", ""))):
+            expected_size, expected_sha = item.get("size"), item.get("sha256")
+            if type(expected_size) is not int or expected_size < 0 or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
+                failures.append(f"invalid_hash_entry:{rel}")
+            elif actual_size != expected_size or actual_sha != expected_sha:
                 failures.append(f"hash_or_size_mismatch:{rel}")
+            else:
+                self.payload_hashes[rel] = (expected_size, expected_sha)
             self.payloads[rel] = path
         actual = {p.relative_to(self.root).as_posix() for p in self.root.rglob("*") if p.is_file() and p.relative_to(self.root).as_posix() != "terminal/evidence-hash-index.json"}
         if actual != listed:
@@ -233,11 +363,16 @@ class AuditorV2:
             return
         failures: list[str] = []
         missing: list[str] = []
-        if sha256_file(path) != self.capture_anchor:
+        try:
+            capture_bytes = self._read_payload(rel)
+        except OSError as exc:
+            self.add("capture_provenance", NOT_VERIFIABLE, "Post-run capture manifest could not be read as a stable indexed file.", error=str(exc))
+            return
+        if sha256_bytes(capture_bytes) != self.capture_anchor:
             failures.append("external_capture_manifest_hash_mismatch")
         try:
-            manifest = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
+            manifest = strict_json_loads(capture_bytes.decode("utf-8"))
+        except (OSError, ValueError) as exc:
             self.add("capture_provenance", FAIL, "Post-run capture manifest is malformed.", error=str(exc), failures=failures)
             return
         if not isinstance(manifest, dict) or manifest.get("schema") != "Fresh30HTerminalCapture" or manifest.get("version") != 1:
@@ -264,16 +399,20 @@ class AuditorV2:
                 failures.append(f"unsafe_or_duplicate_capture_source:{source_rel}")
                 continue
             source_paths.add(source_rel)
-            source_path = self.payloads.get(source_rel, self.root / source_rel)
             expected_sha, expected_size = record.get("sha256"), record.get("size")
-            if source_path.is_symlink() or not source_path.is_file():
+            if source_rel not in self.payload_hashes:
                 missing.append(f"captured_source_missing:{source_rel}")
                 continue
             if (not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha)
-                    or not isinstance(expected_size, int) or expected_size < 0):
+                    or type(expected_size) is not int or expected_size < 0):
                 failures.append(f"captured_source_record_invalid:{source_rel}")
                 continue
-            if source_path.stat().st_size != expected_size or sha256_file(source_path) != expected_sha:
+            try:
+                indexed_size, indexed_sha = self._hash_payload(source_rel)
+            except OSError:
+                failures.append(f"captured_source_changed:{source_rel}")
+                continue
+            if indexed_size != expected_size or indexed_sha != expected_sha:
                 failures.append(f"captured_source_hash_or_size_mismatch:{source_rel}")
         required_sources = {item for item in REQUIRED_PAYLOADS
                             if item.startswith("terminal/") and item != rel}
@@ -353,12 +492,11 @@ class AuditorV2:
         if not self.anchor or not SHA256_RE.fullmatch(self.anchor):
             self.add("runtime_identity", NOT_VERIFIABLE, "External original sealed-manifest SHA256 anchor was not supplied.")
             return
-        observed_manifest_sha = sha256_file(self.payloads.get("sealed/sealed-manifest.json", self.root / "sealed/sealed-manifest.json"))
+        observed_manifest_sha = self._hash_payload("sealed/sealed-manifest.json")[1]
         if observed_manifest_sha != self.anchor:
             failures.append("sealed_manifest_anchor_mismatch")
         identity_sha = sealed.get("identity_sha256")
-        identity_path = self.payloads.get("sealed/identity.json", self.root / "sealed/identity.json")
-        if not isinstance(identity_sha, str) or sha256_file(identity_path) != identity_sha:
+        if not isinstance(identity_sha, str) or self._hash_payload("sealed/identity.json")[1] != identity_sha:
             failures.append("identity_sha256_mismatch")
         expected = {
             "run_id": self.run_id, "epoch": self.epoch,
@@ -382,20 +520,20 @@ class AuditorV2:
         if not isinstance(pinned_hashes, dict) or not isinstance(declared_hashes, dict) or pinned_hashes != declared_hashes:
             failures.append("sealed_hash_maps_disagree")
         elif isinstance(pinned_hashes, dict):
-            by_name = {Path(rel).name: self.payloads.get(rel, self.root / rel) for rel in self.payloads}
+            by_name = {Path(rel).name: rel for rel in self.payloads}
             for name, expected_sha in pinned_hashes.items():
-                artifact_path = by_name.get(name)
-                if artifact_path is None or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
+                artifact_rel = by_name.get(name)
+                if artifact_rel is None or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
                     missing_artifacts.append(name)
-                elif sha256_file(artifact_path) != expected_sha:
+                elif self._hash_payload(artifact_rel)[1] != expected_sha:
                     failures.append(f"sealed_artifact_copy_mismatch:{name}")
             runtime_names = [name for name in pinned_hashes if name.endswith(".runtime.json")]
-            runtime_copy = self.payloads.get("sealed/runtime.json", self.root / "sealed/runtime.json")
+            runtime_copy = "sealed/runtime.json"
             if len(runtime_names) != 1:
                 failures.append("runtime_sealed_artifact_ambiguous")
-            elif not runtime_copy.is_file():
+            elif runtime_copy not in self.payloads:
                 missing_artifacts.append("sealed/runtime.json")
-            elif sha256_file(runtime_copy) != pinned_hashes.get(runtime_names[0], ""):
+            elif self._hash_payload(runtime_copy)[1] != pinned_hashes.get(runtime_names[0], ""):
                 failures.append("runtime_config_copy_not_bound_to_sealed_artifact")
         status = FAIL if failures else NOT_VERIFIABLE if missing_artifacts else PASS
         self.add("runtime_identity", status, "Sealed identity and runtime match independent run anchors." if status == PASS else "A required sealed source is missing." if status == NOT_VERIFIABLE else "Sealed identity or trust chain differs from independent anchors.", observed=observed, failures=failures, missing_artifacts=missing_artifacts, sealed_manifest_sha256=observed_manifest_sha)
@@ -414,11 +552,11 @@ class AuditorV2:
         systemd_start, systemd_stop = parse_utc(systemd.get("start_time")), parse_utc(systemd.get("stop_time"))
         metrics_start = parse_utc(metrics.get("collector_started_at"))
         supervisor_end = parse_utc(result.get("ended_at") or result.get("actual_end_time_utc"))
-        seconds = runtime.get("duration_seconds")
+        seconds = _integer(runtime.get("duration_seconds"))
         elapsed = (end - start).total_seconds() if start and end else None
         failures: list[str] = []
         missing: list[str] = []
-        if not isinstance(seconds, (int, float)) or seconds <= 0 or elapsed is None:
+        if _finite_number(seconds) is None or seconds <= 0 or elapsed is None:
             self.add("duration", NOT_VERIFIABLE, "Collector start, end, or sealed duration is missing.", start=start.isoformat() if start else None, end=end.isoformat() if end else None); return
         if supervisor_start is None or systemd_start is None or systemd_stop is None or metrics_start is None or supervisor_end is None:
             missing.append("supervisor_or_systemd_bounds")
@@ -468,11 +606,15 @@ class AuditorV2:
             path = self.root / rel
             if not path.is_file() or path.is_symlink():
                 missing.append(f"source_journal_missing:{cohort_id}"); continue
-            if sha256_file(path) != expected_sha:
+            try:
+                journal_bytes = self._read_payload(rel)
+            except OSError:
+                missing.append(f"source_journal_missing:{cohort_id}"); continue
+            if sha256_bytes(journal_bytes) != expected_sha:
                 errors.append(f"source_journal_hash_mismatch:{cohort_id}"); continue
             try:
-                journal = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                journal = strict_json_loads(journal_bytes.decode("utf-8"))
+            except (OSError, ValueError):
                 errors.append(f"source_journal_invalid_json:{cohort_id}"); continue
             if not isinstance(journal, dict) or journal.get("schema_version") != 1 or journal.get("cohort_utc") != cohort_id or not isinstance(journal.get("observations"), list):
                 errors.append(f"source_journal_schema_mismatch:{cohort_id}"); continue
@@ -526,12 +668,15 @@ class AuditorV2:
         if terminal is None:
             self.add("systemd_terminal", NOT_VERIFIABLE, "Parsed exact InvocationID evidence is missing."); return
         try:
-            rows = [json.loads(line) for line in raw_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        except (OSError, json.JSONDecodeError):
+            raw_journal = self._read_payload("terminal/systemd-invocation.jsonl")
+            rows = [strict_json_loads(line) for line in raw_journal.decode("utf-8").splitlines() if line.strip()]
+        except (OSError, ValueError):
             self.add("systemd_terminal", NOT_VERIFIABLE, "Raw journal export is missing or invalid."); return
         invocation = terminal.get("InvocationID")
         if not isinstance(invocation, str) or not invocation or not rows:
             self.add("systemd_terminal", NOT_VERIFIABLE, "InvocationID or journal rows are missing."); return
+        if any(not isinstance(row, dict) for row in rows):
+            self.add("systemd_terminal", NOT_VERIFIABLE, "Raw journal contains a non-object record."); return
         row_ids = {row.get("_SYSTEMD_INVOCATION_ID", row.get("INVOCATION_ID")) for row in rows if isinstance(row, dict)}
         if row_ids != {invocation}:
             self.add("systemd_terminal", FAIL, "Journal records are not all scoped to the exact invocation.", invocation_id=invocation, observed_ids=sorted(str(x) for x in row_ids)); return
@@ -544,9 +689,87 @@ class AuditorV2:
         if missing:
             self.add("systemd_terminal", NOT_VERIFIABLE, "Required terminal systemd fields are missing.", missing=missing, invocation_id=invocation); return
         start, stop = parse_utc(terminal.get("start_time")), parse_utc(terminal.get("stop_time"))
-        result = str(terminal.get("Result", "")).lower()
-        success = result == "success" and terminal.get("ExecMainStatus") == 0 and terminal.get("ExecMainCode") in ("exited", 1) and terminal.get("NRestarts") == 0 and terminal.get("runtime_duration_seconds", 0) > 0 and start and stop and stop >= start and terminal.get("received_signal") in (None, "") and terminal.get("watchdog_result") in ("success", "not_triggered", None)
-        self.add("systemd_terminal", PASS if success else FAIL, "Durable InvocationID journal evidence records a clean terminal service." if success else "Systemd terminal fields report failure or inconsistency.", invocation_id=invocation, result=result, n_restarts=terminal.get("NRestarts"), main_pid=terminal.get("MainPID"))
+        result = terminal.get("Result")
+        status_code = _integer(terminal.get("ExecMainStatus"))
+        main_pid = _integer(terminal.get("MainPID"))
+        restarts = _integer(terminal.get("NRestarts"))
+        runtime_seconds = _integer(terminal.get("runtime_duration_seconds"))
+        invalid = []
+        if not isinstance(result, str): invalid.append("Result_not_string")
+        if status_code is None: invalid.append("ExecMainStatus_not_integer")
+        if terminal.get("ExecMainCode") != "exited": invalid.append("ExecMainCode_not_exited")
+        if main_pid is None or main_pid <= 0 or main_pid > 2_147_483_647: invalid.append("MainPID_not_valid_positive_pid")
+        if restarts is None or restarts < 0: invalid.append("NRestarts_not_nonnegative_integer")
+        if runtime_seconds is None or runtime_seconds <= 0: invalid.append("runtime_duration_seconds_not_positive_integer")
+        if start is None or stop is None: invalid.append("terminal_time_invalid")
+        if terminal.get("received_signal") not in (None, ""): invalid.append("received_signal_present")
+        if terminal.get("watchdog_result") not in ("success", "not_triggered", None): invalid.append("watchdog_not_clean")
+        if invalid:
+            self.add("systemd_terminal", FAIL, "Systemd terminal fields have invalid types or values.", invocation_id=invocation, invalid=invalid)
+            return
+
+        timestamps: list[int] = []
+        for row in rows:
+            stamp = row.get("__REALTIME_TIMESTAMP", row.get("_SOURCE_REALTIME_TIMESTAMP"))
+            if type(stamp) is int:
+                timestamps.append(stamp)
+            elif isinstance(stamp, str) and stamp.isdecimal():
+                timestamps.append(int(stamp))
+            else:
+                self.add("systemd_terminal", NOT_VERIFIABLE, "A raw journal row has no valid realtime timestamp.", invocation_id=invocation)
+                return
+        if any(left > right for left, right in zip(timestamps, timestamps[1:])):
+            self.add("systemd_terminal", FAIL, "Journal records are not in nondecreasing timestamp order.", invocation_id=invocation)
+            return
+
+        terminal_events = []
+        start_events = []
+        for index, row in enumerate(rows):
+            message = row.get("MESSAGE")
+            if isinstance(message, str):
+                if re.search(r"\bStarting\b", message, re.IGNORECASE):
+                    start_events.append(timestamps[index])
+                match = re.search(r"main process exited,\s*code=([a-zA-Z0-9_-]+),\s*status=(-?[0-9]+)", message, re.IGNORECASE)
+                if match:
+                    terminal_events.append((match.group(1).lower(), int(match.group(2)), timestamps[index]))
+        if not start_events:
+            self.add("systemd_terminal", NOT_VERIFIABLE,
+                     "Exact unit journal is partial: no invocation start record is present.", invocation_id=invocation)
+            return
+        if len(start_events) != 1:
+            self.add("systemd_terminal", FAIL, "Journal contains duplicate or ambiguous unit start records.",
+                     invocation_id=invocation, start_event_count=len(start_events))
+            return
+        if not terminal_events:
+            self.add("systemd_terminal", NOT_VERIFIABLE,
+                     "Exact InvocationID journal has no main-process terminal record; parsed success defaults are insufficient.",
+                     invocation_id=invocation)
+            return
+        if len(terminal_events) != 1:
+            self.add("systemd_terminal", FAIL, "Journal contains duplicate or ambiguous main-process terminal records.",
+                     invocation_id=invocation, terminal_event_count=len(terminal_events))
+            return
+        event_code, event_status, event_timestamp = terminal_events[0]
+        failures = []
+        parsed_start_us = int(start.timestamp() * 1_000_000)
+        if abs(start_events[0] - parsed_start_us) > 5_000_000:
+            failures.append("journal_start_timestamp_disagrees_with_parsed_start_time")
+        if event_code != terminal.get("ExecMainCode") or event_status != status_code:
+            failures.append("journal_exit_record_disagrees_with_parsed_terminal_fields")
+        parsed_stop_us = int(stop.timestamp() * 1_000_000)
+        if abs(event_timestamp - parsed_stop_us) > 2_000_000:
+            failures.append("journal_terminal_timestamp_disagrees_with_parsed_stop_time")
+        if result != "success" or status_code != 0 or restarts != 0 or stop < start:
+            failures.append("systemd_terminal_not_clean")
+        elif abs((stop - start).total_seconds() - runtime_seconds) > 2:
+            failures.append("systemd_runtime_duration_disagrees_with_terminal_bounds")
+        if failures:
+            self.add("systemd_terminal", FAIL, "Systemd journal and terminal fields report failure or inconsistency.",
+                     invocation_id=invocation, result=result, n_restarts=restarts, main_pid=main_pid, failures=failures)
+            return
+        self.add("systemd_terminal", PASS, "Complete exact InvocationID journal contains one start and one clean terminal record matching parsed systemd bounds.",
+                 invocation_id=invocation, result=result, n_restarts=restarts, main_pid=main_pid,
+                 journal_start_event_count=1, journal_terminal_event_count=1, journal_timestamp_count=len(timestamps))
 
     def _audit_witness(self, identity: dict[str, Any] | None, witness: dict[str, Any] | None,
                        readback: dict[str, Any] | None) -> None:
@@ -555,37 +778,68 @@ class AuditorV2:
         local = self.payloads.get("terminal/terminal-receipt.json", self.root / "terminal/terminal-receipt.json")
         remote = self.payloads.get("terminal/s3-readback/terminal-receipt.json", self.root / "terminal/s3-readback/terminal-receipt.json")
         outcome = readback.get("outcome")
-        if outcome in ("AccessDenied", "403", "timeout", "network_error", "expired_credentials"):
-            self.add("terminal_witness_s3", NOT_VERIFIABLE, "S3 readback was denied or unavailable.", outcome=outcome); return
-        if outcome in ("NoSuchKey", "NotFound", "404") and readback.get("confirmed_authorized") is True:
-            self.add("terminal_witness_s3", FAIL, "Authorized exact-key GET confirmed the terminal object is absent.", outcome=outcome); return
-        if outcome != "success":
-            self.add("terminal_witness_s3", NOT_VERIFIABLE, "Exact S3 GET outcome is missing or ambiguous.", outcome=outcome); return
+        state = evidence_state(outcome, confirmed_authorized=readback.get("confirmed_authorized"))
+        if state == "ACCESS_DENIED":
+            self.add("terminal_witness_s3", NOT_VERIFIABLE, "S3 readback was denied.", evidence_state=state, outcome=outcome); return
+        if state == "ABSENT":
+            self.add("terminal_witness_s3", FAIL, "Authorized exact-key GET confirmed the terminal object is absent.", evidence_state=state, outcome=outcome); return
+        if state != "PRESENT":
+            self.add("terminal_witness_s3", NOT_VERIFIABLE, "Exact S3 GET is not checked, unavailable, or ambiguous.", evidence_state=state, outcome=outcome); return
         try:
-            local_bytes, remote_bytes = local.read_bytes(), remote.read_bytes()
+            local_bytes = self._read_payload("terminal/terminal-receipt.json")
+            remote_bytes = self._read_payload("terminal/s3-readback/terminal-receipt.json")
         except OSError:
             self.add("terminal_witness_s3", NOT_VERIFIABLE, "Local or remote terminal receipt bytes are missing."); return
         mismatch = []
         missing = []
         if local_bytes != remote_bytes: mismatch.append("bytes_differ")
         local_sha, remote_sha = sha256_bytes(local_bytes), sha256_bytes(remote_bytes)
-        if not readback.get("sha256") or not readback.get("VersionId"): missing.append("readback_hash_or_version_id_missing")
+        if not isinstance(readback.get("sha256"), str) or not SHA256_RE.fullmatch(readback.get("sha256", "")) or not isinstance(readback.get("VersionId"), str) or not readback.get("VersionId"):
+            missing.append("readback_hash_or_version_id_missing")
         elif local_sha != readback.get("sha256") or remote_sha != readback.get("sha256"): mismatch.append("sha256_mismatch")
-        if len(local_bytes) != readback.get("byte_length"): mismatch.append("byte_length_mismatch")
+        content_length = readback.get("ContentLength")
+        if type(content_length) is not int:
+            missing.append("content_length_missing_or_not_integer")
+        elif len(local_bytes) != content_length:
+            mismatch.append("content_length_mismatch")
+        byte_length = readback.get("byte_length")
+        if type(byte_length) is not int:
+            missing.append("captured_byte_length_missing_or_not_integer")
+        elif len(local_bytes) != byte_length:
+            mismatch.append("captured_byte_length_mismatch")
+        if not isinstance(readback.get("ETag"), str) or not readback.get("ETag"):
+            missing.append("etag_missing")
         if witness.get("run_id") != identity.get("run_id") or witness.get("epoch") != identity.get("epoch"): mismatch.append("witness_identity_mismatch")
         expected_key = f"{str(identity.get('s3_prefix', '')).rstrip('/')}/terminal/terminal-receipt.json"
         if witness.get("s3_key") != expected_key or readback.get("key") != expected_key or readback.get("bucket") != identity.get("s3_bucket"):
             mismatch.append("terminal_s3_target_mismatch")
         versions = readback.get("version_ids")
-        if not isinstance(versions, list):
+        if not isinstance(versions, list) or not versions or any(not isinstance(value, str) or not value for value in versions):
             missing.append("terminal_version_inventory_missing")
-        elif len(versions) != 1 or versions[0] != readback.get("VersionId"):
-            mismatch.append("duplicate_or_conflicting_terminal_versions")
-        if readback.get("http_status") != 200 or not readback.get("request_id") or not readback.get("caller_arn") or not readback.get("captured_at_utc") or not readback.get("etag"):
+        elif len(set(versions)) != len(versions):
+            mismatch.append("duplicate_terminal_version_id_entry")
+        elif versions.count(readback.get("VersionId")) != 1:
+            mismatch.append("readback_version_id_not_in_version_inventory")
+        requested_version_id = readback.get("requested_version_id", "__missing__")
+        if requested_version_id == "__missing__":
+            missing.append("unversioned_get_provenance_missing")
+        elif requested_version_id is not None:
+            mismatch.append("get_was_pinned_to_historical_version")
+        latest_delete_marker = readback.get("latest_delete_marker", False)
+        if type(latest_delete_marker) is not bool:
+            missing.append("latest_delete_marker_state_invalid")
+        elif latest_delete_marker:
+            mismatch.append("latest_version_is_delete_marker")
+        if type(readback.get("http_status")) is not int or readback.get("http_status") != 200 or not isinstance(readback.get("request_id"), str) or not readback.get("request_id") or not isinstance(readback.get("caller_arn"), str) or not readback.get("caller_arn") or not isinstance(readback.get("captured_at_utc"), str) or not readback.get("captured_at_utc"):
             missing.append("get_object_request_provenance_missing")
         # Witness's pre-upload boolean is informational and never accepted as proof.
         status = FAIL if mismatch else NOT_VERIFIABLE if missing else PASS
-        self.add("terminal_witness_s3", status, "Exact S3 GET bytes, SHA256, and VersionId match local terminal receipt." if status == PASS else "Terminal receipt evidence is incomplete." if status == NOT_VERIFIABLE else "Terminal receipt parity is contradicted.", outcome=outcome, local_sha256=local_sha, remote_sha256=remote_sha, version_id=readback.get("VersionId"), witness_s3_uploaded=witness.get("s3_uploaded"), failures=mismatch, missing=missing)
+        distinct_version_count = len(set(versions)) if isinstance(versions, list) else None
+        version_policy = (
+            "ACCEPTANCE: unversioned exact-key GET returns the captured VersionId with matching bytes; duplicate ID entries, a pinned historical GET, or a latest delete marker fail. "
+            "DIAGNOSTIC: additional distinct historical VersionIds are reported and do not fail by count alone."
+        )
+        self.add("terminal_witness_s3", status, "Exact unversioned S3 GET bytes, SHA256, ContentLength, ETag, and returned VersionId match local terminal receipt." if status == PASS else "Terminal receipt evidence is incomplete." if status == NOT_VERIFIABLE else "Terminal receipt parity is contradicted.", evidence_state=state, outcome=outcome, local_sha256=local_sha, remote_sha256=remote_sha, version_id=readback.get("VersionId"), etag=readback.get("ETag"), content_length=content_length, version_count=distinct_version_count, version_count_policy=version_policy, version_count_diagnostic="multiple historical versions observed" if distinct_version_count and distinct_version_count > 1 else None, witness_s3_uploaded=witness.get("s3_uploaded"), failures=mismatch, missing=missing)
 
     def _audit_collector_state(self, lifecycle: dict[str, Any] | None, metrics: dict[str, Any] | None) -> None:
         if lifecycle is None or metrics is None:
@@ -596,10 +850,19 @@ class AuditorV2:
         writer_errors = _nested_sum(metrics.get("exchanges"), "writer_errors")
         dropped_events = _nested_sum(metrics.get("exchanges"), "queue_dropped_events")
         exchange_rows = metrics.get("exchanges")
-        loop_stalls = [row.get("max_event_loop_lag_seconds") for row in exchange_rows.values() if isinstance(row, dict) and isinstance(row.get("max_event_loop_lag_seconds"), (int, float))] if isinstance(exchange_rows, dict) else []
+        loop_stalls = [value for row in exchange_rows.values() if isinstance(row, dict)
+                       if (value := _finite_number(row.get("max_event_loop_lag_seconds"))) is not None] if isinstance(exchange_rows, dict) else []
         max_loop_stall = max(loop_stalls) if loop_stalls else None
+        invalid_counters = any(value is not None and _integer(value) is None for value in (q, unpersisted))
+        if isinstance(exchange_rows, dict):
+            invalid_counters = invalid_counters or any(
+                row.get(field) is not None and _integer(row.get(field)) is None
+                for row in exchange_rows.values() if isinstance(row, dict)
+                for field in ("writer_errors", "queue_dropped_events"))
         if phase not in ("COMPLETE", "COMPLETED") or lifecycle.get("final_manifest_flush_observed") is not True:
             status = FAIL if phase in ("FAILED", "ERROR") else NOT_VERIFIABLE
+        elif invalid_counters:
+            status = FAIL
         elif None in (q, unpersisted, writer_errors, dropped_events):
             status = NOT_VERIFIABLE
         else:
@@ -621,7 +884,10 @@ class AuditorV2:
             active = sum(1 for state in observed.values() if isinstance(state, str) and state.upper() == "CONNECTED")
         conflicts = _first_value(bh, "conflicting_duplicate_frames", "conflicting_duplicates", "conflict_count")
         duplicates = _first_value(bh, "deduplicated_frames", "trade_duplicates", "duplicate_count")
-        if None in (count, active, conflicts, duplicates):
+        values = (count, active, conflicts, duplicates)
+        if any(value is not None and _integer(value) is None for value in values):
+            status = FAIL
+        elif None in values:
             status = NOT_VERIFIABLE
         else:
             status = PASS if configured.get("mode") == "ACTIVE_ACTIVE" and count >= 2 and active >= 2 and conflicts == 0 and duplicates >= 0 else FAIL
@@ -696,11 +962,12 @@ class AuditorV2:
                 if not isinstance(slot, dict) or not slot.get("local_receipt_path") or not slot.get("local_receipt_sha256"):
                     unavailable.append(f"slot_receipt_missing:{hour}"); continue
                 slot_outcome = slot.get("s3_get_outcome")
-                if slot_outcome in ("AccessDenied", "403", "timeout", "network_error", "expired_credentials"):
-                    self.add("cohorts_receipts", NOT_VERIFIABLE, "A required slot S3 readback was denied or unavailable.", cohort=hour, feed_id=slot.get("feed_id"), outcome=slot_outcome); return
-                if slot_outcome in ("NoSuchKey", "NotFound", "404") and slot.get("confirmed_authorized") is True:
+                slot_state = evidence_state(slot_outcome, confirmed_authorized=slot.get("confirmed_authorized"))
+                if slot_state == "ACCESS_DENIED":
+                    self.add("cohorts_receipts", NOT_VERIFIABLE, "A required slot S3 readback was denied.", cohort=hour, feed_id=slot.get("feed_id"), evidence_state=slot_state, outcome=slot_outcome); return
+                if slot_state == "ABSENT":
                     errors.append(f"slot_object_missing:{hour}:{slot.get('feed_id')}")
-                elif slot_outcome != "success" or not slot.get("version_id") or not slot.get("s3_receipt_sha256"):
+                elif slot_state != "PRESENT" or not slot.get("version_id") or not slot.get("s3_receipt_sha256"):
                     unavailable.append(f"slot_receipt_parity_missing:{hour}:{slot.get('feed_id')}")
                 elif slot.get("local_receipt_sha256") != slot.get("s3_receipt_sha256"):
                     errors.append(f"slot_receipt_hash_mismatch:{hour}:{slot.get('feed_id')}")
@@ -712,11 +979,12 @@ class AuditorV2:
             expected_slots += len(expected)
             if not row.get("local_receipt_path") or not row.get("local_receipt_sha256"):
                 unavailable.append(f"local_receipt_missing:{hour}")
-            if row.get("s3_get_outcome") in ("AccessDenied", "403", "timeout", "network_error", "expired_credentials"):
-                self.add("cohorts_receipts", NOT_VERIFIABLE, "A required cohort S3 readback was denied or unavailable.", cohort=hour, outcome=row.get("s3_get_outcome")); return
-            if row.get("s3_get_outcome") in ("NoSuchKey", "NotFound", "404") and row.get("confirmed_authorized") is True:
+            row_state = evidence_state(row.get("s3_get_outcome"), confirmed_authorized=row.get("confirmed_authorized"))
+            if row_state == "ACCESS_DENIED":
+                self.add("cohorts_receipts", NOT_VERIFIABLE, "A required cohort S3 readback was denied.", cohort=hour, evidence_state=row_state, outcome=row.get("s3_get_outcome")); return
+            if row_state == "ABSENT":
                 errors.append(f"cohort_object_missing:{hour}")
-            elif row.get("s3_get_outcome") != "success" or not row.get("version_id") or not row.get("s3_receipt_sha256"):
+            elif row_state != "PRESENT" or not row.get("version_id") or not row.get("s3_receipt_sha256"):
                 unavailable.append(f"cohort_receipt_parity_missing:{hour}")
             elif row.get("local_receipt_sha256") != row.get("s3_receipt_sha256"):
                 errors.append(f"cohort_receipt_hash_mismatch:{hour}")
@@ -741,6 +1009,7 @@ class AuditorV2:
         errors: list[str] = []
         unavailable: list[str] = []
         unknown: list[str] = []
+        evidence_states: list[str] = []
         declared_remote_keys: set[str] = set()
         remote_key_occurrences: list[str] = []
         required_remote_keys: set[str] = set()
@@ -768,11 +1037,13 @@ class AuditorV2:
                 else:
                     unavailable.append(f"s3_key_missing:{kind}")
                 outcome = row.get("s3_get_outcome")
-                if outcome in ("AccessDenied", "403", "timeout", "network_error", "expired_credentials"):
-                    self.add("receipt_scope", NOT_VERIFIABLE, "Required receipt S3 scope is unavailable.", receipt_type=kind, outcome=outcome); return
-                if outcome in ("NoSuchKey", "NotFound", "404") and row.get("confirmed_authorized") is True:
+                state = evidence_state(outcome, confirmed_authorized=row.get("confirmed_authorized"))
+                evidence_states.append(state)
+                if state == "ACCESS_DENIED":
+                    self.add("receipt_scope", NOT_VERIFIABLE, "Required receipt S3 scope was denied.", receipt_type=kind, evidence_state=state, outcome=outcome); return
+                if state == "ABSENT":
                     errors.append(f"required_remote_missing:{kind}")
-                elif outcome != "success" or not row.get("version_id") or not row.get("s3_sha256"):
+                elif state != "PRESENT" or not isinstance(row.get("version_id"), str) or not row.get("version_id") or not isinstance(row.get("s3_sha256"), str) or not SHA256_RE.fullmatch(row.get("s3_sha256", "")):
                     unavailable.append(f"remote_parity_unavailable:{kind}")
                 elif row.get("local_sha256") != row.get("s3_sha256"):
                     errors.append(f"remote_hash_mismatch:{kind}")
@@ -783,7 +1054,8 @@ class AuditorV2:
                 if remote_check == "missing": unavailable.append(f"remote_bytes_missing:{kind}")
                 elif remote_check == "mismatch": errors.append(f"remote_bytes_hash_mismatch:{kind}")
             if kind == "SKIPPED_PARTIAL_HOUR_RECEIPT":
-                if row.get("s3_get_outcome") not in (None, "not_required"):
+                skipped_state = evidence_state(row.get("s3_get_outcome"))
+                if skipped_state != "NOT_CHECKED":
                     errors.append("skipped_partial_receipt_must_be_local_only")
                 local_check = self._receipt_path_check(row.get("local_path"), row.get("local_sha256"))
                 if local_check == "missing": unavailable.append("skipped_partial_local_receipt_missing")
@@ -791,7 +1063,12 @@ class AuditorV2:
             if kind in ("TIMESTAMPED_TERMINAL_RECEIPT", "OTHER") and isinstance(row.get("s3_key"), str):
                 declared_remote_keys.add(row["s3_key"])
         extras = inventory.get("unexpected_s3_objects", [])
-        if extras: errors.append("unexpected_s3_receipts_present")
+        if not isinstance(extras, list):
+            unavailable.append("unexpected_s3_objects_inventory_malformed")
+        elif any(not isinstance(key, str) for key in extras):
+            errors.append("unexpected_s3_objects_inventory_malformed")
+        elif any(not key.startswith(f"{str((self.read_json('sealed/identity.json') or {}).get('s3_prefix', '')).rstrip('/')}/observability/") for key in extras):
+            errors.append("unexpected_s3_receipts_present")
         for kind, count in required_type_counts.items():
             if count == 0: unavailable.append(f"required_receipt_type_missing:{kind}")
         if len(remote_key_occurrences) != len(set(remote_key_occurrences)):
@@ -801,9 +1078,9 @@ class AuditorV2:
         listing = inventory.get("s3_prefix_listing")
         if not isinstance(listing, dict):
             unavailable.append("complete_s3_prefix_listing_missing")
-        elif listing.get("outcome") in ("AccessDenied", "403", "timeout", "network_error", "expired_credentials"):
-            self.add("receipt_scope", NOT_VERIFIABLE, "Read-only S3 prefix inventory was denied or incomplete.", outcome=listing.get("outcome")); return
-        elif (listing.get("outcome") != "success" or listing.get("complete") is not True or listing.get("next_token") not in (None, "") or
+        elif evidence_state(listing.get("outcome")) == "ACCESS_DENIED":
+            self.add("receipt_scope", NOT_VERIFIABLE, "Read-only S3 prefix inventory was denied.", evidence_state="ACCESS_DENIED", outcome=listing.get("outcome")); return
+        elif (evidence_state(listing.get("outcome")) != "PRESENT" or listing.get("complete") is not True or listing.get("next_token") not in (None, "") or
               not listing.get("request_id") or not listing.get("caller_arn") or not listing.get("captured_at_utc")):
             unavailable.append("complete_s3_prefix_listing_provenance_missing")
         else:
@@ -820,13 +1097,19 @@ class AuditorV2:
                 if len(listed_keys) != len(objects) or any(not isinstance(key, str) for key in listed_keys):
                     errors.append("malformed_or_duplicate_s3_listing_keys")
                 else:
-                    if len(set(listed_keys)) != len(listed_keys): errors.append("malformed_or_duplicate_s3_listing_keys")
+                    observer_prefix = f"{expected_prefix}/observability/"
+                    duplicate_keys = {key for key, count in Counter(listed_keys).items() if count > 1}
+                    non_observer_duplicates = {key for key in duplicate_keys if not key.startswith(observer_prefix)}
+                    if non_observer_duplicates: errors.append("malformed_or_duplicate_s3_listing_keys")
                     missing_remote = required_remote_keys - set(listed_keys)
                     unexpected_remote = set(listed_keys) - declared_remote_keys
                     if missing_remote: errors.extend(f"confirmed_required_s3_key_missing:{key}" for key in sorted(missing_remote))
                     optional_terminal_pattern = f"{expected_prefix}/terminal/terminal-receipt-"
-                    unexpected_remote = {key for key in unexpected_remote if not (key.startswith(optional_terminal_pattern) and key.endswith(".json"))}
+                    unexpected_remote = {key for key in unexpected_remote if not (
+                        (key.startswith(optional_terminal_pattern) and key.endswith(".json"))
+                        or key.startswith(observer_prefix))}
                     if unexpected_remote: errors.extend(f"unexpected_s3_object:{key}" for key in sorted(unexpected_remote))
+                    evidence_states.extend(["PRESENT"])
         interval = self._load_cohort_interval()
         unavailable.extend(interval["missing"])
         errors.extend(interval["errors"])
@@ -848,24 +1131,21 @@ class AuditorV2:
                 if extra_slots: errors.append(f"unexpected_slot_receipts:{len(extra_slots)}")
         if unknown: errors.extend(f"unknown_receipt_type:{x}" for x in unknown)
         status = FAIL if errors else NOT_VERIFIABLE if unavailable else PASS
-        self.add("receipt_scope", status, "Receipt durability scopes match the frozen contract." if status == PASS else "Required receipt evidence is incomplete." if status == NOT_VERIFIABLE else "Receipt types, durability, or parity differ from the frozen contract.", failures=errors, missing=unavailable, receipt_count=len(inventory["receipts"]))
+        self.add("receipt_scope", status, "Receipt durability scopes match the frozen contract." if status == PASS else "Required receipt evidence is incomplete." if status == NOT_VERIFIABLE else "Receipt types, durability, or parity differ from the frozen contract.", failures=errors, missing=unavailable, receipt_count=len(inventory["receipts"]), evidence_states=sorted(set(evidence_states)), observer_listing_churn_policy="listing-only keys under the exact identity/observability/ prefix are diagnostic; required receipt keys remain individually required")
 
     def _receipt_path_matches(self, rel: Any, expected_sha: Any) -> bool:
         if not isinstance(rel, str) or not _safe_relpath(rel) or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
             return False
-        path = self.root / rel
         try:
-            return path.is_file() and not path.is_symlink() and sha256_file(path) == expected_sha
+            return self._hash_payload(rel)[1] == expected_sha
         except OSError:
             return False
 
     def _receipt_path_check(self, rel: Any, expected_sha: Any) -> str:
         if not isinstance(rel, str) or not _safe_relpath(rel) or not isinstance(expected_sha, str) or not SHA256_RE.fullmatch(expected_sha):
             return "missing"
-        path = self.root / rel
         try:
-            if path.is_symlink() or not path.is_file(): return "missing"
-            return "match" if sha256_file(path) == expected_sha else "mismatch"
+            return "match" if self._hash_payload(rel)[1] == expected_sha else "mismatch"
         except OSError:
             return "missing"
 
@@ -920,13 +1200,19 @@ class AuditorV2:
         trace = self.read_json("terminal/finalization-trace.json")
         if trace is None:
             self.add("finalization_trace", NOT_VERIFIABLE, "Finalization trace is missing."); return
-        if trace.get("evidence_classification") != "NATIVE_INSTRUMENTATION_PRESENT":
+        if (self.runtime_commit == CURRENT_RUN_RUNTIME_COMMIT
+                or trace.get("source_classification") == "RECONSTRUCTED_OBSERVATION"
+                or trace.get("evidence_classification") != "NATIVE_INSTRUMENTATION_PRESENT"):
             self.add("finalization_trace", NOT_VERIFIABLE, "Reconstructed observations cannot satisfy native finalization trace requirements.", evidence_classification=trace.get("evidence_classification")); return
         fields = ("scheduler_retries", "finalizer_retries", "recovery_invocations", "duplicate_finalization", "closed_at_utc_stable", "evidence_hash_stable", "restart_idempotency_path_exposed")
         missing = [field for field in fields if field not in trace]
         if missing:
             self.add("finalization_trace", NOT_VERIFIABLE, "Native trace omits required distinctions.", missing=missing); return
-        ok = all(trace[field] == 0 for field in fields[:4]) and all(trace[field] is True for field in fields[4:])
+        ok = all(_integer(trace[field]) == 0 for field in fields[:4]) and all(trace[field] is True for field in fields[4:])
+        malformed_counts = [field for field in fields[:4] if _integer(trace[field]) is None]
+        if malformed_counts:
+            self.add("finalization_trace", FAIL, "Native trace retry and invocation counters must be integers, not booleans or other types.", invalid_counters=malformed_counts)
+            return
         self.add("finalization_trace", PASS if ok else FAIL, "Native finalization trace verifies all frozen checks." if ok else "Native finalization trace records a contract violation.", values={key: trace[key] for key in fields})
 
     def report(self) -> dict[str, Any]:
@@ -941,7 +1227,15 @@ def _safe_relpath(value: str) -> bool:
 
 
 def _integer(value: Any) -> int | None:
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    return value if type(value) is int else None
+
+
+def _finite_number(value: Any) -> int | float | None:
+    if type(value) not in (int, float):
+        return None
+    if type(value) is int:
+        return value
+    return value if math.isfinite(value) else None
 
 
 def _first_value(mapping: Mapping[str, Any], *keys: str) -> Any:
@@ -951,7 +1245,7 @@ def _first_value(mapping: Mapping[str, Any], *keys: str) -> Any:
 def _nested_sum(value: Any, field: str) -> int | None:
     if not isinstance(value, dict): return None
     vals = [row.get(field) for row in value.values() if isinstance(row, dict)]
-    if not vals or any(not isinstance(v, int) for v in vals): return None
+    if not vals or any(_integer(v) is None for v in vals): return None
     return sum(vals)
 
 
