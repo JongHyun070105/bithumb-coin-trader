@@ -1,0 +1,19 @@
+{
+  "schema": "Fresh30HAuditorV2FreezeRecord",
+  "version": 1,
+  "created_at_utc": "2026-09-30T12:00:10.969009Z",
+  "git_commit": "209db6846c3632a34e73827d88a46109b4ec93ed",
+  "git_tree": "88bfb76d8be92e2210ad37596f608215792de7ae",
+  "git_commit_scope": "Source snapshot immediately before adding this freeze record.",
+  "original_auditor_sha256": "7e5ac931e7d2e1e7c900e56d1ddfa3111c4bb2470dc8f6a9e2d5c53884405b64",
+  "v2_auditor_sha256": "02518d9fc0ece0938967eede4dc3298335a3e2e1c958d8bee265366bf4e140d1",
+  "v2_exporter_sha256": "bc30391835caee357a9dcdb2e7169bcf6293ce1f5442b498b4cc478b69870b18",
+  "v2_spec_sha256": "b9c91ebf0708b75e3139453ee81436bd560c4f5950cdff3f3fb3ae6b31fec81a",
+  "schema_map_json_sha256": "02a03a01c9b1b752aed70b9a8c5b263f3a970ce1596c43c8ff90434a2058eea1",
+  "preregistration_sha256": "5f782033d02c851af34b2822779ef26d9ff5390e85d324cec3224e95a714a678",
+  "postrun_playbook_sha256": "86753de8f8134d5050ad893c01faa2dfaab7e137ba5bcf04c12d2dd5e8729d07",
+  "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+  "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+  "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+  "runtime_tree": "5c96ed79fee107c1604ee7018621835910221fdf"
+}
