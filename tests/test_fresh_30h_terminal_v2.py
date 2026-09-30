@@ -412,7 +412,7 @@ def test_terminal_witness_true_without_object_and_corrupt_bytes_fail(bundle: dic
     assert _check(_audit(bundle), "terminal_witness_s3")["status"] == FAIL
 
 
-def test_distinct_historical_terminal_versions_are_diagnostic_not_count_failure(bundle: dict[str, object]) -> None:
+def test_current_terminal_bytes_allow_distinct_historical_versions(bundle: dict[str, object]) -> None:
     root = Path(bundle["root"])
     path = root / "terminal/s3-readback.json"
     data = json.loads(path.read_text())
@@ -422,6 +422,25 @@ def test_distinct_historical_terminal_versions_are_diagnostic_not_count_failure(
     check = _check(_audit(bundle), "terminal_witness_s3")
     assert check["status"] == PASS
     assert check["details"]["version_count_diagnostic"] == "multiple historical versions observed"
+
+
+def test_corrupt_current_terminal_bytes_fail_with_multiple_versions(bundle: dict[str, object]) -> None:
+    root = Path(bundle["root"])
+    readback_path = root / "terminal/s3-readback.json"
+    readback = json.loads(readback_path.read_text())
+    readback["version_ids"] = ["v1", "v0"]
+    corrupt = _dump(root / "terminal/s3-readback/terminal-receipt.json", {
+        "run_id": RUN_ID, "epoch": EPOCH, "s3_uploaded": True, "different": True,
+    })
+    readback["sha256"] = _sha(corrupt)
+    readback["byte_length"] = len(corrupt)
+    readback["ContentLength"] = len(corrupt)
+    _dump(readback_path, readback)
+    _capture_and_anchor_bundle(bundle)
+    _reindex(root)
+    check = _check(_audit(bundle), "terminal_witness_s3")
+    assert check["status"] == FAIL
+    assert check["details"]["version_count"] == 2
 
 
 @pytest.mark.parametrize("mutation", ["wrong_commit", "wrong_tree", "wrong_identity_sha", "tampered_artifact"])
