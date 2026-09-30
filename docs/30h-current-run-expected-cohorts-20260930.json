@@ -207,14 +207,24 @@
       "fields_used": [
         "snapshot.collector_metrics.value.collector_started_at"
       ],
+      "extracted_values": {
+        "snapshot.collector_metrics.value.collector_started_at": "2026-09-29T09:34:57.959160+00:00"
+      },
+      "available_in_clean_worktree": false,
       "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/fresh-readiness-refresh-20260929T092926Z/health-t5.json",
+      "sha256_verified_at_freeze": true,
       "sha256": "01aa280629bbfa7a8d47dea81faffa00dc1a68d0471a877b12946e953730792b"
     },
     {
       "fields_used": [
         "collection_duration_seconds"
       ],
+      "extracted_values": {
+        "collection_duration_seconds": 108000
+      },
+      "available_in_clean_worktree": true,
       "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/launch-command.json",
+      "sha256_verified_at_freeze": true,
       "sha256": "f3f2edcad61ed0428a0a59aab8c12cf780239ee821c60287283f99c5f42f490b"
     },
     {
@@ -223,7 +233,14 @@
         "feeds.binance_symbols",
         "feeds.upbit_markets"
       ],
+      "extracted_values": {
+        "feeds.bithumb_markets_count": 20,
+        "feeds.binance_symbols_count": 4,
+        "feeds.upbit_markets_count": 4
+      },
+      "available_in_clean_worktree": true,
       "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272.runtime.json",
+      "sha256_verified_at_freeze": true,
       "sha256": "20f5a4983c18c4e057ec5b0c4175eb3d4f06f5222bdd2fc4eb4c2600ff299951"
     },
     {
@@ -234,8 +251,17 @@
         "runtime_commit",
         "runtime_tree"
       ],
+      "extracted_values": {
+        "findings.actual_collector_started_at_utc": "Tue 2026-09-29 09:34:57 UTC",
+        "run_id": "aws-validation-observability-30h-run-20260929T055022Z-52f3d272",
+        "epoch": "aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272",
+        "runtime_commit": "b4d482363e2f988dad9c6d29053f97e1e4160883",
+        "runtime_tree": "5c96ed79fee107c1604ee7018621835910221fdf"
+      },
+      "available_in_clean_worktree": false,
       "path": "reliability-artifacts/aws-30h-final-preflight-20260929/aws-validation-observability-30h-20260929-20260929T055022Z-52f3d272/postlaunch-health-observer-notify-audit-20260929T114048+0000/observer-notify-audit.json",
       "role": "independent same-minute start corroboration",
+      "sha256_verified_at_freeze": true,
       "sha256": "134b1aac3bb885b55e6a65436e37a333402d99f1f44e13731f009b1e177f5b82"
     }
   ],

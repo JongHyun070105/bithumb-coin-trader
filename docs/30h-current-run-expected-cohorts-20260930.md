@@ -48,4 +48,4 @@ This schedule was derived before terminalization from the observed collector sta
 | 2026-09-30_13 | 2026-09-30T13:00:00Z | 2026-09-30T14:00:00Z | 76 |
 | 2026-09-30_14 | 2026-09-30T14:00:00Z | 2026-09-30T15:00:00Z | 76 |
 
-Input hashes and exact field paths are recorded in the adjacent JSON. Opening and ending partial cohorts are preserved but are not qualifying full hours.
+Input hashes, exact field paths, and the extracted input values are recorded in the adjacent JSON. All four source hashes were checked against the preflight evidence snapshot. The start-time health snapshot and independent observer snapshot are not included in the clean audit checkout; their extracted values and hashes remain in the schedule record. Opening and ending partial cohorts are preserved but are not qualifying full hours.
