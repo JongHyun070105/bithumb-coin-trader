@@ -26,6 +26,7 @@ from bithumb_coin_trader.closed_hour_finalizer import (
     ClosedHourFinalizer,
     evaluate_common_gate,
 )
+from bithumb_coin_trader.finalization_trace import FinalizationTrace
 from bithumb_coin_trader import feed_hour_coverage
 from bithumb_coin_trader.feed_hour_coverage import (
     FrozenFeedHourObservation,
@@ -304,6 +305,21 @@ def test_zero_skips_raw(tmp_path: Path) -> None:
     assert result.coverage_receipt is not None
     assert result.coverage_receipt.restore_verified_at is not None
     assert len(result.failure_reason_codes) == 0
+
+
+def test_native_trace_orders_slot_start_archive_receipt_and_closure(tmp_path: Path) -> None:
+    calls: list[str] = []
+    bundle = FixtureBundle(tmp_path, calls)
+    trace = FinalizationTrace(tmp_path / "trace-data" / "finalization-trace", run_id="run-1", epoch="epoch-1")
+    bundle.finalizer.finalization_trace = trace
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    result = bundle.finalizer.finalize_slot(_make_observation(feed, event_count=0))
+
+    event_types = [event["event_type"] for event in trace.read_events()]
+    assert event_types.index("finalizer_slot_started") < event_types.index("archive_receipt_write_complete")
+    assert event_types.index("archive_receipt_write_complete") < event_types.index("cohort_closure")
+    assert event_types.index("cohort_closure") < event_types.index("slot_finalized")
+    assert result.coverage_receipt is not None
 
 
 def test_count_mismatch_fails(tmp_path: Path) -> None:

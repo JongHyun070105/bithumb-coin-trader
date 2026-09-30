@@ -30,6 +30,7 @@ from bithumb_coin_trader.collector_state_model import (
     utc_iso_now,
 )
 from bithumb_coin_trader.runtime_observer import parse_s3_location
+from bithumb_coin_trader.finalization_trace import FinalizationTrace
 
 logger = logging.getLogger("terminal_witness")
 SAFE_WITNESS_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
@@ -178,6 +179,19 @@ def record_terminal_receipt(
         "s3_uploaded": False,
         "s3_key": None,
     }
+    finalization_trace = (
+        FinalizationTrace(data_dir / "finalization-trace", run_id=eff_run_id, epoch=eff_epoch)
+        if eff_run_id and eff_epoch
+        else None
+    )
+    if finalization_trace is not None:
+        finalization_trace.append(
+            "terminalization_boundary",
+            service_result=eff_service_result,
+            exit_code=eff_exit_code,
+            exit_status=eff_exit_status,
+            terminal_classification=classification,
+        )
 
     # 1. Write immutable local receipts
     receipt_dir = data_dir / "terminal"
@@ -222,20 +236,50 @@ def record_terminal_receipt(
                 if prefix
                 else f"terminal/terminal-receipt-{ts_tag}.json"
             )
-            # Persist the exact successful payload before upload so a successful
-            # S3 write and the local receipt have byte-for-byte identical content.
-            receipt["s3_uploaded"] = True
-            receipt["s3_key"] = receipt_key
-            payload_bytes = (json.dumps(receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            # A killed or failed put must leave the durable receipt false.
+            receipt["s3_uploaded"] = False
+            receipt["s3_key"] = None
+            receipt.pop("s3_upload_error_type", None)
             write_receipt_atomic(terminal_receipt_path, receipt)
             write_receipt_atomic(timestamped_receipt_path, receipt)
+            success_receipt = dict(receipt)
+            success_receipt["s3_uploaded"] = True
+            success_receipt["s3_key"] = receipt_key
+            payload_bytes = (json.dumps(success_receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
             try:
-                client.put_object(
+                stable_response = client.put_object(
                     Bucket=bucket,
                     Key=receipt_key,
                     Body=payload_bytes,
                     ContentType="application/json",
                 )
+            except Exception as exc:
+                logger.error("Failed to upload terminal receipt to S3: %s", exc)
+                receipt["s3_uploaded"] = False
+                receipt["s3_key"] = None
+                receipt["s3_upload_error_type"] = type(exc).__name__
+                if finalization_trace is not None:
+                    finalization_trace.append(
+                        "terminal_witness_upload_failed",
+                        bucket=bucket,
+                        key=receipt_key,
+                        error_type=type(exc).__name__,
+                    )
+            else:
+                receipt.update(success_receipt)
+                write_receipt_atomic(terminal_receipt_path, receipt)
+                if finalization_trace is not None:
+                    finalization_trace.append(
+                        "terminal_witness_upload_completed",
+                        bucket=bucket,
+                        key=receipt_key,
+                        version_id=stable_response.get("VersionId") if isinstance(stable_response, dict) else None,
+                        etag=stable_response.get("ETag") if isinstance(stable_response, dict) else None,
+                    )
+                try:
+                    write_receipt_atomic(timestamped_receipt_path, receipt)
+                except Exception as exc:
+                    logger.warning("Could not persist timestamped successful terminal receipt: %s", exc)
                 try:
                     client.put_object(
                         Bucket=bucket,
@@ -249,10 +293,12 @@ def record_terminal_receipt(
                     # mirror cannot be written.
                     logger.warning("Could not upload timestamped terminal receipt: %s", exc)
                 logger.info("Terminal receipt uploaded to s3://%s/%s", bucket, receipt_key)
-            except Exception as exc:
-                logger.error("Failed to upload terminal receipt to S3: %s", exc)
-                receipt["s3_uploaded"] = False
-                receipt["s3_key"] = None
+        elif finalization_trace is not None:
+            finalization_trace.append(
+                "terminal_witness_upload_unavailable",
+                bucket=bucket,
+                error_type="S3ClientUnavailable",
+            )
 
     # Persist the final success/failure state. After a successful upload this
     # serializes the same fields and bytes already sent to the stable S3 key.
@@ -261,6 +307,9 @@ def record_terminal_receipt(
         write_receipt_atomic(timestamped_receipt_path, receipt)
     except Exception as exc:
         logger.warning("Could not persist timestamped terminal receipt: %s", exc)
+
+    if finalization_trace is not None:
+        finalization_trace.write_terminal_summary()
 
     return receipt
 

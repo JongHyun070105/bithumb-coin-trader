@@ -211,6 +211,8 @@ class CrossMarketCollectorTests(unittest.TestCase):
                 payload["active_partition_files"],
                 ["2026-09-02/bithumb/trade/bithumb_trade_krw-btc_2026-09-02_09.jsonl"],
             )
+            self.assertEqual(payload["schema_version"], 1)
+            self.assertIsNone(payload["bithumb_physical_connections_at_collection_end"])
             self.assertFalse(collector._metrics_path.with_suffix(".json.tmp").exists())
 
     def test_active_partitions_rotate_for_multiple_feeds_and_idle_feeds(self) -> None:
@@ -271,6 +273,31 @@ class CrossMarketCollectorTests(unittest.TestCase):
             self.assertEqual(payload["active_partition_files"], [])
             self.assertEqual(collector._current_active_partition_files(), set())
             self.assertEqual(len(collector.generate_all_manifests()), 1)
+
+    def test_final_metrics_preserve_collection_end_and_post_shutdown_socket_states(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            now = datetime(2026, 9, 2, 9, 15, tzinfo=timezone.utc)
+            collector = MultiExchangeMicrostructureCollector(
+                ["KRW-BTC"],
+                storage_base_dir=Path(tmp) / "raw",
+                enable_binance=False,
+                enable_upbit=False,
+                utc_now=lambda: now,
+                bithumb_connection_count=2,
+            )
+            collector._bithumb_source_status.update(primary="CONNECTED", secondary="CONNECTED")
+            collector._bithumb_status_at_collection_end = dict(collector._bithumb_source_status)
+            collector._bithumb_collection_end_at_utc = now.isoformat()
+            collector._bithumb_source_status.update(primary="DISCONNECTED", secondary="DISCONNECTED")
+
+            collector._persist_metrics()
+            payload = json.loads(collector._metrics_path.read_text(encoding="utf-8"))
+            expected_connected = {"primary": "CONNECTED", "secondary": "CONNECTED"}
+            expected_disconnected = {"primary": "DISCONNECTED", "secondary": "DISCONNECTED"}
+            self.assertEqual(payload["bithumb_physical_connections"], expected_connected)
+            self.assertEqual(payload["bithumb_physical_connections_at_collection_end"], expected_connected)
+            self.assertEqual(payload["bithumb_physical_connections_after_shutdown"], expected_disconnected)
+            self.assertEqual(payload["bithumb_collection_end_at_utc"], now.isoformat())
 
     def test_explicit_short_smoke_provenance_is_persisted(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

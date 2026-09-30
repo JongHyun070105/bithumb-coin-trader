@@ -345,6 +345,24 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
             )
             self.assertEqual(res["status"], "PASS")
 
+    def test_observer_unit_name_matches_actual_2h_and_72h_collector_units(self) -> None:
+        for duration, label, prefix in (
+            (7200, "2h", "bitcoin-trader-2h"),
+            (259200, "72h", "bitcoin-trader-72h"),
+        ):
+            with self.subTest(duration=duration), tempfile.TemporaryDirectory() as tmp:
+                spec = ValidationRunSpec(
+                    epoch=f"aws-validation-observability-{label}-20261001T000000Z-test",
+                    run_id=f"aws-validation-observability-{label}-run-20261001T000000Z-test",
+                    duration_seconds=duration,
+                    runtime_commit=self.commit,
+                )
+                artifacts = generate_launch_artifacts(spec, target_dir=Path(tmp))
+                command = artifacts.launch_command["observer_command"]
+                observed_unit = command[command.index("--unit-name") + 1]
+                self.assertEqual(observed_unit, f"{prefix}-{spec.run_id}.service")
+                self.assertIn(f'--unit-name "{prefix}-{spec.run_id}.service"', artifacts.launch_ec2_sh)
+
     def test_terminal_witness_launch_binding_uses_exact_run_identity_and_s3_prefix(self) -> None:
         spec = ValidationRunSpec(
             epoch="aws-validation-observability-30h-20260926-20260926T135000Z-v3",
@@ -369,6 +387,10 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     "allow_s3_write": True,
                 },
             )
+            observer_command = artifacts.launch_command["observer_command"]
+            unit_arg = observer_command[observer_command.index("--unit-name") + 1]
+            self.assertEqual(unit_arg, f"bitcoin-trader-30h-{spec.run_id}.service")
+            self.assertNotIn("transient", unit_arg)
 
             for launch_script in (artifacts.launch_sh, artifacts.launch_ec2_sh):
                 with self.subTest(script="launch-ec2.sh" if launch_script == artifacts.launch_ec2_sh else "launch.sh"):
@@ -379,6 +401,18 @@ class TestLaunchArtifactRegressions(unittest.TestCase):
                     self.assertIn(f'--exec-stop-post-s3-region "{spec.region}"', launch_script)
                     self.assertIn("--exec-stop-post-allow-s3-write", launch_script)
                     self.assertLess(launch_script.index('"$@"'), launch_script.index(f'--run-id "{spec.run_id}"'))
+
+            invalid_command = dict(artifacts.launch_command)
+            invalid_observer = list(artifacts.launch_command["observer_command"])
+            invalid_observer[invalid_observer.index("--unit-name") + 1] = f"bitcoin-trader-transient-{spec.run_id}.service"
+            invalid_command["observer_command"] = invalid_observer
+            with self.assertRaisesRegex(ValueError, "observer_command collector unit binding failure"):
+                validate_launch_artifacts(
+                    spec,
+                    artifacts.runtime_config,
+                    invalid_command,
+                    target_dir=Path(tmp),
+                )
 
     def test_witness_smoke_artifacts_bind_exact_identity_and_allow_only_120_seconds(self) -> None:
         spec = ValidationRunSpec(

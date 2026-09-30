@@ -303,6 +303,31 @@ def test_writer_clock_regression_raises() -> None:
         tracker.record_persisted_event(feed, ts0)
 
 
+def test_opening_and_shutdown_observation_bounds_preserve_microseconds() -> None:
+    feed = _make_feed()
+    started = datetime(2026, 9, 14, 11, 34, 56, 123456, tzinfo=timezone.utc)
+    tracker = FeedHourCoverageTracker([feed], actual_start_utc=started)
+    sessions = SessionEvidenceTracker("epoch-1", "run-1")
+
+    opening = tracker.freeze_completed(
+        datetime(2026, 9, 14, 12, 0, 0, tzinfo=timezone.utc),
+        sessions,
+        WriterHealthSnapshot(),
+    )
+    assert opening[0].observation_start_utc == "2026-09-14T11:34:56.123456Z"
+
+    shutdown_tracker = FeedHourCoverageTracker(
+        [feed], actual_start_utc=datetime(2026, 9, 14, 12, 0, 0, 123456, tzinfo=timezone.utc)
+    )
+    shutdown = shutdown_tracker.freeze_shutdown(
+        datetime(2026, 9, 14, 12, 34, 56, 654321, tzinfo=timezone.utc),
+        sessions,
+        WriterHealthSnapshot(),
+    )
+    assert shutdown[0].observation_start_utc == "2026-09-14T12:00:00.123456Z"
+    assert shutdown[0].observation_end_utc == "2026-09-14T12:34:56.654321Z"
+
+
 def test_tracker_freeze_completed_and_shutdown() -> None:
     feed1 = _make_feed("bithumb", "orderbook", "KRW-BTC")
     feed2 = _make_feed("upbit", "ticker", "KRW-BTC")

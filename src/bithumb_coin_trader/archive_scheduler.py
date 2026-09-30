@@ -31,6 +31,7 @@ for d in (ROOT, SCRIPTS_DIR):
 
 from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import SEALED_FEED_UNIVERSE
+from bithumb_coin_trader.finalization_trace import FinalizationTrace
 from bithumb_coin_trader.collector_state_model import (
     ArchiverHealth,
     ComponentHealthState,
@@ -106,6 +107,11 @@ class ClosedHourArchiveScheduler:
         self.config = config
         self._now_fn = now_fn or (lambda: datetime.now(timezone.utc))
         self._stop_event = threading.Event()
+        self.finalization_trace = FinalizationTrace(
+            config.base_dir / "finalization-trace",
+            run_id=config.run_id,
+            epoch=config.epoch,
+        )
 
     def stop(self) -> None:
         self._stop_event.set()
@@ -542,6 +548,11 @@ class ClosedHourArchiveScheduler:
             return result
 
         cfg = self.config
+        self.finalization_trace.append(
+            "scheduler_attempt_started",
+            cohort=target.cohort.key,
+            timestamp_utc=(now or self._now_fn()).isoformat(),
+        )
         try:
             res = orchestrate_closed_hour_archive(
                 epoch=cfg.epoch,
@@ -562,6 +573,7 @@ class ClosedHourArchiveScheduler:
                 dry_run=cfg.dry_run,
                 disk_critical_percent=cfg.disk_critical_percent,
                 now=(now or self._now_fn()),
+                finalization_trace=self.finalization_trace,
             )
             archive_failures = res.get("archive_job_failures", 0)
             res_status = res.get("status")
@@ -576,9 +588,20 @@ class ClosedHourArchiveScheduler:
                 "backlog": res,
                 "timestamp": (now or self._now_fn()).isoformat(),
             }
+            self.finalization_trace.append(
+                "scheduler_attempt_completed",
+                cohort=target.cohort.key,
+                status=status,
+                archive_failures=archive_failures,
+            )
             self._write_archiver_health(result, eligible)
             return result
         except OrchestratorConcurrencyError:
+            self.finalization_trace.append(
+                "scheduler_attempt_failed",
+                cohort=target.cohort.key,
+                error_type="OrchestratorConcurrencyError",
+            )
             result = {
                 "status": "LOCKED",
                 "processed_cohort": None,
@@ -589,6 +612,11 @@ class ClosedHourArchiveScheduler:
             self._write_archiver_health(result, eligible)
             return result
         except Exception as exc:
+            self.finalization_trace.append(
+                "scheduler_attempt_failed",
+                cohort=target.cohort.key,
+                error_type=type(exc).__name__,
+            )
             result = {
                 "status": "ERROR",
                 "processed_cohort": target.cohort.key,

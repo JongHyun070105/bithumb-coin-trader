@@ -57,6 +57,23 @@ REQUIRED_PATH_TEMPLATES: tuple[str, ...] = (
 )
 
 
+def _unit_prefix_for_duration(duration_seconds: int) -> str:
+    return {
+        WITNESS_SMOKE_DURATION_SECONDS: "bitcoin-trader-witness-e2e-smoke",
+        2700: "bitcoin-trader-short-smoke",
+        5400: "bitcoin-trader-90m",
+        7200: "bitcoin-trader-2h",
+        10800: "bitcoin-trader-3h",
+        21600: "bitcoin-trader-6h",
+        108000: "bitcoin-trader-30h",
+        259200: "bitcoin-trader-72h",
+    }.get(duration_seconds, "bitcoin-trader-transient")
+
+
+def _observer_unit_name_for_spec(spec: ValidationRunSpec) -> str:
+    return f"{_unit_prefix_for_duration(spec.duration_seconds)}-{spec.run_id}.service"
+
+
 def canonical_config_fingerprint(payload: object) -> str:
     encoded = json.dumps(
         payload,
@@ -363,18 +380,7 @@ def generate_launch_artifacts(
         "--require-full-duration",
     ]
 
-    if spec.duration_seconds == WITNESS_SMOKE_DURATION_SECONDS:
-        unit_prefix = "bitcoin-trader-witness-e2e-smoke"
-    elif spec.duration_seconds == 5400:
-        unit_prefix = "bitcoin-trader-90m"
-    elif spec.duration_seconds == 10800:
-        unit_prefix = "bitcoin-trader-3h"
-    elif spec.duration_seconds == 21600:
-        unit_prefix = "bitcoin-trader-6h"
-    elif spec.duration_seconds == 2700:
-        unit_prefix = "bitcoin-trader-short-smoke"
-    else:
-        unit_prefix = "bitcoin-trader-transient"
+    unit_prefix = _unit_prefix_for_duration(spec.duration_seconds)
 
     observer_cmd = [
         python_str,
@@ -779,14 +785,26 @@ def validate_launch_artifacts(
 
         # 3.6: Observer command checks (T0 observer sequencing)
         obs_cmd = launch_command.get("observer_command")
-        if obs_cmd is not None:
-            if not isinstance(obs_cmd, list):
-                raise ValueError("observer_command must be a list")
-            if "--data-dir" not in obs_cmd or "--epoch" not in obs_cmd or "--run-id" not in obs_cmd:
-                raise ValueError("observer_command missing essential flags")
-            o_data_idx = obs_cmd.index("--data-dir")
-            if obs_cmd[o_data_idx + 1] != str(spec.epoch_data_root):
-                raise ValueError("observer_command data-dir binding failure")
+        if not isinstance(obs_cmd, list):
+            raise ValueError("observer_command must be a list")
+        if "--data-dir" not in obs_cmd or "--epoch" not in obs_cmd or "--run-id" not in obs_cmd:
+            raise ValueError("observer_command missing essential flags")
+        o_data_idx = obs_cmd.index("--data-dir")
+        if obs_cmd[o_data_idx + 1] != str(spec.epoch_data_root):
+            raise ValueError("observer_command data-dir binding failure")
+        if obs_cmd[obs_cmd.index("--epoch") + 1] != spec.epoch:
+            raise ValueError("observer_command epoch binding failure")
+        if obs_cmd[obs_cmd.index("--run-id") + 1] != spec.run_id:
+            raise ValueError("observer_command run_id binding failure")
+        if "--unit-name" not in obs_cmd:
+            raise ValueError("observer_command missing exact collector unit binding")
+        observer_unit = obs_cmd[obs_cmd.index("--unit-name") + 1]
+        expected_observer_unit = _observer_unit_name_for_spec(spec)
+        if observer_unit != expected_observer_unit:
+            raise ValueError(
+                "observer_command collector unit binding failure: "
+                f"expected {expected_observer_unit!r} but got {observer_unit!r}"
+            )
 
         witness = launch_command.get("terminal_witness")
         expected_witness = {

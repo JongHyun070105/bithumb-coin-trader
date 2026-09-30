@@ -299,6 +299,8 @@ class MultiExchangeMicrostructureCollector:
         self._bithumb_source_status: dict[str, str] = {
             name: "DISCONNECTED" for name in ("primary", "secondary")[:bithumb_connection_count]
         }
+        self._bithumb_status_at_collection_end: dict[str, str] | None = None
+        self._bithumb_collection_end_at_utc: str | None = None
         self._bithumb_connect_lock = asyncio.Lock()
         self._bithumb_next_connect_at = 0.0
         self._bithumb_dedup = BithumbRedundancyFilter()
@@ -518,7 +520,23 @@ class MultiExchangeMicrostructureCollector:
                 if self.storage.base_dir.resolve() in path.resolve().parents
             ),
             "exchanges": {name: metric.to_dict() for name, metric in self.metrics.items()},
-            "bithumb_physical_connections": dict(self._bithumb_source_status),
+            # Keep the legacy audit key bound to the last collection-active
+            # sample after shutdown, and expose the actual post-shutdown state
+            # separately so disconnected sockets are never presented as live.
+            "bithumb_physical_connections": dict(
+                self._bithumb_status_at_collection_end or self._bithumb_source_status
+            ),
+            "bithumb_physical_connections_at_collection_end": (
+                dict(self._bithumb_status_at_collection_end)
+                if self._bithumb_status_at_collection_end is not None
+                else None
+            ),
+            "bithumb_physical_connections_after_shutdown": (
+                dict(self._bithumb_source_status)
+                if self._bithumb_status_at_collection_end is not None
+                else None
+            ),
+            "bithumb_collection_end_at_utc": self._bithumb_collection_end_at_utc,
             "bithumb_logical_connection_state": self.websocket_sessions["bithumb"],
             "bithumb_dedup_cache_entries": self._bithumb_dedup.size,
         }
@@ -1745,6 +1763,8 @@ class MultiExchangeMicrostructureCollector:
             if producer_group in completed:
                 await producer_group
         finally:
+            self._bithumb_status_at_collection_end = dict(self._bithumb_source_status)
+            self._bithumb_collection_end_at_utc = self._utc_now().isoformat()
             self.is_running = False
             producer_group.cancel()
             await asyncio.gather(producer_group, return_exceptions=True)

@@ -50,6 +50,7 @@ from bithumb_coin_trader.incremental_finalizer import (
     FinalizationIdentity,
     FinalizationProgressStore,
 )
+from bithumb_coin_trader.finalization_trace import FinalizationTrace
 from bithumb_coin_trader.microstructure_storage import (
     PartitionManifest,
     RawMicrostructureStorage,
@@ -145,6 +146,7 @@ class ClosedHourFinalizer:
         runtime_config_fingerprint: str = "unknown",
         stability_wait_seconds: float = 0.0,
         tracer: list[str] | None = None,
+        finalization_trace: FinalizationTrace | None = None,
     ) -> None:
         self.raw_archive = raw_archive
         self.coverage_archive = coverage_archive
@@ -157,6 +159,7 @@ class ClosedHourFinalizer:
         self.runtime_config_fingerprint = runtime_config_fingerprint
         self.stability_wait_seconds = stability_wait_seconds
         self.tracer = tracer
+        self.finalization_trace = finalization_trace
 
     def _relative_coverage_path(self, cov_path: Path) -> str:
         try:
@@ -397,6 +400,79 @@ class ClosedHourFinalizer:
         )
 
     def finalize_slot(self, observation: FrozenFeedHourObservation) -> ClosedSlotResult:
+        """Persist native start/result evidence around a single feed finalization."""
+        trace = self.finalization_trace
+        if trace is not None:
+            trace.append(
+                "finalizer_slot_started",
+                cohort=observation.cohort_utc,
+                feed_identity=observation.feed.canonical,
+                event_count=observation.event_count,
+                observation_end_utc=observation.observation_end_utc,
+            )
+        try:
+            result = self._finalize_slot(observation)
+        except Exception as exc:
+            if trace is not None:
+                trace.append(
+                    "finalizer_slot_failed",
+                    cohort=observation.cohort_utc,
+                    feed_identity=observation.feed.canonical,
+                    error_type=type(exc).__name__,
+                )
+            raise
+
+        if trace is not None:
+            raw_receipt_sha = (
+                canonical_sha256(result.raw_receipt.to_dict())
+                if result.raw_receipt is not None
+                else None
+            )
+            coverage_receipt_sha = (
+                canonical_sha256(result.coverage_receipt.to_dict())
+                if result.coverage_receipt is not None
+                else None
+            )
+            for kind, receipt, digest in (
+                ("RAW_DATA", result.raw_receipt, raw_receipt_sha),
+                ("COVERAGE_EVIDENCE", result.coverage_receipt, coverage_receipt_sha),
+            ):
+                if receipt is not None:
+                    trace.append(
+                        "archive_receipt_write_complete",
+                        cohort=observation.cohort_utc,
+                        feed_identity=observation.feed.canonical,
+                        artifact_kind=kind,
+                        receipt_sha256=digest,
+                        remote_key=receipt.remote_key,
+                        remote_version_id=receipt.remote_version_id,
+                        restore_verified=receipt.restore_verified_at is not None,
+                    )
+            evidence_sha = canonical_sha256({
+                "coverage_evidence_sha256": result.coverage.evidence_sha256,
+                "raw_receipt_sha256": raw_receipt_sha,
+                "coverage_receipt_sha256": coverage_receipt_sha,
+            })
+            trace.append(
+                "cohort_closure",
+                cohort=observation.cohort_utc,
+                feed_identity=observation.feed.canonical,
+                closed_at_utc=result.coverage.closed_at_utc,
+                coverage_state=result.coverage.coverage_state,
+                evidence_sha256=evidence_sha,
+                failure_reason_codes=list(result.failure_reason_codes),
+            )
+            trace.append(
+                "slot_finalized",
+                cohort=observation.cohort_utc,
+                feed_identity=observation.feed.canonical,
+                closed_at_utc=result.coverage.closed_at_utc,
+                coverage_state=result.coverage.coverage_state,
+                evidence_sha256=evidence_sha,
+            )
+        return result
+
+    def _finalize_slot(self, observation: FrozenFeedHourObservation) -> ClosedSlotResult:
         """Enforce strict V3 ordering for a single feed slot."""
         gate_failures = evaluate_common_gate(observation, self.heartbeat_policy)
         if gate_failures:
@@ -683,4 +759,11 @@ class ClosedHourFinalizer:
                 gc.collect()
 
         gc.collect()
+        if self.finalization_trace is not None:
+            self.finalization_trace.append(
+                "finalizer_cohort_completed",
+                cohort=cohort_key,
+                slot_count=len(results),
+                failed_count=sum(result.coverage.coverage_state == "FAILED" for result in results),
+            )
         return tuple(results)

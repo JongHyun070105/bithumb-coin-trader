@@ -56,13 +56,14 @@ from terminal_witness import (  # pyright: ignore[reportMissingImports]
 class MockS3Client:
     """In-memory mock for S3 client operations."""
 
-    def __init__(self, fail_on_put: bool = False) -> None:
+    def __init__(self, fail_on_put: bool = False, failure: Exception | None = None) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.fail_on_put = fail_on_put
+        self.failure = failure
 
     def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs: object) -> dict[str, str]:
         if self.fail_on_put:
-            raise RuntimeError("Simulated S3 network failure / access denied")
+            raise self.failure or RuntimeError("Simulated S3 network failure / access denied")
         self.objects[(Bucket, Key)] = Body
         return {"ETag": '"mock-etag"'}
 
@@ -447,6 +448,116 @@ class TerminalWitnessTests(unittest.TestCase):
             local_receipt.read_bytes(),
             "successful remote and local stable witness bytes must match exactly",
         )
+
+    def test_terminal_witness_persists_false_while_stable_put_is_in_flight(self) -> None:
+        local_receipt = self.data_dir / "terminal" / "terminal-receipt.json"
+
+        class InspectingS3Client(MockS3Client):
+            def put_object(inner_self, Bucket: str, Key: str, Body: bytes, **kwargs: object) -> dict[str, str]:
+                current = json.loads(local_receipt.read_text(encoding="utf-8"))
+                if Key.endswith("terminal-receipt.json"):
+                    assert current["s3_uploaded"] is False
+                    assert current["s3_key"] is None
+                return super().put_object(Bucket, Key, Body, **kwargs)
+
+        receipt = record_terminal_receipt(
+            data_dir=self.data_dir,
+            epoch="ep_order",
+            run_id="run_order",
+            service_result="success",
+            exit_code="exited",
+            exit_status="0",
+            s3_bucket="receipt-bucket",
+            s3_prefix="witness/run_order",
+            s3_region="ap-northeast-2",
+            allow_s3_write=True,
+            s3_client=InspectingS3Client(),
+        )
+        self.assertTrue(receipt["s3_uploaded"])
+
+    def test_terminal_witness_failures_preserve_false_and_record_only_error_type(self) -> None:
+        class AccessDenied(Exception):
+            pass
+
+        for failure in (AccessDenied("denied"), TimeoutError("timeout"), ConnectionError("network")):
+            with self.subTest(error=type(failure).__name__):
+                data_dir = self.data_dir / type(failure).__name__
+                data_dir.mkdir()
+                receipt = record_terminal_receipt(
+                    data_dir=data_dir,
+                    epoch="ep_failure_case",
+                    run_id="run_failure_case",
+                    service_result="success",
+                    exit_code="exited",
+                    exit_status="0",
+                    s3_bucket="receipt-bucket",
+                    s3_prefix="witness/run_failure_case",
+                    s3_region="ap-northeast-2",
+                    allow_s3_write=True,
+                    s3_client=MockS3Client(fail_on_put=True, failure=failure),
+                )
+                self.assertFalse(receipt["s3_uploaded"])
+                self.assertIsNone(receipt["s3_key"])
+                self.assertEqual(receipt["s3_upload_error_type"], type(failure).__name__)
+                self.assertNotIn("s3_upload_error_message", receipt)
+
+    def test_kill_during_stable_put_leaves_local_receipt_false(self) -> None:
+        class KilledDuringPut:
+            def put_object(self, **kwargs: object) -> dict[str, str]:
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            record_terminal_receipt(
+                data_dir=self.data_dir,
+                epoch="ep_killed",
+                run_id="run_killed",
+                service_result="success",
+                exit_code="exited",
+                exit_status="0",
+                s3_bucket="receipt-bucket",
+                s3_prefix="witness/run_killed",
+                s3_region="ap-northeast-2",
+                allow_s3_write=True,
+                s3_client=KilledDuringPut(),
+            )
+        local = json.loads((self.data_dir / "terminal" / "terminal-receipt.json").read_text())
+        self.assertFalse(local["s3_uploaded"])
+        self.assertIsNone(local["s3_key"])
+
+    def test_terminal_witness_retry_after_failure_writes_successful_exact_bytes(self) -> None:
+        failing = record_terminal_receipt(
+            data_dir=self.data_dir,
+            epoch="ep_retry",
+            run_id="run_retry",
+            service_result="success",
+            exit_code="exited",
+            exit_status="0",
+            s3_bucket="receipt-bucket",
+            s3_prefix="witness/run_retry",
+            s3_region="ap-northeast-2",
+            allow_s3_write=True,
+            s3_client=MockS3Client(fail_on_put=True),
+        )
+        self.assertFalse(failing["s3_uploaded"])
+
+        successful_s3 = MockS3Client()
+        succeeded = record_terminal_receipt(
+            data_dir=self.data_dir,
+            epoch="ep_retry",
+            run_id="run_retry",
+            service_result="success",
+            exit_code="exited",
+            exit_status="0",
+            s3_bucket="receipt-bucket",
+            s3_prefix="witness/run_retry",
+            s3_region="ap-northeast-2",
+            allow_s3_write=True,
+            s3_client=successful_s3,
+        )
+        self.assertTrue(succeeded["s3_uploaded"])
+        key = "witness/run_retry/terminal/terminal-receipt.json"
+        local = self.data_dir / "terminal" / "terminal-receipt.json"
+        self.assertEqual(successful_s3.objects[("receipt-bucket", key)], local.read_bytes())
 
     def test_terminal_witness_s3_failure_is_recorded_and_not_reported_as_uploaded(self) -> None:
         mock_s3 = MockS3Client(fail_on_put=True)

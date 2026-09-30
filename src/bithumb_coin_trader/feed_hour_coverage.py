@@ -115,6 +115,13 @@ def _parse_utc(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def _format_utc_observation_time(value: datetime) -> str:
+    """Serialize observation bounds without discarding measured precision."""
+    normalized = value.astimezone(timezone.utc)
+    precision = "microseconds" if normalized.microsecond else "seconds"
+    return normalized.isoformat(timespec=precision).replace("+00:00", "Z")
+
+
 def _append_once(reasons: list[str], reason: str) -> None:
     if reason not in reasons:
         reasons.append(reason)
@@ -614,7 +621,7 @@ class FeedHourCoverageTracker:
         opening_start = self.actual_start_utc.replace(minute=0, second=0, microsecond=0)
         if start_utc_clean == opening_start:
             cohort_qualification = "TOUCHED_PARTIAL"
-            observation_start_utc = self.actual_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+            observation_start_utc = _format_utc_observation_time(self.actual_start_utc)
         else:
             cohort_qualification = "QUALIFYING_FULL_HOUR"
             observation_start_utc = interval_start_utc
@@ -694,11 +701,11 @@ class FeedHourCoverageTracker:
             interval_end_utc = c_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
 
             is_full = (end_clean >= c_end_dt)
-            obs_end = interval_end_utc if is_full else end_clean.strftime("%Y-%m-%dT%H:%M:%SZ")
+            obs_end = interval_end_utc if is_full else _format_utc_observation_time(end_clean)
 
             if c_dt == opening_start:
                 cohort_qualification = "TOUCHED_PARTIAL"
-                obs_start = self.actual_start_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+                obs_start = _format_utc_observation_time(self.actual_start_utc)
             elif is_full:
                 cohort_qualification = "QUALIFYING_FULL_HOUR"
                 obs_start = interval_start_utc

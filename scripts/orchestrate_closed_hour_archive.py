@@ -44,6 +44,7 @@ from bithumb_coin_trader.archive_cohort import ArchiveCohortId
 from bithumb_coin_trader.closed_hour_finalizer import ClosedHourFinalizer
 from bithumb_coin_trader.feed_hour_coverage import load_frozen_journal
 from bithumb_coin_trader.incremental_finalizer import FinalizationProgressStore
+from bithumb_coin_trader.finalization_trace import FinalizationTrace
 from bithumb_coin_trader.microstructure_storage import RawMicrostructureStorage
 from bithumb_coin_trader.session_evidence import HeartbeatPolicy
 
@@ -772,6 +773,7 @@ def orchestrate_closed_hour_archive(
     disk_critical_percent: float = 90.0,
     scan_timeout_seconds: float = DEFAULT_SCAN_TIMEOUT_SECONDS,
     now: Optional[datetime] = None,
+    finalization_trace: Optional[FinalizationTrace] = None,
 ) -> Dict[str, Any]:
     """Execute preflight ownership check, partition archiving, and detached full-scan launch."""
     raw_root = base_dir / "raw"
@@ -793,6 +795,9 @@ def orchestrate_closed_hour_archive(
     lock_file = receipt_root / ARCHIVE_ORCHESTRATOR_LOCK_NAME
 
     with orchestrator_lock(lock_file, expected_owner=expected_owner):
+        trace = finalization_trace or FinalizationTrace(
+            base_dir / "finalization-trace", run_id=run_id, epoch=epoch
+        )
         current_now = now or datetime.now(timezone.utc)
         grace_period = timedelta(seconds=grace_seconds)
         active_paths = load_active_paths(metrics_path, raw_root)
@@ -836,6 +841,12 @@ def orchestrate_closed_hour_archive(
             # Defect C: Check if finalized receipt already exists (immutable)
             cohort_report_path = receipt_root / f"cohort_{v3_target_cohort.key}_finalized.json"
             if cohort_report_path.exists():
+                trace.append(
+                    "cohort_receipt_reused",
+                    cohort=v3_target_cohort.key,
+                    receipt_path=str(cohort_report_path),
+                    receipt_sha256=hashlib.sha256(cohort_report_path.read_bytes()).hexdigest(),
+                )
                 existing_data, was_written = _write_final_receipt_immutable(
                     cohort_report_path, {}, v3_target_cohort.key
                 )
@@ -891,8 +902,15 @@ def orchestrate_closed_hour_archive(
                     "reason": "Cohort was touched partially and is ineligible for full-hour integrity finalization",
                     "finalized_at_utc": current_now.isoformat(),
                 }
-                final_data, _ = _write_final_receipt_immutable(
+                trace.append("cohort_receipt_write_started", cohort=v3_target_cohort.key)
+                final_data, receipt_was_written = _write_final_receipt_immutable(
                     cohort_report_path, report_payload, v3_target_cohort.key
+                )
+                trace.append(
+                    "cohort_receipt_write_completed",
+                    cohort=v3_target_cohort.key,
+                    written=receipt_was_written,
+                    receipt_sha256=hashlib.sha256(cohort_report_path.read_bytes()).hexdigest(),
                 )
                 return {
                     "status": "SKIPPED_NON_QUALIFYING",
@@ -997,7 +1015,27 @@ def orchestrate_closed_hour_archive(
                 expected_owner=expected_owner,
             )
 
+            trace.append("cohort_finalization_started", cohort=v3_target_cohort.key)
+            trace.append("final_flush_started", cohort=v3_target_cohort.key)
             progress_store = FinalizationProgressStore(base_dir / "finalization-progress")
+            trace.append(
+                "recovery_path_available",
+                callable=callable(progress_store.reconcile),
+                method="FinalizationProgressStore.reconcile",
+            )
+            if progress_store.tx_file.exists():
+                trace.append(
+                    "recovery_invocation_started",
+                    transaction_path=str(progress_store.tx_file),
+                    cohort=v3_target_cohort.key,
+                )
+                recovered_summary = progress_store.reconcile()
+                trace.append(
+                    "recovery_invocation_completed",
+                    transaction_path=str(progress_store.tx_file),
+                    cohort=v3_target_cohort.key,
+                    generation=recovered_summary.generation,
+                )
             heartbeat_policy = HeartbeatPolicy(
                 heartbeat_probe_interval_seconds=10,
                 heartbeat_timeout_seconds=10,
@@ -1013,6 +1051,7 @@ def orchestrate_closed_hour_archive(
                 environment_id=environment_id,
                 runtime_commit=git_commit or "HEAD",
                 stability_wait_seconds=0.0 if "pytest" in sys.modules else 1.0,
+                finalization_trace=trace,
             )
             results = finalizer.finalize_cohort(v3_target_cohort.key)
             failed_slots = [r for r in results if r.coverage.coverage_state == "FAILED"]
@@ -1034,16 +1073,35 @@ def orchestrate_closed_hour_archive(
                 "failed_feeds": [r.coverage.feed_identity for r in failed_slots],
                 "finalized_at_utc": current_now.isoformat(),
             }
+            trace.append("cohort_receipt_write_started", cohort=v3_target_cohort.key)
             final_report_data, was_written = _write_final_receipt_immutable(
                 cohort_report_path, report_payload, v3_target_cohort.key
             )
-
+            trace.append(
+                "cohort_receipt_write_completed",
+                cohort=v3_target_cohort.key,
+                written=was_written,
+                receipt_sha256=hashlib.sha256(cohort_report_path.read_bytes()).hexdigest(),
+            )
             # Remote durability of cohort receipts and failure evidence
             archive_errors_list = [f"{r.coverage.feed_identity}: {list(r.failure_reason_codes)}" for r in failed_slots]
             receipt_rel_key = f"{prefix}/archive-receipts/cohort_{v3_target_cohort.key}_finalized.json"
             try:
                 _upload_json_to_store(store, receipt_rel_key, final_report_data, receipt_root)
+                trace.append(
+                    "cohort_remote_receipt_upload_completed",
+                    cohort=v3_target_cohort.key,
+                    remote_key=receipt_rel_key,
+                    success=True,
+                )
             except Exception as exc:
+                trace.append(
+                    "cohort_remote_receipt_upload_completed",
+                    cohort=v3_target_cohort.key,
+                    remote_key=receipt_rel_key,
+                    success=False,
+                    error_type=type(exc).__name__,
+                )
                 archive_errors_list.append(f"FAILED_REMOTE_RECEIPT_UPLOAD: {exc}")
 
             if status == "FAIL":
@@ -1066,8 +1124,29 @@ def orchestrate_closed_hour_archive(
                 failure_rel_key = f"{prefix}/archive-failures/{v3_target_cohort.key}/failure_{v3_target_cohort.key}.json"
                 try:
                     _upload_json_to_store(store, failure_rel_key, failure_payload, receipt_root)
+                    trace.append(
+                        "failure_evidence_upload_completed",
+                        cohort=v3_target_cohort.key,
+                        remote_key=failure_rel_key,
+                        success=True,
+                    )
                 except Exception as exc:
+                    trace.append(
+                        "failure_evidence_upload_completed",
+                        cohort=v3_target_cohort.key,
+                        remote_key=failure_rel_key,
+                        success=False,
+                        error_type=type(exc).__name__,
+                    )
                     archive_errors_list.append(f"FAILED_REMOTE_FAILURE_UPLOAD: {exc}")
+
+            trace.append(
+                "final_flush_completed",
+                cohort=v3_target_cohort.key,
+                slot_count=len(results),
+                failed_count=failures,
+                archive_error_count=len(archive_errors_list),
+            )
 
             scan_results: Dict[str, Any] = {}
             if run_full_scan and failures == 0:
