@@ -409,25 +409,27 @@ class TerminalWitnessTests(unittest.TestCase):
         write_health_snapshot_atomic(self.data_dir / "health" / "observer_latest.json", obs_snap)
 
         mock_s3 = MockS3Client()
-        receipt = record_terminal_receipt(
-            data_dir=self.data_dir,
-            epoch="ep_term",
-            run_id="run_term",
-            service_result="exit-code",
-            exit_code="exited",
-            exit_status="2",
-            s3_bucket="receipt-bucket",
-            s3_prefix="witness/run_term",
-            s3_region="ap-northeast-2",
-            allow_s3_write=True,
-            s3_client=mock_s3,
-        )
+        with patch.dict(os.environ, {"INVOCATION_ID": "0123456789abcdef0123456789abcdef"}):
+            receipt = record_terminal_receipt(
+                data_dir=self.data_dir,
+                epoch="ep_term",
+                run_id="run_term",
+                service_result="exit-code",
+                exit_code="exited",
+                exit_status="2",
+                s3_bucket="receipt-bucket",
+                s3_prefix="witness/run_term",
+                s3_region="ap-northeast-2",
+                allow_s3_write=True,
+                s3_client=mock_s3,
+            )
 
         self.assertEqual(receipt["epoch"], "ep_term")
         self.assertEqual(receipt["run_id"], "run_term")
         self.assertEqual(receipt["service_result"], "exit-code")
         self.assertEqual(receipt["exit_status"], "2")
         self.assertEqual(receipt["terminal_classification"], "PROCESS_EXIT_ERROR_2")
+        self.assertEqual(receipt["systemd_invocation_id"], "0123456789abcdef0123456789abcdef")
         self.assertTrue(receipt["s3_uploaded"])
         self.assertEqual(receipt["s3_bucket"], "receipt-bucket")
         self.assertEqual(receipt["s3_region"], "ap-northeast-2")

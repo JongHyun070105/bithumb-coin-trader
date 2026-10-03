@@ -287,6 +287,75 @@ def test_positive_order(tmp_path: Path) -> None:
     assert len(result.failure_reason_codes) == 0
 
 
+def test_finalized_slot_writes_matching_local_and_remote_slot_receipt(tmp_path: Path) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+
+    result = bundle.finalizer.finalize_slot(obs)
+
+    receipts = sorted((bundle.receipt_root / "slot-receipts").rglob("*.slot-receipt.json"))
+    assert len(receipts) == 1
+    local_path = receipts[0]
+    payload = json.loads(local_path.read_text(encoding="utf-8"))
+    assert payload["receipt_type"] == "SLOT_RECEIPT"
+    assert payload["run_id"] == "run-1"
+    assert payload["epoch"] == "epoch-1"
+    assert payload["cohort_id"] == "2026-09-14_12"
+    assert payload["feed_id"] == feed.canonical
+    assert payload["coverage_state"] == "DATA_PRESENT"
+    assert payload["coverage_evidence_sha256"] == result.coverage.evidence_sha256
+    assert payload["s3_key"].startswith(
+        "market-data/temporary/coverage/archive-receipts/slot-receipts/2026-09-14_12/"
+    )
+    assert payload["s3_key"].endswith(".slot-receipt.json")
+    remote_path = bundle.cov_store.root / payload["s3_key"]
+    assert remote_path.read_bytes() == local_path.read_bytes()
+
+
+def test_verified_zero_event_slot_writes_slot_receipt(tmp_path: Path) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+
+    result = bundle.finalizer.finalize_slot(_make_observation(feed, event_count=0))
+
+    receipts = sorted((bundle.receipt_root / "slot-receipts").rglob("*.slot-receipt.json"))
+    assert len(receipts) == 1
+    payload = json.loads(receipts[0].read_text(encoding="utf-8"))
+    assert payload["feed_id"] == feed.canonical
+    assert payload["coverage_state"] == "VERIFIED_ZERO_EVENT"
+    assert payload["coverage_evidence_sha256"] == result.coverage.evidence_sha256
+    assert payload["raw_archive"] is None
+
+
+def test_slot_receipt_writer_rejects_symlinked_receipt_directory(tmp_path: Path) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+    outside = tmp_path / "outside-receipts"
+    outside.mkdir()
+    (bundle.receipt_root / "slot-receipts").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="symlink"):
+        bundle.finalizer.finalize_slot(obs)
+
+    assert list(outside.iterdir()) == []
+
+
+def test_slot_receipt_writer_rejects_tampered_existing_receipt(tmp_path: Path) -> None:
+    bundle = FixtureBundle(tmp_path)
+    feed = FeedIdentity("bithumb", "orderbook", "KRW-BTC")
+    obs, _, _ = bundle.prepare_raw_feed(feed, record_count=5)
+    bundle.finalizer.finalize_slot(obs)
+    receipts = sorted((bundle.receipt_root / "slot-receipts").rglob("*.slot-receipt.json"))
+    assert len(receipts) == 1
+    receipt_path = receipts[0]
+    receipt_path.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="immutable slot receipt"):
+        bundle.finalizer.finalize_slot(obs)
+
+
 def test_zero_skips_raw(tmp_path: Path) -> None:
     calls: list[str] = []
     bundle = FixtureBundle(tmp_path, calls)
@@ -317,7 +386,8 @@ def test_native_trace_orders_slot_start_archive_receipt_and_closure(tmp_path: Pa
 
     event_types = [event["event_type"] for event in trace.read_events()]
     assert event_types.index("finalizer_slot_started") < event_types.index("archive_receipt_write_complete")
-    assert event_types.index("archive_receipt_write_complete") < event_types.index("cohort_closure")
+    assert event_types.index("archive_receipt_write_complete") < event_types.index("slot_receipt_write_complete")
+    assert event_types.index("slot_receipt_write_complete") < event_types.index("cohort_closure")
     assert event_types.index("cohort_closure") < event_types.index("slot_finalized")
     assert result.coverage_receipt is not None
 

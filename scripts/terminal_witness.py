@@ -168,6 +168,7 @@ def record_terminal_receipt(
         "recorded_at": recorded_at,
         "epoch": eff_epoch,
         "run_id": eff_run_id,
+        "systemd_invocation_id": os.environ.get("INVOCATION_ID") or None,
         "service_result": eff_service_result,
         "exit_code": eff_exit_code,
         "exit_status": eff_exit_status,

@@ -61,6 +61,7 @@ from bithumb_coin_trader.pre_soak_archive import (
     ArtifactKind,
     ImmutableArtifact,
 )
+from bithumb_coin_trader.slot_receipt import SlotReceiptWriteResult, SlotReceiptWriter
 from bithumb_coin_trader.session_evidence import (
     FeedIdentity,
     HeartbeatPolicy,
@@ -160,6 +161,13 @@ class ClosedHourFinalizer:
         self.stability_wait_seconds = stability_wait_seconds
         self.tracer = tracer
         self.finalization_trace = finalization_trace
+        self.slot_receipt_writer = SlotReceiptWriter(
+            local_root=self.coverage_archive.receipt_root.parent / "slot-receipts",
+            store=self.coverage_archive.store,
+            remote_prefix=self.coverage_archive.remote_prefix,
+            run_id=self.coverage_archive.run_id,
+            epoch=self.coverage_archive.collector_epoch,
+        )
 
     def _relative_coverage_path(self, cov_path: Path) -> str:
         try:
@@ -410,8 +418,17 @@ class ClosedHourFinalizer:
                 event_count=observation.event_count,
                 observation_end_utc=observation.observation_end_utc,
             )
+        slot_receipt: SlotReceiptWriteResult | None = None
         try:
             result = self._finalize_slot(observation)
+            if result.coverage.cohort_qualification == "QUALIFYING_FULL_HOUR":
+                if result.coverage_receipt is None:
+                    raise ValueError("qualifying slot has no coverage archive receipt")
+                slot_receipt = self.slot_receipt_writer.write(
+                    result.coverage,
+                    raw_receipt=result.raw_receipt,
+                    coverage_receipt=result.coverage_receipt,
+                )
         except Exception as exc:
             if trace is not None:
                 trace.append(
@@ -448,6 +465,16 @@ class ClosedHourFinalizer:
                         remote_version_id=receipt.remote_version_id,
                         restore_verified=receipt.restore_verified_at is not None,
                     )
+            if slot_receipt is not None:
+                trace.append(
+                    "slot_receipt_write_complete",
+                    cohort=observation.cohort_utc,
+                    feed_identity=observation.feed.canonical,
+                    receipt_id=slot_receipt.receipt_id,
+                    receipt_sha256=slot_receipt.sha256,
+                    remote_key=slot_receipt.remote_key,
+                    remote_version_id=slot_receipt.remote_version_id,
+                )
             evidence_sha = canonical_sha256({
                 "coverage_evidence_sha256": result.coverage.evidence_sha256,
                 "raw_receipt_sha256": raw_receipt_sha,
