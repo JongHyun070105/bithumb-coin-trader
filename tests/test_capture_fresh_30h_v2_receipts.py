@@ -191,18 +191,96 @@ def test_second_cohort_read_change_is_preserved_for_frozen_auditor_to_reject(tmp
     assert reads[0]["version_id"] != reads[1]["version_id"]
 
 
-def test_refuses_existing_bundle_output(tmp_path: Path) -> None:
+def _write_sealed_identity(bundle: Path, *, run_id: str = RUN_ID, epoch: str = EPOCH,
+                           bucket: str = BUCKET, prefix: str = PREFIX) -> None:
+    identity = bundle / "sealed/identity.json"
+    identity.parent.mkdir(parents=True, exist_ok=True)
+    identity.write_bytes(_json_bytes({
+        "run_id": run_id, "epoch": epoch,
+        "s3_bucket": bucket, "s3_prefix": prefix,
+    }))
+
+
+def test_refuses_existing_unbound_bundle_output(tmp_path: Path) -> None:
     data, objects = _fixture(tmp_path)
     bundle = tmp_path / "bundle"
     bundle.mkdir()
     (bundle / "preserve.txt").write_text("existing")
-    with pytest.raises(FileExistsError, match="new or empty"):
+    with pytest.raises(FileExistsError, match="exact sealed identity"):
         capture_frozen_v2_receipts(
             data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             sleep_fn=lambda _seconds: None, now=_clock(),
         )
     assert (bundle / "preserve.txt").read_text() == "existing"
+
+
+def test_refuses_existing_bundle_with_mismatched_sealed_identity(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    _write_sealed_identity(bundle, run_id="other-run")
+    capture_path = bundle / "terminal/systemd-terminal.json"
+    capture_path.parent.mkdir(parents=True)
+    capture_path.write_text('{"result":"success"}\n')
+
+    with pytest.raises(ValueError, match="identity differs"):
+        capture_frozen_v2_receipts(
+            data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+            bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+            sleep_fn=lambda _seconds: None, now=_clock(),
+        )
+    assert capture_path.read_text() == '{"result":"success"}\n'
+
+
+def test_refuses_symlinks_inside_identity_bound_staging_tree(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    _write_sealed_identity(bundle)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (bundle / "terminal").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="must not contain symlinks"):
+        capture_frozen_v2_receipts(
+            data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+            bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+            sleep_fn=lambda _seconds: None, now=_clock(),
+        )
+    assert list(outside.iterdir()) == []
+
+
+def test_adds_receipt_evidence_to_exact_identity_bound_staging_tree(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    _write_sealed_identity(bundle)
+    systemd_path = bundle / "terminal/systemd-terminal.json"
+    journal_path = bundle / "terminal/systemd-invocation.jsonl"
+    witness_path = bundle / "terminal/terminal-witness.json"
+    canonical_readback_path = bundle / "terminal/s3-readback/terminal-receipt.json"
+    systemd_bytes = b'{"result":"success","exit_status":0}\n'
+    journal_bytes = b'{"_SYSTEMD_INVOCATION_ID":"invocation"}\n'
+    witness_bytes = (data / "terminal/terminal-witness.json").read_bytes()
+    terminal_bytes = objects[f"{PREFIX}/terminal/terminal-receipt.json"]
+    systemd_path.parent.mkdir(parents=True, exist_ok=True)
+    systemd_path.write_bytes(systemd_bytes)
+    journal_path.write_bytes(journal_bytes)
+    witness_path.write_bytes(witness_bytes)
+    canonical_readback_path.parent.mkdir(parents=True, exist_ok=True)
+    canonical_readback_path.write_bytes(terminal_bytes)
+
+    capture_frozen_v2_receipts(
+        data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+        bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+        observation_interval_seconds=1800, sleep_fn=lambda _seconds: None,
+        now=_clock(),
+    )
+
+    assert systemd_path.read_bytes() == systemd_bytes
+    assert journal_path.read_bytes() == journal_bytes
+    assert witness_path.read_bytes() == witness_bytes
+    assert canonical_readback_path.read_bytes() == terminal_bytes
+    assert (bundle / "terminal/receipt-inventory.json").is_file()
+    assert (bundle / "terminal/cohorts.json").is_file()
 
 
 def test_refuses_two_point_interval_shorter_than_thirty_minutes(tmp_path: Path) -> None:

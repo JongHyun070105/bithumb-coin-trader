@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Build Frozen V2 receipt/cohort evidence using read-only S3 observations.
 
-The exporter copies local archive bytes into an empty terminal bundle directory,
-reads each declared S3 object, records complete prefix-listing provenance, and
-performs two separately timed latest-version reads of every qualifying cohort
-receipt. The two-point interval defaults to 30 minutes.
+The exporter copies local archive bytes into an empty or exact-identity-bound
+evidence staging directory, reads each declared S3 object, records complete
+prefix-listing provenance, and performs two separately timed latest-version
+reads of every qualifying cohort receipt. The two-point interval defaults to
+30 minutes.
 """
 from __future__ import annotations
 
@@ -108,6 +109,63 @@ def _copy_stable(source: Path, destination: Path, expected_sha256: str | None = 
     finally:
         os.close(dir_fd)
     return size, actual_hash
+
+
+def _hash_regular_file(path: Path) -> tuple[int, str]:
+    if path.is_symlink():
+        raise ValueError(f"evidence path must not be a symlink: {path}")
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    digest = hashlib.sha256()
+    size = 0
+    with os.fdopen(descriptor, "rb") as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise ValueError(f"evidence path must be a singly-linked regular file: {path}")
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+            size += len(block)
+        after = os.fstat(stream.fileno())
+    before_state = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_nlink)
+    after_state = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_nlink)
+    if before_state != after_state or size != after.st_size:
+        raise ValueError(f"evidence file changed while hashing: {path}")
+    return size, digest.hexdigest()
+
+
+def _copy_or_verify(source: Path, destination: Path, expected_sha256: str | None = None) -> tuple[int, str]:
+    if destination.is_symlink():
+        raise ValueError(f"evidence destination must not be a symlink: {destination}")
+    if not destination.exists():
+        return _copy_stable(source, destination, expected_sha256)
+    _source_size, source_hash = _hash_regular_file(source)
+    dest_size, dest_hash = _hash_regular_file(destination)
+    if source_hash != dest_hash or (expected_sha256 is not None and source_hash != expected_sha256):
+        raise ValueError(f"existing evidence bytes differ from the captured source: {destination}")
+    return dest_size, dest_hash
+
+
+def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, bucket: str, prefix: str) -> None:
+    if bundle_root.is_symlink():
+        raise ValueError("bundle output directory must not be a symlink")
+    if not bundle_root.exists():
+        return
+    if not bundle_root.is_dir():
+        raise ValueError("bundle output path is not a directory")
+    if not any(bundle_root.iterdir()):
+        return
+    identity_path = bundle_root / "sealed/identity.json"
+    if identity_path.is_symlink() or not identity_path.is_file():
+        raise FileExistsError("non-empty bundle output must contain the exact sealed identity")
+    _hash_regular_file(identity_path)
+    identity = _read_json(identity_path)
+    if (identity.get("run_id") != run_id or identity.get("epoch") != epoch
+            or identity.get("s3_bucket") != bucket
+            or str(identity.get("s3_prefix", "")).rstrip("/") != prefix.rstrip("/")):
+        raise ValueError("existing sealed identity differs from the exact receipt capture target")
+    for directory, subdirectories, filenames in os.walk(bundle_root, followlinks=False):
+        current = Path(directory)
+        if any((current / name).is_symlink() for name in (*subdirectories, *filenames)):
+            raise ValueError("identity-bound evidence staging tree must not contain symlinks")
 
 
 def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, prefix: str) -> list[ReceiptSource]:
@@ -284,7 +342,7 @@ def _list_complete_prefix(s3: Any, sts: Any, bucket: str, prefix: str, now: Call
 def _copy_terminal_witness(data_dir: Path, bundle_root: Path) -> None:
     source = data_dir / "terminal" / "terminal-witness.json"
     if source.exists():
-        _copy_stable(source, bundle_root / "terminal" / "terminal-witness.json")
+        _copy_or_verify(source, bundle_root / "terminal" / "terminal-witness.json")
 
 
 def _capture_terminal_versions(s3: Any, *, bucket: str, key: str, readback: Readback) -> dict[str, Any]:
@@ -349,11 +407,10 @@ def capture_frozen_v2_receipts(
     """Create receipt-inventory.json, cohorts.json and receipt byte readbacks."""
     if observation_interval_seconds < MIN_IMMUTABILITY_INTERVAL_SECONDS:
         raise ValueError("immutability observations must be at least 30 minutes apart")
-    if bundle_root.is_symlink() or (bundle_root.exists() and any(bundle_root.iterdir())):
-        raise FileExistsError("bundle output directory must be a new or empty directory")
     if not run_id or not epoch or not bucket or not prefix:
         raise ValueError("exact run, epoch, bucket and prefix are required")
     prefix = prefix.rstrip("/")
+    _validate_bundle_identity(bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, prefix=prefix)
     sources = _discover_sources(data_dir, run_id, epoch, bucket, prefix)
     listing = _list_complete_prefix(s3, sts, bucket, prefix, now)
     listed_keys = {obj["key"] for obj in listing["objects"]}
@@ -463,7 +520,7 @@ def capture_frozen_v2_receipts(
         # audit path from those captured remote bytes without a second S3 request.
         captured_path = bundle_root / str(source_row["s3_readback_path"]) if source_row else None
         if captured_path is not None:
-            _copy_stable(captured_path, terminal_payload, terminal_readback.sha256)
+            _copy_or_verify(captured_path, terminal_payload, terminal_readback.sha256)
         _write_json_create(bundle_root / "terminal/s3-readback.json", terminal_metadata)
     else:
         terminal_metadata = {
