@@ -38,13 +38,13 @@
         "s3:GetObject",
         "s3:PutObject"
       ],
-      "Resource": "arn:aws:s3:::${ARCHIVE_BUCKET_NAME}/market-data/temporary/aws-validation-*/*"
+      "Resource": "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-*/*"
     },
     {
       "Sid": "ListTerminalReceiptVersions",
       "Effect": "Allow",
       "Action": "s3:ListBucketVersions",
-      "Resource": "arn:aws:s3:::${ARCHIVE_BUCKET_NAME}",
+      "Resource": "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
       "Condition": {
         "StringLike": {
           "s3:prefix": "market-data/temporary/aws-validation-*/terminal/terminal-receipt.json"
@@ -70,7 +70,7 @@
         "logs:DescribeLogStreams",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:ap-northeast-2:${ACCOUNT_ID}:log-group:/bitcoin-trader/aws-apne2-research/collector:*"
+      "Resource": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector:*"
     }
   ]
 }

@@ -12,6 +12,7 @@ Validates:
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -631,6 +632,154 @@ class TerminalWitnessTests(unittest.TestCase):
 
         receipt_file = self.data_dir / "terminal" / "terminal-receipt.json"
         self.assertFalse(receipt_file.exists())
+
+
+WITNESS_COMMIT = "a" * 40
+WITNESS_TREE = "b" * 40
+
+
+class VersionedMockS3(MockS3Client):
+    def put_object(self, Bucket: str, Key: str, Body: bytes, **kwargs: object) -> dict[str, str]:
+        super().put_object(Bucket, Key, Body, **kwargs)
+        return {"ETag": '"mock-etag"', "VersionId": "mock-version-1"}
+
+
+class TerminalWitnessArtifactTests(unittest.TestCase):
+    EPOCH = "ep_witness"
+    RUN_ID = "run_witness"
+    PREFIX = "witness/run_witness"
+
+    def setUp(self) -> None:
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.data_dir = Path(self.temp_dir.name)
+        self.terminal = self.data_dir / "terminal"
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def _seal(self, **overrides: object) -> None:
+        identity: dict[str, object] = {
+            "run_id": self.RUN_ID, "epoch": self.EPOCH,
+            "software_commit_sha": WITNESS_COMMIT, "software_tree_sha": WITNESS_TREE,
+        }
+        identity.update(overrides)
+        (self.data_dir / "identity.json").write_text(json.dumps(identity), encoding="utf-8")
+
+    def _record(self, s3_client: object, **overrides: object) -> dict:
+        kwargs: dict = dict(
+            data_dir=self.data_dir, epoch=self.EPOCH, run_id=self.RUN_ID,
+            service_result="success", exit_code="exited", exit_status="0",
+            s3_bucket="receipt-bucket", s3_prefix=self.PREFIX, s3_region="ap-northeast-2",
+            allow_s3_write=True, s3_client=s3_client,
+        )
+        kwargs.update(overrides)
+        return record_terminal_receipt(**kwargs)
+
+    def _witness(self) -> dict:
+        return json.loads((self.terminal / "terminal-witness.json").read_text(encoding="utf-8"))
+
+    def test_clean_exit_zero_generates_bound_witness_with_exact_receipt_bytes(self) -> None:
+        self._seal()
+        s3 = VersionedMockS3()
+        self._record(s3)
+        witness = self._witness()
+        key = f"{self.PREFIX}/terminal/terminal-receipt.json"
+        receipt_bytes = (self.terminal / "terminal-receipt.json").read_bytes()
+        self.assertEqual(witness["witness_kind"], "terminal-witness")
+        self.assertEqual(witness["run_id"], self.RUN_ID)
+        self.assertEqual(witness["epoch"], self.EPOCH)
+        self.assertEqual(witness["terminal_classification"], "CLEAN_SUCCESS")
+        self.assertTrue(witness["runtime_identity_bound"])
+        self.assertEqual(witness["software_commit_sha"], WITNESS_COMMIT)
+        self.assertEqual(witness["software_tree_sha"], WITNESS_TREE)
+        self.assertTrue(witness["s3_uploaded"])
+        self.assertEqual(witness["s3_key"], key)
+        self.assertEqual(witness["s3_put_version_id"], "mock-version-1")
+        self.assertEqual(witness["receipt_sha256"], hashlib.sha256(receipt_bytes).hexdigest())
+        self.assertEqual(witness["receipt_byte_length"], len(receipt_bytes))
+        self.assertEqual(s3.objects[("receipt-bucket", key)], receipt_bytes)
+        self.assertNotEqual((self.terminal / "terminal-witness.json").read_bytes(), receipt_bytes)
+
+    def test_witness_is_durable_locally_and_false_before_put_returns(self) -> None:
+        self._seal()
+        witness_path = self.terminal / "terminal-witness.json"
+        seen: dict = {}
+
+        class Inspecting(VersionedMockS3):
+            def put_object(inner, Bucket: str, Key: str, Body: bytes, **kwargs: object) -> dict[str, str]:
+                if Key.endswith("terminal/terminal-receipt.json"):
+                    seen["witness"] = json.loads(witness_path.read_text(encoding="utf-8"))
+                return super().put_object(Bucket, Key, Body, **kwargs)
+
+        self._record(Inspecting())
+        self.assertIn("witness", seen, "local witness must exist before the S3 PutObject is issued")
+        self.assertFalse(seen["witness"]["s3_uploaded"])
+        self.assertIsNone(seen["witness"]["s3_key"])
+        self.assertIsNone(seen["witness"]["s3_put_version_id"])
+        self.assertTrue(self._witness()["s3_uploaded"])
+
+    def test_killed_put_leaves_durable_false_witness(self) -> None:
+        self._seal()
+
+        class Killed:
+            def put_object(self, **kwargs: object) -> dict[str, str]:
+                raise KeyboardInterrupt()
+
+        with self.assertRaises(KeyboardInterrupt):
+            self._record(Killed())
+        witness = self._witness()
+        self.assertFalse(witness["s3_uploaded"])
+        self.assertIsNone(witness["s3_key"])
+
+    def test_upload_failure_or_timeout_never_records_success(self) -> None:
+        for failure in (TimeoutError("timeout"), ConnectionError("net"), RuntimeError("denied")):
+            with self.subTest(error=type(failure).__name__):
+                self._seal()
+                self._record(MockS3Client(fail_on_put=True, failure=failure))
+                witness = self._witness()
+                self.assertFalse(witness["s3_uploaded"])
+                self.assertIsNone(witness["s3_key"])
+                self.assertIsNone(witness["s3_put_version_id"])
+                self.assertEqual(witness["s3_upload_error_type"], type(failure).__name__)
+
+    def test_unavailable_s3_client_cannot_record_success(self) -> None:
+        self._seal()
+        boto3_mock = MagicMock()
+        boto3_mock.client.side_effect = RuntimeError("no credentials")
+        with patch.dict("sys.modules", {"boto3": boto3_mock}):
+            self._record(None)
+        witness = self._witness()
+        self.assertFalse(witness["s3_uploaded"])
+        self.assertIsNone(witness["s3_key"])
+
+    def test_missing_or_mismatched_sealed_identity_is_not_runtime_bound(self) -> None:
+        self._record(VersionedMockS3())
+        unsealed = self._witness()
+        self.assertFalse(unsealed["runtime_identity_bound"])
+        self.assertIsNone(unsealed["software_commit_sha"])
+        for override in ({"run_id": "someone_else"}, {"epoch": "other_epoch"},
+                         {"software_commit_sha": "short"}, {"software_tree_sha": None}):
+            with self.subTest(override=override):
+                self._seal(**override)
+                self._record(VersionedMockS3())
+                witness = self._witness()
+                self.assertFalse(witness["runtime_identity_bound"])
+                self.assertIsNone(witness["software_commit_sha"])
+                self.assertIsNone(witness["software_tree_sha"])
+
+    def test_cli_clean_exit_zero_writes_witness_and_returns_zero(self) -> None:
+        self._seal()
+        boto3_mock = MagicMock()
+        boto3_mock.client.return_value = VersionedMockS3()
+        args = [
+            f"--data-dir={self.data_dir}", f"--epoch={self.EPOCH}", f"--run-id={self.RUN_ID}",
+            "--service-result=success", "--exit-code=exited", "--exit-status=0",
+            "--s3-bucket=receipt-bucket", f"--s3-prefix={self.PREFIX}",
+            "--s3-region=ap-northeast-2", "--allow-s3-write",
+        ]
+        with patch.dict("sys.modules", {"boto3": boto3_mock}):
+            self.assertEqual(terminal_witness_main(args), 0)
+        self.assertTrue(self._witness()["s3_uploaded"])
 
 
 class ObserverIntegrationAndEdgeCaseTests(unittest.TestCase):

@@ -8,7 +8,10 @@ from typing import Callable, Any
 
 import pytest
 
-from scripts.capture_fresh_30h_v2_receipts import capture_frozen_v2_receipts
+from scripts.capture_fresh_30h_v2_receipts import (
+    capture_frozen_v2_receipts,
+    capture_terminal_witness_evidence,
+)
 
 
 RUN_ID = "receipt-capture-test"
@@ -127,8 +130,15 @@ def _fixture(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
     terminal.parent.mkdir(parents=True)
     terminal_bytes = _json_bytes({"run_id": RUN_ID, "epoch": EPOCH, "s3_uploaded": True})
     terminal.write_bytes(terminal_bytes)
+    terminal_key = f"{PREFIX}/terminal/terminal-receipt.json"
     (terminal.parent / "terminal-witness.json").write_bytes(_json_bytes({
-        "run_id": RUN_ID, "epoch": EPOCH, "s3_key": f"{PREFIX}/terminal/terminal-receipt.json",
+        "schema_version": 1, "witness_kind": "terminal-witness",
+        "run_id": RUN_ID, "epoch": EPOCH, "runtime_identity_bound": True,
+        "software_commit_sha": COMMIT, "software_tree_sha": "e" * 40,
+        "s3_bucket": BUCKET, "s3_target_key": terminal_key, "s3_uploaded": True, "s3_key": terminal_key,
+        "s3_upload_error_type": None, "s3_put_version_id": "v1",
+        "receipt_sha256": __import__("hashlib").sha256(terminal_bytes).hexdigest(),
+        "receipt_byte_length": len(terminal_bytes),
     }))
     objects = {
         f"{PREFIX}/archive-receipts/cohort_{COHORT}_finalized.json": cohort_bytes,
@@ -421,3 +431,116 @@ def test_transient_second_read_error_is_retried_not_recorded_as_mismatch(tmp_pat
     assert s3.failed
     obs = json.loads((tmp_path / "bundle/terminal/receipt-inventory.json").read_text())["observations"]
     assert len(obs) == 2 and all(o["sha256"] for o in obs)
+
+
+TREE = "e" * 40
+
+
+def _capture_witness(tmp_path: Path, data: Path, objects: dict[str, bytes], *, s3: FakeS3 | None = None,
+                     tree: str | None = TREE, commit: str = COMMIT,
+                     bundle_name: str = "witness-bundle") -> dict[str, Any]:
+    return capture_terminal_witness_evidence(
+        data_dir=data, bundle_root=tmp_path / bundle_name, run_id=RUN_ID, epoch=EPOCH,
+        bucket=BUCKET, prefix=PREFIX, s3=s3 or FakeS3(objects), sts=FakeSTS(),
+        expected_runtime_commit=commit, expected_runtime_tree=tree, now=_clock(),
+    )
+
+
+def _rewrite_witness(data: Path, **changes: object) -> None:
+    path = data / "terminal/terminal-witness.json"
+    witness = json.loads(path.read_text())
+    witness.update(changes)
+    path.write_bytes(_json_bytes(witness))
+
+
+def test_terminal_witness_capture_binds_witness_readback_and_version(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    metadata = _capture_witness(tmp_path, data, objects)
+    bundle = tmp_path / "witness-bundle/terminal"
+    assert metadata["version_ids"] == ["v1"] and metadata["latest_delete_marker"] is False
+    assert (bundle / "terminal-witness.json").read_bytes() == (data / "terminal/terminal-witness.json").read_bytes()
+    assert (bundle / "terminal-receipt.json").read_bytes() == (bundle / "s3-readback/terminal-receipt.json").read_bytes()
+    assert json.loads((bundle / "s3-readback.json").read_text())["caller_arn"].endswith("role/test-capture")
+
+
+def test_missing_terminal_witness_cannot_pass_capture(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    (data / "terminal/terminal-witness.json").unlink()
+    with pytest.raises(FileNotFoundError, match="terminal witness is missing"):
+        _capture_witness(tmp_path, data, objects)
+    with pytest.raises(FileNotFoundError, match="terminal witness is missing"):
+        capture_frozen_v2_receipts(
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "full-bundle",
+            run_id=RUN_ID, epoch=EPOCH, bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+            observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
+        )
+
+
+def test_capture_cannot_substitute_terminal_receipt_for_terminal_witness(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    receipt_bytes = (data / "terminal/terminal-receipt.json").read_bytes()
+    (data / "terminal/terminal-witness.json").write_bytes(receipt_bytes)
+    with pytest.raises(ValueError, match="byte copy of terminal-receipt.json"):
+        _capture_witness(tmp_path, data, objects)
+    receipt = json.loads(receipt_bytes)
+    receipt.update({"s3_bucket": BUCKET, "s3_key": f"{PREFIX}/terminal/terminal-receipt.json"})
+    (data / "terminal/terminal-witness.json").write_bytes(_json_bytes(receipt))
+    with pytest.raises(ValueError, match="wrong kind or schema"):
+        _capture_witness(tmp_path, data, objects, bundle_name="witness-bundle-2")
+
+
+@pytest.mark.parametrize("changes,problem", [
+    ({"s3_uploaded": False, "s3_key": None}, "upload_not_recorded_as_successful"),
+    ({"s3_upload_error_type": "TimeoutError", "s3_uploaded": False}, "upload_not_recorded_as_successful"),
+    ({"s3_target_key": "market-data/temporary/other/terminal/terminal-receipt.json"}, "s3_target"),
+    ({"s3_key": "market-data/temporary/other/terminal/terminal-receipt.json"}, "upload_not_recorded_as_successful"),
+    ({"s3_put_version_id": "v-other"}, "remote_version_id"),
+    ({"s3_put_version_id": None}, "put_version_id_missing"),
+    ({"receipt_sha256": "0" * 64}, "local_receipt_bytes"),
+    ({"run_id": "someone-else"}, "run_id_or_epoch"),
+    ({"epoch": "other-epoch"}, "run_id_or_epoch"),
+    ({"runtime_identity_bound": False}, "runtime_commit"),
+    ({"software_commit_sha": "d" * 40}, "runtime_commit"),
+    ({"software_tree_sha": "f" * 40}, "runtime_tree"),
+])
+def test_inconsistent_terminal_witness_cannot_pass_capture(tmp_path: Path, changes: dict, problem: str) -> None:
+    data, objects = _fixture(tmp_path)
+    _rewrite_witness(data, **changes)
+    with pytest.raises(ValueError, match=problem):
+        _capture_witness(tmp_path, data, objects)
+
+
+def test_remote_readback_that_differs_from_local_receipt_cannot_pass(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    objects[f"{PREFIX}/terminal/terminal-receipt.json"] += b" "
+    with pytest.raises(ValueError, match="remote_readback_bytes"):
+        _capture_witness(tmp_path, data, objects)
+
+
+def test_wrong_remote_version_cannot_pass_capture(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+
+    class WrongVersion(FakeS3):
+        def list_object_versions(self, *, Bucket: str, Prefix: str, **kwargs: object) -> dict[str, object]:
+            return {"Versions": [{"Key": Prefix, "VersionId": "v9", "IsLatest": True}], "DeleteMarkers": []}
+
+    with pytest.raises(ValueError):
+        _capture_witness(tmp_path, data, objects, s3=WrongVersion(objects))
+
+
+def test_unavailable_version_inventory_cannot_pass_capture(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+
+    class AccessDeniedVersions(FakeS3):
+        def list_object_versions(self, **kwargs: object) -> dict[str, object]:
+            raise PermissionError("AccessDenied: s3:ListBucketVersions")
+
+    with pytest.raises(Exception, match="AccessDenied"):
+        _capture_witness(tmp_path, data, objects, s3=AccessDeniedVersions(objects))
+
+
+def test_upload_timeout_witness_cannot_pass_capture_even_if_object_exists(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    _rewrite_witness(data, s3_uploaded=False, s3_key=None, s3_put_version_id=None, s3_upload_error_type="TimeoutError")
+    with pytest.raises(ValueError, match="upload_not_recorded_as_successful"):
+        _capture_witness(tmp_path, data, objects)

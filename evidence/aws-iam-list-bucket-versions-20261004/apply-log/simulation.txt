@@ -1,0 +1,14 @@
+ALLOW_EXPECTED exact:
+s3:ListBucketVersions	allowed
+DENY_EXPECTED archive-receipts:
+s3:ListBucketVersions	implicitDeny
+DENY_EXPECTED .bak:
+s3:ListBucketVersions	implicitDeny
+DENY_EXPECTED non-validation prefix:
+s3:ListBucketVersions	implicitDeny
+DENY_EXPECTED unrelated s3 prefix:
+s3:ListBucketVersions	implicitDeny
+DENY_EXPECTED empty/no prefix:
+s3:ListBucketVersions	implicitDeny
+DENY_EXPECTED unrelated bucket:
+s3:ListBucketVersions	implicitDeny

@@ -1,0 +1,29 @@
+{
+    "Policy": {
+        "PolicyName": "bitcoin-trader-collector-boundary",
+        "PolicyId": "ANPARFJXC25EUNB2NKZOQ",
+        "Arn": "arn:aws:iam::080109295433:policy/bitcoin-trader-collector-boundary",
+        "Path": "/",
+        "DefaultVersionId": "v7",
+        "AttachmentCount": 0,
+        "PermissionsBoundaryUsageCount": 1,
+        "IsAttachable": true,
+        "Description": "Maximum collector runtime permissions for reviewed AWS V9.1 epoch",
+        "CreateDate": "2026-08-30T10:00:25+00:00",
+        "UpdateDate": "2026-10-04T13:34:11+00:00",
+        "Tags": [
+            {
+                "Key": "Project",
+                "Value": "bitcoin-trader"
+            },
+            {
+                "Key": "Purpose",
+                "Value": "collector-permissions-boundary"
+            },
+            {
+                "Key": "ManagedBy",
+                "Value": "manual-iam-bootstrap"
+            }
+        ]
+    }
+}

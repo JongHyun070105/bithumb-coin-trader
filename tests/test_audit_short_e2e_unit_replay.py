@@ -70,3 +70,37 @@ def test_replay_does_not_hide_a_foreign_unit(tmp_path: Path) -> None:
     module = replay.load_frozen()
     replay_cls = replay.build_replay_class(module)
     assert _systemd_check(replay_cls(bundle, **_args(bundle)), bundle).status == "FAIL"
+
+
+def test_systemd_mechanics_qualified_for_natural_clean_short_run_but_never_acceptance(tmp_path: Path) -> None:
+    _build(tmp_path)
+    report = replay.qualify_systemd_mechanics(tmp_path / "bundle", run_id=RUN_ID)
+    assert report["SYSTEMD_MECHANICS_QUALIFIED"] == "YES", report["failures"]
+    assert report["SHORT_RUN_SYSTEMD_ACCEPTANCE"] == "NOT_APPLICABLE"
+    assert report["acceptance_evidence"] is False
+    assert report["facts"]["InvocationID"] == INVOCATION and report["facts"]["NRestarts"] == 0
+    assert len(report["facts"]["journal_sha256"]) == 64
+
+
+def test_systemd_mechanics_rejects_foreign_run_restart_and_unclean_exit(tmp_path: Path) -> None:
+    import json
+    _build(tmp_path)
+    bundle = tmp_path / "bundle"
+    assert replay.qualify_systemd_mechanics(bundle, run_id="another-run-id")["SYSTEMD_MECHANICS_QUALIFIED"] == "NO"
+    snap_path = bundle / "terminal/systemd-terminal.json"
+    original = json.loads(snap_path.read_text())
+    for field, value in (("NRestarts", 1), ("Result", "exit-code"), ("ExecMainStatus", 1),
+                         ("ExecMainCode", "killed"), ("InvocationID", "zz")):
+        snap_path.write_text(json.dumps({**original, field: value}))
+        report = replay.qualify_systemd_mechanics(bundle, run_id=RUN_ID)
+        assert report["SYSTEMD_MECHANICS_QUALIFIED"] == "NO", field
+        assert report["acceptance_evidence"] is False
+    snap_path.write_text(json.dumps(original))
+    journal = bundle / "terminal/systemd-invocation.jsonl"
+    journal.write_bytes(journal.read_bytes().replace(b"status=0", b"status=1"))
+    assert replay.qualify_systemd_mechanics(bundle, run_id=RUN_ID)["SYSTEMD_MECHANICS_QUALIFIED"] == "NO"
+
+
+def test_systemd_mechanics_fails_closed_when_evidence_is_missing(tmp_path: Path) -> None:
+    report = replay.qualify_systemd_mechanics(tmp_path, run_id=RUN_ID)
+    assert report["SYSTEMD_MECHANICS_QUALIFIED"] == "NO"

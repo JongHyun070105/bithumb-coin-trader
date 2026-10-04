@@ -377,10 +377,63 @@ def _list_complete_prefix(s3: Any, sts: Any, bucket: str, prefix: str, now: Call
     }
 
 
-def _copy_terminal_witness(data_dir: Path, bundle_root: Path) -> None:
+def validate_terminal_witness(
+    witness_bytes: bytes, *, local_receipt_bytes: bytes, run_id: str, epoch: str, bucket: str,
+    key: str, expected_runtime_commit: str, expected_runtime_tree: str | None = None,
+    readback: Readback | None = None,
+) -> dict[str, Any]:
+    """Fail closed unless the witness is a genuine, bound terminal witness for these exact bytes."""
+    if witness_bytes == local_receipt_bytes:
+        raise ValueError("terminal witness is a byte copy of terminal-receipt.json, not a witness")
+    try:
+        witness = json.loads(witness_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ValueError("terminal witness is not valid JSON") from exc
+    if not isinstance(witness, dict) or witness.get("witness_kind") != "terminal-witness" or witness.get("schema_version") != 1:
+        raise ValueError("terminal witness has the wrong kind or schema")
+    problems: list[str] = []
+    if witness.get("run_id") != run_id or witness.get("epoch") != epoch:
+        problems.append("run_id_or_epoch")
+    if witness.get("runtime_identity_bound") is not True or witness.get("software_commit_sha") != expected_runtime_commit:
+        problems.append("runtime_commit")
+    if expected_runtime_tree is not None and witness.get("software_tree_sha") != expected_runtime_tree:
+        problems.append("runtime_tree")
+    if witness.get("s3_bucket") != bucket or witness.get("s3_target_key") != key:
+        problems.append("s3_target")
+    if witness.get("s3_uploaded") is not True or witness.get("s3_key") != key or witness.get("s3_upload_error_type") is not None:
+        problems.append("upload_not_recorded_as_successful")
+    if witness.get("receipt_sha256") != hashlib.sha256(local_receipt_bytes).hexdigest() \
+            or witness.get("receipt_byte_length") != len(local_receipt_bytes):
+        problems.append("local_receipt_bytes")
+    if not isinstance(witness.get("s3_put_version_id"), str) or not witness.get("s3_put_version_id"):
+        problems.append("put_version_id_missing")
+    if readback is not None:
+        if witness.get("receipt_sha256") != readback.sha256 or witness.get("receipt_byte_length") != readback.size:
+            problems.append("remote_readback_bytes")
+        if witness.get("s3_put_version_id") != readback.version_id:
+            problems.append("remote_version_id")
+    if problems:
+        raise ValueError("terminal witness disagrees with the exact evidence: " + ",".join(problems))
+    return witness
+
+
+def _copy_terminal_witness(
+    data_dir: Path, bundle_root: Path, *, run_id: str, epoch: str, bucket: str, key: str,
+    expected_runtime_commit: str, expected_runtime_tree: str | None = None,
+    readback: Readback | None = None,
+) -> None:
     source = data_dir / "terminal" / "terminal-witness.json"
-    if source.exists():
-        _copy_or_verify(source, bundle_root / "terminal" / "terminal-witness.json")
+    if source.is_symlink() or not source.is_file():
+        raise FileNotFoundError(f"terminal witness is missing from the runtime data root: {source}")
+    receipt = data_dir / "terminal" / "terminal-receipt.json"
+    if receipt.is_symlink() or not receipt.is_file():
+        raise FileNotFoundError(f"terminal receipt is missing from the runtime data root: {receipt}")
+    validate_terminal_witness(
+        source.read_bytes(), local_receipt_bytes=receipt.read_bytes(), run_id=run_id, epoch=epoch,
+        bucket=bucket, key=key, expected_runtime_commit=expected_runtime_commit,
+        expected_runtime_tree=expected_runtime_tree, readback=readback,
+    )
+    _copy_or_verify(source, bundle_root / "terminal" / "terminal-witness.json")
 
 
 def _capture_terminal_versions(s3: Any, *, bucket: str, key: str, readback: Readback) -> dict[str, Any]:
@@ -445,6 +498,7 @@ def capture_frozen_v2_receipts(
     s3: Any,
     sts: Any,
     expected_runtime_commit: str,
+    expected_runtime_tree: str | None = None,
     observation_interval_seconds: float = 1800,
     sleep_fn: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
@@ -583,7 +637,11 @@ def capture_frozen_v2_receipts(
         }
         _write_json_create(bundle_root / "terminal/s3-readback.json", terminal_metadata)
 
-    _copy_terminal_witness(data_dir, bundle_root)
+    _copy_terminal_witness(
+        data_dir, bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, key=terminal_key,
+        expected_runtime_commit=expected_runtime_commit, expected_runtime_tree=expected_runtime_tree,
+        readback=terminal_readback,
+    )
     inventory = {
         "schema_version": 1,
         "receipts": receipt_rows,
@@ -602,6 +660,45 @@ def capture_frozen_v2_receipts(
         run_id=run_id, epoch=epoch,
     )
     return inventory
+
+
+def capture_terminal_witness_evidence(
+    *, data_dir: Path, bundle_root: Path, run_id: str, epoch: str, bucket: str, prefix: str,
+    s3: Any, sts: Any, expected_runtime_commit: str, expected_runtime_tree: str | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+) -> dict[str, Any]:
+    """Capture only the terminal receipt/witness/readback/version evidence (no cohort receipts).
+
+    Raises instead of recording a partial pass when the witness is missing or inconsistent, the
+    exact unversioned GET cannot be read, or the version inventory is unavailable.
+    """
+    if not run_id or not epoch or not bucket or not prefix:
+        raise ValueError("exact run, epoch, bucket and prefix are required")
+    prefix = prefix.rstrip("/")
+    terminal_key = f"{prefix}/terminal/terminal-receipt.json"
+    local_receipt = data_dir / "terminal" / "terminal-receipt.json"
+    if local_receipt.is_symlink() or not local_receipt.is_file():
+        raise FileNotFoundError(f"terminal receipt is missing from the runtime data root: {local_receipt}")
+    remote_path = bundle_root / "terminal/s3-readback/terminal-receipt.json"
+    readback = _get_object(s3, bucket=bucket, key=terminal_key, destination=remote_path, now=now)
+    metadata = _capture_terminal_versions(s3, bucket=bucket, key=terminal_key, readback=readback)
+    if metadata["version_ids"].count(readback.version_id) != 1 or metadata["latest_delete_marker"] is not False:
+        raise ValueError("terminal version inventory does not identify the exact GET version exactly once")
+    identity = sts.get_caller_identity()
+    caller_arn = identity.get("Arn") if isinstance(identity, Mapping) else None
+    if not isinstance(caller_arn, str) or not caller_arn:
+        raise ValueError("STS caller identity did not return an ARN")
+    metadata["caller_arn"] = caller_arn
+    _copy_terminal_witness(
+        data_dir, bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, key=terminal_key,
+        expected_runtime_commit=expected_runtime_commit, expected_runtime_tree=expected_runtime_tree,
+        readback=readback,
+    )
+    _size, local_sha = _copy_stable(local_receipt, bundle_root / "terminal/terminal-receipt.json")
+    if local_sha != readback.sha256 or remote_path.read_bytes() != local_receipt.read_bytes():
+        raise ValueError("exact S3 readback bytes differ from the local terminal receipt")
+    _write_json_create(bundle_root / "terminal/s3-readback.json", metadata)
+    return metadata
 
 
 def _build_cohort_summary(
@@ -718,6 +815,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--observation-interval-seconds", type=float, default=1800)
     parser.add_argument("--runtime-commit", required=True,
                         help="40-hex sealed runtime commit every slot receipt must carry")
+    parser.add_argument("--runtime-tree", default=None, help="40-hex sealed runtime tree the terminal witness must carry")
     return parser
 
 
@@ -733,6 +831,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             prefix=args.prefix, s3=s3, sts=sts,
             observation_interval_seconds=args.observation_interval_seconds,
             expected_runtime_commit=args.runtime_commit,
+            expected_runtime_tree=args.runtime_tree,
         )
     except Exception as exc:
         print(f"CAPTURE_FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)

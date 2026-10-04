@@ -1,0 +1,91 @@
+{
+    "PolicyVersion": {
+        "Document": {
+            "Statement": [
+                {
+                    "Action": [
+                        "ssm:DescribeAssociation",
+                        "ssm:GetDeployablePatchSnapshotForInstance",
+                        "ssm:GetDocument",
+                        "ssm:DescribeDocument",
+                        "ssm:GetManifest",
+                        "ssm:ListAssociations",
+                        "ssm:ListInstanceAssociations",
+                        "ssm:PutInventory",
+                        "ssm:PutComplianceItems",
+                        "ssm:PutConfigurePackageResult",
+                        "ssm:UpdateAssociationStatus",
+                        "ssm:UpdateInstanceAssociationStatus",
+                        "ssm:UpdateInstanceInformation",
+                        "ssmmessages:CreateControlChannel",
+                        "ssmmessages:CreateDataChannel",
+                        "ssmmessages:OpenControlChannel",
+                        "ssmmessages:OpenDataChannel",
+                        "ec2messages:AcknowledgeMessage",
+                        "ec2messages:DeleteMessage",
+                        "ec2messages:FailMessage",
+                        "ec2messages:GetEndpoint",
+                        "ec2messages:GetMessages",
+                        "ec2messages:SendReply"
+                    ],
+                    "Effect": "Allow",
+                    "Resource": "*",
+                    "Sid": "SessionManagerCore"
+                },
+                {
+                    "Action": "s3:ListBucket",
+                    "Condition": {
+                        "StringLike": {
+                            "s3:prefix": [
+                                "market-data/canonical/aws-short-smoke-20260902-38cb8a72/*",
+                                "market-data/temporary/aws-short-smoke-20260902-38cb8a72/*"
+                            ]
+                        }
+                    },
+                    "Effect": "Allow",
+                    "Resource": "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+                    "Sid": "EpochArchiveBucketMetadata"
+                },
+                {
+                    "Action": [
+                        "s3:AbortMultipartUpload",
+                        "s3:GetObject",
+                        "s3:ListMultipartUploadParts",
+                        "s3:PutObject"
+                    ],
+                    "Effect": "Allow",
+                    "Resource": [
+                        "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/canonical/aws-short-smoke-20260902-38cb8a72/*",
+                        "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-short-smoke-20260902-38cb8a72/*"
+                    ],
+                    "Sid": "EpochArchiveObjects"
+                },
+                {
+                    "Action": "cloudwatch:PutMetricData",
+                    "Condition": {
+                        "StringEquals": {
+                            "cloudwatch:namespace": "BitcoinTrader/Collector"
+                        }
+                    },
+                    "Effect": "Allow",
+                    "Resource": "*",
+                    "Sid": "CollectorMetrics"
+                },
+                {
+                    "Action": [
+                        "logs:CreateLogStream",
+                        "logs:DescribeLogStreams",
+                        "logs:PutLogEvents"
+                    ],
+                    "Effect": "Allow",
+                    "Resource": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector:*",
+                    "Sid": "OperationalLogs"
+                }
+            ],
+            "Version": "2012-10-17"
+        },
+        "VersionId": "v2",
+        "IsDefaultVersion": false,
+        "CreateDate": "2026-09-03T00:48:33+00:00"
+    }
+}

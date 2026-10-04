@@ -1,0 +1,46 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Action": [
+        "s3:PutObject",
+        "s3:GetObject"
+      ],
+      "Effect": "Allow",
+      "Resource": "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433/market-data/temporary/aws-validation-*/*",
+      "Sid": "ReadWriteValidationArchive"
+    },
+    {
+      "Sid": "ListTerminalReceiptVersions",
+      "Effect": "Allow",
+      "Action": "s3:ListBucketVersions",
+      "Resource": "arn:aws:s3:::bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": "market-data/temporary/aws-validation-*/terminal/terminal-receipt.json"
+        }
+      }
+    },
+    {
+      "Action": "cloudwatch:PutMetricData",
+      "Condition": {
+        "StringEquals": {
+          "cloudwatch:namespace": "BitcoinTrader/Collector"
+        }
+      },
+      "Effect": "Allow",
+      "Resource": "*",
+      "Sid": "PublishCollectorMetrics"
+    },
+    {
+      "Action": [
+        "logs:PutLogEvents",
+        "logs:DescribeLogStreams",
+        "logs:CreateLogStream"
+      ],
+      "Effect": "Allow",
+      "Resource": "arn:aws:logs:ap-northeast-2:080109295433:log-group:/bitcoin-trader/aws-apne2-research/collector:*",
+      "Sid": "WriteOperationalLogs"
+    }
+  ]
+}

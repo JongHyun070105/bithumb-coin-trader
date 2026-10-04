@@ -1,0 +1,84 @@
+{
+    "Role": {
+        "Path": "/",
+        "RoleName": "bitcoin-trader-aws-apne2-research-collector",
+        "RoleId": "AROARFJXC25EXAUS344LK",
+        "Arn": "arn:aws:iam::080109295433:role/bitcoin-trader-aws-apne2-research-collector",
+        "CreateDate": "2026-09-01T04:46:10+00:00",
+        "AssumeRolePolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Service": "ec2.amazonaws.com"
+                    },
+                    "Action": "sts:AssumeRole"
+                }
+            ]
+        },
+        "MaxSessionDuration": 3600,
+        "PermissionsBoundary": {
+            "PermissionsBoundaryType": "Policy",
+            "PermissionsBoundaryArn": "arn:aws:iam::080109295433:policy/bitcoin-trader-collector-boundary"
+        },
+        "Tags": [
+            {
+                "Key": "CollectorEpoch",
+                "Value": "aws-72h-soak-20260905-8017b83e"
+            },
+            {
+                "Key": "CollectorRunId",
+                "Value": "aws-72h-soak-run-20260905T024039Z-8017b83e"
+            },
+            {
+                "Key": "CollectorCommit",
+                "Value": "9532cebc902856d954bf80b51dbe567b543dc8e2"
+            },
+            {
+                "Key": "ConfigFingerprint",
+                "Value": "a023fb5723830c38a7f7d47f2439334fcb44d2c6559939dba7a7cb1c2f88783b"
+            },
+            {
+                "Key": "Project",
+                "Value": "bitcoin-trader"
+            },
+            {
+                "Key": "Environment",
+                "Value": "aws-apne2-research"
+            },
+            {
+                "Key": "SchemaVersion",
+                "Value": "4"
+            },
+            {
+                "Key": "ManagedBy",
+                "Value": "terraform"
+            },
+            {
+                "Key": "Repository",
+                "Value": "JongHyun070105/bithumb-coin-trader"
+            },
+            {
+                "Key": "Architecture",
+                "Value": "x86_64"
+            },
+            {
+                "Key": "AlphaReady",
+                "Value": "false"
+            },
+            {
+                "Key": "LiveTrading",
+                "Value": "disabled"
+            },
+            {
+                "Key": "ClockSource",
+                "Value": "Amazon Time Sync Service 169.254.169.123"
+            }
+        ],
+        "RoleLastUsed": {
+            "LastUsedDate": "2026-10-04T13:25:22+00:00",
+            "Region": "ap-northeast-2"
+        }
+    }
+}

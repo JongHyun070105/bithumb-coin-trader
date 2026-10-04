@@ -341,6 +341,18 @@ data "aws_iam_policy_document" "collector" {
   }
 
   statement {
+    sid       = "ListTerminalReceiptVersions"
+    actions   = ["s3:ListBucketVersions"]
+    resources = [aws_s3_bucket.archive.arn]
+
+    condition {
+      test     = "StringLike"
+      variable = "s3:prefix"
+      values   = ["${local.temporary_archive_namespace}*/terminal/terminal-receipt.json"]
+    }
+  }
+
+  statement {
     sid       = "PublishCollectorMetrics"
     actions   = ["cloudwatch:PutMetricData"]
     resources = ["*"]

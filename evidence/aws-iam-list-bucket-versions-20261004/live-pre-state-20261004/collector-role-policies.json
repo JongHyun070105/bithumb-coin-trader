@@ -1,0 +1,6 @@
+{
+    "PolicyNames": [
+        "collector-epoch-access",
+        "session-manager-agent-core"
+    ]
+}

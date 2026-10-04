@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone
+import hashlib
 import json
 import logging
 import os
@@ -99,6 +100,82 @@ def write_receipt_atomic(path: Path, payload: dict[str, Any]) -> None:
             except OSError:
                 pass
         raise
+
+
+TERMINAL_WITNESS_FILENAME = "terminal-witness.json"
+TERMINAL_WITNESS_KIND = "terminal-witness"
+COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _read_sealed_runtime_identity(data_dir: Path) -> dict[str, Any]:
+    """Return the sealed run/epoch/commit/tree binding from the data-root identity.json, if present."""
+    path = data_dir / "identity.json"
+    try:
+        if path.is_symlink() or not path.is_file():
+            return {}
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def build_terminal_witness(
+    *,
+    data_dir: Path,
+    receipt: Mapping[str, Any],
+    bucket: Optional[str],
+    prefix: Optional[str],
+    region: Optional[str],
+    target_key: Optional[str],
+    receipt_sha256: str,
+    receipt_byte_length: int,
+    put_response: Optional[Mapping[str, Any]] = None,
+    upload_error_type: Optional[str] = None,
+) -> dict[str, Any]:
+    """Build the local-only terminal witness.
+
+    ``s3_uploaded``/``s3_key`` are set only from a returned PutObject response; every other
+    state (no client, failed or in-flight upload) leaves them False/None.
+    """
+    identity = _read_sealed_runtime_identity(data_dir)
+    commit = identity.get("software_commit_sha")
+    tree = identity.get("software_tree_sha")
+    sealed_run_id = identity.get("run_id")
+    sealed_epoch = identity.get("epoch")
+    bound = (
+        isinstance(commit, str) and COMMIT_SHA_RE.fullmatch(commit) is not None
+        and isinstance(tree, str) and COMMIT_SHA_RE.fullmatch(tree) is not None
+        and sealed_run_id == receipt.get("run_id")
+        and sealed_epoch == receipt.get("epoch")
+    )
+    uploaded = put_response is not None
+    return {
+        "schema_version": 1,
+        "witness_kind": TERMINAL_WITNESS_KIND,
+        "recorded_at": utc_iso_now(),
+        "run_id": receipt.get("run_id"),
+        "epoch": receipt.get("epoch"),
+        "systemd_invocation_id": receipt.get("systemd_invocation_id"),
+        "terminal_classification": receipt.get("terminal_classification"),
+        "service_result": receipt.get("service_result"),
+        "exit_code": receipt.get("exit_code"),
+        "exit_status": receipt.get("exit_status"),
+        "runtime_identity_bound": bound,
+        "software_commit_sha": commit if bound else None,
+        "software_tree_sha": tree if bound else None,
+        "s3_bucket": bucket,
+        "s3_prefix": prefix,
+        "s3_region": region,
+        "s3_target_key": target_key,
+        "s3_uploaded": uploaded,
+        "s3_key": target_key if uploaded else None,
+        "receipt_sha256": receipt_sha256,
+        "receipt_byte_length": receipt_byte_length,
+        "s3_put_version_id": put_response.get("VersionId") if put_response is not None else None,
+        "s3_put_etag": put_response.get("ETag") if put_response is not None else None,
+        "s3_put_returned_at": utc_iso_now() if uploaded else None,
+        "s3_upload_error_type": upload_error_type,
+    }
 
 
 def record_terminal_receipt(
@@ -202,6 +279,11 @@ def record_terminal_receipt(
     dt_now = datetime.now(timezone.utc)
     ts_tag = dt_now.strftime("%Y%m%dT%H%M%SZ")
     timestamped_receipt_path = receipt_dir / f"terminal-receipt-{ts_tag}.json"
+    terminal_witness_path = receipt_dir / TERMINAL_WITNESS_FILENAME
+    witness_put_response: Optional[Mapping[str, Any]] = None
+    witness_upload_error_type: Optional[str] = None
+    witness_target_key: Optional[str] = None
+    witness_payload_bytes: Optional[bytes] = None
 
     write_receipt_atomic(terminal_receipt_path, receipt)
     try:
@@ -247,6 +329,22 @@ def record_terminal_receipt(
             success_receipt["s3_uploaded"] = True
             success_receipt["s3_key"] = receipt_key
             payload_bytes = (json.dumps(success_receipt, indent=2, sort_keys=True) + "\n").encode("utf-8")
+            witness_target_key = receipt_key
+            witness_payload_bytes = payload_bytes
+            # A killed or failed put must leave the durable witness false as well.
+            write_receipt_atomic(
+                terminal_witness_path,
+                build_terminal_witness(
+                    data_dir=data_dir,
+                    receipt=receipt,
+                    bucket=bucket,
+                    prefix=prefix,
+                    region=s3_region,
+                    target_key=receipt_key,
+                    receipt_sha256=hashlib.sha256(payload_bytes).hexdigest(),
+                    receipt_byte_length=len(payload_bytes),
+                ),
+            )
             try:
                 stable_response = client.put_object(
                     Bucket=bucket,
@@ -259,6 +357,7 @@ def record_terminal_receipt(
                 receipt["s3_uploaded"] = False
                 receipt["s3_key"] = None
                 receipt["s3_upload_error_type"] = type(exc).__name__
+                witness_upload_error_type = type(exc).__name__
                 if finalization_trace is not None:
                     finalization_trace.append(
                         "terminal_witness_upload_failed",
@@ -267,6 +366,7 @@ def record_terminal_receipt(
                         error_type=type(exc).__name__,
                     )
             else:
+                witness_put_response = stable_response if isinstance(stable_response, Mapping) else {}
                 receipt.update(success_receipt)
                 write_receipt_atomic(terminal_receipt_path, receipt)
                 if finalization_trace is not None:
@@ -308,6 +408,25 @@ def record_terminal_receipt(
         write_receipt_atomic(timestamped_receipt_path, receipt)
     except Exception as exc:
         logger.warning("Could not persist timestamped terminal receipt: %s", exc)
+
+    final_receipt_bytes = terminal_receipt_path.read_bytes()
+    if witness_put_response is not None and final_receipt_bytes != witness_payload_bytes:
+        raise RuntimeError("local terminal receipt bytes differ from the bytes uploaded to S3")
+    write_receipt_atomic(
+        terminal_witness_path,
+        build_terminal_witness(
+            data_dir=data_dir,
+            receipt=receipt,
+            bucket=bucket,
+            prefix=prefix,
+            region=s3_region,
+            target_key=witness_target_key,
+            receipt_sha256=hashlib.sha256(final_receipt_bytes).hexdigest(),
+            receipt_byte_length=len(final_receipt_bytes),
+            put_response=witness_put_response,
+            upload_error_type=witness_upload_error_type,
+        ),
+    )
 
     if finalization_trace is not None:
         finalization_trace.write_terminal_summary()
