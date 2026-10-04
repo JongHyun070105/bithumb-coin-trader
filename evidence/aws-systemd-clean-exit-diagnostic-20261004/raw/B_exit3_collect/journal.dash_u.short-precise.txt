@@ -1,0 +1,8 @@
+Oct 04 03:53:06.607783 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-30h-diag-sysd-20261004T035255Z-B_exit3_collect.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 3...
+Oct 04 03:53:06.653383 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2309928]: diag main started pid=2309928
+Oct 04 03:53:06.654067 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2309928]: diag main ready sent
+Oct 04 03:53:06.653554 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-30h-diag-sysd-20261004T035255Z-B_exit3_collect.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 3.
+Oct 04 03:53:12.656724 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2309928]: diag main exiting code=3
+Oct 04 03:53:12.662153 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-30h-diag-sysd-20261004T035255Z-B_exit3_collect.service: Main process exited, code=exited, status=3/NOTIMPLEMENTED
+Oct 04 03:53:12.708922 ip-10-91-1-65.ap-northeast-2.compute.internal stoppost.sh[2310015]: stoppost-ran exit_code=exited exit_status=3 service_result=exit-code
+Oct 04 03:53:12.709401 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-30h-diag-sysd-20261004T035255Z-B_exit3_collect.service: Failed with result 'exit-code'.

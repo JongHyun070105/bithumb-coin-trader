@@ -41,6 +41,9 @@ class ReceiptSource:
     outcome: str | None = None
 
 
+CONTRACT_FEED_ID_RE = re.compile(r"^(?:bithumb|binance|upbit):[a-z]+:[^:/\s]+$")
+
+
 @dataclass(frozen=True)
 class Readback:
     outcome: str
@@ -51,6 +54,7 @@ class Readback:
     request_id: str | None
     captured_at_utc: str
     confirmed_authorized: bool
+    http_status: int | None = None
 
 
 def _utc_iso(now: Callable[[], datetime]) -> str:
@@ -200,6 +204,8 @@ def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, pref
             cohort, feed_id, key = payload.get("cohort_id"), payload.get("feed_id"), payload.get("s3_key")
             if not isinstance(cohort, str) or not COHORT_RE.fullmatch(cohort) or not isinstance(feed_id, str) or not feed_id:
                 raise ValueError(f"slot receipt identity is invalid: {path}")
+            if not CONTRACT_FEED_ID_RE.fullmatch(feed_id):
+                raise ValueError(f"slot receipt feed_id is not in the exchange:stream:market contract form: {path}")
             if not isinstance(key, str) or not key.startswith(prefix + "/"):
                 raise ValueError(f"slot receipt S3 key is outside the run prefix: {path}")
             sources.append(ReceiptSource("SLOT_RECEIPT", "BOTH_REQUIRED", path, key,
@@ -294,6 +300,7 @@ def _get_object(
     return Readback(
         "success", digest.hexdigest(), response.get("VersionId"), size,
         response.get("ETag"), request_id, _utc_iso(now), True,
+        response_meta.get("HTTPStatusCode") if isinstance(response_meta, Mapping) else None,
     )
 
 
@@ -374,6 +381,7 @@ def _capture_terminal_versions(s3: Any, *, bucket: str, key: str, readback: Read
         "version_ids": versions, "sha256": readback.sha256,
         "byte_length": readback.size, "ContentLength": readback.size,
         "ETag": readback.etag, "request_id": readback.request_id,
+        "http_status": readback.http_status,
         "caller_arn": None, "captured_at_utc": readback.captured_at_utc,
     }
 

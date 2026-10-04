@@ -88,6 +88,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--exec-stop-post-s3-prefix", type=str, default=None)
     parser.add_argument("--exec-stop-post-s3-region", type=str, default=None)
     parser.add_argument("--exec-stop-post-allow-s3-write", action="store_true")
+    parser.add_argument("--systemd-evidence-script", type=str, default=None)
     parser.add_argument("--launch", action="store_true")
 
     parser.add_argument("--required-qualifying-full-hours", type=int)
@@ -136,6 +137,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
             exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
+            systemd_evidence_script=args.systemd_evidence_script,
         )
     else:
         if args.collection_duration_seconds is None:
@@ -159,6 +161,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             exec_stop_post_s3_prefix=args.exec_stop_post_s3_prefix,
             exec_stop_post_s3_region=args.exec_stop_post_s3_region,
             exec_stop_post_allow_s3_write=args.exec_stop_post_allow_s3_write,
+            systemd_evidence_script=args.systemd_evidence_script,
         )
 
     command = render_systemd_run(config)

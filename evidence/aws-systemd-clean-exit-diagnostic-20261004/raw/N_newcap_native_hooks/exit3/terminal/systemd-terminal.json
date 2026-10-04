@@ -1,0 +1,15 @@
+{
+  "ExecMainCode": "exited",
+  "ExecMainStatus": 3,
+  "InvocationID": "395f2ceca5ca43e699643062541708c8",
+  "MainPID": 2311235,
+  "NRestarts": 0,
+  "Result": "exit-code",
+  "capture_source": "systemctl show during ExecStopPost; cross-checked with systemd EXIT_CODE/EXIT_STATUS/SERVICE_RESULT",
+  "received_signal": null,
+  "runtime_duration_seconds": 8,
+  "start_time": "2026-10-04T04:05:10.656794Z",
+  "stop_time": "2026-10-04T04:05:18.694437Z",
+  "unit": "bitcoin-trader-30h-diag-newcap-20261004T040458Z-exit3.service",
+  "watchdog_result": "not_triggered"
+}

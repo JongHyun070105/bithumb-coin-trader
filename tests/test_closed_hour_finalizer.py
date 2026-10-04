@@ -302,7 +302,9 @@ def test_finalized_slot_writes_matching_local_and_remote_slot_receipt(tmp_path: 
     assert payload["run_id"] == "run-1"
     assert payload["epoch"] == "epoch-1"
     assert payload["cohort_id"] == "2026-09-14_12"
-    assert payload["feed_id"] == feed.canonical
+    assert payload["feed_id"] == "bithumb:orderbook:KRW-BTC"
+    assert payload["feed_identity"] == feed.canonical
+    assert payload["runtime_commit"] == result.coverage.runtime_commit
     assert payload["coverage_state"] == "DATA_PRESENT"
     assert payload["coverage_evidence_sha256"] == result.coverage.evidence_sha256
     assert payload["s3_key"].startswith(
@@ -322,7 +324,8 @@ def test_verified_zero_event_slot_writes_slot_receipt(tmp_path: Path) -> None:
     receipts = sorted((bundle.receipt_root / "slot-receipts").rglob("*.slot-receipt.json"))
     assert len(receipts) == 1
     payload = json.loads(receipts[0].read_text(encoding="utf-8"))
-    assert payload["feed_id"] == feed.canonical
+    assert payload["feed_id"] == "bithumb:orderbook:KRW-BTC"
+    assert payload["feed_identity"] == feed.canonical
     assert payload["coverage_state"] == "VERIFIED_ZERO_EVENT"
     assert payload["coverage_evidence_sha256"] == result.coverage.evidence_sha256
     assert payload["raw_archive"] is None

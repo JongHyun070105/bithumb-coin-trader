@@ -141,6 +141,7 @@ class TransientLaunchConfig:
     exec_stop_post_s3_prefix: str | None = None
     exec_stop_post_s3_region: str | None = None
     exec_stop_post_allow_s3_write: bool = False
+    systemd_evidence_script: str | None = None
 
 
 def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
@@ -214,6 +215,16 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         ):
             if not Path(value).is_absolute() or not SAFE_EXEC_STOP_TOKEN.fullmatch(value):
                 raise ValueError(f"ExecStopPost {label} must be an absolute systemd-safe path")
+    if config.systemd_evidence_script is not None:
+        effective_evidence_dir = config.data_dir if config.data_dir is not None else config.workdir
+        if config.exec_stop_post_script is None or not config.exec_stop_post_python:
+            raise ValueError("systemd evidence capture requires the terminal witness ExecStopPost configuration")
+        for label, value in (
+            ("script", config.systemd_evidence_script),
+            ("data directory", str(effective_evidence_dir)),
+        ):
+            if not Path(value).is_absolute() or not SAFE_EXEC_STOP_TOKEN.fullmatch(value):
+                raise ValueError(f"systemd evidence {label} must be an absolute systemd-safe path")
     unit_name = f"{prefix}-{config.run_id}.service"
     cmd = [
         "systemd-run",
@@ -231,6 +242,17 @@ def render_systemd_run(config: TransientLaunchConfig) -> list[str]:
         "--property=NotifyAccess=main",
         f"--working-directory={config.workdir}",
     ]
+    if config.systemd_evidence_script is not None:
+        evidence_dir = config.data_dir if config.data_dir is not None else config.workdir
+        # '-' keeps a capture failure from changing the unit Result; the missing evidence fails the audit instead.
+        cmd.append(
+            f"--property=ExecStartPre=-{config.exec_stop_post_python} {config.systemd_evidence_script}"
+            f" start-marker --unit={unit_name}"
+        )
+        cmd.append(
+            f"--property=ExecStopPost=-{config.exec_stop_post_python} {config.systemd_evidence_script}"
+            f" stop-post --unit={unit_name} --output-dir={evidence_dir}/systemd-evidence"
+        )
     if config.exec_stop_post_script is not None:
         effective_data_dir = config.data_dir if config.data_dir is not None else config.workdir
         cmd.append(

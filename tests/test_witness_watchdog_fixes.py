@@ -127,6 +127,41 @@ class TestRenderSystemdRunWatchdog:
         assert "--epoch=exact-epoch" in esp
         assert "--run-id=test-run-001" in esp
 
+    def test_systemd_evidence_hooks_precede_witness_and_are_non_fatal(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import render_systemd_run
+
+        cfg = self._base_config(
+            exec_stop_post_python="/opt/venv/bin/python",
+            exec_stop_post_script="/opt/scripts/terminal_witness.py",
+            data_dir=Path("/opt/data/health"),
+            exec_stop_post_epoch="exact-epoch",
+            exec_stop_post_s3_bucket="receipt-bucket",
+            exec_stop_post_s3_prefix="market-data/temporary/exact-epoch",
+            exec_stop_post_s3_region="ap-northeast-2",
+            exec_stop_post_allow_s3_write=True,
+            systemd_evidence_script="/opt/scripts/capture_fresh_30h_systemd.py",
+        )
+        cmd = render_systemd_run(cfg)
+        unit = next(c.split("=", 1)[1] for c in cmd if c.startswith("--unit="))
+        pre = [c for c in cmd if c.startswith("--property=ExecStartPre=")]
+        post = [c for c in cmd if c.startswith("--property=ExecStopPost=")]
+        assert pre == [
+            "--property=ExecStartPre=-/opt/venv/bin/python /opt/scripts/capture_fresh_30h_systemd.py"
+            f" start-marker --unit={unit}"
+        ]
+        assert len(post) == 2
+        assert post[0] == (
+            "--property=ExecStopPost=-/opt/venv/bin/python /opt/scripts/capture_fresh_30h_systemd.py"
+            f" stop-post --unit={unit} --output-dir=/opt/data/health/systemd-evidence"
+        )
+        assert "terminal_witness.py" in post[1] and not post[1].startswith("--property=ExecStopPost=-")
+
+    def test_systemd_evidence_requires_witness_configuration(self) -> None:
+        from bithumb_coin_trader.bounded_supervisor import render_systemd_run
+
+        with pytest.raises(ValueError, match="systemd evidence capture requires"):
+            render_systemd_run(self._base_config(systemd_evidence_script="/opt/scripts/capture_fresh_30h_systemd.py"))
+
     def test_exec_stop_post_defaults_data_dir_to_workdir(self) -> None:
         from bithumb_coin_trader.bounded_supervisor import render_systemd_run
 

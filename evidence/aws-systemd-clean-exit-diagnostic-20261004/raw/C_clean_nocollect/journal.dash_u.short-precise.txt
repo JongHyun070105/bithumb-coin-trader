@@ -1,0 +1,7 @@
+Oct 04 03:53:17.036731 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-30h-diag-sysd-20261004T035255Z-C_clean_nocollect.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 0...
+Oct 04 03:53:17.080794 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310081]: diag main started pid=2310081
+Oct 04 03:53:17.081163 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310081]: diag main ready sent
+Oct 04 03:53:17.080974 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-30h-diag-sysd-20261004T035255Z-C_clean_nocollect.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 0.
+Oct 04 03:53:23.086697 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310081]: diag main exiting code=0
+Oct 04 03:53:23.138498 ip-10-91-1-65.ap-northeast-2.compute.internal stoppost.sh[2310168]: stoppost-ran exit_code=exited exit_status=0 service_result=success
+Oct 04 03:53:23.139093 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-30h-diag-sysd-20261004T035255Z-C_clean_nocollect.service: Deactivated successfully.

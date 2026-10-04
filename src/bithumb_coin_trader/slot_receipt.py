@@ -67,7 +67,10 @@ class SlotReceiptWriter:
         if coverage.collector_run_id != self.run_id or coverage.collector_epoch != self.epoch:
             raise ValueError("slot receipt identity differs from the configured run")
         cohort_id = coverage.cohort_utc
-        feed_id = coverage.feed_identity
+        feed_identity = coverage.feed_identity
+        if not isinstance(feed_identity, str) or feed_identity.count("/") != 2 or ":" in feed_identity:
+            raise ValueError("slot receipt feed identity must be exchange/stream/market")
+        feed_id = feed_identity.replace("/", ":")
         if not isinstance(cohort_id, str) or not _COHORT_RE.fullmatch(cohort_id):
             raise ValueError("slot receipt cohort identity is invalid")
         if not isinstance(feed_id, str) or not feed_id or not _SHA256_RE.fullmatch(coverage.evidence_sha256):
@@ -75,7 +78,7 @@ class SlotReceiptWriter:
         if not coverage_receipt.remote_key or not _SHA256_RE.fullmatch(coverage_receipt.source_sha256):
             raise ValueError("coverage archive receipt is missing its remote identity or source hash")
 
-        feed_hash = hashlib.sha256(feed_id.encode("utf-8")).hexdigest()
+        feed_hash = hashlib.sha256(feed_identity.encode("utf-8")).hexdigest()
         receipt_id = f"slot-{cohort_id}-{feed_hash}"
         filename = f"{feed_hash}.slot-receipt.json"
         relative = Path(cohort_id) / filename
@@ -93,6 +96,8 @@ class SlotReceiptWriter:
             "epoch": self.epoch,
             "cohort_id": cohort_id,
             "feed_id": feed_id,
+            "feed_identity": feed_identity,
+            "runtime_commit": coverage.runtime_commit,
             "coverage_state": coverage.coverage_state,
             "coverage_evidence_sha256": coverage.evidence_sha256,
             "closed_at_utc": coverage.closed_at_utc,

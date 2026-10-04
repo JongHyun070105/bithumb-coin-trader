@@ -55,7 +55,7 @@ class FakeS3:
         return {
             "Body": BytesIO(value), "VersionId": version,
             "ContentLength": len(value), "ETag": '"etag"',
-            "ResponseMetadata": {"RequestId": f"get-{call}"},
+            "ResponseMetadata": {"RequestId": f"get-{call}", "HTTPStatusCode": 200},
         }
 
     def list_object_versions(self, *, Bucket: str, Prefix: str, **kwargs: object) -> dict[str, object]:
@@ -173,7 +173,7 @@ def test_exports_receipt_scope_journals_provenance_and_two_real_reads(tmp_path: 
     }]
     assert cohorts["cohorts"][0]["feed_slots"][0]["s3_receipt_sha256"]
     assert (bundle / "terminal/s3-readback/terminal-receipt.json").read_bytes() == objects[f"{PREFIX}/terminal/terminal-receipt.json"]
-    assert (bundle / "terminal/s3-readback.json").is_file()
+    assert json.loads((bundle / "terminal/s3-readback.json").read_text())["http_status"] == 200
     assert result["receipts"] == inventory["receipts"]
 
 
@@ -291,4 +291,18 @@ def test_refuses_two_point_interval_shorter_than_thirty_minutes(tmp_path: Path) 
             epoch=EPOCH, bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects),
             sts=FakeSTS(), observation_interval_seconds=1799,
             sleep_fn=lambda _seconds: None, now=_clock(),
+        )
+
+
+def test_refuses_slot_receipt_with_non_contract_feed_identity(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    slot = next((data / "archive-receipts/slot-receipts").rglob("*.slot-receipt.json"))
+    payload = json.loads(slot.read_text())
+    payload["feed_id"] = "bithumb/trade/KRW-BTC"
+    slot.write_bytes(_json_bytes(payload))
+    with pytest.raises(ValueError, match="exchange:stream:market"):
+        capture_frozen_v2_receipts(
+            data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+            bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+            observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
         )

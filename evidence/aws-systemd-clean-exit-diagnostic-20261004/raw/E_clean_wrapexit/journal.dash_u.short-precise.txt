@@ -1,0 +1,8 @@
+Oct 04 03:53:27.410195 ip-10-91-1-65.ap-northeast-2.compute.internal echo[2310233]: Starting diag-native-start-marker
+Oct 04 03:53:27.408749 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Starting bitcoin-trader-30h-diag-sysd-20261004T035255Z-E_clean_wrapexit.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 0...
+Oct 04 03:53:27.455958 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310236]: diag main started pid=2310236
+Oct 04 03:53:27.456114 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: Started bitcoin-trader-30h-diag-sysd-20261004T035255Z-E_clean_wrapexit.service - /usr/bin/python3 /var/tmp/sysd-diag-20261004T035255Z/main.py 6 0.
+Oct 04 03:53:27.456987 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310236]: diag main ready sent
+Oct 04 03:53:33.457321 ip-10-91-1-65.ap-northeast-2.compute.internal python3[2310236]: diag main exiting code=0
+Oct 04 03:53:33.508600 ip-10-91-1-65.ap-northeast-2.compute.internal stoppost.sh[2310380]: stoppost-ran exit_code=exited exit_status=0 service_result=success
+Oct 04 03:53:33.509066 ip-10-91-1-65.ap-northeast-2.compute.internal systemd[1]: bitcoin-trader-30h-diag-sysd-20261004T035255Z-E_clean_wrapexit.service: Deactivated successfully.

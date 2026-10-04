@@ -586,6 +586,7 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
   --exec-stop-post-s3-region "{spec.region}" \\
   --exec-stop-post-allow-s3-write \\
+  --systemd-evidence-script "$worktree/scripts/capture_fresh_30h_systemd.py" \\
 """
 
     launch_sh = f"""#!/usr/bin/env bash
@@ -619,6 +620,7 @@ exec "$python" "$worktree/scripts/launch_short_smoke_transient.py" \\
   --exec-stop-post-s3-prefix "{resolved['temporary_prefix']}" \\
   --exec-stop-post-s3-region "{spec.region}" \\
   --exec-stop-post-allow-s3-write \\
+  --systemd-evidence-script "$worktree/scripts/capture_fresh_30h_systemd.py" \\
 """
 
     sealed_at = datetime.now(timezone.utc).isoformat()
