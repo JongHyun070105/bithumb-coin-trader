@@ -107,16 +107,29 @@ TERMINAL_WITNESS_KIND = "terminal-witness"
 COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
-def _read_sealed_runtime_identity(data_dir: Path) -> dict[str, Any]:
-    """Return the sealed run/epoch/commit/tree binding from the data-root identity.json, if present."""
-    path = data_dir / "identity.json"
-    try:
-        if path.is_symlink() or not path.is_file():
-            return {}
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
+SEALED_LAUNCH_ARTIFACTS_PARENT = Path("/var/lib/bitcoin-trader/launch-artifacts")
+_SAFE_EPOCH_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+
+
+def _read_sealed_runtime_identity(data_dir: Path, epoch: Optional[str] = None) -> dict[str, Any]:
+    """Return the sealed run/epoch/commit/tree binding.
+
+    Looks at ``<data_dir>/identity.json`` first, then the sealed launch-artifacts identity for ``epoch``
+    (the launcher seals identity only there). Missing/unreadable/non-regular files yield {}.
+    """
+    candidates = [data_dir / "identity.json"]
+    if isinstance(epoch, str) and _SAFE_EPOCH_RE.fullmatch(epoch) and ".." not in epoch:
+        candidates.append(SEALED_LAUNCH_ARTIFACTS_PARENT / epoch / "identity.json")
+    for path in candidates:
+        try:
+            if path.is_symlink() or not path.is_file():
+                continue
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    return {}
 
 
 def build_terminal_witness(
@@ -137,7 +150,7 @@ def build_terminal_witness(
     ``s3_uploaded``/``s3_key`` are set only from a returned PutObject response; every other
     state (no client, failed or in-flight upload) leaves them False/None.
     """
-    identity = _read_sealed_runtime_identity(data_dir)
+    identity = _read_sealed_runtime_identity(data_dir, receipt.get("epoch"))
     commit = identity.get("software_commit_sha")
     tree = identity.get("software_tree_sha")
     sealed_run_id = identity.get("run_id")

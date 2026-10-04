@@ -767,6 +767,28 @@ class TerminalWitnessArtifactTests(unittest.TestCase):
                 self.assertIsNone(witness["software_commit_sha"])
                 self.assertIsNone(witness["software_tree_sha"])
 
+    def test_sealed_identity_in_launch_artifacts_binds_when_data_root_has_none(self) -> None:
+        import terminal_witness as tw  # pyright: ignore[reportMissingImports]
+        with tempfile.TemporaryDirectory() as artifacts:
+            sealed = Path(artifacts) / self.EPOCH
+            sealed.mkdir()
+            (sealed / "identity.json").write_text(json.dumps({
+                "run_id": self.RUN_ID, "epoch": self.EPOCH,
+                "software_commit_sha": WITNESS_COMMIT, "software_tree_sha": WITNESS_TREE,
+            }), encoding="utf-8")
+            with patch.object(tw, "SEALED_LAUNCH_ARTIFACTS_PARENT", Path(artifacts)):
+                self._record(VersionedMockS3())
+                witness = self._witness()
+                self.assertTrue(witness["runtime_identity_bound"])
+                self.assertEqual(witness["software_commit_sha"], WITNESS_COMMIT)
+                self.assertEqual(witness["software_tree_sha"], WITNESS_TREE)
+                (sealed / "identity.json").write_text(json.dumps({
+                    "run_id": "other", "epoch": self.EPOCH,
+                    "software_commit_sha": WITNESS_COMMIT, "software_tree_sha": WITNESS_TREE,
+                }), encoding="utf-8")
+                self._record(VersionedMockS3())
+                self.assertFalse(self._witness()["runtime_identity_bound"])
+
     def test_cli_clean_exit_zero_writes_witness_and_returns_zero(self) -> None:
         self._seal()
         boto3_mock = MagicMock()
