@@ -239,6 +239,7 @@ def _write_sealed_identity(bundle: Path, *, run_id: str = RUN_ID, epoch: str = E
     identity.parent.mkdir(parents=True, exist_ok=True)
     identity.write_bytes(_json_bytes({
         "run_id": run_id, "epoch": epoch,
+        "software_commit_sha": COMMIT,
         "s3_bucket": bucket, "s3_prefix": prefix,
     }))
 
@@ -272,6 +273,19 @@ def test_refuses_existing_bundle_with_mismatched_sealed_identity(tmp_path: Path)
             sleep_fn=lambda _seconds: None, now=_clock(),
         )
     assert capture_path.read_text() == '{"result":"success"}\n'
+
+
+def test_refuses_runtime_anchor_that_differs_from_sealed_identity(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    bundle = tmp_path / "bundle"
+    _write_sealed_identity(bundle)
+    with pytest.raises(ValueError, match="sealed identity differs from the runtime commit anchor"):
+        capture_frozen_v2_receipts(
+            data_dir=data, expected_runtime_commit="d" * 40, bundle_root=bundle,
+            run_id=RUN_ID, epoch=EPOCH, bucket=BUCKET, prefix=PREFIX,
+            s3=FakeS3(objects), sts=FakeSTS(), observation_interval_seconds=1800,
+            sleep_fn=lambda _: None, now=_clock(),
+        )
 
 
 def test_refuses_symlinks_inside_identity_bound_staging_tree(tmp_path: Path) -> None:

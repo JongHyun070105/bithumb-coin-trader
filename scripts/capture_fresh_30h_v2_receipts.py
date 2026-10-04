@@ -150,7 +150,8 @@ def _copy_or_verify(source: Path, destination: Path, expected_sha256: str | None
     return dest_size, dest_hash
 
 
-def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, bucket: str, prefix: str) -> None:
+def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, bucket: str,
+                              prefix: str, expected_runtime_commit: str) -> None:
     if bundle_root.is_symlink():
         raise ValueError("bundle output directory must not be a symlink")
     if not bundle_root.exists():
@@ -168,6 +169,8 @@ def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, buc
             or identity.get("s3_bucket") != bucket
             or str(identity.get("s3_prefix", "")).rstrip("/") != prefix.rstrip("/")):
         raise ValueError("existing sealed identity differs from the exact receipt capture target")
+    if identity.get("software_commit_sha") != expected_runtime_commit:
+        raise ValueError("sealed identity differs from the runtime commit anchor")
     for directory, subdirectories, filenames in os.walk(bundle_root, followlinks=False):
         current = Path(directory)
         if any((current / name).is_symlink() for name in (*subdirectories, *filenames)):
@@ -452,7 +455,10 @@ def capture_frozen_v2_receipts(
     if not run_id or not epoch or not bucket or not prefix:
         raise ValueError("exact run, epoch, bucket and prefix are required")
     prefix = prefix.rstrip("/")
-    _validate_bundle_identity(bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, prefix=prefix)
+    _validate_bundle_identity(
+        bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, prefix=prefix,
+        expected_runtime_commit=expected_runtime_commit,
+    )
     sources = _discover_sources(data_dir, run_id, epoch, bucket, prefix, expected_runtime_commit)
     listing = _list_complete_prefix(s3, sts, bucket, prefix, now)
     listed_keys = {obj["key"] for obj in listing["objects"]}
