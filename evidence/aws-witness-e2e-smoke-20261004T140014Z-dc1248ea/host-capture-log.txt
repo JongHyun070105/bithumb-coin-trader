@@ -1,0 +1,62 @@
+sh-5.2$ cat /tmp/h_623609ad.out
+
+CALLER=arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f
+== terminal-only capture
+CAPTURED_TERMINAL_ONLY: /var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/s3-readback.json
+CAPTURE_RC=0
+== systemd export
+INV=8f8006608a7f48858d97a3db204741cc
+CAPTURED: /var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/systemd-terminal.json /var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/systemd-invocation.jsonl
+EXPORT_RC=0
+== mechanics
+{
+  "SHORT_RUN_SYSTEMD_ACCEPTANCE": "NOT_APPLICABLE",
+  "SYSTEMD_MECHANICS_QUALIFIED": "YES",
+  "acceptance_evidence": false,
+  "classification": "DIAGNOSTIC_SYSTEMD_MECHANICS",
+  "facts": {
+    "ExecMainCode": "exited",
+    "ExecMainStatus": 0,
+    "InvocationID": "8f8006608a7f48858d97a3db204741cc",
+    "NRestarts": 0,
+    "Result": "success",
+    "journal_rows": 184,
+    "journal_sha256": "f28e8df2e940bda628a50f94deaa41a9e3aeb3494ddaabe4546380a97a914283",
+    "runtime_duration_seconds": 123,
+    "snapshot_sha256": "63661dd4e62c225fb21ae3f61ddc5c3fd4f5dfe2fe4aa22b8160435de5668886",
+    "unit": "bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea.service"
+  },
+  "failures": []
+}
+MECH_RC=0
+== list versions (latest proof)
+{
+ "versions": [
+  {
+   "Key": "market-data/temporary/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/terminal-receipt.json",
+   "VersionId": "rbVnh3gLDxIaYRKKTzXjV.QEDqzjqOE4",
+   "IsLatest": true,
+   "ETag": "\"73d9b689987cb5d3f7790d8f599bee6a\"",
+   "Size": 6082
+  }
+ ],
+ "delete_markers": 0
+}
+LATEST_VERSION_PROVEN= PASS
+== bundle files
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/s3-readback.json
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/s3-readback/terminal-receipt.json
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/systemd-invocation.jsonl
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/systemd-terminal.json
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/terminal-receipt.json
+/var/lib/bitcoin-trader/witness-e2e-bundles/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/terminal-witness.json
+a10303a57b7cf44224b470756d2ea29b0afc84e958ff331a80ca63fae9b1fc97  ./terminal/s3-readback.json
+65105a63dc743ffdb7ced39e01d2caab8442a250a4c0cc4efe75e6eca3b3834c  ./terminal/s3-readback/terminal-receipt.json
+f28e8df2e940bda628a50f94deaa41a9e3aeb3494ddaabe4546380a97a914283  ./terminal/systemd-invocation.jsonl
+63661dd4e62c225fb21ae3f61ddc5c3fd4f5dfe2fe4aa22b8160435de5668886  ./terminal/systemd-terminal.json
+65105a63dc743ffdb7ced39e01d2caab8442a250a4c0cc4efe75e6eca3b3834c  ./terminal/terminal-receipt.json
+c5156dbfabd52ac2125e59ebd928e6fcfad12b6a80abe9a31a42fd3a30b2cc76  ./terminal/terminal-witness.json
+== bundle tar b64
+__DONE__
+__RC__=0
+sh-5.2$ echo

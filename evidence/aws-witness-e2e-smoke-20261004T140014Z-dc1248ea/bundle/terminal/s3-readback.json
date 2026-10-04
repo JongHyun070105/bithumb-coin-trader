@@ -1,0 +1,19 @@
+{
+  "ContentLength": 6082,
+  "ETag": "\"73d9b689987cb5d3f7790d8f599bee6a\"",
+  "VersionId": "rbVnh3gLDxIaYRKKTzXjV.QEDqzjqOE4",
+  "bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "byte_length": 6082,
+  "caller_arn": "arn:aws:sts::080109295433:assumed-role/bitcoin-trader-aws-apne2-research-collector/i-008bc503c1136349f",
+  "captured_at_utc": "2026-10-04T14:05:25.391941Z",
+  "http_status": 200,
+  "key": "market-data/temporary/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/terminal-receipt.json",
+  "latest_delete_marker": false,
+  "outcome": "success",
+  "request_id": "YW8X8JVTXPGP7RNC",
+  "requested_version_id": null,
+  "sha256": "65105a63dc743ffdb7ced39e01d2caab8442a250a4c0cc4efe75e6eca3b3834c",
+  "version_ids": [
+    "rbVnh3gLDxIaYRKKTzXjV.QEDqzjqOE4"
+  ]
+}

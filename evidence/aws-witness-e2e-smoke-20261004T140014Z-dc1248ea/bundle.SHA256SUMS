@@ -1,0 +1,6 @@
+a10303a57b7cf44224b470756d2ea29b0afc84e958ff331a80ca63fae9b1fc97  ./terminal/s3-readback.json
+65105a63dc743ffdb7ced39e01d2caab8442a250a4c0cc4efe75e6eca3b3834c  ./terminal/s3-readback/terminal-receipt.json
+f28e8df2e940bda628a50f94deaa41a9e3aeb3494ddaabe4546380a97a914283  ./terminal/systemd-invocation.jsonl
+63661dd4e62c225fb21ae3f61ddc5c3fd4f5dfe2fe4aa22b8160435de5668886  ./terminal/systemd-terminal.json
+65105a63dc743ffdb7ced39e01d2caab8442a250a4c0cc4efe75e6eca3b3834c  ./terminal/terminal-receipt.json
+c5156dbfabd52ac2125e59ebd928e6fcfad12b6a80abe9a31a42fd3a30b2cc76  ./terminal/terminal-witness.json

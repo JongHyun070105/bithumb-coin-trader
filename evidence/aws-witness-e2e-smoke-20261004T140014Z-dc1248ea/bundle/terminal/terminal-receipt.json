@@ -1,0 +1,180 @@
+{
+  "epoch": "aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea",
+  "exit_code": "exited",
+  "exit_status": "0",
+  "hostname": "ip-10-91-1-65.ap-northeast-2.compute.internal",
+  "last_known_health": {
+    "archiver": {
+      "archive_errors": 0,
+      "archive_queue_depth": 0,
+      "last_closed_cohort": null,
+      "last_compression": null,
+      "last_receipt": null,
+      "last_s3_put": null,
+      "status": "UNKNOWN",
+      "upload_failures": 0
+    },
+    "collector": {
+      "fatal_error": null,
+      "last_canonical_event": "2026-10-04T14:03:07.634078+00:00",
+      "last_loop_heartbeat": "2026-10-04T14:03:09.913135+00:00",
+      "last_websocket_activity": "2026-10-04T14:03:07.634078+00:00",
+      "reconnect_count": 0,
+      "status": "UNKNOWN",
+      "websocket_sessions": {
+        "binance": "DISCONNECTED",
+        "bithumb": "DISCONNECTED",
+        "upbit": "DISCONNECTED"
+      }
+    },
+    "config_fingerprint": "1a2d47a845c6ac6bed048b02ecdbc3304ce899fd368a25cfc4432e2564ca69e3",
+    "current_cohort": {
+      "expected_feed_count": 76,
+      "observed_feed_count": 76,
+      "utc_hour": "2026-10-04_14"
+    },
+    "epoch": "aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea",
+    "evidence": {
+      "current_hour_expected_slots": 76,
+      "current_hour_terminal_slots": 76,
+      "last_coverage_evidence": null,
+      "last_heartbeat_evidence": null,
+      "last_manifest_update": null,
+      "status": "UNKNOWN"
+    },
+    "last_exception": {
+      "component": null,
+      "message_hash": null,
+      "timestamp": null,
+      "type": null
+    },
+    "observed_at": "2026-10-04T14:03:09.913135+00:00",
+    "observer": {
+      "observer_errors": 0,
+      "observer_last_cycle": null,
+      "observer_pid": null,
+      "observer_started_at": null,
+      "status": "UNKNOWN"
+    },
+    "resources": {
+      "disk_free_bytes": 76084129792,
+      "disk_used_bytes": 245958705152,
+      "fd_count": 9,
+      "rss_bytes": 49405952
+    },
+    "run_id": "aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea",
+    "schema_version": 1,
+    "software_sha": "dc1248ea05e3b4f7ebbdef434a5dcbdbaa1d4b96",
+    "supervisor": {
+      "active_state": "inactive",
+      "invocation_id": "",
+      "pid": 2352210,
+      "process_start": "2026-10-04T14:01:07.606202+00:00",
+      "sub_state": "UNKNOWN",
+      "unit": ""
+    },
+    "writer": {
+      "current_open_raw_count": 0,
+      "last_dequeue": "2026-10-04T14:03:07.634191+00:00",
+      "last_local_raw_write": "2026-10-04T14:03:07.634191+00:00",
+      "max_queue_depth": 50000,
+      "queue_depth": 0,
+      "status": "UNKNOWN",
+      "unpersisted_count": 0,
+      "writer_errors": 0
+    }
+  },
+  "last_observer_health": {
+    "archiver": {
+      "archive_errors": 0,
+      "archive_queue_depth": 0,
+      "last_closed_cohort": null,
+      "last_compression": null,
+      "last_receipt": null,
+      "last_s3_put": "2026-10-04T14:03:07.528957+00:00",
+      "status": "HEALTHY",
+      "upload_failures": 0
+    },
+    "collector": {
+      "fatal_error": null,
+      "last_canonical_event": "2026-10-04T14:02:57.714248+00:00",
+      "last_loop_heartbeat": "2026-10-04T14:02:57.720301+00:00",
+      "last_websocket_activity": "2026-10-04T14:02:57.714248+00:00",
+      "reconnect_count": 0,
+      "status": "HEALTHY",
+      "websocket_sessions": {
+        "binance": "CONNECTED",
+        "bithumb": "CONNECTED",
+        "upbit": "CONNECTED"
+      }
+    },
+    "config_fingerprint": "1a2d47a845c6ac6bed048b02ecdbc3304ce899fd368a25cfc4432e2564ca69e3",
+    "current_cohort": {
+      "expected_feed_count": 76,
+      "observed_feed_count": 76,
+      "utc_hour": "2026-10-04_14"
+    },
+    "epoch": "aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea",
+    "evidence": {
+      "current_hour_expected_slots": 76,
+      "current_hour_terminal_slots": 0,
+      "last_coverage_evidence": null,
+      "last_heartbeat_evidence": null,
+      "last_manifest_update": null,
+      "status": "HEALTHY"
+    },
+    "last_exception": {
+      "component": null,
+      "message_hash": null,
+      "timestamp": null,
+      "type": null
+    },
+    "observed_at": "2026-10-04T14:03:07.528957+00:00",
+    "observer": {
+      "observer_errors": 0,
+      "observer_last_cycle": "2026-10-04T14:03:07.528957+00:00",
+      "observer_pid": 2352202,
+      "observer_started_at": "2026-10-04T14:01:06.595914+00:00",
+      "status": "HEALTHY"
+    },
+    "resources": {
+      "disk_free_bytes": 76087230464,
+      "disk_used_bytes": 245955604480,
+      "fd_count": 11,
+      "rss_bytes": 43245568
+    },
+    "run_id": "aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea",
+    "schema_version": 1,
+    "software_sha": "dc1248ea05e3b4f7ebbdef434a5dcbdbaa1d4b96",
+    "supervisor": {
+      "active_state": "active",
+      "invocation_id": "8f8006608a7f48858d97a3db204741cc",
+      "pid": 2352209,
+      "process_start": "Sun 2026-10-04 14:01:07 UTC",
+      "sub_state": "running",
+      "unit": "bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea.service"
+    },
+    "writer": {
+      "current_open_raw_count": 76,
+      "last_dequeue": "2026-10-04T14:02:57.714413+00:00",
+      "last_local_raw_write": "2026-10-04T14:02:57.714413+00:00",
+      "max_queue_depth": 50000,
+      "queue_depth": 0,
+      "status": "HEALTHY",
+      "unpersisted_count": 0,
+      "writer_errors": 0
+    }
+  },
+  "recorded_at": "2026-10-04T14:03:10.378895+00:00",
+  "run_id": "aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea",
+  "s3_bucket": "bitcoin-trader-aws-apne2-research-ap-northeast-2-080109295433",
+  "s3_key": "market-data/temporary/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea/terminal/terminal-receipt.json",
+  "s3_prefix": "market-data/temporary/aws-validation-witness-e2e-smoke-20261004T140014Z-dc1248ea",
+  "s3_region": "ap-northeast-2",
+  "s3_uploaded": true,
+  "schema_version": 1,
+  "service_result": "success",
+  "systemd_invocation_id": "8f8006608a7f48858d97a3db204741cc",
+  "terminal_classification": "CLEAN_SUCCESS",
+  "witness_pid": 2352485
+}

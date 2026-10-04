@@ -1,0 +1,15 @@
+{
+  "ExecMainCode": "exited",
+  "ExecMainStatus": 0,
+  "InvocationID": "8f8006608a7f48858d97a3db204741cc",
+  "MainPID": 2352209,
+  "NRestarts": 0,
+  "Result": "success",
+  "capture_source": "systemctl show during ExecStopPost; cross-checked with systemd EXIT_CODE/EXIT_STATUS/SERVICE_RESULT",
+  "received_signal": null,
+  "runtime_duration_seconds": 123,
+  "start_time": "2026-10-04T14:01:07.308130Z",
+  "stop_time": "2026-10-04T14:03:10.194058Z",
+  "unit": "bitcoin-trader-witness-e2e-smoke-aws-validation-witness-e2e-smoke-run-20261004T140014Z-dc1248ea.service",
+  "watchdog_result": "not_triggered"
+}
