@@ -42,6 +42,8 @@ class ReceiptSource:
 
 
 CONTRACT_FEED_ID_RE = re.compile(r"^(?:bithumb|binance|upbit):[a-z]+:[^:/\s]+$")
+COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
+PASSING_SLOT_COVERAGE_STATES = frozenset({"DATA_PRESENT", "VERIFIED_ZERO_EVENT"})
 
 
 @dataclass(frozen=True)
@@ -172,7 +174,30 @@ def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, buc
             raise ValueError("identity-bound evidence staging tree must not contain symlinks")
 
 
-def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, prefix: str) -> list[ReceiptSource]:
+def _validate_slot_payload(payload: Mapping[str, Any], path: Path, prefix: str,
+                           expected_runtime_commit: str | None) -> None:
+    cohort, feed_id = payload["cohort_id"], payload["feed_id"]
+    feed_identity = payload.get("feed_identity")
+    if not isinstance(feed_identity, str) or feed_identity.replace("/", ":") != feed_id:
+        raise ValueError(f"slot receipt feed_identity does not bind feed_id: {path}")
+    expected_id = f"slot-{cohort}-{hashlib.sha256(feed_identity.encode('utf-8')).hexdigest()}"
+    if payload.get("receipt_id") != expected_id:
+        raise ValueError(f"slot receipt receipt_id does not bind cohort and feed identity: {path}")
+    if payload.get("coverage_state") not in PASSING_SLOT_COVERAGE_STATES:
+        raise ValueError(f"slot receipt coverage_state is not a passing state: {path}")
+    commit = payload.get("runtime_commit")
+    if not isinstance(commit, str) or not COMMIT_RE.fullmatch(commit):
+        raise ValueError(f"slot receipt runtime_commit is not a full commit id: {path}")
+    if expected_runtime_commit is not None and commit != expected_runtime_commit:
+        raise ValueError(f"slot receipt runtime_commit differs from the run anchor: {path}")
+    archive = payload.get("coverage_archive")
+    if (not isinstance(archive, Mapping) or not SHA256_RE.fullmatch(str(archive.get("source_sha256", "")))
+            or not str(archive.get("remote_key", "")).startswith(prefix + "/")):
+        raise ValueError(f"slot receipt coverage_archive binding is invalid: {path}")
+
+
+def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, prefix: str,
+                      expected_runtime_commit: str | None = None) -> list[ReceiptSource]:
     archive_root = data_dir / "archive-receipts"
     sources: list[ReceiptSource] = []
     if archive_root.exists():
@@ -208,6 +233,7 @@ def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, pref
                 raise ValueError(f"slot receipt feed_id is not in the exchange:stream:market contract form: {path}")
             if not isinstance(key, str) or not key.startswith(prefix + "/"):
                 raise ValueError(f"slot receipt S3 key is outside the run prefix: {path}")
+            _validate_slot_payload(payload, path, prefix, expected_runtime_commit)
             sources.append(ReceiptSource("SLOT_RECEIPT", "BOTH_REQUIRED", path, key,
                                          receipt_id=payload.get("receipt_id"), cohort_id=cohort,
                                          feed_id=feed_id))
@@ -411,6 +437,7 @@ def capture_frozen_v2_receipts(
     observation_interval_seconds: float = 1800,
     sleep_fn: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
+    expected_runtime_commit: str | None = None,
 ) -> dict[str, Any]:
     """Create receipt-inventory.json, cohorts.json and receipt byte readbacks."""
     if observation_interval_seconds < MIN_IMMUTABILITY_INTERVAL_SECONDS:
@@ -419,7 +446,7 @@ def capture_frozen_v2_receipts(
         raise ValueError("exact run, epoch, bucket and prefix are required")
     prefix = prefix.rstrip("/")
     _validate_bundle_identity(bundle_root, run_id=run_id, epoch=epoch, bucket=bucket, prefix=prefix)
-    sources = _discover_sources(data_dir, run_id, epoch, bucket, prefix)
+    sources = _discover_sources(data_dir, run_id, epoch, bucket, prefix, expected_runtime_commit)
     listing = _list_complete_prefix(s3, sts, bucket, prefix, now)
     listed_keys = {obj["key"] for obj in listing["objects"]}
     receipt_rows: list[dict[str, Any]] = []
@@ -494,7 +521,16 @@ def capture_frozen_v2_receipts(
         for source, _first in first_cohort_reads:
             assert source.s3_key is not None and source.receipt_id is not None
             try:
-                second = _get_object(s3, bucket=bucket, key=source.s3_key, destination=None, now=now)
+                second = None
+                for attempt in range(3):
+                    try:
+                        second = _get_object(s3, bucket=bucket, key=source.s3_key, destination=None, now=now)
+                        break
+                    except Exception as exc:
+                        if attempt == 2 or getattr(exc, "response", {}).get("Error", {}).get("Code") in {"NoSuchKey", "AccessDenied"}:
+                            raise
+                        sleep_fn(5)
+                assert second is not None
             except Exception as exc:
                 second_outcome = getattr(exc, "response", {}).get("Error", {}).get("Code", "ERROR")
                 observations.append({"receipt_id": source.receipt_id,
@@ -507,14 +543,10 @@ def capture_frozen_v2_receipts(
                                      "sha256": second.sha256, "version_id": second.version_id,
                                      "request_id": second.request_id})
 
-    # A complete prefix inventory declares every in-scope object. Required receipts retain
-    # stronger BOTH_REQUIRED parity; unclassified objects remain explicitly OPTIONAL.
+    # Listed objects with no local counterpart are deliberately NOT declared: the frozen auditor
+    # reports them as unexpected_s3_object instead of having capture launder them as OPTIONAL.
     unknown = sorted(listed_keys - declared_keys)
     observer_prefix = f"{prefix}/observability/"
-    for key in unknown:
-        if key.startswith(observer_prefix):
-            continue
-        receipt_rows.append({"type": "OTHER", "durability": "OPTIONAL", "s3_key": key})
 
     terminal_key = f"{prefix}/terminal/terminal-receipt.json"
     terminal_metadata: dict[str, Any] | None = None
@@ -671,6 +703,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--region")
     parser.add_argument("--observation-interval-seconds", type=float, default=1800)
+    parser.add_argument("--runtime-commit", help="40-hex runtime commit every slot receipt must carry")
     return parser
 
 
@@ -685,6 +718,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             run_id=args.run_id, epoch=args.epoch, bucket=args.bucket,
             prefix=args.prefix, s3=s3, sts=sts,
             observation_interval_seconds=args.observation_interval_seconds,
+            expected_runtime_commit=args.runtime_commit,
         )
     except Exception as exc:
         print(f"CAPTURE_FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)

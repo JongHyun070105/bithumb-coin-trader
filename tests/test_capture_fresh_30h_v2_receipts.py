@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 import json
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Any
 
 import pytest
 
@@ -17,6 +17,9 @@ BUCKET = "research-evidence-test"
 PREFIX = f"market-data/temporary/{EPOCH}"
 COHORT = "2026-10-03_10"
 FEED = "bithumb:trade:KRW-BTC"
+
+
+COMMIT = "c" * 40
 
 
 def _json_bytes(value: object) -> bytes:
@@ -80,10 +83,14 @@ def _fixture(tmp_path: Path) -> tuple[Path, dict[str, bytes]]:
     cohort = receipt_root / f"cohort_{COHORT}_finalized.json"
     cohort_bytes = _json_bytes(cohort_payload)
     cohort.write_bytes(cohort_bytes)
+    feed_identity = FEED.replace(":", "/")
     slot_payload = {
         "receipt_type": "SLOT_RECEIPT", "durability": "BOTH_REQUIRED",
-        "receipt_id": "slot-capture-test", "run_id": RUN_ID, "epoch": EPOCH,
-        "cohort_id": COHORT, "feed_id": FEED,
+        "receipt_id": f"slot-{COHORT}-{__import__('hashlib').sha256(feed_identity.encode()).hexdigest()}",
+        "run_id": RUN_ID, "epoch": EPOCH,
+        "cohort_id": COHORT, "feed_id": FEED, "feed_identity": feed_identity,
+        "runtime_commit": COMMIT, "coverage_state": "DATA_PRESENT",
+        "coverage_archive": {"source_sha256": "a" * 64, "remote_key": f"{PREFIX}/coverage/x.json.zst"},
         "s3_key": f"{PREFIX}/coverage/archive-receipts/slot-receipts/{COHORT}/slot.json",
     }
     slot = slot_dir / "slot.json.slot-receipt.json"
@@ -306,3 +313,63 @@ def test_refuses_slot_receipt_with_non_contract_feed_identity(tmp_path: Path) ->
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
         )
+
+
+@pytest.mark.parametrize("mutation,match", [
+    ({"coverage_state": "FAILED"}, "coverage_state"),
+    ({"runtime_commit": "HEAD"}, "runtime_commit is not a full commit"),
+    ({"runtime_commit": "d" * 40}, "differs from the run anchor"),
+    ({"receipt_id": "slot-forged"}, "receipt_id"),
+    ({"feed_identity": "bithumb/trade/KRW-ETH"}, "feed_identity"),
+    ({"coverage_archive": {"source_sha256": "zz", "remote_key": "x"}}, "coverage_archive"),
+])
+def test_refuses_slot_receipt_with_unbound_content(tmp_path: Path, mutation: dict, match: str) -> None:
+    data, objects = _fixture(tmp_path)
+    slot = next((data / "archive-receipts/slot-receipts").rglob("*.slot-receipt.json"))
+    payload = json.loads(slot.read_text())
+    payload.update(mutation)
+    slot.write_bytes(_json_bytes(payload))
+    with pytest.raises(ValueError, match=match):
+        capture_frozen_v2_receipts(
+            data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+            bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+            observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
+            expected_runtime_commit=COMMIT,
+        )
+
+
+def test_undeclared_non_observer_object_is_not_laundered_as_optional(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    stray = f"{PREFIX}/archive-receipts/slot-receipts/2026-10-03_09/stale.slot-receipt.json"
+    objects[stray] = b"stale-epoch-object"
+    inventory = capture_frozen_v2_receipts(
+        data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+        bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
+        observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
+    )
+    declared = json.loads((tmp_path / "bundle/terminal/receipt-inventory.json").read_text())
+    assert all(row.get("s3_key") != stray for row in declared["receipts"])
+    assert stray in {o["key"] for o in declared["s3_prefix_listing"]["objects"]}
+
+
+def test_transient_second_read_error_is_retried_not_recorded_as_mismatch(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+
+    class Flaky(FakeS3):
+        failed = False
+
+        def get_object(self, *, Bucket: str, Key: str, **kwargs: Any) -> dict[str, object]:
+            if self.get_calls.get(Key, 0) >= 1 and "cohort_" in Key and not self.failed:
+                self.failed = True
+                raise RuntimeError("transient")
+            return super().get_object(Bucket=Bucket, Key=Key, **kwargs)
+
+    s3 = Flaky(objects)
+    capture_frozen_v2_receipts(
+        data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+        bucket=BUCKET, prefix=PREFIX, s3=s3, sts=FakeSTS(),
+        observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
+    )
+    assert s3.failed
+    obs = json.loads((tmp_path / "bundle/terminal/receipt-inventory.json").read_text())["observations"]
+    assert len(obs) == 2 and all(o["sha256"] for o in obs)
