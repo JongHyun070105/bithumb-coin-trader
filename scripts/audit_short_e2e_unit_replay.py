@@ -67,7 +67,7 @@ def qualify_systemd_mechanics(bundle: Path, *, run_id: str) -> dict[str, Any]:
         failures.append("snapshot_not_an_object")
     unit = snapshot.get("unit")
     invocation = snapshot.get("InvocationID")
-    unit_ok = isinstance(unit, str) and re.fullmatch(rf"bitcoin-trader-[a-z0-9]+-{re.escape(run_id)}\.service", unit) is not None
+    unit_ok = isinstance(unit, str) and re.fullmatch(rf"bitcoin-trader-[a-z0-9]+(?:-[a-z0-9]+)*-{re.escape(run_id)}\.service", unit) is not None
     if not unit_ok:
         failures.append("observed_unit_not_bound_to_run_id")
     if not isinstance(invocation, str) or not INVOCATION_RE.fullmatch(invocation):

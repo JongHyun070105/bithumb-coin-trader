@@ -16,7 +16,7 @@ RUN_ID = "aws-validation-observability-3h-run-20261004T044500Z-a4704f91"
 UNIT = f"bitcoin-trader-3h-{RUN_ID}.service"
 
 
-def _build(root: Path) -> None:
+def _build(root: Path, unit: str = UNIT) -> None:
     start = 1_790_000_000
     fmt = lambda s: datetime.fromtimestamp(s, timezone.utc).strftime("%a %Y-%m-%d %H:%M:%S UTC")
     show = {"ActiveState": "deactivating", "SubState": "stop-post",
@@ -25,16 +25,16 @@ def _build(root: Path) -> None:
     def show_runner(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         return subprocess.CompletedProcess(command, 0, _properties(**show), "")
 
-    snapshot_terminal(unit=UNIT, output_dir=root / "ev", environ=ENV, command=show_runner, out=io.StringIO())
+    snapshot_terminal(unit=unit, output_dir=root / "ev", environ=ENV, command=show_runner, out=io.StringIO())
     micro = start * 1_000_000
     rows: list[dict[str, object]] = [
-        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": UNIT, "MESSAGE": f"Starting {UNIT}",
+        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": unit, "MESSAGE": f"Starting {unit}",
          "__REALTIME_TIMESTAMP": str(micro - 200_000)},
-        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": UNIT,
+        {"_SYSTEMD_INVOCATION_ID": INVOCATION, "_SYSTEMD_UNIT": unit,
          "MESSAGE": "main process exited, code=exited, status=0",
          "__REALTIME_TIMESTAMP": str(micro + 1_800_000_000 + 300_000)},
     ]
-    export_terminal(unit=UNIT, snapshot=root / "ev/systemd-terminal.json", output_dir=root / "bundle/terminal",
+    export_terminal(unit=unit, snapshot=root / "ev/systemd-terminal.json", output_dir=root / "bundle/terminal",
                     expected_invocation_id=INVOCATION, command=_journal(rows))
 
 
@@ -104,3 +104,12 @@ def test_systemd_mechanics_rejects_foreign_run_restart_and_unclean_exit(tmp_path
 def test_systemd_mechanics_fails_closed_when_evidence_is_missing(tmp_path: Path) -> None:
     report = replay.qualify_systemd_mechanics(tmp_path, run_id=RUN_ID)
     assert report["SYSTEMD_MECHANICS_QUALIFIED"] == "NO"
+
+
+def test_systemd_mechanics_accepts_hyphenated_witness_smoke_unit_prefix(tmp_path: Path) -> None:
+    run_id = "aws-validation-witness-e2e-smoke-run-20261004T140000Z-abf42eda"
+    _build(tmp_path, unit=f"bitcoin-trader-witness-e2e-smoke-{run_id}.service")
+    report = replay.qualify_systemd_mechanics(tmp_path / "bundle", run_id=run_id)
+    assert report["SYSTEMD_MECHANICS_QUALIFIED"] == "YES", report["failures"]
+    assert replay.qualify_systemd_mechanics(tmp_path / "bundle", run_id="aws-validation-witness-e2e-smoke-run-other")[
+        "SYSTEMD_MECHANICS_QUALIFIED"] == "NO"

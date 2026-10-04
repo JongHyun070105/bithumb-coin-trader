@@ -544,3 +544,25 @@ def test_upload_timeout_witness_cannot_pass_capture_even_if_object_exists(tmp_pa
     _rewrite_witness(data, s3_uploaded=False, s3_key=None, s3_put_version_id=None, s3_upload_error_type="TimeoutError")
     with pytest.raises(ValueError, match="upload_not_recorded_as_successful"):
         _capture_witness(tmp_path, data, objects)
+
+
+def test_terminal_only_cli_captures_terminal_evidence_and_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import sys
+    import types
+    from scripts.capture_fresh_30h_v2_receipts import main
+
+    data, objects = _fixture(tmp_path)
+    fake = types.SimpleNamespace(client=lambda name, region_name=None: FakeS3(objects) if name == "s3" else FakeSTS())
+    monkeypatch.setitem(sys.modules, "boto3", fake)
+    argv = [
+        "--data-dir", str(data), "--bundle-root", str(tmp_path / "cli-bundle"), "--run-id", RUN_ID, "--epoch", EPOCH,
+        "--bucket", BUCKET, "--prefix", PREFIX, "--runtime-commit", COMMIT, "--runtime-tree", TREE, "--terminal-only",
+    ]
+    assert main(argv) == 0
+    assert (tmp_path / "cli-bundle/terminal/terminal-witness.json").is_file()
+    assert not (tmp_path / "cli-bundle/terminal/receipt-inventory.json").exists()
+    (data / "terminal/terminal-witness.json").unlink()
+    assert main([*argv[:argv.index("--bundle-root") + 1], str(tmp_path / "cli-bundle2"), *argv[argv.index("--bundle-root") + 2:]]) == 1
+    assert "CAPTURE_FAILED: FileNotFoundError" in capsys.readouterr().err

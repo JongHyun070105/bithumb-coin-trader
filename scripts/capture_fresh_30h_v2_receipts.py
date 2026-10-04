@@ -816,6 +816,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--runtime-commit", required=True,
                         help="40-hex sealed runtime commit every slot receipt must carry")
     parser.add_argument("--runtime-tree", default=None, help="40-hex sealed runtime tree the terminal witness must carry")
+    parser.add_argument("--terminal-only", action="store_true",
+                        help="capture only the terminal receipt/witness/readback/version evidence (short witness E2E)")
     return parser
 
 
@@ -825,6 +827,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         import boto3  # pyright: ignore[reportMissingImports]
         s3 = boto3.client("s3", region_name=args.region)
         sts = boto3.client("sts", region_name=args.region)
+        if args.terminal_only:
+            capture_terminal_witness_evidence(
+                data_dir=args.data_dir, bundle_root=args.bundle_root,
+                run_id=args.run_id, epoch=args.epoch, bucket=args.bucket, prefix=args.prefix,
+                s3=s3, sts=sts, expected_runtime_commit=args.runtime_commit,
+                expected_runtime_tree=args.runtime_tree,
+            )
+            print(f"CAPTURED_TERMINAL_ONLY: {args.bundle_root / 'terminal/s3-readback.json'}")
+            return 0
         capture_frozen_v2_receipts(
             data_dir=args.data_dir, bundle_root=args.bundle_root,
             run_id=args.run_id, epoch=args.epoch, bucket=args.bucket,
