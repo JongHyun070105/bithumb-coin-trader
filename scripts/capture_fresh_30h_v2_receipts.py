@@ -175,7 +175,7 @@ def _validate_bundle_identity(bundle_root: Path, *, run_id: str, epoch: str, buc
 
 
 def _validate_slot_payload(payload: Mapping[str, Any], path: Path, prefix: str,
-                           expected_runtime_commit: str | None) -> None:
+                           expected_runtime_commit: str) -> None:
     cohort, feed_id = payload["cohort_id"], payload["feed_id"]
     feed_identity = payload.get("feed_identity")
     if not isinstance(feed_identity, str) or feed_identity.replace("/", ":") != feed_id:
@@ -188,7 +188,7 @@ def _validate_slot_payload(payload: Mapping[str, Any], path: Path, prefix: str,
     commit = payload.get("runtime_commit")
     if not isinstance(commit, str) or not COMMIT_RE.fullmatch(commit):
         raise ValueError(f"slot receipt runtime_commit is not a full commit id: {path}")
-    if expected_runtime_commit is not None and commit != expected_runtime_commit:
+    if commit != expected_runtime_commit:
         raise ValueError(f"slot receipt runtime_commit differs from the run anchor: {path}")
     archive = payload.get("coverage_archive")
     if (not isinstance(archive, Mapping) or not SHA256_RE.fullmatch(str(archive.get("source_sha256", "")))
@@ -197,7 +197,9 @@ def _validate_slot_payload(payload: Mapping[str, Any], path: Path, prefix: str,
 
 
 def _discover_sources(data_dir: Path, run_id: str, epoch: str, bucket: str, prefix: str,
-                      expected_runtime_commit: str | None = None) -> list[ReceiptSource]:
+                      expected_runtime_commit: str) -> list[ReceiptSource]:
+    if not COMMIT_RE.fullmatch(expected_runtime_commit):
+        raise ValueError("a full 40-hex runtime commit anchor is required")
     archive_root = data_dir / "archive-receipts"
     sources: list[ReceiptSource] = []
     if archive_root.exists():
@@ -380,6 +382,7 @@ def _copy_terminal_witness(data_dir: Path, bundle_root: Path) -> None:
 
 def _capture_terminal_versions(s3: Any, *, bucket: str, key: str, readback: Readback) -> dict[str, Any]:
     versions: list[str] = []
+    latest_versions: list[str] = []
     markers: list[dict[str, Any]] = []
     key_marker: str | None = None
     version_marker: str | None = None
@@ -390,16 +393,20 @@ def _capture_terminal_versions(s3: Any, *, bucket: str, key: str, readback: Read
         if version_marker:
             args["VersionIdMarker"] = version_marker
         response = s3.list_object_versions(**args)
-        versions.extend(
-            item["VersionId"] for item in response.get("Versions", [])
-            if item.get("Key") == key and isinstance(item.get("VersionId"), str)
-        )
+        for item in response.get("Versions", []):
+            if item.get("Key") != key or not isinstance(item.get("VersionId"), str):
+                continue
+            versions.append(item["VersionId"])
+            if item.get("IsLatest") is True:
+                latest_versions.append(item["VersionId"])
         markers.extend(item for item in response.get("DeleteMarkers", []) if item.get("Key") == key)
         if response.get("IsTruncated") is not True:
             break
         key_marker, version_marker = response.get("NextKeyMarker"), response.get("NextVersionIdMarker")
         if not isinstance(key_marker, str) or not key_marker:
             raise ValueError("S3 version pagination is truncated without a next key marker")
+    if len(latest_versions) != 1 or latest_versions[0] != readback.version_id:
+        raise ValueError("terminal unversioned GetObject no longer identifies the latest S3 object version")
     return {
         "outcome": readback.outcome, "bucket": bucket, "key": key,
         "VersionId": readback.version_id, "requested_version_id": None,
@@ -434,10 +441,10 @@ def capture_frozen_v2_receipts(
     prefix: str,
     s3: Any,
     sts: Any,
+    expected_runtime_commit: str,
     observation_interval_seconds: float = 1800,
     sleep_fn: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
-    expected_runtime_commit: str | None = None,
 ) -> dict[str, Any]:
     """Create receipt-inventory.json, cohorts.json and receipt byte readbacks."""
     if observation_interval_seconds < MIN_IMMUTABILITY_INTERVAL_SECONDS:
@@ -703,7 +710,8 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--prefix", required=True)
     parser.add_argument("--region")
     parser.add_argument("--observation-interval-seconds", type=float, default=1800)
-    parser.add_argument("--runtime-commit", help="40-hex runtime commit every slot receipt must carry")
+    parser.add_argument("--runtime-commit", required=True,
+                        help="40-hex sealed runtime commit every slot receipt must carry")
     return parser
 
 

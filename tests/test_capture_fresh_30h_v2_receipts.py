@@ -157,7 +157,7 @@ def test_exports_receipt_scope_journals_provenance_and_two_real_reads(tmp_path: 
     sleeps: list[float] = []
     bundle = tmp_path / "bundle"
     result = capture_frozen_v2_receipts(
-        data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+        data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
         bucket=BUCKET, prefix=PREFIX, s3=s3, sts=FakeSTS(),
         observation_interval_seconds=1800, sleep_fn=sleeps.append, now=_clock(),
     )
@@ -184,11 +184,46 @@ def test_exports_receipt_scope_journals_provenance_and_two_real_reads(tmp_path: 
     assert result["receipts"] == inventory["receipts"]
 
 
+def test_requires_full_runtime_commit_anchor_before_receipt_capture(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+    with pytest.raises(ValueError, match="full 40-hex runtime commit anchor is required"):
+        capture_frozen_v2_receipts(
+            data_dir=data, expected_runtime_commit="missing", bundle_root=tmp_path / "bundle",
+            run_id=RUN_ID, epoch=EPOCH, bucket=BUCKET, prefix=PREFIX,
+            s3=FakeS3(objects), sts=FakeSTS(), observation_interval_seconds=1800,
+            sleep_fn=lambda _: None, now=_clock(),
+        )
+
+
+def test_refuses_terminal_get_if_a_newer_s3_version_appears_during_capture(tmp_path: Path) -> None:
+    data, objects = _fixture(tmp_path)
+
+    class OverwrittenTerminal(FakeS3):
+        def list_object_versions(self, *, Bucket: str, Prefix: str,
+                                 **kwargs: object) -> dict[str, object]:
+            assert Prefix == f"{PREFIX}/terminal/terminal-receipt.json"
+            return {
+                "Versions": [
+                    {"Key": Prefix, "VersionId": "v2", "IsLatest": True},
+                    {"Key": Prefix, "VersionId": "v1", "IsLatest": False},
+                ],
+                "DeleteMarkers": [],
+            }
+
+    with pytest.raises(ValueError, match="no longer identifies the latest S3 object version"):
+        capture_frozen_v2_receipts(
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle",
+            run_id=RUN_ID, epoch=EPOCH, bucket=BUCKET, prefix=PREFIX,
+            s3=OverwrittenTerminal(objects), sts=FakeSTS(),
+            observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
+        )
+
+
 def test_second_cohort_read_change_is_preserved_for_frozen_auditor_to_reject(tmp_path: Path) -> None:
     data, objects = _fixture(tmp_path)
     bundle = tmp_path / "bundle"
     result = capture_frozen_v2_receipts(
-        data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+        data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
         bucket=BUCKET, prefix=PREFIX,
         s3=FakeS3(objects, mutate_on_second_read=True), sts=FakeSTS(),
         observation_interval_seconds=1800, sleep_fn=lambda _seconds: None, now=_clock(),
@@ -215,7 +250,7 @@ def test_refuses_existing_unbound_bundle_output(tmp_path: Path) -> None:
     (bundle / "preserve.txt").write_text("existing")
     with pytest.raises(FileExistsError, match="exact sealed identity"):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             sleep_fn=lambda _seconds: None, now=_clock(),
         )
@@ -232,7 +267,7 @@ def test_refuses_existing_bundle_with_mismatched_sealed_identity(tmp_path: Path)
 
     with pytest.raises(ValueError, match="identity differs"):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             sleep_fn=lambda _seconds: None, now=_clock(),
         )
@@ -249,7 +284,7 @@ def test_refuses_symlinks_inside_identity_bound_staging_tree(tmp_path: Path) -> 
 
     with pytest.raises(ValueError, match="must not contain symlinks"):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             sleep_fn=lambda _seconds: None, now=_clock(),
         )
@@ -276,7 +311,7 @@ def test_adds_receipt_evidence_to_exact_identity_bound_staging_tree(tmp_path: Pa
     canonical_readback_path.write_bytes(terminal_bytes)
 
     capture_frozen_v2_receipts(
-        data_dir=data, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
+        data_dir=data, expected_runtime_commit=COMMIT, bundle_root=bundle, run_id=RUN_ID, epoch=EPOCH,
         bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
         observation_interval_seconds=1800, sleep_fn=lambda _seconds: None,
         now=_clock(),
@@ -294,7 +329,7 @@ def test_refuses_two_point_interval_shorter_than_thirty_minutes(tmp_path: Path) 
     data, objects = _fixture(tmp_path)
     with pytest.raises(ValueError, match="at least 30 minutes"):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle", run_id=RUN_ID,
             epoch=EPOCH, bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects),
             sts=FakeSTS(), observation_interval_seconds=1799,
             sleep_fn=lambda _seconds: None, now=_clock(),
@@ -309,7 +344,7 @@ def test_refuses_slot_receipt_with_non_contract_feed_identity(tmp_path: Path) ->
     slot.write_bytes(_json_bytes(payload))
     with pytest.raises(ValueError, match="exchange:stream:market"):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
         )
@@ -331,10 +366,9 @@ def test_refuses_slot_receipt_with_unbound_content(tmp_path: Path, mutation: dic
     slot.write_bytes(_json_bytes(payload))
     with pytest.raises(ValueError, match=match):
         capture_frozen_v2_receipts(
-            data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+            data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
             bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
             observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
-            expected_runtime_commit=COMMIT,
         )
 
 
@@ -343,7 +377,7 @@ def test_undeclared_non_observer_object_is_not_laundered_as_optional(tmp_path: P
     stray = f"{PREFIX}/archive-receipts/slot-receipts/2026-10-03_09/stale.slot-receipt.json"
     objects[stray] = b"stale-epoch-object"
     inventory = capture_frozen_v2_receipts(
-        data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+        data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
         bucket=BUCKET, prefix=PREFIX, s3=FakeS3(objects), sts=FakeSTS(),
         observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
     )
@@ -366,7 +400,7 @@ def test_transient_second_read_error_is_retried_not_recorded_as_mismatch(tmp_pat
 
     s3 = Flaky(objects)
     capture_frozen_v2_receipts(
-        data_dir=data, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
+        data_dir=data, expected_runtime_commit=COMMIT, bundle_root=tmp_path / "bundle", run_id=RUN_ID, epoch=EPOCH,
         bucket=BUCKET, prefix=PREFIX, s3=s3, sts=FakeSTS(),
         observation_interval_seconds=1800, sleep_fn=lambda _: None, now=_clock(),
     )
